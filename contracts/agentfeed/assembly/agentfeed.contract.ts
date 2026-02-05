@@ -299,6 +299,36 @@ export class Config extends Table {
   }
 }
 
+// M3 FIX: Rate limiting table to prevent feedback spam
+// Tracks last feedback submission per reviewer-agent pair
+@table("feedbackrate")
+export class FeedbackRateLimit extends Table {
+  constructor(
+    public id: u64 = 0,
+    public reviewer: Name = EMPTY_NAME,
+    public agent: Name = EMPTY_NAME,
+    public last_submission: u64 = 0
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.id;
+  }
+
+  // Composite key: reviewer + agent
+  @secondary
+  get byReviewerAgent(): u64 {
+    // Simple combination - XOR the two u64s
+    return this.reviewer.N ^ this.agent.N;
+  }
+
+  set byReviewerAgent(value: u64) {
+    // Setter required but not used for lookups
+  }
+}
+
 // CRITICAL FIX: Track recalculation state to prevent incomplete pagination from corrupting scores
 // When recalculating with pagination, we accumulate in this table until complete,
 // then commit to agentscores only when finished.
@@ -386,7 +416,11 @@ export class AgentFeedContract extends Contract {
   private paymentProofsTable: TableStore<PaymentProof> = new TableStore<PaymentProof>(this.receiver);
   private disputesTable: TableStore<Dispute> = new TableStore<Dispute>(this.receiver);
   private recalcStateTable: TableStore<RecalcState> = new TableStore<RecalcState>(this.receiver);
+  private feedbackRateLimitTable: TableStore<FeedbackRateLimit> = new TableStore<FeedbackRateLimit>(this.receiver);
   private configSingleton: Singleton<Config> = new Singleton<Config>(this.receiver);
+
+  // M3 FIX: Rate limit constant - 24 hours between feedback submissions per reviewer-agent pair
+  private readonly FEEDBACK_COOLDOWN: u64 = 86400;
 
   // External tables
   private userInfoTable: TableStore<UserInfo> = new TableStore<UserInfo>(
@@ -422,6 +456,47 @@ export class AgentFeedContract extends Contract {
         "Cannot submit feedback while recalculation is in progress. Wait for completion or expiry."
       );
     }
+  }
+
+  /**
+   * M3 FIX: Enforce rate limiting - one feedback per reviewer-agent pair per cooldown period.
+   * This prevents reputation spam/griefing attacks.
+   */
+  private checkAndUpdateRateLimit(reviewer: Name, agent: Name): void {
+    const now = currentTimeSec();
+    const compositeKey = reviewer.N ^ agent.N;
+
+    // Search for existing rate limit record
+    let rateLimit = this.feedbackRateLimitTable.getBySecondaryU64(compositeKey, 0);
+
+    // Iterate to find exact match (in case of hash collisions)
+    while (rateLimit != null) {
+      if (rateLimit.reviewer == reviewer && rateLimit.agent == agent) {
+        // Found existing record - check cooldown
+        check(
+          now >= rateLimit.last_submission + this.FEEDBACK_COOLDOWN,
+          "Rate limit exceeded. Wait 24 hours between feedback submissions for the same agent."
+        );
+        // Update last submission time
+        rateLimit.last_submission = now;
+        this.feedbackRateLimitTable.update(rateLimit, this.receiver);
+        return;
+      }
+      rateLimit = this.feedbackRateLimitTable.nextBySecondaryU64(rateLimit, 0);
+      // Check if we've moved past matching composite keys
+      if (rateLimit != null && (rateLimit.reviewer.N ^ rateLimit.agent.N) != compositeKey) {
+        rateLimit = null;
+      }
+    }
+
+    // No existing record - create new one
+    const newRateLimit = new FeedbackRateLimit(
+      this.feedbackRateLimitTable.availablePrimaryKey,
+      reviewer,
+      agent,
+      now
+    );
+    this.feedbackRateLimitTable.store(newRateLimit, this.receiver);
   }
 
   // ============== INITIALIZATION ==============
@@ -506,6 +581,9 @@ export class AgentFeedContract extends Contract {
     // C1 FIX: Block feedback during active recalculation to prevent race condition
     // where new feedback is added but then overwritten when recalc completes
     this.requireNoActiveRecalc(agent);
+
+    // M3 FIX: Rate limiting to prevent spam/griefing
+    this.checkAndUpdateRateLimit(reviewer, agent);
 
     // Get reviewer's KYC level
     const kycLevel = this.getKycLevel(reviewer);
@@ -916,6 +994,30 @@ export class AgentFeedContract extends Contract {
     print(`Recalculation cancelled for ${agent.toString()}`);
   }
 
+  /**
+   * H1 FIX: Clean up expired recalculation states.
+   * Anyone can call this to free up RAM from abandoned recalculations.
+   */
+  @action("cleanrecalc")
+  cleanExpiredRecalcStates(max_clean: u64): void {
+    const now = currentTimeSec();
+    let cleaned: u64 = 0;
+
+    let recalcState = this.recalcStateTable.first();
+    while (recalcState != null && cleaned < max_clean) {
+      const current = recalcState!;
+      recalcState = this.recalcStateTable.next(current);
+
+      if (now >= current.expires_at) {
+        this.recalcStateTable.remove(current);
+        cleaned++;
+        print(`Cleaned expired recalc state for ${current.agent.toString()}`);
+      }
+    }
+
+    print(`Cleaned ${cleaned} expired recalculation states`);
+  }
+
   // ============== CONTEXT-SPECIFIC FEEDBACK ==============
   // Addresses ERC-8004 concern about single-metric reputation
 
@@ -958,6 +1060,9 @@ export class AgentFeedContract extends Contract {
     // C1 FIX: Block feedback during active recalculation to prevent race condition
     // where new feedback is added but then overwritten when recalc completes
     this.requireNoActiveRecalc(agent);
+
+    // M3 FIX: Rate limiting to prevent spam/griefing
+    this.checkAndUpdateRateLimit(reviewer, agent);
 
     // Get reviewer's KYC level
     const kycLevel = this.getKycLevel(reviewer);
@@ -1166,6 +1271,9 @@ export class AgentFeedContract extends Contract {
     // C1 FIX: Block feedback during active recalculation to prevent race condition
     // where new feedback is added but then overwritten when recalc completes
     this.requireNoActiveRecalc(agent);
+
+    // M3 FIX: Rate limiting to prevent spam/griefing
+    this.checkAndUpdateRateLimit(reviewer, agent);
 
     // Get reviewer's KYC level
     const kycLevel = this.getKycLevel(reviewer);

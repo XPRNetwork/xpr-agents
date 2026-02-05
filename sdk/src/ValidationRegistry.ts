@@ -393,6 +393,112 @@ export class ValidationRegistry {
     });
   }
 
+  /**
+   * Set validator active status
+   */
+  async setValidatorStatus(active: boolean): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'setvalstat',
+          authorization: [
+            {
+              actor: this.session!.auth.actor,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            account: this.session!.auth.actor,
+            active,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Request to unstake validator funds (time-delayed).
+   * Must be deactivated and have no pending challenges first.
+   *
+   * @param amount - Amount to unstake in smallest units
+   */
+  async unstake(amount: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'unstake',
+          authorization: [
+            {
+              actor: this.session!.auth.actor,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            account: this.session!.auth.actor,
+            amount,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Withdraw unstaked validator funds (after delay period)
+   */
+  async withdraw(): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'withdraw',
+          authorization: [
+            {
+              actor: this.session!.auth.actor,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            account: this.session!.auth.actor,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Cancel an unfunded challenge (within grace period or after deadline)
+   */
+  async cancelChallenge(challengeId: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'cancelchal',
+          authorization: [
+            {
+              actor: this.session!.auth.actor,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            challenger: this.session!.auth.actor,
+            challenge_id: challengeId,
+          },
+        },
+      ],
+    });
+  }
+
   // ============== HELPERS ==============
 
   private requireSession(): void {

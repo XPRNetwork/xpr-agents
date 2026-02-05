@@ -648,6 +648,117 @@ export class EscrowRegistry {
     });
   }
 
+  // ============== ARBITRATOR MANAGEMENT ==============
+
+  /**
+   * Activate arbitrator (must have sufficient stake)
+   */
+  async activateArbitrator(): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'activatearb',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          account: this.session!.auth.actor,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Deactivate arbitrator (stop accepting new cases)
+   */
+  async deactivateArbitrator(): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'deactarb',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          account: this.session!.auth.actor,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Request to unstake arbitrator funds (7-day delay).
+   * Must be deactivated and have no pending disputes first.
+   *
+   * @param amount - Amount to unstake in smallest units (e.g., 10000 = 1.0000 XPR)
+   */
+  async unstakeArbitrator(amount: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'unstakearb',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          account: this.session!.auth.actor,
+          amount,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Withdraw unstaked arbitrator funds (after 7-day delay)
+   */
+  async withdrawArbitratorStake(): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'withdrawarb',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          account: this.session!.auth.actor,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Cancel a pending unstake request (returns funds to active stake)
+   */
+  async cancelArbitratorUnstake(): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'cancelunstk',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          account: this.session!.auth.actor,
+        },
+      }],
+    });
+  }
+
   // ============== HELPERS ==============
 
   private requireSession(): void {
