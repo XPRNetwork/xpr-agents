@@ -65,6 +65,11 @@ export class Job extends Table {
   get byAgent(): u64 {
     return this.agent.N;
   }
+
+  @secondary
+  get byState(): u64 {
+    return <u64>this.state;
+  }
 }
 
 @table("milestones")
@@ -129,8 +134,10 @@ export class EscrowDispute extends Table {
 export class Arbitrator extends Table {
   constructor(
     public account: Name = EMPTY_NAME,
+    public stake: u64 = 0,                      // Staked XPR for accountability
     public fee_percent: u64 = 0,                // Fee in basis points (100 = 1%)
     public total_cases: u64 = 0,
+    public successful_cases: u64 = 0,           // Cases without appeal/overturn
     public active: boolean = true
   ) {
     super();
@@ -152,9 +159,35 @@ export class EscrowConfig extends Table {
     public min_job_amount: u64 = 10000,         // Minimum job value (1.0000 XPR)
     public default_deadline_days: u64 = 30,
     public dispute_window: u64 = 259200,        // 3 days after delivery
+    public acceptance_timeout: u64 = 604800,    // 7 days for agent to accept
+    public min_arbitrator_stake: u64 = 10000000, // 1000.0000 XPR minimum stake
     public paused: boolean = false
   ) {
     super();
+  }
+}
+
+// External table reference for agent verification
+@table("agents", "agentcore")
+export class AgentRef extends Table {
+  constructor(
+    public account: Name = EMPTY_NAME,
+    public name: string = "",
+    public description: string = "",
+    public endpoint: string = "",
+    public protocol: string = "",
+    public capabilities: string = "",
+    public stake: u64 = 0,
+    public total_jobs: u64 = 0,
+    public registered_at: u64 = 0,
+    public active: boolean = true
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.account.N;
   }
 }
 
@@ -167,6 +200,12 @@ export class AgentEscrowContract extends Contract {
   private disputesTable: TableStore<EscrowDispute> = new TableStore<EscrowDispute>(this.receiver);
   private arbitratorsTable: TableStore<Arbitrator> = new TableStore<Arbitrator>(this.receiver);
   private configSingleton: Singleton<EscrowConfig> = new Singleton<EscrowConfig>(this.receiver);
+
+  // External table for agent verification
+  private agentRefTable: TableStore<AgentRef> = new TableStore<AgentRef>(
+    Name.fromString("agentcore"),
+    Name.fromString("agentcore")
+  );
 
   private readonly XPR_SYMBOL: Symbol = new Symbol("XPR", 4);
   private readonly TOKEN_CONTRACT: Name = Name.fromString("eosio.token");
@@ -235,6 +274,11 @@ export class AgentEscrowContract extends Contract {
     check(client != agent, "Client and agent must be different");
     check(title.length > 0 && title.length <= 128, "Title must be 1-128 characters");
     check(amount >= config.min_job_amount, "Amount below minimum");
+
+    // SECURITY: Verify agent exists in agentcore registry
+    const agentRef = this.agentRefTable.get(agent.N);
+    check(agentRef != null, "Agent not registered in agentcore");
+    check(agentRef!.active, "Agent is not active");
 
     // Set deadline
     let jobDeadline = deadline;
@@ -579,25 +623,74 @@ export class AgentEscrowContract extends Contract {
     print(`Job ${job_id} timeout claimed`);
   }
 
+  @action("accepttimeout")
+  claimAcceptanceTimeout(client: Name, job_id: u64): void {
+    requireAuth(client);
+
+    const config = this.configSingleton.get();
+    const job = this.jobsTable.requireGet(job_id, "Job not found");
+
+    check(job.client == client, "Only client can claim acceptance timeout");
+    check(job.state == 1, "Job must be in FUNDED state");
+    check(
+      currentTimeSec() > job.updated_at + config.acceptance_timeout,
+      "Acceptance timeout not reached"
+    );
+
+    // Refund client
+    if (job.funded_amount > 0) {
+      this.sendTokens(job.client, new Asset(job.funded_amount, this.XPR_SYMBOL), "Acceptance timeout refund");
+    }
+
+    job.state = 7; // REFUNDED
+    job.released_amount = job.funded_amount;
+    job.updated_at = currentTimeSec();
+    this.jobsTable.update(job, this.receiver);
+
+    print(`Job ${job_id} refunded due to acceptance timeout`);
+  }
+
   // ============== ARBITRATOR MANAGEMENT ==============
 
   @action("regarb")
   registerArbitrator(account: Name, fee_percent: u64): void {
-    const config = this.configSingleton.get();
-    check(hasAuth(config.owner) || hasAuth(account), "Not authorized");
+    requireAuth(account);
 
+    const config = this.configSingleton.get();
     check(isAccount(account), "Account does not exist");
     check(fee_percent <= 500, "Fee cannot exceed 5%");
 
     const existing = this.arbitratorsTable.get(account.N);
     if (existing == null) {
-      const arb = new Arbitrator(account, fee_percent, 0, true);
+      // New arbitrator - starts with 0 stake, must stake via transfer
+      const arb = new Arbitrator(account, 0, fee_percent, 0, 0, false);
       this.arbitratorsTable.store(arb, this.receiver);
+      print(`Arbitrator ${account.toString()} registered. Stake required: ${config.min_arbitrator_stake}`);
     } else {
       existing.fee_percent = fee_percent;
-      existing.active = true;
       this.arbitratorsTable.update(existing, this.receiver);
     }
+  }
+
+  @action("activatearb")
+  activateArbitrator(account: Name): void {
+    requireAuth(account);
+
+    const config = this.configSingleton.get();
+    const arb = this.arbitratorsTable.requireGet(account.N, "Arbitrator not found");
+
+    check(arb.stake >= config.min_arbitrator_stake, "Insufficient arbitrator stake");
+    arb.active = true;
+    this.arbitratorsTable.update(arb, this.receiver);
+  }
+
+  @action("deactivatearb")
+  deactivateArbitrator(account: Name): void {
+    requireAuth(account);
+
+    const arb = this.arbitratorsTable.requireGet(account.N, "Arbitrator not found");
+    arb.active = false;
+    this.arbitratorsTable.update(arb, this.receiver);
   }
 
   // ============== TOKEN HANDLING ==============
@@ -610,7 +703,7 @@ export class AgentEscrowContract extends Contract {
     check(quantity.symbol == this.XPR_SYMBOL, "Only XPR accepted");
     check(this.firstReceiver == this.TOKEN_CONTRACT, "Invalid token contract");
 
-    // Parse memo: "fund:JOB_ID"
+    // Parse memo: "fund:JOB_ID" or "arbstake"
     if (memo.startsWith("fund:")) {
       const jobIdStr = memo.substring(5);
       const jobId = U64.parseInt(jobIdStr);
@@ -627,6 +720,15 @@ export class AgentEscrowContract extends Contract {
       this.jobsTable.update(job, this.receiver);
 
       print(`Job ${jobId} funded with ${quantity.toString()}`);
+    } else if (memo == "arbstake" || memo.startsWith("arbstake:")) {
+      // Arbitrator staking
+      const arb = this.arbitratorsTable.get(from.N);
+      check(arb != null, "Register as arbitrator first");
+
+      arb!.stake += quantity.amount;
+      this.arbitratorsTable.update(arb!, this.receiver);
+
+      print(`Arbitrator ${from.toString()} staked ${quantity.toString()}`);
     }
   }
 

@@ -39,6 +39,15 @@ export class Validator extends Table {
   }
 }
 
+// Hash function for string to u64 secondary index
+function hashString(s: string): u64 {
+  let hash: u64 = 5381;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) + hash) + <u64>s.charCodeAt(i);
+  }
+  return hash;
+}
+
 @table("validations")
 export class Validation extends Table {
   constructor(
@@ -68,6 +77,11 @@ export class Validation extends Table {
   @secondary
   get byValidator(): u64 {
     return this.validator.N;
+  }
+
+  @secondary
+  get byJobHash(): u64 {
+    return hashString(this.job_hash);
   }
 }
 
@@ -139,6 +153,30 @@ export class Config extends Table {
   }
 }
 
+// External table reference for agent verification
+@table("agents", "agentcore")
+export class AgentRef extends Table {
+  constructor(
+    public account: Name = EMPTY_NAME,
+    public name: string = "",
+    public description: string = "",
+    public endpoint: string = "",
+    public protocol: string = "",
+    public capabilities: string = "",
+    public stake: u64 = 0,
+    public total_jobs: u64 = 0,
+    public registered_at: u64 = 0,
+    public active: boolean = true
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.account.N;
+  }
+}
+
 // ============== CONTRACT ==============
 
 @contract
@@ -148,6 +186,12 @@ export class AgentValidContract extends Contract {
   private challengesTable: TableStore<Challenge> = new TableStore<Challenge>(this.receiver);
   private unstakesTable: TableStore<Unstake> = new TableStore<Unstake>(this.receiver);
   private configSingleton: Singleton<Config> = new Singleton<Config>(this.receiver);
+
+  // External table for agent verification
+  private agentRefTable: TableStore<AgentRef> = new TableStore<AgentRef>(
+    Name.fromString("agentcore"),
+    Name.fromString("agentcore")
+  );
 
   private readonly XPR_SYMBOL: Symbol = new Symbol("XPR", 4);
   private readonly TOKEN_CONTRACT: Name = Name.fromString("eosio.token");
@@ -323,6 +367,10 @@ export class AgentValidContract extends Contract {
     const validatorRecord = this.validatorsTable.requireGet(validator.N, "Validator not found");
     check(validatorRecord.active, "Validator is not active");
     check(validatorRecord.stake >= config.min_stake, "Insufficient validator stake");
+
+    // SECURITY: Verify agent exists in agentcore registry
+    const agentRef = this.agentRefTable.get(agent.N);
+    check(agentRef != null, "Agent not registered in agentcore");
 
     check(result <= 2, "Invalid result (0=fail, 1=pass, 2=partial)");
     check(confidence <= 100, "Confidence must be 0-100");

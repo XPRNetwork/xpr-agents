@@ -14,6 +14,7 @@ import {
   JsonRpc,
   ProtonSession,
   PluginCategory,
+  PaginatedResult,
 } from './types';
 import { parseCapabilities, safeJsonParse, formatXpr } from './utils';
 
@@ -51,21 +52,26 @@ export class AgentRegistry {
   }
 
   /**
-   * List all agents with optional filters
+   * List all agents with optional filters and pagination
+   * @returns PaginatedResult with items, hasMore flag, and nextCursor for pagination
    */
-  async listAgents(options: AgentListOptions = {}): Promise<Agent[]> {
-    const { limit = 100, active_only = true } = options;
+  async listAgents(options: AgentListOptions = {}): Promise<PaginatedResult<Agent>> {
+    const { limit = 100, cursor, active_only = true } = options;
 
     const result = await this.rpc.get_table_rows<AgentRaw>({
       json: true,
       code: this.contract,
       scope: this.contract,
       table: 'agents',
-      limit,
+      lower_bound: cursor,
+      limit: limit + 1, // Fetch one extra to check if there are more
     });
 
-    let agents = result.rows.map((row) => this.parseAgent(row));
+    const hasMore = result.rows.length > limit;
+    const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
+    let agents = rows.map((row) => this.parseAgent(row));
 
+    // Apply filters after fetching
     if (active_only) {
       agents = agents.filter((a) => a.active);
     }
@@ -74,7 +80,31 @@ export class AgentRegistry {
       agents = agents.filter((a) => a.stake >= options.min_stake!);
     }
 
-    return agents;
+    // Get next cursor from the last row if there are more
+    const nextCursor = hasMore && rows.length > 0
+      ? rows[rows.length - 1].account
+      : undefined;
+
+    return {
+      items: agents,
+      hasMore,
+      nextCursor,
+    };
+  }
+
+  /**
+   * Iterate through all agents with automatic pagination
+   */
+  async *listAgentsIterator(options: Omit<AgentListOptions, 'cursor'> = {}): AsyncGenerator<Agent> {
+    let cursor: string | undefined;
+
+    do {
+      const result = await this.listAgents({ ...options, cursor });
+      for (const agent of result.items) {
+        yield agent;
+      }
+      cursor = result.nextCursor;
+    } while (cursor);
   }
 
   /**

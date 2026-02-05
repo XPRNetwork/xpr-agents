@@ -40,6 +40,15 @@ export class Agent extends Table {
   }
 }
 
+// Hash function for string to u64 secondary index
+function hashString(s: string): u64 {
+  let hash: u64 = 5381;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) + hash) + <u64>s.charCodeAt(i);
+  }
+  return hash;
+}
+
 @table("plugins")
 export class Plugin extends Table {
   constructor(
@@ -59,6 +68,16 @@ export class Plugin extends Table {
   @primary
   get primary(): u64 {
     return this.id;
+  }
+
+  @secondary
+  get byAuthor(): u64 {
+    return this.author.N;
+  }
+
+  @secondary
+  get byCategory(): u64 {
+    return hashString(this.category);
   }
 }
 
@@ -503,6 +522,11 @@ export class AgentCoreContract extends Contract {
     transferAction.send(this.receiver, to, quantity, memo);
   }
 }
+
+// TODO: Replace custom InlineAction implementation with proton-tsc built-in
+// The current implementation is a placeholder. When building with proton-tsc,
+// use the proper ActionWrapper or sendInline patterns from the library.
+// See: https://github.com/XPRNetwork/ts-smart-contracts
 
 // Helper class for inline transfers
 @packer

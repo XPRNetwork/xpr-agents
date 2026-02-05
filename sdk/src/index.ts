@@ -2,6 +2,21 @@
 export { AgentRegistry } from './AgentRegistry';
 export { FeedbackRegistry } from './FeedbackRegistry';
 export { ValidationRegistry } from './ValidationRegistry';
+export { EscrowRegistry } from './EscrowRegistry';
+
+// Escrow types (exported separately since they're defined in the registry file)
+export type {
+  Job,
+  JobState,
+  Milestone,
+  MilestoneState,
+  EscrowDispute,
+  DisputeResolution,
+  Arbitrator,
+  CreateJobData,
+  AddMilestoneData,
+  JobListOptions,
+} from './EscrowRegistry';
 
 // Type exports
 export * from './types';
@@ -23,6 +38,7 @@ export const CONTRACTS = {
   AGENT_CORE: 'agentcore',
   AGENT_FEED: 'agentfeed',
   AGENT_VALID: 'agentvalid',
+  AGENT_ESCROW: 'agentescrow',
 } as const;
 
 // Network endpoints

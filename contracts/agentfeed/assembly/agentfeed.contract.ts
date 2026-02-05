@@ -251,9 +251,35 @@ export class Config extends Table {
     public min_score: u8 = 1,
     public max_score: u8 = 5,
     public dispute_window: u64 = 604800, // 7 days
+    public decay_period: u64 = 2592000,  // 30 days - feedback loses weight over time
+    public decay_floor: u64 = 50,        // Minimum weight floor (50 = 50%)
     public paused: boolean = false
   ) {
     super();
+  }
+}
+
+// External table reference for agent verification
+@table("agents", "agentcore")
+export class AgentRef extends Table {
+  constructor(
+    public account: Name = EMPTY_NAME,
+    public name: string = "",
+    public description: string = "",
+    public endpoint: string = "",
+    public protocol: string = "",
+    public capabilities: string = "",
+    public stake: u64 = 0,
+    public total_jobs: u64 = 0,
+    public registered_at: u64 = 0,
+    public active: boolean = true
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.account.N;
   }
 }
 
@@ -298,6 +324,10 @@ export class AgentFeedContract extends Contract {
   private userInfoTable: TableStore<UserInfo> = new TableStore<UserInfo>(
     Name.fromString("eosio.proton"),
     Name.fromString("eosio.proton")
+  );
+  private agentRefTable: TableStore<AgentRef> = new TableStore<AgentRef>(
+    Name.fromString("agentcore"),
+    Name.fromString("agentcore")
   );
 
   // ============== INITIALIZATION ==============
@@ -351,6 +381,10 @@ export class AgentFeedContract extends Contract {
     check(tags.length <= 256, "Tags too long");
     check(job_hash.length <= 128, "Job hash too long");
     check(evidence_uri.length <= 256, "Evidence URI too long");
+
+    // SECURITY: Verify agent exists in agentcore registry
+    const agentRef = this.agentRefTable.get(agent.N);
+    check(agentRef != null, "Agent not registered in agentcore");
 
     // Get reviewer's KYC level
     const kycLevel = this.getKycLevel(reviewer);
@@ -439,8 +473,10 @@ export class AgentFeedContract extends Contract {
     resolution_notes: string
   ): void {
     const config = this.configSingleton.get();
-    // Only owner or validators can resolve disputes
-    check(hasAuth(config.owner) || hasAuth(resolver), "Not authorized to resolve");
+    // Only owner can resolve disputes
+    // SECURITY FIX: Previously allowed any account to resolve by passing their own name
+    requireAuth(config.owner);
+    check(resolver == config.owner, "Resolver must be contract owner");
 
     const disputeRecord = this.disputesTable.requireGet(dispute_id, "Dispute not found");
     check(disputeRecord.status == 0, "Dispute already resolved");
@@ -467,7 +503,9 @@ export class AgentFeedContract extends Contract {
   @action("recalc")
   recalculate(agent: Name): void {
     // Anyone can trigger recalculation
+    const config = this.configSingleton.get();
     const feedbacks = this.feedbackTable.getBySecondaryU64(agent.N, 0);
+    const now = currentTimeSec();
 
     let totalScore: u64 = 0;
     let totalWeight: u64 = 0;
@@ -483,9 +521,25 @@ export class AgentFeedContract extends Contract {
         if (disputes.length > 0 && disputes[0].status == 1) continue;
       }
 
-      const weight: u64 = <u64>(1 + fb.reviewer_kyc_level);
-      totalScore += <u64>fb.score * weight;
-      totalWeight += weight * 5; // Normalize to 5-star scale
+      // Calculate time-based decay factor (100 = 100%, decays over time to floor)
+      const ageSeconds = now > fb.timestamp ? now - fb.timestamp : 0;
+      const decayPeriods = ageSeconds / config.decay_period;
+      // Decay by 5% per period, with floor
+      let decayFactor: u64 = 100;
+      if (decayPeriods > 0) {
+        // Each period reduces by 5%, minimum is decay_floor
+        const reduction = decayPeriods * 5;
+        if (reduction >= (100 - config.decay_floor)) {
+          decayFactor = config.decay_floor;
+        } else {
+          decayFactor = 100 - reduction;
+        }
+      }
+
+      const baseWeight: u64 = <u64>(1 + fb.reviewer_kyc_level);
+      const decayedWeight: u64 = (baseWeight * decayFactor) / 100;
+      totalScore += <u64>fb.score * decayedWeight;
+      totalWeight += decayedWeight * 5; // Normalize to 5-star scale
       count++;
     }
 
@@ -529,9 +583,24 @@ export class AgentFeedContract extends Contract {
     check(reviewer != agent, "Cannot review yourself");
     check(score >= config.min_score && score <= config.max_score, "Score out of range");
     check(context.length > 0 && context.length <= 32, "Context must be 1-32 characters");
+
+    // Standardized context validation (prevents fragmentation like "ai" vs "AI" vs "a.i.")
+    const validContexts = ["ai", "compute", "storage", "oracle", "payment", "messaging", "data", "automation", "analytics", "security"];
+    let isValidContext = false;
+    for (let i = 0; i < validContexts.length; i++) {
+      if (validContexts[i] == context) {
+        isValidContext = true;
+        break;
+      }
+    }
+    check(isValidContext, "Invalid context. Valid: ai, compute, storage, oracle, payment, messaging, data, automation, analytics, security");
     check(tags.length <= 256, "Tags too long");
     check(job_hash.length <= 128, "Job hash too long");
     check(evidence_uri.length <= 256, "Evidence URI too long");
+
+    // SECURITY: Verify agent exists in agentcore registry
+    const agentRef = this.agentRefTable.get(agent.N);
+    check(agentRef != null, "Agent not registered in agentcore");
 
     // Get reviewer's KYC level
     const kycLevel = this.getKycLevel(reviewer);
@@ -660,13 +729,16 @@ export class AgentFeedContract extends Contract {
     raw_score: string,
     proof_uri: string
   ): void {
-    // Either provider contract or owner can submit
+    // Only provider contract or owner can submit
+    // SECURITY FIX: Removed hasAuth(submitter) which allowed anyone to submit fake scores
     const config = this.configSingleton.get();
     const provider = this.reputationProvidersTable.requireGet(provider_id, "Provider not found");
 
+    const isProviderContract = provider.contract != EMPTY_NAME && hasAuth(provider.contract);
+    const isOwner = hasAuth(config.owner);
     check(
-      hasAuth(provider.contract) || hasAuth(config.owner) || hasAuth(submitter),
-      "Not authorized to submit external scores"
+      isProviderContract || isOwner,
+      "Not authorized: must be provider contract or owner"
     );
     check(provider.active, "Provider is not active");
     check(score <= 10000, "Score must be 0-10000");
@@ -727,6 +799,10 @@ export class AgentFeedContract extends Contract {
     check(score >= config.min_score && score <= config.max_score, "Score out of range");
     check(payment_tx_id.length > 0 && payment_tx_id.length <= 64, "Invalid transaction ID");
 
+    // SECURITY: Verify agent exists in agentcore registry
+    const agentRef = this.agentRefTable.get(agent.N);
+    check(agentRef != null, "Agent not registered in agentcore");
+
     // Get reviewer's KYC level
     const kycLevel = this.getKycLevel(reviewer);
 
@@ -782,8 +858,10 @@ export class AgentFeedContract extends Contract {
     verified: boolean
   ): void {
     const config = this.configSingleton.get();
-    // Only owner or designated verifiers can verify
-    check(hasAuth(config.owner) || hasAuth(verifier), "Not authorized to verify payments");
+    // Only owner can verify payments
+    // SECURITY FIX: Previously allowed any account to verify by passing their own name
+    requireAuth(config.owner);
+    check(verifier == config.owner, "Verifier must be contract owner");
 
     const proof = this.paymentProofsTable.requireGet(proof_id, "Payment proof not found");
     check(!proof.verified, "Already verified");

@@ -233,11 +233,23 @@ export interface TrustScoreBreakdown {
 
 export type TrustRating = 'untrusted' | 'low' | 'medium' | 'high' | 'verified';
 
+// ============== Pagination Types ==============
+
+export interface PaginatedResult<T> {
+  items: T[];
+  hasMore: boolean;
+  nextCursor?: string;
+  total?: number;
+}
+
+export interface PaginationOptions {
+  limit?: number;
+  cursor?: string;
+}
+
 // ============== List Options ==============
 
-export interface ListOptions {
-  limit?: number;
-  offset?: number;
+export interface ListOptions extends PaginationOptions {
   active_only?: boolean;
 }
 
