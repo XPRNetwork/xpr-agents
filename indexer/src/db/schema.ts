@@ -118,6 +118,72 @@ export function initDatabase(dbPath: string): Database.Database {
     INSERT OR IGNORE INTO stats (key, value) VALUES ('total_validations', 0);
     INSERT OR IGNORE INTO stats (key, value) VALUES ('total_jobs', 0);
 
+    -- Escrow Jobs table
+    CREATE TABLE IF NOT EXISTS jobs (
+      id INTEGER PRIMARY KEY,
+      client TEXT NOT NULL,
+      agent TEXT NOT NULL,
+      title TEXT,
+      description TEXT,
+      deliverables TEXT,
+      amount INTEGER DEFAULT 0,
+      symbol TEXT DEFAULT 'XPR',
+      funded_amount INTEGER DEFAULT 0,
+      released_amount INTEGER DEFAULT 0,
+      state INTEGER DEFAULT 0,
+      deadline INTEGER,
+      arbitrator TEXT,
+      job_hash TEXT,
+      created_at INTEGER,
+      updated_at INTEGER
+    );
+
+    -- Milestones table
+    CREATE TABLE IF NOT EXISTS milestones (
+      id INTEGER PRIMARY KEY,
+      job_id INTEGER NOT NULL,
+      title TEXT,
+      description TEXT,
+      amount INTEGER DEFAULT 0,
+      milestone_order INTEGER DEFAULT 0,
+      state INTEGER DEFAULT 0,
+      evidence_uri TEXT,
+      submitted_at INTEGER,
+      approved_at INTEGER,
+      FOREIGN KEY (job_id) REFERENCES jobs(id)
+    );
+
+    -- Escrow Disputes table
+    CREATE TABLE IF NOT EXISTS escrow_disputes (
+      id INTEGER PRIMARY KEY,
+      job_id INTEGER NOT NULL,
+      raised_by TEXT NOT NULL,
+      reason TEXT,
+      evidence_uri TEXT,
+      client_amount INTEGER DEFAULT 0,
+      agent_amount INTEGER DEFAULT 0,
+      resolution INTEGER DEFAULT 0,
+      resolver TEXT,
+      resolution_notes TEXT,
+      created_at INTEGER,
+      resolved_at INTEGER,
+      FOREIGN KEY (job_id) REFERENCES jobs(id)
+    );
+
+    -- Arbitrators table
+    CREATE TABLE IF NOT EXISTS arbitrators (
+      account TEXT PRIMARY KEY,
+      stake INTEGER DEFAULT 0,
+      fee_percent INTEGER DEFAULT 0,
+      total_cases INTEGER DEFAULT 0,
+      successful_cases INTEGER DEFAULT 0,
+      active INTEGER DEFAULT 0
+    );
+
+    -- Initialize additional stats
+    INSERT OR IGNORE INTO stats (key, value) VALUES ('total_jobs_escrow', 0);
+    INSERT OR IGNORE INTO stats (key, value) VALUES ('total_arbitrators', 0);
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_feedback_agent ON feedback(agent);
     CREATE INDEX IF NOT EXISTS idx_feedback_reviewer ON feedback(reviewer);
@@ -125,6 +191,11 @@ export function initDatabase(dbPath: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_validations_validator ON validations(validator);
     CREATE INDEX IF NOT EXISTS idx_events_contract ON events(contract);
     CREATE INDEX IF NOT EXISTS idx_events_action ON events(action_name);
+    CREATE INDEX IF NOT EXISTS idx_jobs_client ON jobs(client);
+    CREATE INDEX IF NOT EXISTS idx_jobs_agent ON jobs(agent);
+    CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state);
+    CREATE INDEX IF NOT EXISTS idx_milestones_job ON milestones(job_id);
+    CREATE INDEX IF NOT EXISTS idx_escrow_disputes_job ON escrow_disputes(job_id);
   `);
 
   return db;
@@ -138,5 +209,7 @@ export function updateStats(db: Database.Database): void {
     UPDATE stats SET value = (SELECT COUNT(*) FROM feedback), updated_at = strftime('%s', 'now') WHERE key = 'total_feedback';
     UPDATE stats SET value = (SELECT COUNT(*) FROM validations), updated_at = strftime('%s', 'now') WHERE key = 'total_validations';
     UPDATE stats SET value = (SELECT COALESCE(SUM(total_jobs), 0) FROM agents), updated_at = strftime('%s', 'now') WHERE key = 'total_jobs';
+    UPDATE stats SET value = (SELECT COUNT(*) FROM jobs), updated_at = strftime('%s', 'now') WHERE key = 'total_jobs_escrow';
+    UPDATE stats SET value = (SELECT COUNT(*) FROM arbitrators), updated_at = strftime('%s', 'now') WHERE key = 'total_arbitrators';
   `);
 }

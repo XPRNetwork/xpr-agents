@@ -5,6 +5,7 @@ import { HyperionStream, StreamAction } from './stream';
 import { handleAgentAction } from './handlers/agent';
 import { handleFeedbackAction } from './handlers/feedback';
 import { handleValidationAction } from './handlers/validation';
+import { handleEscrowAction } from './handlers/escrow';
 import { createRoutes } from './api/routes';
 
 // Configuration
@@ -16,6 +17,7 @@ const config = {
     agentcore: process.env.AGENT_CORE_CONTRACT || 'agentcore',
     agentfeed: process.env.AGENT_FEED_CONTRACT || 'agentfeed',
     agentvalid: process.env.AGENT_VALID_CONTRACT || 'agentvalid',
+    agentescrow: process.env.AGENT_ESCROW_CONTRACT || 'agentescrow',
   },
 };
 
@@ -64,6 +66,8 @@ stream.on('action', (action: StreamAction) => {
       handleFeedbackAction(db, action);
     } else if (contract === config.contracts.agentvalid) {
       handleValidationAction(db, action);
+    } else if (contract === config.contracts.agentescrow) {
+      handleEscrowAction(db, action);
     }
   } catch (error) {
     console.error(`Error handling action ${action.act.name}:`, error);
