@@ -389,24 +389,31 @@ export class AgentValidContract extends Contract {
   }
 
   /**
-   * FINDING 3 FIX: Check if a validator has any pending challenges
+   * FINDING 3 FIX: Check if a validator has any pending FUNDED challenges
    * This prevents validators from draining stake before challenge resolution
    *
-   * P2 FIX: Now blocks on ANY pending challenge (status == 0), not just funded ones.
-   * This closes the race window where validator could unstake after challenge creation
-   * but before funding. Unfunded challenges expire after 24 hours via expireunfund.
+   * CRITICAL GRIEFING FIX: Only blocks on FUNDED pending challenges (stake > 0).
+   * Previously blocking on unfunded challenges allowed free griefing attacks where
+   * attackers could lock validator stakes indefinitely by creating unfunded challenges.
+   *
+   * Now the flow is:
+   * 1. Challenge created (stake=0) - does NOT block unstaking
+   * 2. Challenge funded (stake>0) - blocks unstaking until resolved
+   * 3. Unfunded challenges expire after 24 hours via expireunfund
+   *
+   * Validators have 24 hours to see a challenge before it can be funded.
    */
   private hasPendingChallenges(validator: Name): boolean {
-    // Iterate through all challenges to find pending ones against this validator
+    // Iterate through all challenges to find FUNDED pending ones against this validator
     let challenge = this.challengesTable.first();
     while (challenge != null) {
-      // Block on ANY pending challenge (status 0), funded or not
-      // This prevents stake reduction during the funding window
-      if (challenge.status == 0) {
+      // Only block on FUNDED pending challenges (status 0 AND stake > 0)
+      // Unfunded challenges (stake == 0) do not block unstaking
+      if (challenge.status == 0 && challenge.stake > 0) {
         // Get the validation this challenge is against
         const validation = this.validationsTable.get(challenge.validation_id);
         if (validation != null && validation.validator == validator) {
-          return true; // Found a pending challenge against this validator
+          return true; // Found a funded pending challenge against this validator
         }
       }
       challenge = this.challengesTable.next(challenge);
@@ -510,9 +517,10 @@ export class AgentValidContract extends Contract {
     check(reason.length > 0 && reason.length <= 512, "Reason must be 1-512 characters");
     check(evidence_uri.length <= 256, "Evidence URI too long");
 
-    // Mark validation as challenged
-    validation.challenged = true;
-    this.validationsTable.update(validation, this.receiver);
+    // CRITICAL GRIEFING FIX: Do NOT mark validation as challenged yet.
+    // The validation.challenged flag is only set when the challenge is FUNDED.
+    // This prevents free griefing attacks where unfunded challenges block validator unstaking.
+    // The validation will be marked as challenged in the onTransfer handler when funded.
 
     // Create challenge record (stake is handled via transfer within 24 hours)
     // C4 FIX: Check for timestamp overflow before calculating deadline
@@ -525,7 +533,7 @@ export class AgentValidContract extends Contract {
       challenger,
       reason,
       evidence_uri,
-      0, // Stake amount set via transfer
+      0, // Stake amount set via transfer - challenge not active until funded
       0, // pending
       EMPTY_NAME,
       "",
@@ -536,7 +544,7 @@ export class AgentValidContract extends Contract {
 
     this.challengesTable.store(challengeRecord, this.receiver);
 
-    print(`Challenge created. Fund within 24 hours with memo 'challenge:${challengeRecord.id}'`);
+    print(`Challenge created (ID: ${challengeRecord.id}). Fund within 24 hours with memo 'challenge:${challengeRecord.id}' to activate.`);
   }
 
   @action("cancelchal")
@@ -555,9 +563,10 @@ export class AgentValidContract extends Contract {
       "Cannot cancel: past grace period but before funding deadline"
     );
 
-    // Unmark validation as challenged
+    // NOTE: With GRIEFING FIX, unfunded challenges never set validation.challenged=true,
+    // so this is a no-op. Kept for safety in case of edge cases or legacy data.
     const validation = this.validationsTable.get(challengeRecord.validation_id);
-    if (validation != null) {
+    if (validation != null && validation.challenged) {
       validation.challenged = false;
       this.validationsTable.update(validation, this.receiver);
     }
@@ -578,9 +587,10 @@ export class AgentValidContract extends Contract {
     check(challengeRecord.stake == 0, "Challenge is funded");
     check(currentTimeSec() > challengeRecord.funding_deadline, "Funding deadline not reached");
 
-    // Unmark validation as challenged
+    // NOTE: With GRIEFING FIX, unfunded challenges never set validation.challenged=true,
+    // so this is a no-op. Kept for safety in case of edge cases or legacy data.
     const validation = this.validationsTable.get(challengeRecord.validation_id);
-    if (validation != null) {
+    if (validation != null && validation.challenged) {
       validation.challenged = false;
       this.validationsTable.update(validation, this.receiver);
     }
@@ -786,6 +796,17 @@ export class AgentValidContract extends Contract {
       // Store only required stake amount
       challengeRecord.stake = config.challenge_stake;
       this.challengesTable.update(challengeRecord, this.receiver);
+
+      // CRITICAL GRIEFING FIX: NOW mark the validation as challenged
+      // This only happens when the challenge is actually funded, preventing
+      // free griefing attacks where unfunded challenges block validator unstaking.
+      const validation = this.validationsTable.get(challengeRecord.validation_id);
+      if (validation != null && !validation.challenged) {
+        validation.challenged = true;
+        this.validationsTable.update(validation, this.receiver);
+      }
+
+      print(`Challenge ${challengeId} funded. Validation ${challengeRecord.validation_id} is now challenged.`);
     } else {
       // FINDING 2 FIX: Reject unrecognized memos to prevent loss of funds
       check(false, "Invalid memo. Use 'stake' for validator staking or 'challenge:ID' for challenge funding");

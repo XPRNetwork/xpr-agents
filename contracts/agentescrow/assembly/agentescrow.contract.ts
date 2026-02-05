@@ -919,6 +919,12 @@ export class AgentEscrowContract extends Contract {
     const fee = (amount * config.platform_fee) / 10000;
     const agentAmount = amount - fee;
 
+    // CRITICAL CEI FIX: Update state BEFORE external calls to prevent reentrancy
+    // This follows the Checks-Effects-Interactions pattern
+    job.released_amount += amount;
+    this.jobsTable.update(job, this.receiver);
+
+    // Now safe to make external calls after state is finalized
     // Send to agent
     this.sendTokens(job.agent, new Asset(agentAmount, this.XPR_SYMBOL), `Job ${job.id} payment`);
 
@@ -926,9 +932,6 @@ export class AgentEscrowContract extends Contract {
     if (fee > 0) {
       this.sendTokens(config.owner, new Asset(fee, this.XPR_SYMBOL), `Job ${job.id} platform fee`);
     }
-
-    job.released_amount += amount;
-    this.jobsTable.update(job, this.receiver);
   }
 
   private sendTokens(to: Name, quantity: Asset, memo: string): void {
