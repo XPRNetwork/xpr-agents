@@ -33,6 +33,12 @@ export function handleValidationAction(db: Database.Database, action: StreamActi
     case 'expireunfund':
       handleExpireUnfunded(db, data);
       break;
+    case 'unstake':
+      handleUnstake(db, data);
+      break;
+    case 'withdraw':
+      handleWithdraw(db, data);
+      break;
     default:
       console.log(`Unknown agentvalid action: ${name}`);
   }
@@ -122,13 +128,9 @@ function handleValidate(db: Database.Database, data: any, timestamp: string): vo
 }
 
 function handleChallenge(db: Database.Database, data: any, timestamp: string): void {
-  // Update validation challenged flag
-  const stmt = db.prepare(`
-    UPDATE validations
-    SET challenged = 1
-    WHERE id = ?
-  `);
-  stmt.run(data.validation_id);
+  // NOTE: Do NOT set challenged = 1 here. The on-chain contract only marks
+  // validation.challenged = true after the challenge is FUNDED (via token transfer).
+  // This prevents unfunded challenges from showing as "challenged" in the index.
 
   // Create challenge record for mapping
   const createdAt = Math.floor(new Date(timestamp).getTime() / 1000);
@@ -157,8 +159,8 @@ function handleChallenge(db: Database.Database, data: any, timestamp: string): v
 }
 
 function handleResolve(db: Database.Database, data: any): void {
-  // Look up challenge to get validation_id
-  const challenge = db.prepare('SELECT validation_id FROM validation_challenges WHERE id = ?').get(data.challenge_id) as { validation_id: number } | undefined;
+  // Look up challenge to get validation_id and stake
+  const challenge = db.prepare('SELECT validation_id, stake FROM validation_challenges WHERE id = ?').get(data.challenge_id) as { validation_id: number; stake: number } | undefined;
 
   if (!challenge) {
     console.log(`Challenge ${data.challenge_id} not found in index`);
@@ -178,24 +180,41 @@ function handleResolve(db: Database.Database, data: any): void {
     data.challenge_id
   );
 
-  // If challenge was upheld, validator was wrong - increment incorrect_validations
+  // AUDIT FIX: Reset validation.challenged flag after resolution
+  const resetChallengedStmt = db.prepare(`
+    UPDATE validations SET challenged = 0 WHERE id = ?
+  `);
+  resetChallengedStmt.run(challenge.validation_id);
+
+  const validation = db.prepare('SELECT validator FROM validations WHERE id = ?').get(challenge.validation_id) as { validator: string } | undefined;
+
   if (data.upheld) {
-    const validation = db.prepare('SELECT validator FROM validations WHERE id = ?').get(challenge.validation_id) as { validator: string } | undefined;
+    // Challenge upheld - validator was wrong
     if (validation) {
-      // Match contract logic: accuracy = (total - incorrect) * 10000 / total
-      // Only calculate meaningful accuracy after MIN_VALIDATIONS_FOR_ACCURACY (5)
-      // IMPORTANT: Use (incorrect_validations + 1) since SQL evaluates RHS before SET completes
+      // AUDIT FIX: Also update validator stake to reflect slashing
+      // Contract slashes slash_percent (10%) of validator stake and adds to challenger reward
+      // We approximate: slash = floor(stake * 10 / 100) = floor(stake / 10)
       const updateStmt = db.prepare(`
         UPDATE validators
         SET incorrect_validations = incorrect_validations + 1,
+            stake = MAX(0, stake - MAX(0, stake / 10)),
             accuracy_score = CASE
               WHEN total_validations < 5 THEN 10000
+              WHEN incorrect_validations + 1 >= total_validations THEN 0
               WHEN total_validations > 0 THEN (total_validations - (incorrect_validations + 1)) * 10000 / total_validations
               ELSE 10000
             END
         WHERE account = ?
       `);
       updateStmt.run(validation.validator);
+    }
+  } else {
+    // Challenge rejected - challenger stake forfeited to validator
+    if (validation && challenge.stake > 0) {
+      const addStakeStmt = db.prepare(`
+        UPDATE validators SET stake = stake + ? WHERE account = ?
+      `);
+      addStakeStmt.run(challenge.stake, validation.validator);
     }
   }
 
@@ -264,6 +283,22 @@ function handleExpireUnfunded(db: Database.Database, data: any): void {
   console.log(`Challenge ${data.challenge_id} expired (unfunded)${challenge ? ` (validation ${challenge.validation_id})` : ''}`);
 }
 
+function handleUnstake(db: Database.Database, data: any): void {
+  // Validator requested unstake - reduce active stake
+  const stmt = db.prepare(`
+    UPDATE validators
+    SET stake = MAX(0, stake - ?)
+    WHERE account = ?
+  `);
+  stmt.run(data.amount || 0, data.account);
+  console.log(`Validator ${data.account} unstaking ${(data.amount || 0) / 10000} XPR`);
+}
+
+function handleWithdraw(db: Database.Database, data: any): void {
+  // Withdrawal completed - stake was already reduced during unstake
+  console.log(`Validator ${data.account} withdrew unstaked funds (unstake_id: ${data.unstake_id})`);
+}
+
 function logEvent(db: Database.Database, action: StreamAction): void {
   const stmt = db.prepare(`
     INSERT INTO events (block_num, transaction_id, action_name, contract, data, timestamp)
@@ -283,16 +318,47 @@ function logEvent(db: Database.Database, action: StreamAction): void {
 }
 
 /**
- * Handle eosio.token::transfer notifications to agentvalid
- * Updates validator stake and challenge funding
+ * Handle eosio.token::transfer notifications to/from agentvalid
+ * Updates validator stake, challenge funding, and processes refunds
  */
 export function handleValidationTransfer(db: Database.Database, action: StreamAction): void {
-  const { from, quantity, memo } = action.act.data;
+  const { from, to, quantity, memo } = action.act.data;
 
   // Parse quantity (e.g., "100.0000 XPR")
   const [amountStr] = quantity.split(' ');
   const amount = Math.floor(parseFloat(amountStr) * 10000);
 
+  // Determine if this is incoming (to agentvalid) or outgoing (from agentvalid)
+  const isOutgoing = from === 'agentvalid';
+
+  if (isOutgoing) {
+    // Handle outgoing transfers (refunds from agentvalid)
+    if (memo.includes('excess refund')) {
+      // Challenge stake excess refund - the contract caps stake to config.challenge_stake
+      // and refunds any excess. Find the challenge by looking at recent funded challenges
+      // for this recipient and reduce the overstated stake.
+      // Since we added the full amount initially, subtract the refund
+      const challenges = db.prepare(
+        'SELECT id FROM validation_challenges WHERE challenger = ? AND stake > 0 ORDER BY id DESC LIMIT 1'
+      ).get(to) as { id: number } | undefined;
+
+      if (challenges) {
+        const stmt = db.prepare(`
+          UPDATE validation_challenges
+          SET stake = MAX(0, stake - ?)
+          WHERE id = ?
+        `);
+        stmt.run(amount, challenges.id);
+        console.log(`Challenge ${challenges.id} excess refund: ${amountStr} returned to ${to}`);
+      }
+    }
+    // Other outgoing transfers (validator unstake withdrawals, slash refunds)
+    // are handled by their respective action handlers
+    logEvent(db, action);
+    return;
+  }
+
+  // Incoming transfers to agentvalid
   if (memo === 'stake') {
     // Validator staking
     const stmt = db.prepare(`
@@ -308,12 +374,26 @@ export function handleValidationTransfer(db: Database.Database, action: StreamAc
     const challengeId = parseInt(challengeIdStr);
 
     if (!isNaN(challengeId)) {
+      // Update challenge stake with full amount (excess will be refunded and subtracted above)
       const stmt = db.prepare(`
         UPDATE validation_challenges
         SET stake = stake + ?
         WHERE id = ?
       `);
       stmt.run(amount, challengeId);
+
+      // Now mark the validation as challenged (matches on-chain griefing fix:
+      // validation.challenged is only set when the challenge is funded)
+      const challenge = db.prepare('SELECT validation_id FROM validation_challenges WHERE id = ?').get(challengeId) as { validation_id: number } | undefined;
+      if (challenge) {
+        const valStmt = db.prepare(`
+          UPDATE validations
+          SET challenged = 1
+          WHERE id = ?
+        `);
+        valStmt.run(challenge.validation_id);
+      }
+
       console.log(`Challenge ${challengeId} funded with ${amountStr}`);
     }
   }

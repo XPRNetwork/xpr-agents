@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import ProtonWebSDK from '@proton/web-sdk';
 import type { LinkSession } from '@proton/link';
 
 interface Session {
@@ -42,6 +41,10 @@ async function initSDK(restoreSession: boolean): Promise<{ link: any; session: L
     const result = await initPromise;
     return { link: sharedLink, session: restoreSession ? result.session : null };
   }
+
+  // Dynamically import ProtonWebSDK to avoid SSR/ESM issues in Next.js
+  // The library uses browser-only APIs that break during server-side rendering
+  const { default: ProtonWebSDK } = await import('@proton/web-sdk');
 
   // Initialize SDK - this only happens once
   initPromise = ProtonWebSDK({

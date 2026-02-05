@@ -375,6 +375,11 @@ export class ArbUnstake extends Table {
 // Note: Arbitrator unstaking has a time delay (ARB_UNSTAKE_DELAY_SECONDS = 7 days).
 // Arbitrators call unstakearb() to request, wait for delay, then withdrawarb() to claim.
 // cancelunstk() can cancel a pending unstake and return stake to active status.
+//
+// Dispute Resolution Fallback:
+// If a job has no designated arbitrator (arbitrator == EMPTY_NAME), the contract owner
+// acts as fallback arbitrator with 0% fee. This prevents funds from being permanently
+// trapped in disputes on arbitrator-less jobs.
 ```
 
 ## Trust Score Algorithm

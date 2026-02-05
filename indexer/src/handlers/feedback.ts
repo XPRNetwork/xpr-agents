@@ -18,6 +18,34 @@ export function handleFeedbackAction(db: Database.Database, action: StreamAction
     case 'recalc':
       handleRecalc(db, data);
       break;
+    case 'submitctx':
+      // Context-specific feedback - same feedback table, context prepended to tags
+      handleSubmit(db, data, action.timestamp);
+      break;
+    case 'submitwpay':
+      // Feedback with payment proof - same feedback table, payment proof is separate
+      handleSubmit(db, data, action.timestamp);
+      break;
+    case 'reinstate':
+      handleReinstate(db, data);
+      break;
+    case 'settrust':
+      // Directional trust update - logged in events table
+      console.log(`Directional trust: ${data.truster} -> ${data.trustee} (delta: ${data.trust_delta})`);
+      break;
+    case 'init':
+    case 'setconfig':
+    case 'addprovider':
+    case 'setprovider':
+    case 'rmprovider':
+    case 'cleanrecalc':
+    case 'cancelrecalc':
+    case 'submitext':
+    case 'verifypay':
+    case 'calcaggtrust':
+      // Admin/maintenance/external-provider actions - logged in events table
+      console.log(`Agentfeed action: ${name}`);
+      break;
     default:
       console.log(`Unknown agentfeed action: ${name}`);
   }
@@ -46,6 +74,10 @@ function handleSubmit(db: Database.Database, data: any, timestamp: string): void
     id,
     data.agent,
     data.reviewer,
+    // NOTE: reviewer_kyc_level is not in action data - the contract reads it internally
+    // from eosio.proton::usersinfo. This value will be 0 in the indexer. On-chain scores
+    // may differ because they use the actual KYC weight. A periodic chain-sync job
+    // can be used to update these values from the on-chain feedback table.
     data.reviewer_kyc_level || 0,
     data.score,
     data.tags || '',
@@ -136,13 +168,40 @@ function handleRecalc(db: Database.Database, data: any): void {
   console.log(`Score recalculated for: ${data.agent}`);
 }
 
+function handleReinstate(db: Database.Database, data: any): void {
+  // Owner reinstated feedback whose dispute was rejected (original feedback was valid)
+  // Clear the disputed flag
+  const stmt = db.prepare(`
+    UPDATE feedback
+    SET disputed = 0
+    WHERE id = ?
+  `);
+  stmt.run(data.feedback_id);
+
+  // Recalculate agent score
+  const feedback = db.prepare('SELECT agent FROM feedback WHERE id = ?').get(data.feedback_id) as { agent: string } | undefined;
+  if (feedback) {
+    updateAgentScore(db, feedback.agent);
+  }
+
+  console.log(`Feedback ${data.feedback_id} reinstated`);
+}
+
 function updateAgentScore(db: Database.Database, agent: string): void {
   // Get all valid feedback for agent
+  // Exclude: pending disputes (disputed=1, resolved=0) and upheld disputes (dispute status=1)
+  // Include: undisputed feedback and resolved-rejected disputes (original feedback stands)
   const feedbackStmt = db.prepare(`
-    SELECT score, reviewer_kyc_level
-    FROM feedback
-    WHERE agent = ?
-    AND (disputed = 0 OR resolved = 1)
+    SELECT f.score, f.reviewer_kyc_level
+    FROM feedback f
+    WHERE f.agent = ?
+    AND (
+      f.disputed = 0
+      OR (f.resolved = 1 AND NOT EXISTS (
+        SELECT 1 FROM feedback_disputes fd
+        WHERE fd.feedback_id = f.id AND fd.status = 1
+      ))
+    )
   `);
 
   const feedbacks = feedbackStmt.all(agent) as Array<{ score: number; reviewer_kyc_level: number }>;

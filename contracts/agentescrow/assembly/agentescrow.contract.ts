@@ -209,6 +209,8 @@ export class ArbUnstake extends Table {
 export class AgentRef extends Table {
   constructor(
     public account: Name = EMPTY_NAME,
+    public owner: Name = EMPTY_NAME,
+    public pending_owner: Name = EMPTY_NAME,
     public name: string = "",
     public description: string = "",
     public endpoint: string = "",
@@ -216,7 +218,9 @@ export class AgentRef extends Table {
     public capabilities: string = "",
     public total_jobs: u64 = 0,
     public registered_at: u64 = 0,
-    public active: boolean = true
+    public active: boolean = true,
+    public claim_deposit: u64 = 0,
+    public deposit_payer: Name = EMPTY_NAME
   ) {
     super();
   }
@@ -642,15 +646,37 @@ export class AgentEscrowContract extends Contract {
     const job = this.jobsTable.requireGet(dispute.job_id, "Job not found");
 
     // Verify arbitrator is authorized for this job
-    check(job.arbitrator == arbitrator, "Not authorized to arbitrate this job");
-
-    // H2 FIX: Verify arbitrator is registered and active (even for job's designated arbitrator)
+    // TRAPPED FUNDS FIX: If job has no designated arbitrator, allow contract owner as fallback
     const config = this.configSingleton.get();
-    const arb = this.arbitratorsTable.requireGet(arbitrator.N, "Arbitrator not registered");
-    check(arb.active, "Arbitrator is not active");
-    check(arb.stake >= config.min_arbitrator_stake, "Arbitrator has insufficient stake");
+    let isOwnerFallback = false;
+    let arb: Arbitrator | null = null;
+
+    if (job.arbitrator == EMPTY_NAME) {
+      // No arbitrator assigned - owner fallback
+      check(arbitrator == config.owner, "No arbitrator assigned. Only contract owner can resolve.");
+      isOwnerFallback = true;
+    } else if (job.arbitrator == arbitrator) {
+      // Designated arbitrator is resolving
+      arb = this.arbitratorsTable.requireGet(arbitrator.N, "Arbitrator not registered");
+      check(arb!.active, "Arbitrator is not active");
+      check(arb!.stake >= config.min_arbitrator_stake, "Arbitrator has insufficient stake");
+    } else if (arbitrator == config.owner) {
+      // AUDIT FIX: Owner fallback for when designated arbitrator is unavailable
+      // (deactivated, insufficient stake, or otherwise unable to resolve)
+      // This prevents funds from being permanently locked in disputed jobs
+      const designatedArb = this.arbitratorsTable.get(job.arbitrator.N);
+      const arbUnavailable = designatedArb == null
+        || !designatedArb!.active
+        || designatedArb!.stake < config.min_arbitrator_stake;
+      check(arbUnavailable, "Designated arbitrator is available. Owner fallback not needed.");
+      isOwnerFallback = true;
+    } else {
+      check(false, "Not authorized to arbitrate this job");
+    }
 
     check(dispute.resolution == 0, "Dispute already resolved");
+    // AUDIT FIX: Explicit state check for defense-in-depth
+    check(job.state == 5, "Job must be in DISPUTED state");
     check(client_percent <= 100, "Invalid percentage");
 
     // M14 FIX: Require resolution notes for audit trail
@@ -663,20 +689,19 @@ export class AgentEscrowContract extends Contract {
     check(job.funded_amount >= job.released_amount, "Invalid job state");
     const remainingAmount = job.funded_amount - job.released_amount;
 
-    // Calculate and deduct arbitrator fee
-    // H3 FIX: Runtime validation of arbitrator fee cap (guards against corrupted records)
-    check(arb.fee_percent <= 500, "Invalid arbitrator fee");
-
+    // Calculate and deduct arbitrator fee (no fee for owner fallback)
     let arbFee: u64 = 0;
     let amountAfterFee = remainingAmount;
 
-    if (arb.fee_percent > 0) {
+    if (!isOwnerFallback && arb != null && arb!.fee_percent > 0) {
+      // H3 FIX: Runtime validation of arbitrator fee cap (guards against corrupted records)
+      check(arb!.fee_percent <= 500, "Invalid arbitrator fee");
       // H5/NEW FIX: Overflow check before fee calculation
       check(
-        remainingAmount <= U64.MAX_VALUE / arb.fee_percent,
+        remainingAmount <= U64.MAX_VALUE / arb!.fee_percent,
         "Arbitrator fee calculation would overflow"
       );
-      arbFee = (remainingAmount * arb.fee_percent) / 10000;
+      arbFee = (remainingAmount * arb!.fee_percent) / 10000;
       // H5 FIX: Ensure arbFee doesn't exceed remaining (defensive check)
       check(arbFee <= remainingAmount, "Arbitrator fee exceeds remaining amount");
       amountAfterFee = remainingAmount - arbFee;
@@ -704,9 +729,11 @@ export class AgentEscrowContract extends Contract {
     job.updated_at = currentTimeSec();
     this.jobsTable.update(job, this.receiver);
 
-    // Update arbitrator stats
-    arb.total_cases += 1;
-    this.arbitratorsTable.update(arb, this.receiver);
+    // Update arbitrator stats (only for registered arbitrators, not owner fallback)
+    if (!isOwnerFallback && arb != null) {
+      arb!.total_cases += 1;
+      this.arbitratorsTable.update(arb!, this.receiver);
+    }
 
     // Now safe to make external calls after all state is finalized
     // Process payments - arbitrator fee first
@@ -769,6 +796,10 @@ export class AgentEscrowContract extends Contract {
     // C4 FIX: Require auth upfront before revealing job state
     requireAuth(claimer);
 
+    // AUDIT FIX: Check pause state to prevent fund extraction during emergencies
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
     const job = this.jobsTable.requireGet(job_id, "Job not found");
     check(currentTimeSec() > job.deadline, "Deadline not reached");
     check(job.state >= 1 && job.state <= 4, "Invalid job state for timeout");
@@ -808,6 +839,9 @@ export class AgentEscrowContract extends Contract {
     requireAuth(client);
 
     const config = this.configSingleton.get();
+    // AUDIT FIX: Check pause state to prevent fund extraction during emergencies
+    check(!config.paused, "Contract is paused");
+
     const job = this.jobsTable.requireGet(job_id, "Job not found");
 
     check(job.client == client, "Only client can claim acceptance timeout");
@@ -1025,18 +1059,20 @@ export class AgentEscrowContract extends Contract {
       check(job.state == 0, "Job already funded");
       check(<u64>quantity.amount >= job.amount, "Insufficient funding");
 
-      // CRITICAL FIX: Refund excess if overfunded
+      // Calculate excess before state update
       const excess = quantity.amount - job.amount;
-      if (excess > 0) {
-        this.sendTokens(from, new Asset(excess, this.XPR_SYMBOL), `Overfunding refund for job ${jobId}`);
-      }
 
-      // Store only the required amount
+      // AUDIT FIX (CEI): Update state BEFORE external calls (sendTokens)
+      // Previously the refund was dispatched before jobsTable.update
       job.funded_amount = job.amount;
       job.state = 1; // FUNDED
       job.updated_at = currentTimeSec();
-
       this.jobsTable.update(job, this.receiver);
+
+      // Now safe to send refund after state is finalized
+      if (excess > 0) {
+        this.sendTokens(from, new Asset(excess, this.XPR_SYMBOL), `Overfunding refund for job ${jobId}`);
+      }
 
       print(`Job ${jobId} funded with ${job.amount}. Excess refunded: ${excess}`);
     } else if (memo == "arbstake" || memo.startsWith("arbstake:")) {
@@ -1044,7 +1080,9 @@ export class AgentEscrowContract extends Contract {
       const arb = this.arbitratorsTable.get(from.N);
       check(arb != null, "Register as arbitrator first");
 
-      arb!.stake += quantity.amount;
+      // AUDIT FIX: Overflow check for arbitrator staking
+      check(arb!.stake <= U64.MAX_VALUE - <u64>quantity.amount, "Stake would overflow");
+      arb!.stake += <u64>quantity.amount;
       this.arbitratorsTable.update(arb!, this.receiver);
 
       print(`Arbitrator ${from.toString()} staked ${quantity.toString()}`);

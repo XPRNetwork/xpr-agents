@@ -358,6 +358,8 @@ export class RecalcState extends Table {
 export class AgentRef extends Table {
   constructor(
     public account: Name = EMPTY_NAME,
+    public owner: Name = EMPTY_NAME,
+    public pending_owner: Name = EMPTY_NAME,
     public name: string = "",
     public description: string = "",
     public endpoint: string = "",
@@ -365,8 +367,9 @@ export class AgentRef extends Table {
     public capabilities: string = "",
     public total_jobs: u64 = 0,
     public registered_at: u64 = 0,
-    public active: boolean = true
-    // Note: Agents use system staking (eosio::voters), not contract-managed stake field
+    public active: boolean = true,
+    public claim_deposit: u64 = 0,
+    public deposit_payer: Name = EMPTY_NAME
   ) {
     super();
   }
@@ -1361,6 +1364,13 @@ export class AgentFeedContract extends Contract {
 
   @action("calcaggtrust")
   calculateAggregateTrust(agent: Name): void {
+    // AUDIT FIX: Require authorization - anyone could previously overwrite agent scores
+    const config = this.configSingleton.get();
+    check(
+      hasAuth(agent) || hasAuth(config.owner),
+      "Only agent or contract owner can calculate aggregate trust"
+    );
+
     // This action calculates and stores a comprehensive trust score
     // combining: native reputation, external scores, stake, KYC, longevity
 

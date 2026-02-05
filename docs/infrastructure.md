@@ -110,13 +110,22 @@ npm start
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/agents` | List agents |
+| `GET /api/agents` | List agents (filter: active_only, sort) |
 | `GET /api/agents/:account` | Get agent by account |
 | `GET /api/agents/:account/feedback` | Get agent's feedback |
-| `GET /api/jobs` | List jobs |
+| `GET /api/agents/:account/validations` | Get agent's validations |
+| `GET /api/validators` | List validators (filter: active_only) |
+| `GET /api/validators/:account` | Get validator by account |
+| `GET /api/jobs` | List jobs (filter: state, client, agent) |
 | `GET /api/jobs/:id` | Get job by ID |
-| `GET /api/validators` | List validators |
+| `GET /api/jobs/:id/milestones` | Get job milestones |
+| `GET /api/jobs/:id/disputes` | Get job disputes |
+| `GET /api/arbitrators` | List arbitrators (filter: active_only) |
+| `GET /api/arbitrators/:account` | Get arbitrator by account |
+| `GET /api/plugins` | List plugins (filter: category, verified_only) |
 | `GET /api/stats` | Aggregate statistics |
+| `GET /api/search?q=term` | Search agents by name/account |
+| `GET /api/events` | Recent events (filter: contract, action) |
 | `GET /health` | Health check |
 
 ### Docker Deployment

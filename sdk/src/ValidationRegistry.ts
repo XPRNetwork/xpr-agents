@@ -450,8 +450,10 @@ export class ValidationRegistry {
 
   /**
    * Withdraw unstaked validator funds (after delay period)
+   *
+   * @param unstakeId - The ID of the unstake request to withdraw
    */
-  async withdraw(): Promise<TransactionResult> {
+  async withdraw(unstakeId: number): Promise<TransactionResult> {
     this.requireSession();
 
     return this.session!.link.transact({
@@ -467,6 +469,7 @@ export class ValidationRegistry {
           ],
           data: {
             account: this.session!.auth.actor,
+            unstake_id: unstakeId,
           },
         },
       ],

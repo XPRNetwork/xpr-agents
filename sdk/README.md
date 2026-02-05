@@ -115,6 +115,12 @@ await feedback.submit({
 | `registerValidator(method, specs)` | Register as validator |
 | `validate(data)` | Submit validation |
 | `challenge(validationId, reason)` | Challenge a validation |
+| `stakeChallengeDeposit(id, amount)` | Fund a challenge |
+| `stake(amount)` | Stake XPR as validator |
+| `unstake(amount)` | Request unstake (time-delayed) |
+| `withdraw(unstakeId)` | Withdraw after delay |
+| `setValidatorStatus(active)` | Toggle validator status |
+| `cancelChallenge(id)` | Cancel unfunded challenge |
 
 ### EscrowRegistry
 

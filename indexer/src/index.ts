@@ -78,8 +78,8 @@ stream.on('action', (action: StreamAction) => {
       if (to === config.contracts.agentescrow || from === config.contracts.agentescrow) {
         handleEscrowTransfer(db, action, config.contracts.agentescrow);
       }
-      // Handle token transfers to agentvalid for validator staking and challenge funding
-      if (to === config.contracts.agentvalid) {
+      // Handle token transfers to/from agentvalid for validator staking, challenge funding, and refunds
+      if (to === config.contracts.agentvalid || from === config.contracts.agentvalid) {
         handleValidationTransfer(db, action);
       }
       // P2 FIX: Handle token transfers to agentcore for claim deposits

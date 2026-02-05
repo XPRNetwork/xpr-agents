@@ -214,6 +214,7 @@ export function initDatabase(dbPath: string): Database.Database {
     CREATE TABLE IF NOT EXISTS arbitrators (
       account TEXT PRIMARY KEY,
       stake INTEGER DEFAULT 0,
+      pending_unstake INTEGER DEFAULT 0,
       fee_percent INTEGER DEFAULT 0,
       total_cases INTEGER DEFAULT 0,
       successful_cases INTEGER DEFAULT 0,

@@ -55,6 +55,15 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction):
     case 'approvemile':
       handleApproveMilestone(db, data);
       break;
+    case 'unstakearb':
+      handleUnstakeArbitrator(db, data);
+      break;
+    case 'withdrawarb':
+      handleWithdrawArbitrator(db, data);
+      break;
+    case 'cancelunstk':
+      handleCancelUnstake(db, data);
+      break;
     default:
       console.log(`Unknown agentescrow action: ${name}`);
   }
@@ -230,9 +239,12 @@ function handleTimeout(db: Database.Database, data: any): void {
 }
 
 function handleRegisterArbitrator(db: Database.Database, data: any): void {
+  // AUDIT FIX: Use ON CONFLICT to preserve existing stats on re-registration.
+  // INSERT OR REPLACE would reset stake, total_cases, successful_cases to 0.
   const stmt = db.prepare(`
-    INSERT OR REPLACE INTO arbitrators (account, stake, fee_percent, total_cases, successful_cases, active)
-    VALUES (?, 0, ?, 0, 0, 0)
+    INSERT INTO arbitrators (account, stake, fee_percent, total_cases, successful_cases, active, pending_unstake)
+    VALUES (?, 0, ?, 0, 0, 0, 0)
+    ON CONFLICT(account) DO UPDATE SET fee_percent = excluded.fee_percent
   `);
   stmt.run(data.account, data.fee_percent || 0);
   console.log(`Arbitrator registered: ${data.account}`);
@@ -300,6 +312,45 @@ function handleApproveMilestone(db: Database.Database, data: any): void {
   } else {
     console.log(`Milestone ${data.milestone_id} approved`);
   }
+}
+
+function handleUnstakeArbitrator(db: Database.Database, data: any): void {
+  // Reduce arbitrator stake and track pending unstake amount
+  // On-chain: stake is reduced immediately, amount is locked in ArbUnstake record
+  // data.amount is available because unstakearb(account, amount) includes it
+  const stmt = db.prepare(`
+    UPDATE arbitrators
+    SET stake = MAX(0, stake - ?), pending_unstake = pending_unstake + ?
+    WHERE account = ?
+  `);
+  const amount = data.amount || 0;
+  stmt.run(amount, amount, data.account);
+  console.log(`Arbitrator ${data.account} unstaking ${amount / 10000} XPR`);
+}
+
+function handleWithdrawArbitrator(db: Database.Database, data: any): void {
+  // Withdrawal completed - clear pending_unstake (tokens sent to arbitrator)
+  // On-chain: withdrawarb(account) only takes account, no amount in action data
+  const stmt = db.prepare(`
+    UPDATE arbitrators
+    SET pending_unstake = 0
+    WHERE account = ?
+  `);
+  stmt.run(data.account);
+  console.log(`Arbitrator ${data.account} withdrew unstaked funds`);
+}
+
+function handleCancelUnstake(db: Database.Database, data: any): void {
+  // Cancelled unstake - return pending_unstake back to active stake
+  // On-chain: cancelunstk(account) only takes account, no amount in action data
+  // We use the tracked pending_unstake amount instead
+  const stmt = db.prepare(`
+    UPDATE arbitrators
+    SET stake = stake + pending_unstake, pending_unstake = 0
+    WHERE account = ?
+  `);
+  stmt.run(data.account);
+  console.log(`Arbitrator ${data.account} cancelled unstake, stake restored`);
 }
 
 function logEvent(db: Database.Database, action: StreamAction): void {

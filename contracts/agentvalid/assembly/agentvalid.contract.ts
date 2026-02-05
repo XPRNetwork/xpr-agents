@@ -185,6 +185,8 @@ export class Config extends Table {
 export class AgentRef extends Table {
   constructor(
     public account: Name = EMPTY_NAME,
+    public owner: Name = EMPTY_NAME,
+    public pending_owner: Name = EMPTY_NAME,
     public name: string = "",
     public description: string = "",
     public endpoint: string = "",
@@ -192,8 +194,9 @@ export class AgentRef extends Table {
     public capabilities: string = "",
     public total_jobs: u64 = 0,
     public registered_at: u64 = 0,
-    public active: boolean = true
-    // Note: Agents use system staking (eosio::voters), not contract-managed stake field
+    public active: boolean = true,
+    public claim_deposit: u64 = 0,
+    public deposit_payer: Name = EMPTY_NAME
   ) {
     super();
   }
@@ -640,9 +643,13 @@ export class AgentValidContract extends Contract {
     check(challengeRecord.status == 0, "Challenge already resolved");
 
     // CRITICAL: Require stake before resolution to prevent free challenge griefing
+    // AUDIT FIX: Check stake > 0 instead of >= config.challenge_stake.
+    // The challenge_stake config may have been increased after funding, which would
+    // make previously-funded challenges unresolvable (funds permanently trapped).
+    // The stake was validated against config.challenge_stake at funding time in onTransfer.
     check(
-      challengeRecord.stake >= config.challenge_stake,
-      "Challenge must be funded. Send XPR with memo 'challenge:ID' (required: " + config.challenge_stake.toString() + ")"
+      challengeRecord.stake > 0,
+      "Challenge must be funded. Send XPR with memo 'challenge:ID'"
     );
 
     // H2 FIX: Enforce minimum dispute period after funding before challenge can be resolved
@@ -673,6 +680,13 @@ export class AgentValidContract extends Contract {
     challengeRecord.resolved_at = currentTimeSec();
     this.challengesTable.update(challengeRecord, this.receiver);
 
+    // AUDIT FIX: Reset validation.challenged after resolution
+    // This allows the validation to be challenged again within the remaining window
+    // and prevents "immunization" attacks (filing a weak challenge that gets rejected
+    // to permanently protect a validation from legitimate challenges)
+    validation.challenged = false;
+    this.validationsTable.update(validation, this.receiver);
+
     const validator = this.validatorsTable.requireGet(validation.validator.N, "Validator not found");
 
     // Track reward amount for sending after state update
@@ -685,18 +699,22 @@ export class AgentValidContract extends Contract {
 
       // Slash validator
       const slashAmount = (validator.stake * config.slash_percent) / 10000;
+      let actualSlash: u64 = 0;
       if (slashAmount > 0 && validator.stake >= slashAmount) {
         validator.stake -= slashAmount;
-
-        // C2 FIX: Overflow check before reward calculation
-        check(
-          challengeRecord.stake <= U64.MAX_VALUE - slashAmount,
-          "Reward calculation would overflow"
-        );
-        // Prepare reward for challenger (stake return + slash reward)
-        rewardAmount = challengeRecord.stake + slashAmount;
-        rewardRecipient = challengeRecord.challenger;
+        actualSlash = slashAmount;
       }
+
+      // AUDIT FIX: Always return challenger's stake when upheld, plus any slash reward.
+      // Previously, if validator had 0 stake (already slashed), the challenger's funds
+      // were permanently trapped because the entire reward block was inside the if.
+      // C2 FIX: Overflow check before reward calculation
+      check(
+        challengeRecord.stake <= U64.MAX_VALUE - actualSlash,
+        "Reward calculation would overflow"
+      );
+      rewardAmount = challengeRecord.stake + actualSlash;
+      rewardRecipient = challengeRecord.challenger;
     } else {
       // Challenge rejected - validator was correct
       // C1 FIX: Overflow check before adding stake
@@ -712,8 +730,13 @@ export class AgentValidContract extends Contract {
     // H6 FIX: Only calculate meaningful accuracy after minimum sample size
     const MIN_VALIDATIONS_FOR_ACCURACY: u64 = 5;
     if (validator.total_validations >= MIN_VALIDATIONS_FOR_ACCURACY) {
-      const correct = validator.total_validations - validator.incorrect_validations;
-      validator.accuracy_score = (correct * 10000) / validator.total_validations;
+      // AUDIT FIX: Guard against underflow if incorrect_validations somehow exceeds total
+      if (validator.incorrect_validations >= validator.total_validations) {
+        validator.accuracy_score = 0;
+      } else {
+        const correct = validator.total_validations - validator.incorrect_validations;
+        validator.accuracy_score = (correct * 10000) / validator.total_validations;
+      }
     }
     // H2 FIX: Don't change accuracy if not enough data - keep at initial 10000 (100%)
     // This stays within 0-10000 range and indicates "not yet challenged"
@@ -832,10 +855,13 @@ export class AgentValidContract extends Contract {
       // This only happens when the challenge is actually funded, preventing
       // free griefing attacks where unfunded challenges block validator unstaking.
       const validation = this.validationsTable.get(challengeRecord.validation_id);
-      if (validation != null && !validation.challenged) {
-        validation.challenged = true;
-        this.validationsTable.update(validation, this.receiver);
-      }
+      check(validation != null, "Validation not found for challenge");
+      // AUDIT FIX: Prevent multiple funded challenges against the same validation.
+      // Multiple unfunded challenges can be created (race window), but only the first
+      // to be funded is accepted. This prevents duplicate slashing/accuracy penalties.
+      check(!validation!.challenged, "Validation already has a funded challenge");
+      validation!.challenged = true;
+      this.validationsTable.update(validation!, this.receiver);
 
       print(`Challenge ${challengeId} funded. Validation ${challengeRecord.validation_id} is now challenged.`);
     } else {

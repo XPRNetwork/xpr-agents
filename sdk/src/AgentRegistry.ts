@@ -547,7 +547,7 @@ export class AgentRegistry {
           data: {
             agent: this.session!.auth.actor,
             plugin_id: pluginId,
-            config: JSON.stringify(config),
+            pluginConfig: JSON.stringify(config),
           },
         },
       ],

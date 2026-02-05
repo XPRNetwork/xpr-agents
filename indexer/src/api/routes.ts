@@ -146,6 +146,108 @@ export function createRoutes(db: Database.Database): Router {
     res.json({ plugins });
   });
 
+  // ============== JOBS ==============
+
+  // List jobs
+  router.get('/jobs', (req: Request, res: Response) => {
+    const { limit = '100', offset = '0', state, client, agent } = req.query;
+
+    const limitNum = Math.min(parseInt(limit as string) || 100, 500);
+    const offsetNum = parseInt(offset as string) || 0;
+
+    let query = 'SELECT * FROM jobs WHERE 1=1';
+    const params: any[] = [];
+
+    if (state !== undefined) {
+      query += ' AND state = ?';
+      params.push(parseInt(state as string));
+    }
+
+    if (client) {
+      query += ' AND client = ?';
+      params.push(client);
+    }
+
+    if (agent) {
+      query += ' AND agent = ?';
+      params.push(agent);
+    }
+
+    query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    params.push(limitNum, offsetNum);
+
+    const jobs = db.prepare(query).all(...params);
+    res.json({ jobs });
+  });
+
+  // Get single job
+  router.get('/jobs/:id', (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(parseInt(id));
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    return res.json(job);
+  });
+
+  // Get job milestones
+  router.get('/jobs/:id/milestones', (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    const milestones = db.prepare(
+      'SELECT * FROM milestones WHERE job_id = ? ORDER BY milestone_order ASC'
+    ).all(parseInt(id));
+
+    res.json({ milestones });
+  });
+
+  // Get job disputes
+  router.get('/jobs/:id/disputes', (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    const disputes = db.prepare(
+      'SELECT * FROM escrow_disputes WHERE job_id = ? ORDER BY created_at DESC'
+    ).all(parseInt(id));
+
+    res.json({ disputes });
+  });
+
+  // ============== ARBITRATORS ==============
+
+  // List arbitrators
+  router.get('/arbitrators', (req: Request, res: Response) => {
+    const { limit = '100', offset = '0', active_only = 'true' } = req.query;
+
+    const limitNum = Math.min(parseInt(limit as string) || 100, 500);
+    const offsetNum = parseInt(offset as string) || 0;
+    const activeOnly = active_only === 'true';
+
+    let query = 'SELECT * FROM arbitrators';
+    if (activeOnly) {
+      query += ' WHERE active = 1';
+    }
+    query += ' ORDER BY successful_cases DESC LIMIT ? OFFSET ?';
+
+    const arbitrators = db.prepare(query).all(limitNum, offsetNum);
+    res.json({ arbitrators });
+  });
+
+  // Get single arbitrator
+  router.get('/arbitrators/:account', (req: Request, res: Response) => {
+    const { account } = req.params;
+
+    const arbitrator = db.prepare('SELECT * FROM arbitrators WHERE account = ?').get(account);
+
+    if (!arbitrator) {
+      return res.status(404).json({ error: 'Arbitrator not found' });
+    }
+
+    return res.json(arbitrator);
+  });
+
   // ============== STATS ==============
 
   // Get global stats

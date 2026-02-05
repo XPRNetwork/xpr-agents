@@ -326,6 +326,10 @@ export class AgentCoreContract extends Contract {
   ): void {
     requireAuth(this.receiver);
 
+    // Prevent re-initialization - use setconfig to modify settings after init
+    const existingConfig = this.configSingleton.get();
+    check(existingConfig.owner == EMPTY_NAME, "Contract already initialized. Use setconfig to modify settings.");
+
     // H7 FIX: Validate contract accounts exist
     check(isAccount(owner), "Owner must be a valid account");
     if (feed_contract != EMPTY_NAME) {
@@ -521,6 +525,13 @@ export class AgentCoreContract extends Contract {
     check(!config.paused, "Contract is paused");
 
     const agent = this.agentsTable.requireGet(account.N, "Agent not found");
+
+    // Re-check minimum stake when reactivating
+    if (active && config.min_stake > 0) {
+      const systemStake = this.getSystemStake(account);
+      check(systemStake >= config.min_stake, "Insufficient stake to reactivate. Required: " + config.min_stake.toString());
+    }
+
     agent.active = active;
 
     this.agentsTable.update(agent, this.receiver);
@@ -631,23 +642,31 @@ export class AgentCoreContract extends Contract {
     // H2 FIX: Check KYC and refund deposit if KYC was revoked
     const kycLevel = this.getKycLevel(new_owner);
     if (kycLevel < 1) {
-      // KYC was revoked between deposit and claim - refund the deposit
+      // KYC was revoked between deposit and claim - refund the deposit and abort claim
+      // NOTE: We must NOT use check(false) here because that would revert the entire
+      // transaction including the refund transfer. Instead, we clear state and return.
       if (agentRecord.claim_deposit > 0 && agentRecord.deposit_payer != EMPTY_NAME) {
         const refundAmount = agentRecord.claim_deposit;
         const refundTo = agentRecord.deposit_payer;
 
-        // Clear deposit tracking but keep pending_owner so agent can re-approve same or different claimant
+        // Clear deposit and pending_owner so agent can start fresh
         agentRecord.claim_deposit = 0;
         agentRecord.deposit_payer = EMPTY_NAME;
+        agentRecord.pending_owner = EMPTY_NAME;
         this.agentsTable.update(agentRecord, this.receiver);
 
-        // Refund the deposit
+        // Refund the deposit (this inline action will now commit successfully)
         this.sendTokens(refundTo, new Asset(refundAmount, this.XPR_SYMBOL), "Claim deposit refund - KYC revoked for " + agent.toString());
 
-        print(`KYC revoked for ${new_owner.toString()}. Refunded ${refundAmount / 10000} XPR to ${refundTo.toString()}.`);
+        print(`KYC revoked for ${new_owner.toString()}. Refunded ${refundAmount / 10000} XPR to ${refundTo.toString()}. Claim cancelled.`);
+      } else {
+        // No deposit to refund, just clear pending_owner
+        agentRecord.pending_owner = EMPTY_NAME;
+        this.agentsTable.update(agentRecord, this.receiver);
+
+        print(`KYC revoked for ${new_owner.toString()}. No deposit to refund. Claim cancelled.`);
       }
-      check(false, "Owner must have KYC level 1 or higher to claim an agent. Your deposit has been refunded.");
-      return; // Unreachable but makes intent clear
+      return;
     }
 
     // Check that claim fee was paid by the new_owner
@@ -1215,6 +1234,8 @@ export class AgentCoreContract extends Contract {
     // Validate amount is positive first
     check(quantity.amount > 0, "Transfer amount must be positive");
     const transferAmount: u64 = <u64>quantity.amount;
+    // Overflow guard on deposit accumulation
+    check(agentRecord!.claim_deposit <= U64.MAX_VALUE - transferAmount, "Deposit would overflow");
     let newDeposit: u64 = agentRecord!.claim_deposit + transferAmount;
     let excess: u64 = 0;
 
