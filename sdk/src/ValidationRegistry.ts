@@ -406,7 +406,7 @@ export class ValidationRegistry {
       method: raw.method,
       specializations: parseSpecializations(raw.specializations),
       total_validations: parseInt(raw.total_validations),
-      correct_validations: parseInt(raw.correct_validations),
+      incorrect_validations: parseInt(raw.incorrect_validations),
       accuracy_score: parseInt(raw.accuracy_score),
       registered_at: parseInt(raw.registered_at),
       active: raw.active === 1,
