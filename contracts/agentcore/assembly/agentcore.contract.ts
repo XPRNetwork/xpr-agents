@@ -555,6 +555,10 @@ export class AgentCoreContract extends Contract {
   ): void {
     requireAuth(author);
 
+    // MEDIUM FIX: Add pause check to plugin registration
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
     check(name.length > 0 && name.length <= 64, "Name must be 1-64 characters");
     check(version.length > 0 && version.length <= 16, "Version must be 1-16 characters");
     check(isAccount(contract), "Plugin contract must be valid account");
@@ -600,8 +604,15 @@ export class AgentCoreContract extends Contract {
   }
 
   @action("addplugin")
-  addPlugin(agent: Name, plugin_id: u64, config: string): void {
+  addPlugin(agent: Name, plugin_id: u64, pluginConfig: string): void {
     requireAuth(agent);
+
+    // MEDIUM FIX: Add pause check to adding plugins
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
+    // LOW FIX: Validate plugin config length
+    check(pluginConfig.length <= 4096, "Plugin config must be <= 4096 characters");
 
     const agentRecord = this.agentsTable.requireGet(agent.N, "Agent not found");
     check(agentRecord.active, "Agent is not active");
@@ -622,7 +633,7 @@ export class AgentCoreContract extends Contract {
       this.agentPlugsTable.availablePrimaryKey,
       agent,
       plugin_id,
-      config,
+      pluginConfig,
       true
     );
 
@@ -633,6 +644,10 @@ export class AgentCoreContract extends Contract {
   removePlugin(agent: Name, agentplugin_id: u64): void {
     requireAuth(agent);
 
+    // MEDIUM FIX: Add pause check to removing plugins
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
     const agentPlugin = this.agentPlugsTable.requireGet(agentplugin_id, "Agent plugin not found");
     check(agentPlugin.agent == agent, "Not your plugin");
 
@@ -642,6 +657,10 @@ export class AgentCoreContract extends Contract {
   @action("toggleplug")
   togglePlugin(agent: Name, agentplugin_id: u64, enabled: boolean): void {
     requireAuth(agent);
+
+    // MEDIUM FIX: Add pause check to toggling plugins
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
 
     const agentPlugin = this.agentPlugsTable.requireGet(agentplugin_id, "Agent plugin not found");
     check(agentPlugin.agent == agent, "Not your plugin");
@@ -661,6 +680,10 @@ export class AgentCoreContract extends Contract {
     // Only plugin contracts can call this
     const plugin = this.pluginsTable.requireGet(plugin_id, "Plugin not found");
     requireAuth(plugin.contract);
+
+    // MEDIUM FIX: Add pause check to plugin results
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
 
     // M14/M15 FIX: Validate result_data and status
     check(result_data.length <= 8192, "Result data must be <= 8192 characters");
@@ -705,6 +728,52 @@ export class AgentCoreContract extends Contract {
     );
 
     this.pluginResultsTable.store(result, this.receiver);
+  }
+
+  // ============== PLUGIN RESULT CLEANUP ==============
+
+  /**
+   * MEDIUM FIX: Clean up old plugin results to prevent unbounded table growth
+   * Agents can clean up their own results, or owner can clean up any results
+   * @param agent - Agent whose results to clean up
+   * @param max_age - Maximum age in seconds (results older than this are deleted)
+   * @param max_delete - Maximum number of results to delete in one call (prevent timeout)
+   */
+  @action("cleanresults")
+  cleanPluginResults(agent: Name, max_age: u64, max_delete: u64): void {
+    const config = this.configSingleton.get();
+
+    // Only agent or owner can clean up results
+    const isOwner = hasAuth(config.owner);
+    const isAgent = hasAuth(agent);
+    check(isOwner || isAgent, "Only agent or contract owner can clean up results");
+
+    // Validate parameters
+    check(max_age >= 3600, "Max age must be at least 1 hour (3600 seconds)");
+    check(max_delete > 0 && max_delete <= 100, "Max delete must be 1-100");
+
+    const cutoffTime = currentTimeSec() - max_age;
+    let deleted: u64 = 0;
+
+    // Iterate through results for this agent
+    let result = this.pluginResultsTable.getBySecondaryU64(agent.N, 0);
+    while (result != null && deleted < max_delete) {
+      const currentResult = result;
+      // Move to next before potentially deleting
+      result = this.pluginResultsTable.nextBySecondaryU64(currentResult, 0);
+      // Break if we've moved past this agent's entries
+      if (result != null && result.agent != agent) {
+        result = null;
+      }
+
+      // Delete if older than cutoff
+      if (currentResult.timestamp < cutoffTime) {
+        this.pluginResultsTable.remove(currentResult);
+        deleted++;
+      }
+    }
+
+    print(`Cleaned up ${deleted} old plugin results for ${agent.toString()}`);
   }
 
 }

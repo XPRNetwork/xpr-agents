@@ -490,6 +490,9 @@ export class AgentEscrowContract extends Contract {
   deliverJob(agent: Name, job_id: u64, evidence_uri: string): void {
     requireAuth(agent);
 
+    // MEDIUM FIX: Validate evidence_uri for consistency with other actions
+    check(evidence_uri.length <= 2048, "Evidence URI must be <= 2048 characters");
+
     const job = this.jobsTable.requireGet(job_id, "Job not found");
     check(job.agent == agent, "Only assigned agent can deliver");
     check(job.state == 3, "Job must be in progress");
