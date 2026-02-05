@@ -48,7 +48,7 @@ export function createRoutes(db: Database.Database): Router {
       return res.status(404).json({ error: 'Agent not found' });
     }
 
-    res.json(agent);
+    return res.json(agent);
   });
 
   // Get agent feedback
@@ -118,7 +118,7 @@ export function createRoutes(db: Database.Database): Router {
       return res.status(404).json({ error: 'Validator not found' });
     }
 
-    res.json(validator);
+    return res.json(validator);
   });
 
   // ============== PLUGINS ==============
@@ -211,7 +211,7 @@ export function createRoutes(db: Database.Database): Router {
       LIMIT ?
     `).all(searchTerm, searchTerm, searchTerm, limitNum);
 
-    res.json({ agents });
+    return res.json({ agents });
   });
 
   return router;
