@@ -2,6 +2,9 @@ import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
 import { updateStats } from '../db/schema';
 
+/**
+ * Handle escrow contract actions
+ */
 export function handleEscrowAction(db: Database.Database, action: StreamAction): void {
   const { name, data } = action.act;
 
@@ -282,4 +285,63 @@ function logEvent(db: Database.Database, action: StreamAction): void {
     JSON.stringify(action.act.data),
     timestamp
   );
+}
+
+/**
+ * Handle eosio.token::transfer notifications to/from agentescrow
+ * Updates funded_amount for jobs (incoming) and released_amount (outgoing)
+ */
+export function handleEscrowTransfer(db: Database.Database, action: StreamAction, escrowContract: string): void {
+  const { from, to, quantity, memo } = action.act.data;
+
+  // Parse quantity (e.g., "100.0000 XPR")
+  const [amountStr] = quantity.split(' ');
+  const amount = Math.floor(parseFloat(amountStr) * 10000);
+
+  if (to === escrowContract) {
+    // Incoming transfer to escrow
+    if (memo.startsWith('fund:')) {
+      // Job funding: memo = "fund:JOB_ID"
+      const jobIdStr = memo.substring(5);
+      const jobId = parseInt(jobIdStr);
+
+      if (!isNaN(jobId)) {
+        const stmt = db.prepare(`
+          UPDATE jobs
+          SET funded_amount = funded_amount + ?, state = CASE WHEN state = 0 THEN 1 ELSE state END, updated_at = strftime('%s', 'now')
+          WHERE id = ?
+        `);
+        stmt.run(amount, jobId);
+        console.log(`Job ${jobId} funded with ${amountStr}`);
+      }
+    } else if (memo === 'arbstake' || memo.startsWith('arbstake:')) {
+      // Arbitrator staking
+      const stmt = db.prepare(`
+        UPDATE arbitrators
+        SET stake = stake + ?
+        WHERE account = ?
+      `);
+      stmt.run(amount, from);
+      console.log(`Arbitrator ${from} staked ${amountStr}`);
+    }
+  } else if (from === escrowContract) {
+    // Outgoing transfer from escrow (payment release)
+    // Memo format: "Job X payment" or "Job X platform fee" or similar
+    const jobMatch = memo.match(/Job (\d+)/i);
+    if (jobMatch) {
+      const jobId = parseInt(jobMatch[1]);
+      if (!isNaN(jobId)) {
+        const stmt = db.prepare(`
+          UPDATE jobs
+          SET released_amount = released_amount + ?, updated_at = strftime('%s', 'now')
+          WHERE id = ?
+        `);
+        stmt.run(amount, jobId);
+        console.log(`Job ${jobId} released ${amountStr} to ${to}`);
+      }
+    }
+  }
+
+  // Log the transfer event
+  logEvent(db, action);
 }

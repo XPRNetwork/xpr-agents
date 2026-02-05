@@ -5,7 +5,7 @@ import { HyperionStream, StreamAction } from './stream';
 import { handleAgentAction } from './handlers/agent';
 import { handleFeedbackAction } from './handlers/feedback';
 import { handleValidationAction } from './handlers/validation';
-import { handleEscrowAction } from './handlers/escrow';
+import { handleEscrowAction, handleEscrowTransfer } from './handlers/escrow';
 import { createRoutes } from './api/routes';
 
 // Configuration
@@ -18,10 +18,14 @@ const config = {
     agentfeed: process.env.AGENT_FEED_CONTRACT || 'agentfeed',
     agentvalid: process.env.AGENT_VALID_CONTRACT || 'agentvalid',
     agentescrow: process.env.AGENT_ESCROW_CONTRACT || 'agentescrow',
+    token: 'eosio.token', // For tracking escrow funding
   },
 };
 
 // Initialize database
+// IMPORTANT: This indexer uses synthetic IDs (MAX(id)+1) for records.
+// It must replay from genesis or be seeded with a snapshot to maintain
+// correct ID mappings for dispute/challenge/job resolution lookups.
 console.log('Initializing database...');
 const db = initDatabase(config.dbPath);
 updateStats(db);
@@ -68,6 +72,12 @@ stream.on('action', (action: StreamAction) => {
       handleValidationAction(db, action);
     } else if (contract === config.contracts.agentescrow) {
       handleEscrowAction(db, action);
+    } else if (contract === config.contracts.token && action.act.name === 'transfer') {
+      // Handle token transfers to/from escrow contract for funding/release tracking
+      const { from, to } = action.act.data;
+      if (to === config.contracts.agentescrow || from === config.contracts.agentescrow) {
+        handleEscrowTransfer(db, action, config.contracts.agentescrow);
+      }
     }
   } catch (error) {
     console.error(`Error handling action ${action.act.name}:`, error);
