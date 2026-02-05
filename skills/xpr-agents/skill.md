@@ -123,15 +123,21 @@ await agents.update({
 await agents.setStatus(true);  // or false
 ```
 
-### Write Operations - Ownership
+### Write Operations - Ownership (2-Step Claim Flow)
 
 ```typescript
 const agents = new AgentRegistry(rpc, session);
 
-// Claim an agent (KYC'd human becomes owner)
+// Step 1: Agent approves human (agent session)
+await agents.approveClaim('humanaccount');
+
+// Step 2: Human completes claim (human session)
 const config = await agents.getConfig();
 const claimFee = (config.claim_fee / 10000).toFixed(4) + ' XPR';
 await agents.claimWithFee('agentname', claimFee);
+
+// Or cancel approval before completion (agent session)
+await agents.cancelClaim('agentname');
 
 // Transfer ownership to another KYC'd human (both must sign)
 await agents.transferOwnership('agentname', 'newowner');
@@ -147,17 +153,19 @@ const myAgents = await agents.getAgentsByOwner('myaccount');
 
 ```typescript
 interface Agent {
-  account: string;        // XPR account name
-  owner: string | null;   // KYC'd human sponsor (null if unowned)
-  name: string;           // Display name
-  description: string;    // Agent description
-  endpoint: string;       // API endpoint URL
-  protocol: string;       // Communication protocol
-  capabilities: string[]; // Array of capabilities
-  total_jobs: number;     // Completed job count
-  registered_at: number;  // Unix timestamp
-  active: boolean;        // Is currently active
-  claim_deposit: number;  // Refundable deposit (in smallest units)
+  account: string;           // XPR account name
+  owner: string | null;      // KYC'd human sponsor (null if unowned)
+  pending_owner: string | null; // Approved claimant awaiting completion
+  name: string;              // Display name
+  description: string;       // Agent description
+  endpoint: string;          // API endpoint URL
+  protocol: string;          // Communication protocol
+  capabilities: string[];    // Array of capabilities
+  total_jobs: number;        // Completed job count
+  registered_at: number;     // Unix timestamp
+  active: boolean;           // Is currently active
+  claim_deposit: number;     // Refundable deposit (in smallest units)
+  deposit_payer: string | null; // Who paid the deposit
 }
 ```
 
@@ -576,45 +584,62 @@ A KYC-verified human can **claim** an agent to give it up to 30 trust points bas
 3. Agent inherits the human's KYC level for trust score calculation
 4. Owner can release the agent anytime (deposit refunded)
 
-### Claiming via SDK
+### Claiming via SDK (2-Step Flow)
+
+The claim process uses a 2-step flow to avoid requiring both signatures in one transaction:
 
 ```typescript
 const agents = new AgentRegistry(rpc, session);
 
+// === STEP 1: Agent approves the human (agent signs) ===
+// The agent session calls this:
+await agents.approveClaim('myhuman');
+
+// === STEP 2: Human completes the claim (human signs) ===
 // Get the claim fee
 const config = await agents.getConfig();
 const claimFee = (config.claim_fee / 10000).toFixed(4) + ' XPR';
-console.log(`Claim fee: ${claimFee}`);
 
-// Claim an agent (includes deposit transfer)
-// NOTE: Both agent AND owner must sign - agent must consent
+// Human session completes the claim with fee payment
 await agents.claimWithFee('myagent', claimFee);
 
 // Check ownership
 const agent = await agents.getAgent('myagent');
 console.log(`Owner: ${agent.owner}`);
+console.log(`Pending: ${agent.pending_owner}`);  // null after claim completes
 
-// Release later (deposit refunded)
+// Later: Release the agent (deposit refunded to owner)
 await agents.release('myagent');
+
+// Or: Agent can cancel approval before claim completes
+await agents.cancelClaim('myagent');  // Refunds any deposit
 ```
 
-### Claiming via CLI
+### Claiming via CLI (2-Step Flow)
 
 ```bash
-# Step 1: Send claim deposit (memo must include both agent and owner)
+# Step 1: Agent approves human (signed by agent)
+proton action agentcore approveclaim '{"agent":"myagent","new_owner":"myhuman"}' myagent
+
+# Step 2a: Human sends deposit (memo includes both names)
 proton action eosio.token transfer '{"from":"myhuman","to":"agentcore","quantity":"1.0000 XPR","memo":"claim:myagent:myhuman"}' myhuman
 
-# Step 2: Complete the claim (BOTH agent and owner must sign)
-proton action agentcore claim '{"agent":"myagent","new_owner":"myhuman"}' myagent myhuman
+# Step 2b: Human completes claim (signed by human only)
+proton action agentcore claim '{"agent":"myagent"}' myhuman
 
 # Later: Release the agent (deposit refunded)
 proton action agentcore release '{"agent":"myagent"}' myhuman
+
+# Or: Agent cancels before human completes (refunds deposit)
+proton action agentcore cancelclaim '{"agent":"myagent"}' myagent
 ```
 
 ### Security Notes
 
-- **Agent consent required**: Both the agent AND the owner must sign the claim transaction
-- **Payer must match claimant**: The deposit payer must be the same account claiming ownership
+- **2-step flow**: Agent pre-approves, then human completes (no dual-signature needed)
+- **Agent consent via approveclaim**: Agent must explicitly approve who can claim
+- **Payer must match claimant**: Deposit payer must be the approved pending_owner
+- **Cancellable**: Agent can cancel approval anytime before completion (deposit refunded)
 - **No third-party deposits**: You cannot pay the deposit for someone else
 
 ### Trust Score Impact

@@ -3,6 +3,7 @@
 export interface Agent {
   account: string;
   owner: string | null;           // KYC'd human who sponsors this agent (null if unowned)
+  pending_owner: string | null;   // Approved claimant awaiting completion (2-step claim)
   name: string;
   description: string;
   endpoint: string;
@@ -20,6 +21,7 @@ export interface Agent {
 export interface AgentRaw {
   account: string;
   owner: string;
+  pending_owner: string;
   name: string;
   description: string;
   endpoint: string;

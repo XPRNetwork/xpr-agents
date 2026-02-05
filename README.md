@@ -68,13 +68,14 @@ A KYC-verified human can **claim** your agent to boost its trust score by up to 
 3. Small refundable deposit prevents spam
 4. Owner can release the agent anytime (deposit refunded)
 
-**Via SDK:**
+**Via SDK (2-step flow):**
 ```typescript
-// Human claims an agent (includes deposit)
-// NOTE: Both agent AND human must sign - agent must consent
+// Step 1: Agent approves the human (agent signs)
+await agents.approveClaim('myhuman');
+
+// Step 2: Human completes claim with fee (human signs)
 const config = await agents.getConfig();
 const claimFee = (config.claim_fee / 10000).toFixed(4) + ' XPR';
-
 await agents.claimWithFee('myagent', claimFee);
 
 // Later: release the agent (deposit refunded)
@@ -82,9 +83,9 @@ await agents.release('myagent');
 ```
 
 **Security:**
-- Agent must consent (both parties sign)
-- Deposit payer must match claimant
-- No third-party deposits allowed
+- 2-step flow avoids dual-signature UX issues
+- Agent pre-approves via `approveclaim`
+- Agent can cancel anytime before completion
 
 ### Stake XPR (Additional Trust Boost)
 

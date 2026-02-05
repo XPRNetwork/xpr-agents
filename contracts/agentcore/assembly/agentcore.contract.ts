@@ -95,6 +95,7 @@ export class Agent extends Table {
   constructor(
     public account: Name = EMPTY_NAME,
     public owner: Name = EMPTY_NAME,        // KYC'd human who sponsors this agent
+    public pending_owner: Name = EMPTY_NAME, // Approved claimant (2-step flow)
     public name: string = "",
     public description: string = "",
     public endpoint: string = "",
@@ -442,6 +443,7 @@ export class AgentCoreContract extends Contract {
     const agent = new Agent(
       account,
       EMPTY_NAME,   // owner - no sponsor initially
+      EMPTY_NAME,   // pending_owner - no pending claim
       name,
       description,
       endpoint,
@@ -555,21 +557,15 @@ export class AgentCoreContract extends Contract {
   // ============== AGENT OWNERSHIP ==============
 
   /**
-   * Claim an agent - a KYC'd human sponsors an agent to boost its trust score.
-   * The agent inherits the owner's KYC level for trust calculation.
-   * Requires payment of claim_fee (refundable on release).
+   * Step 1 of 2-step claim: Agent approves a specific human to claim them.
+   * This gives consent without requiring both signatures in one transaction.
    *
-   * IMPORTANT: Both the agent AND the new_owner must sign this transaction.
-   * This ensures the agent consents to being claimed.
-   *
-   * @param agent - The agent account to claim
-   * @param new_owner - The KYC'd human claiming the agent
+   * @param agent - The agent account giving consent
+   * @param new_owner - The KYC'd human being approved to claim
    */
-  @action("claim")
-  claim(agent: Name, new_owner: Name): void {
-    // SECURITY: Both parties must sign - agent consents to being claimed
+  @action("approveclaim")
+  approveClaim(agent: Name, new_owner: Name): void {
     requireAuth(agent);
-    requireAuth(new_owner);
 
     const config = this.configSingleton.get();
     check(!config.paused, "Contract is paused");
@@ -581,14 +577,49 @@ export class AgentCoreContract extends Contract {
     const agentRecord = this.agentsTable.requireGet(agent.N, "Agent not found");
 
     // Agent must not already have an owner
-    check(agentRecord.owner == EMPTY_NAME, "Agent already has an owner. Use transfer action.");
+    check(agentRecord.owner == EMPTY_NAME, "Agent already has an owner");
 
     // Verify new_owner has KYC (must have at least level 1 to sponsor)
     const kycLevel = this.getKycLevel(new_owner);
+    check(kycLevel >= 1, "Approved owner must have KYC level 1 or higher");
+
+    // Set pending owner (agent consent)
+    agentRecord.pending_owner = new_owner;
+    this.agentsTable.update(agentRecord, this.receiver);
+
+    print(`Agent ${agent.toString()} approved ${new_owner.toString()} to claim (KYC level ${kycLevel})`);
+  }
+
+  /**
+   * Step 2 of 2-step claim: Human completes the claim after agent approval.
+   * Requires the agent to have called approveclaim first.
+   *
+   * @param agent - The agent account to claim
+   */
+  @action("claim")
+  claim(agent: Name): void {
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
+    // Get agent record
+    const agentRecord = this.agentsTable.requireGet(agent.N, "Agent not found");
+
+    // Agent must not already have an owner
+    check(agentRecord.owner == EMPTY_NAME, "Agent already has an owner. Use transfer action.");
+
+    // Must have a pending owner (agent gave consent)
+    check(agentRecord.pending_owner != EMPTY_NAME, "Agent has not approved any claimant. Agent must call approveclaim first.");
+
+    const new_owner = agentRecord.pending_owner;
+
+    // Only the approved owner can complete the claim
+    requireAuth(new_owner);
+
+    // Verify new_owner still has KYC
+    const kycLevel = this.getKycLevel(new_owner);
     check(kycLevel >= 1, "Owner must have KYC level 1 or higher to claim an agent");
 
-    // Check that claim fee was paid by the new_owner (handled by transfer notification)
-    // The deposit_payer must match new_owner to prevent third-party deposits
+    // Check that claim fee was paid by the new_owner
     if (config.claim_fee > 0) {
       check(agentRecord.claim_deposit >= config.claim_fee,
         "Claim fee not paid. Send " + (config.claim_fee / 10000).toString() + " XPR to this contract with memo 'claim:" + agent.toString() + ":" + new_owner.toString() + "'");
@@ -596,11 +627,55 @@ export class AgentCoreContract extends Contract {
         "Deposit was paid by different account. Payer must match claimant.");
     }
 
-    // Set owner
+    // Complete the claim - clear pending state and tracking fields
     agentRecord.owner = new_owner;
+    agentRecord.pending_owner = EMPTY_NAME;
+    agentRecord.deposit_payer = EMPTY_NAME;  // Clear after successful claim
+    // Note: claim_deposit stays for potential refund on release
     this.agentsTable.update(agentRecord, this.receiver);
 
     print(`Agent ${agent.toString()} claimed by ${new_owner.toString()} (KYC level ${kycLevel})`);
+  }
+
+  /**
+   * Cancel a pending claim approval.
+   * Only the agent can cancel their own approval.
+   *
+   * @param agent - The agent account cancelling approval
+   */
+  @action("cancelclaim")
+  cancelClaim(agent: Name): void {
+    requireAuth(agent);
+
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
+    const agentRecord = this.agentsTable.requireGet(agent.N, "Agent not found");
+
+    // Must have a pending owner to cancel
+    check(agentRecord.pending_owner != EMPTY_NAME, "No pending claim to cancel");
+
+    const cancelledOwner = agentRecord.pending_owner;
+
+    // Clear pending owner
+    agentRecord.pending_owner = EMPTY_NAME;
+
+    // Refund any deposit if one was made
+    if (agentRecord.claim_deposit > 0 && agentRecord.deposit_payer != EMPTY_NAME) {
+      const refundAmount = agentRecord.claim_deposit;
+      const refundTo = agentRecord.deposit_payer;
+
+      agentRecord.claim_deposit = 0;
+      agentRecord.deposit_payer = EMPTY_NAME;
+      this.agentsTable.update(agentRecord, this.receiver);
+
+      // Send refund
+      this.sendTokens(refundTo, new Asset(refundAmount, this.XPR_SYMBOL), "Claim cancelled - deposit refund for " + agent.toString());
+    } else {
+      this.agentsTable.update(agentRecord, this.receiver);
+    }
+
+    print(`Agent ${agent.toString()} cancelled claim approval for ${cancelledOwner.toString()}`);
   }
 
   /**
@@ -1010,6 +1085,11 @@ export class AgentCoreContract extends Contract {
 
     // SECURITY: Payer must match intended owner specified in memo
     check(from == intendedOwner, "Payer must match intended owner in memo. You cannot pay deposit for someone else.");
+
+    // If agent has approved a claimant, deposit must be from that account
+    if (agentRecord!.pending_owner != EMPTY_NAME) {
+      check(agentRecord!.pending_owner == from, "Deposit must be from approved claimant");
+    }
 
     // If there's already a deposit, it must be from the same payer
     if (agentRecord!.deposit_payer != EMPTY_NAME) {

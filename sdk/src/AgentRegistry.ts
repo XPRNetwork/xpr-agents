@@ -215,7 +215,7 @@ export class AgentRegistry {
     if (agent.owner) {
       const kycResult = await this.rpc.get_table_rows<{
         acc: string;
-        kyc: Array<{ kyc_level: number }>;
+        kyc: Array<{ kyc_level: number | string; kyc_provider?: string }>;
       }>({
         json: true,
         code: 'eosio.proton',
@@ -227,8 +227,21 @@ export class AgentRegistry {
       });
 
       if (kycResult.rows.length > 0 && kycResult.rows[0].kyc?.length > 0) {
-        // Find the highest KYC level
-        kycLevel = Math.max(...kycResult.rows[0].kyc.map(k => k.kyc_level));
+        // Find the highest KYC level, handling both number and string formats
+        const levels = kycResult.rows[0].kyc.map(k => {
+          // Handle various formats: number, string number, or "provider:level" format
+          if (typeof k.kyc_level === 'number') {
+            return k.kyc_level;
+          }
+          const levelStr = String(k.kyc_level);
+          // Check for "provider:level" format
+          if (levelStr.includes(':')) {
+            const parts = levelStr.split(':');
+            return parseInt(parts[parts.length - 1], 10) || 0;
+          }
+          return parseInt(levelStr, 10) || 0;
+        });
+        kycLevel = Math.max(...levels.filter(l => !isNaN(l)));
       }
     }
 
@@ -491,12 +504,44 @@ export class AgentRegistry {
   // ============== OWNERSHIP ==============
 
   /**
-   * Claim an agent - a KYC'd human sponsors an agent to boost its trust score.
-   * The agent inherits the owner's KYC level for trust calculation.
+   * Step 1: Agent approves a human to claim them.
+   * This is called by the AGENT to give consent.
    *
-   * IMPORTANT: Before calling this, you must send the claim fee to the contract
-   * with memo "claim:agentname:ownername". Then call this action to complete the claim.
-   * Both the agent AND the owner must sign this transaction.
+   * @param newOwner - The KYC'd human being approved to claim
+   */
+  async approveClaim(newOwner: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    // The session holder IS the agent giving consent
+    const agent = this.session!.auth.actor;
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'approveclaim',
+          authorization: [
+            {
+              actor: agent,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            agent,
+            new_owner: newOwner,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Step 2: Human completes the claim after agent approval.
+   * Agent must have called approveClaim first.
+   *
+   * IMPORTANT: Before calling this, you must:
+   * 1. Have the agent call approveClaim(yourAccount)
+   * 2. Send the claim fee with memo "claim:agentname:yourname"
    *
    * @param agent - The agent account to claim
    */
@@ -511,12 +556,6 @@ export class AgentRegistry {
           account: this.contract,
           name: 'claim',
           authorization: [
-            // Agent must consent
-            {
-              actor: agent,
-              permission: 'active',
-            },
-            // Owner claims
             {
               actor: owner,
               permission: this.session!.auth.permission,
@@ -524,7 +563,6 @@ export class AgentRegistry {
           ],
           data: {
             agent,
-            new_owner: owner,
           },
         },
       ],
@@ -532,11 +570,8 @@ export class AgentRegistry {
   }
 
   /**
-   * Send claim fee and claim an agent in one transaction.
-   * Combines the token transfer and claim action.
-   *
-   * IMPORTANT: Both the agent account AND the caller must sign.
-   * The agent must consent to being claimed.
+   * Send claim fee and complete the claim in one transaction.
+   * Agent must have already called approveClaim first.
    *
    * @param agent - The agent account to claim
    * @param amount - The claim fee amount (e.g., "1.0000 XPR")
@@ -561,19 +596,13 @@ export class AgentRegistry {
             from: owner,
             to: this.contract,
             quantity: amount,
-            memo: `claim:${agent}:${owner}`,  // New format includes owner
+            memo: `claim:${agent}:${owner}`,
           },
         },
         {
           account: this.contract,
           name: 'claim',
           authorization: [
-            // Agent must consent
-            {
-              actor: agent,
-              permission: 'active',
-            },
-            // Owner claims
             {
               actor: owner,
               permission: this.session!.auth.permission,
@@ -581,7 +610,35 @@ export class AgentRegistry {
           ],
           data: {
             agent,
-            new_owner: owner,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Cancel a pending claim approval.
+   * Only the agent can cancel their own approval.
+   * Any deposit will be refunded to the payer.
+   *
+   * @param agent - The agent account (must be current session)
+   */
+  async cancelClaim(agent: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'cancelclaim',
+          authorization: [
+            {
+              actor: agent,
+              permission: 'active',
+            },
+          ],
+          data: {
+            agent,
           },
         },
       ],
@@ -680,6 +737,7 @@ export class AgentRegistry {
     return {
       account: raw.account,
       owner: raw.owner || null,  // Empty string means no owner
+      pending_owner: raw.pending_owner || null,
       name: raw.name,
       description: raw.description,
       endpoint: raw.endpoint,

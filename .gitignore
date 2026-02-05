@@ -8,6 +8,7 @@ build/
 target/
 *.wasm
 *.abi
+*.tsbuildinfo
 
 # IDE
 .idea/
