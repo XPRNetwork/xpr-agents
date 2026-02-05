@@ -277,13 +277,29 @@ function handleSubmitMilestone(db: Database.Database, data: any): void {
 }
 
 function handleApproveMilestone(db: Database.Database, data: any): void {
+  // Look up milestone to get job_id and amount
+  const milestone = db.prepare('SELECT job_id, amount FROM milestones WHERE id = ?').get(data.milestone_id) as { job_id: number; amount: number } | undefined;
+
+  // Update milestone state
   const stmt = db.prepare(`
     UPDATE milestones
     SET state = 2, approved_at = strftime('%s', 'now')
     WHERE id = ?
   `);
   stmt.run(data.milestone_id);
-  console.log(`Milestone ${data.milestone_id} approved`);
+
+  // Update job's released_amount with this milestone's payment
+  if (milestone) {
+    const jobStmt = db.prepare(`
+      UPDATE jobs
+      SET released_amount = released_amount + ?, updated_at = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+    jobStmt.run(milestone.amount, milestone.job_id);
+    console.log(`Milestone ${data.milestone_id} approved (job ${milestone.job_id} released +${milestone.amount})`);
+  } else {
+    console.log(`Milestone ${data.milestone_id} approved`);
+  }
 }
 
 function logEvent(db: Database.Database, action: StreamAction): void {
