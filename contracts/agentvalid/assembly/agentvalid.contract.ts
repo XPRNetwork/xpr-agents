@@ -259,7 +259,16 @@ export class AgentValidContract extends Contract {
     const config = this.configSingleton.get();
     requireAuth(config.owner);
 
+    // L2 FIX: Validate all config parameters
     check(slash_percent <= 10000, "Slash percent cannot exceed 100%");
+    check(min_stake > 0, "Minimum stake must be positive");
+    check(challenge_stake > 0, "Challenge stake must be positive");
+    check(unstake_delay >= 86400, "Unstake delay must be at least 1 day (86400 seconds)");
+    check(challenge_window >= 3600, "Challenge window must be at least 1 hour (3600 seconds)");
+    // M3 FIX: Validate core contract is a real account
+    if (core_contract != EMPTY_NAME) {
+      check(isAccount(core_contract), "Core contract must be a valid account");
+    }
 
     config.core_contract = core_contract;
     config.min_stake = min_stake;
@@ -550,13 +559,21 @@ export class AgentValidContract extends Contract {
     const config = this.configSingleton.get();
     requireAuth(config.owner);
 
+    // M1 FIX: Validate resolver is a real account
+    check(isAccount(resolver), "Resolver must be a valid account");
+    // L1 FIX: Validate resolution notes
+    check(
+      resolution_notes.length > 0 && resolution_notes.length <= 1024,
+      "Resolution notes must be 1-1024 characters with clear reasoning"
+    );
+
     const challengeRecord = this.challengesTable.requireGet(challenge_id, "Challenge not found");
     check(challengeRecord.status == 0, "Challenge already resolved");
 
     // CRITICAL: Require stake before resolution to prevent free challenge griefing
     check(
       challengeRecord.stake >= config.challenge_stake,
-      "Challenge must be funded before resolution. Send tokens with memo 'challenge:ID'"
+      "Challenge must be funded. Send XPR with memo 'challenge:ID' (required: " + config.challenge_stake.toString() + ")"
     );
 
     const validation = this.validationsTable.requireGet(

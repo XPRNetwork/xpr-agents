@@ -268,7 +268,13 @@ export class AgentEscrowContract extends Contract {
     const config = this.configSingleton.get();
     requireAuth(config.owner);
 
+    // Validate all config parameters
     check(platform_fee <= 1000, "Platform fee cannot exceed 10%");
+    check(min_job_amount > 0, "Minimum job amount must be positive");
+    check(default_deadline_days >= 1 && default_deadline_days <= 365, "Default deadline must be 1-365 days");
+    // M15 FIX: Enforce minimum and maximum dispute window
+    check(dispute_window >= 86400, "Dispute window must be at least 1 day (86400 seconds)");
+    check(dispute_window <= 2592000, "Dispute window cannot exceed 30 days (2592000 seconds)");
 
     config.platform_fee = platform_fee;
     config.min_job_amount = min_job_amount;
@@ -301,6 +307,10 @@ export class AgentEscrowContract extends Contract {
     check(isAccount(agent), "Agent account does not exist");
     check(client != agent, "Client and agent must be different");
     check(title.length > 0 && title.length <= 128, "Title must be 1-128 characters");
+    // Add validation for description and deliverables
+    check(description.length > 0 && description.length <= 2048, "Description must be 1-2048 characters");
+    check(deliverables.length > 0 && deliverables.length <= 2048, "Deliverables must be 1-2048 characters");
+    check(job_hash.length <= 128, "Job hash must be <= 128 characters");
     check(amount >= config.min_job_amount, "Amount below minimum");
 
     // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
@@ -449,6 +459,17 @@ export class AgentEscrowContract extends Contract {
     check(job.client == client, "Only client can approve");
     check(milestone.state == 1, "Milestone must be submitted");
 
+    // M13 FIX: Enforce milestone order - all prior milestones must be approved first
+    let priorMilestone = this.milestonesTable.getBySecondaryU64(milestone.job_id, 0);
+    while (priorMilestone != null) {
+      const pm = priorMilestone!;
+      if (pm.job_id == milestone.job_id && pm.order < milestone.order) {
+        check(pm.state == 2, `Milestone "${pm.title}" (order ${pm.order}) must be approved first`);
+      }
+      priorMilestone = this.milestonesTable.nextBySecondaryU64(pm, 0);
+      if (priorMilestone != null && priorMilestone!.job_id != milestone.job_id) { priorMilestone = null; }
+    }
+
     milestone.state = 2; // approved
     milestone.approved_at = currentTimeSec();
 
@@ -596,6 +617,12 @@ export class AgentEscrowContract extends Contract {
 
     check(dispute.resolution == 0, "Dispute already resolved");
     check(client_percent <= 100, "Invalid percentage");
+
+    // M14 FIX: Require resolution notes for audit trail
+    check(
+      resolution_notes.length > 0 && resolution_notes.length <= 1024,
+      "Resolution notes must be 1-1024 characters with clear reasoning"
+    );
 
     // H5 FIX: Verify job state consistency
     check(job.funded_amount >= job.released_amount, "Invalid job state");

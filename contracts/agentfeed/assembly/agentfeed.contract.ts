@@ -415,9 +415,13 @@ export class AgentFeedContract extends Contract {
     const config = this.configSingleton.get();
     requireAuth(config.owner);
 
-    // Validate decay parameters to prevent division by zero
-    check(decay_period > 0, "Decay period must be positive");
+    // H8 FIX: Validate decay parameters with minimum thresholds
+    // Decay period must be at least 1 hour (3600 seconds) to prevent functional collapse
+    check(decay_period >= 3600, "Decay period must be at least 3600 seconds (1 hour)");
     check(decay_floor <= 100, "Decay floor cannot exceed 100%");
+    // Validate score range
+    check(min_score <= max_score, "min_score must be <= max_score");
+    check(max_score <= 10, "max_score cannot exceed 10");
 
     config.core_contract = core_contract;
     config.min_score = min_score;
@@ -546,6 +550,9 @@ export class AgentFeedContract extends Contract {
     // SECURITY FIX: Previously allowed any account to resolve by passing their own name
     requireAuth(config.owner);
     check(resolver == config.owner, "Resolver must be contract owner");
+
+    // L18 FIX: Validate resolution notes length
+    check(resolution_notes.length > 0 && resolution_notes.length <= 1024, "Resolution notes must be 1-1024 characters");
 
     const disputeRecord = this.disputesTable.requireGet(dispute_id, "Dispute not found");
     check(disputeRecord.status == 0, "Dispute already resolved");

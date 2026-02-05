@@ -3,7 +3,6 @@ import {
   Table,
   TableStore,
   Contract,
-  Asset,
   Symbol,
   check,
   requireAuth,
@@ -17,6 +16,11 @@ import {
   ActionData,
   PermissionLevel
 } from "proton-tsc";
+
+// ============== CONSTANTS ==============
+
+// L18/M11 FIX: Valid protocols whitelist
+const VALID_PROTOCOLS: string[] = ["http", "https", "grpc", "websocket", "mqtt", "wss"];
 
 // ============== EXTERNAL TABLES ==============
 
@@ -243,6 +247,10 @@ export class AgentCoreContract extends Contract {
     if (voter == null) {
       return 0;
     }
+    // M12 FIX: Handle edge case where staked could be negative or zero
+    if (voter.staked <= 0) {
+      return 0;
+    }
     // staked is in smallest units (divide by 10000 for XPR)
     return <u64>(voter.staked / 10000);
   }
@@ -365,9 +373,27 @@ export class AgentCoreContract extends Contract {
 
     // Validate inputs
     check(name.length > 0 && name.length <= 64, "Name must be 1-64 characters");
-    check(description.length <= 256, "Description must be <= 256 characters");
+    // L16 FIX: Require description to be non-empty
+    check(description.length > 0 && description.length <= 256, "Description must be 1-256 characters");
     check(endpoint.length > 0 && endpoint.length <= 256, "Endpoint must be 1-256 characters");
+
+    // M10 FIX: Basic URL format validation - must start with valid scheme
+    check(
+      endpoint.startsWith("http://") || endpoint.startsWith("https://") ||
+      endpoint.startsWith("grpc://") || endpoint.startsWith("wss://"),
+      "Endpoint must start with http://, https://, grpc://, or wss://"
+    );
+
+    // M11 FIX: Protocol must be from valid list
     check(protocol.length > 0 && protocol.length <= 32, "Protocol must be 1-32 characters");
+    let validProtocol = false;
+    for (let i = 0; i < VALID_PROTOCOLS.length; i++) {
+      if (VALID_PROTOCOLS[i] == protocol) {
+        validProtocol = true;
+        break;
+      }
+    }
+    check(validProtocol, "Protocol must be: http, https, grpc, websocket, mqtt, or wss");
 
     // C1 FIX: Validate capabilities field to prevent unbounded storage
     check(capabilities.length <= 2048, "Capabilities must be <= 2048 characters");
@@ -411,9 +437,27 @@ export class AgentCoreContract extends Contract {
 
     // Validate inputs
     check(name.length > 0 && name.length <= 64, "Name must be 1-64 characters");
-    check(description.length <= 256, "Description must be <= 256 characters");
+    // L16 FIX: Require description to be non-empty
+    check(description.length > 0 && description.length <= 256, "Description must be 1-256 characters");
     check(endpoint.length > 0 && endpoint.length <= 256, "Endpoint must be 1-256 characters");
+
+    // M10 FIX: Basic URL format validation
+    check(
+      endpoint.startsWith("http://") || endpoint.startsWith("https://") ||
+      endpoint.startsWith("grpc://") || endpoint.startsWith("wss://"),
+      "Endpoint must start with http://, https://, grpc://, or wss://"
+    );
+
+    // M11 FIX: Protocol must be from valid list
     check(protocol.length > 0 && protocol.length <= 32, "Protocol must be 1-32 characters");
+    let validProtocol = false;
+    for (let i = 0; i < VALID_PROTOCOLS.length; i++) {
+      if (VALID_PROTOCOLS[i] == protocol) {
+        validProtocol = true;
+        break;
+      }
+    }
+    check(validProtocol, "Protocol must be: http, https, grpc, websocket, mqtt, or wss");
 
     // C1 FIX: Validate capabilities field to prevent unbounded storage
     check(capabilities.length <= 2048, "Capabilities must be <= 2048 characters");
@@ -507,6 +551,8 @@ export class AgentCoreContract extends Contract {
     check(version.length > 0 && version.length <= 16, "Version must be 1-16 characters");
     check(isAccount(contract), "Plugin contract must be valid account");
     check(action.length > 0 && action.length <= 12, "Action must be 1-12 characters");
+    // L18 FIX: Limit schema size to prevent plugin table bloat
+    check(schema.length <= 4096, "Schema must be <= 4096 characters");
 
     // Valid categories
     const validCategories = ["compute", "storage", "oracle", "payment", "messaging", "ai"];
