@@ -123,8 +123,11 @@ function handleDeliver(db: Database.Database, data: any): void {
 }
 
 function handleApprove(db: Database.Database, data: any): void {
+  // COMPLETED: Agent receives full payment, so released_amount = funded_amount
   const stmt = db.prepare(`
-    UPDATE jobs SET state = 6, updated_at = strftime('%s', 'now') WHERE id = ?
+    UPDATE jobs
+    SET state = 6, released_amount = funded_amount, updated_at = strftime('%s', 'now')
+    WHERE id = ?
   `);
   stmt.run(data.job_id);
   console.log(`Job ${data.job_id} approved`);
@@ -164,9 +167,14 @@ function handleArbitrate(db: Database.Database, data: any): void {
   const dispute = db.prepare('SELECT job_id FROM escrow_disputes WHERE id = ?').get(data.dispute_id) as { job_id: number } | undefined;
 
   if (dispute) {
-    // Update job state using the correct job_id
+    // ARBITRATED: All funds leave escrow (to arbitrator + client + agent)
+    // Contract sets released_amount = funded_amount
     const jobStmt = db.prepare(`
-      UPDATE jobs SET state = 8, updated_at = strftime('%s', 'now') WHERE id = ?
+      UPDATE jobs
+      SET state = 8,
+          released_amount = funded_amount,
+          updated_at = strftime('%s', 'now')
+      WHERE id = ?
     `);
     jobStmt.run(dispute.job_id);
   }
@@ -190,8 +198,12 @@ function handleArbitrate(db: Database.Database, data: any): void {
 }
 
 function handleCancel(db: Database.Database, data: any): void {
+  // REFUNDED: All funds leave escrow (back to client)
+  // Contract sets released_amount = funded_amount
   const stmt = db.prepare(`
-    UPDATE jobs SET state = 7, updated_at = strftime('%s', 'now') WHERE id = ?
+    UPDATE jobs
+    SET state = 7, released_amount = funded_amount, updated_at = strftime('%s', 'now')
+    WHERE id = ?
   `);
   stmt.run(data.job_id);
   console.log(`Job ${data.job_id} cancelled`);
@@ -205,8 +217,13 @@ function handleTimeout(db: Database.Database, data: any): void {
   // Other states -> becomes 7 (REFUNDED, client gets refund)
   const newState = job && job.state === 4 ? 6 : 7;
 
+  // All terminal states: all funds leave escrow -> released_amount = funded_amount
   const stmt = db.prepare(`
-    UPDATE jobs SET state = ?, updated_at = strftime('%s', 'now') WHERE id = ?
+    UPDATE jobs
+    SET state = ?,
+        released_amount = funded_amount,
+        updated_at = strftime('%s', 'now')
+    WHERE id = ?
   `);
   stmt.run(newState, data.job_id);
   console.log(`Job ${data.job_id} timeout claimed -> state ${newState === 6 ? 'COMPLETED' : 'REFUNDED'}`);
@@ -327,17 +344,21 @@ export function handleEscrowTransfer(db: Database.Database, action: StreamAction
   } else if (from === escrowContract) {
     // Outgoing transfer from escrow (payment release)
     // Memo format: "Job X payment" or "Job X platform fee" or similar
-    const jobMatch = memo.match(/Job (\d+)/i);
-    if (jobMatch) {
-      const jobId = parseInt(jobMatch[1]);
-      if (!isNaN(jobId)) {
-        const stmt = db.prepare(`
-          UPDATE jobs
-          SET released_amount = released_amount + ?, updated_at = strftime('%s', 'now')
-          WHERE id = ?
-        `);
-        stmt.run(amount, jobId);
-        console.log(`Job ${jobId} released ${amountStr} to ${to}`);
+    // EXCLUDE refund memos to avoid double-counting (refunds go back to client, not released to agent)
+    const isRefund = /refund/i.test(memo);
+    if (!isRefund) {
+      const jobMatch = memo.match(/Job (\d+)/i);
+      if (jobMatch) {
+        const jobId = parseInt(jobMatch[1]);
+        if (!isNaN(jobId)) {
+          const stmt = db.prepare(`
+            UPDATE jobs
+            SET released_amount = released_amount + ?, updated_at = strftime('%s', 'now')
+            WHERE id = ?
+          `);
+          stmt.run(amount, jobId);
+          console.log(`Job ${jobId} released ${amountStr} to ${to}`);
+        }
       }
     }
   }

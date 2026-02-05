@@ -102,6 +102,7 @@ export function initDatabase(dbPath: string): Database.Database {
       reason TEXT,
       evidence_uri TEXT,
       stake INTEGER DEFAULT 0,
+      funding_deadline INTEGER DEFAULT 0,
       status INTEGER DEFAULT 0,
       resolver TEXT,
       resolution_notes TEXT,

@@ -149,7 +149,7 @@ export interface Dispute {
   resolved_at: number;
 }
 
-export type DisputeStatus = 'pending' | 'upheld' | 'rejected';
+export type DisputeStatus = 'pending' | 'upheld' | 'rejected' | 'cancelled';
 
 // ============== Validation Types ==============
 
@@ -210,6 +210,7 @@ export interface Challenge {
   reason: string;
   evidence_uri: string;
   stake: number;
+  funding_deadline: number;
   status: DisputeStatus;
   resolver: string;
   resolution_notes: string;

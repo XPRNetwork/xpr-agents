@@ -27,6 +27,12 @@ export function handleValidationAction(db: Database.Database, action: StreamActi
     case 'slash':
       handleSlash(db, data);
       break;
+    case 'cancelchal':
+      handleCancelChallenge(db, data);
+      break;
+    case 'expireunfund':
+      handleExpireUnfunded(db, data);
+      break;
     default:
       console.log(`Unknown agentvalid action: ${name}`);
   }
@@ -126,13 +132,15 @@ function handleChallenge(db: Database.Database, data: any, timestamp: string): v
 
   // Create challenge record for mapping
   const createdAt = Math.floor(new Date(timestamp).getTime() / 1000);
+  // Contract uses CHALLENGE_FUNDING_PERIOD = 24 hours (86400 seconds)
+  const fundingDeadline = createdAt + 86400;
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM validation_challenges');
   const result = countStmt.get() as { max_id: number | null };
   const id = (result.max_id || 0) + 1;
 
   const challengeStmt = db.prepare(`
-    INSERT INTO validation_challenges (id, validation_id, challenger, reason, evidence_uri, stake, status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+    INSERT INTO validation_challenges (id, validation_id, challenger, reason, evidence_uri, stake, funding_deadline, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
   `);
   challengeStmt.run(
     id,
@@ -141,6 +149,7 @@ function handleChallenge(db: Database.Database, data: any, timestamp: string): v
     data.reason || '',
     data.evidence_uri || '',
     data.stake || 0,
+    fundingDeadline,
     createdAt
   );
 
@@ -174,11 +183,14 @@ function handleResolve(db: Database.Database, data: any): void {
     const validation = db.prepare('SELECT validator FROM validations WHERE id = ?').get(challenge.validation_id) as { validator: string } | undefined;
     if (validation) {
       // Match contract logic: accuracy = (total - incorrect) * 10000 / total
+      // Only calculate meaningful accuracy after MIN_VALIDATIONS_FOR_ACCURACY (5)
+      // IMPORTANT: Use (incorrect_validations + 1) since SQL evaluates RHS before SET completes
       const updateStmt = db.prepare(`
         UPDATE validators
         SET incorrect_validations = incorrect_validations + 1,
             accuracy_score = CASE
-              WHEN total_validations > 0 THEN (total_validations - incorrect_validations) * 10000 / total_validations
+              WHEN total_validations < 5 THEN 10000
+              WHEN total_validations > 0 THEN (total_validations - (incorrect_validations + 1)) * 10000 / total_validations
               ELSE 10000
             END
         WHERE account = ?
@@ -202,6 +214,56 @@ function handleSlash(db: Database.Database, data: any): void {
   console.log(`Validator slashed: ${data.validator} (amount: ${data.amount})`);
 }
 
+function handleCancelChallenge(db: Database.Database, data: any): void {
+  // Look up challenge to get validation_id
+  const challenge = db.prepare('SELECT validation_id FROM validation_challenges WHERE id = ?').get(data.challenge_id) as { validation_id: number } | undefined;
+
+  // Update challenge status to cancelled (3)
+  const challengeStmt = db.prepare(`
+    UPDATE validation_challenges
+    SET status = 3, resolved_at = strftime('%s', 'now')
+    WHERE id = ?
+  `);
+  challengeStmt.run(data.challenge_id);
+
+  // Reset validation's challenged flag
+  if (challenge) {
+    const validationStmt = db.prepare(`
+      UPDATE validations
+      SET challenged = 0
+      WHERE id = ?
+    `);
+    validationStmt.run(challenge.validation_id);
+  }
+
+  console.log(`Challenge ${data.challenge_id} cancelled${challenge ? ` (validation ${challenge.validation_id})` : ''}`);
+}
+
+function handleExpireUnfunded(db: Database.Database, data: any): void {
+  // Look up challenge to get validation_id
+  const challenge = db.prepare('SELECT validation_id FROM validation_challenges WHERE id = ?').get(data.challenge_id) as { validation_id: number } | undefined;
+
+  // Update challenge status to cancelled (3) - same as cancel
+  const challengeStmt = db.prepare(`
+    UPDATE validation_challenges
+    SET status = 3, resolved_at = strftime('%s', 'now')
+    WHERE id = ?
+  `);
+  challengeStmt.run(data.challenge_id);
+
+  // Reset validation's challenged flag
+  if (challenge) {
+    const validationStmt = db.prepare(`
+      UPDATE validations
+      SET challenged = 0
+      WHERE id = ?
+    `);
+    validationStmt.run(challenge.validation_id);
+  }
+
+  console.log(`Challenge ${data.challenge_id} expired (unfunded)${challenge ? ` (validation ${challenge.validation_id})` : ''}`);
+}
+
 function logEvent(db: Database.Database, action: StreamAction): void {
   const stmt = db.prepare(`
     INSERT INTO events (block_num, transaction_id, action_name, contract, data, timestamp)
@@ -218,4 +280,44 @@ function logEvent(db: Database.Database, action: StreamAction): void {
     JSON.stringify(action.act.data),
     timestamp
   );
+}
+
+/**
+ * Handle eosio.token::transfer notifications to agentvalid
+ * Updates validator stake and challenge funding
+ */
+export function handleValidationTransfer(db: Database.Database, action: StreamAction): void {
+  const { from, quantity, memo } = action.act.data;
+
+  // Parse quantity (e.g., "100.0000 XPR")
+  const [amountStr] = quantity.split(' ');
+  const amount = Math.floor(parseFloat(amountStr) * 10000);
+
+  if (memo === 'stake') {
+    // Validator staking
+    const stmt = db.prepare(`
+      UPDATE validators
+      SET stake = stake + ?
+      WHERE account = ?
+    `);
+    stmt.run(amount, from);
+    console.log(`Validator ${from} staked ${amountStr}`);
+  } else if (memo.startsWith('challenge:')) {
+    // Challenge funding: memo = "challenge:CHALLENGE_ID"
+    const challengeIdStr = memo.substring(10);
+    const challengeId = parseInt(challengeIdStr);
+
+    if (!isNaN(challengeId)) {
+      const stmt = db.prepare(`
+        UPDATE validation_challenges
+        SET stake = stake + ?
+        WHERE id = ?
+      `);
+      stmt.run(amount, challengeId);
+      console.log(`Challenge ${challengeId} funded with ${amountStr}`);
+    }
+  }
+
+  // Log the transfer event
+  logEvent(db, action);
 }

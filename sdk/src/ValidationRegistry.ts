@@ -434,6 +434,7 @@ export class ValidationRegistry {
     reason: string;
     evidence_uri: string;
     stake: string;
+    funding_deadline: string;
     status: number;
     resolver: string;
     resolution_notes: string;
@@ -447,6 +448,7 @@ export class ValidationRegistry {
       reason: raw.reason,
       evidence_uri: raw.evidence_uri,
       stake: parseInt(raw.stake),
+      funding_deadline: parseInt(raw.funding_deadline),
       status: disputeStatusFromNumber(raw.status),
       resolver: raw.resolver,
       resolution_notes: raw.resolution_notes,

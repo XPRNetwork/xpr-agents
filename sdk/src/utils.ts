@@ -111,6 +111,8 @@ export function disputeStatusFromNumber(status: number): DisputeStatus {
       return 'upheld';
     case 2:
       return 'rejected';
+    case 3:
+      return 'cancelled';
     default:
       return 'pending';
   }

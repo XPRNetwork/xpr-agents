@@ -4,7 +4,7 @@ import { initDatabase, updateStats } from './db/schema';
 import { HyperionStream, StreamAction } from './stream';
 import { handleAgentAction } from './handlers/agent';
 import { handleFeedbackAction } from './handlers/feedback';
-import { handleValidationAction } from './handlers/validation';
+import { handleValidationAction, handleValidationTransfer } from './handlers/validation';
 import { handleEscrowAction, handleEscrowTransfer } from './handlers/escrow';
 import { createRoutes } from './api/routes';
 
@@ -77,6 +77,10 @@ stream.on('action', (action: StreamAction) => {
       const { from, to } = action.act.data;
       if (to === config.contracts.agentescrow || from === config.contracts.agentescrow) {
         handleEscrowTransfer(db, action, config.contracts.agentescrow);
+      }
+      // Handle token transfers to agentvalid for validator staking and challenge funding
+      if (to === config.contracts.agentvalid) {
+        handleValidationTransfer(db, action);
       }
     }
   } catch (error) {
