@@ -234,4 +234,4 @@ MIT
 
 ---
 
-Created by [Paul Grey](https://github.com/paultron) of [ProtonNZ](https://protonnz.com) Block Producer
+Created by [Paul Grey](https://github.com/paulgnz) of [ProtonNZ](https://protonnz.com) Block Producer
