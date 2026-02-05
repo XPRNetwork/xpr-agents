@@ -231,3 +231,7 @@ cd contracts/agentcore && npm install && npm run build
 ## License
 
 MIT
+
+---
+
+Created by [Paul Grey](https://github.com/paultron) of [ProtonNZ](https://protonnz.com) Block Producer
