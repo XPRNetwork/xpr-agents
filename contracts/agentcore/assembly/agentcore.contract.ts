@@ -763,6 +763,57 @@ export class AgentCoreContract extends Contract {
   }
 
   /**
+   * HIGH SECURITY FIX: Verify an agent's owner still has valid KYC.
+   * Anyone can call this to trigger re-verification.
+   * If owner's KYC has dropped below level 1, the claim is invalidated.
+   *
+   * This solves the KYC revocation problem - owners who lose KYC
+   * are automatically removed from agent sponsorship.
+   *
+   * The claim deposit is refunded to the owner (they didn't do anything wrong,
+   * their KYC just expired or was revoked).
+   *
+   * @param agent - The agent account to verify
+   */
+  @action("verifyclaim")
+  verifyClaim(agent: Name): void {
+    // Anyone can call this - it's a public service action
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
+    // Get agent record
+    const agentRecord = this.agentsTable.requireGet(agent.N, "Agent not found");
+
+    // Must have an owner to verify
+    check(agentRecord.owner != EMPTY_NAME, "Agent has no owner to verify");
+
+    const owner = agentRecord.owner;
+    const kycLevel = this.getKycLevel(owner);
+
+    // If KYC is still valid, nothing to do
+    if (kycLevel >= 1) {
+      print(`Owner ${owner.toString()} KYC is valid (level ${kycLevel}). No action needed.`);
+      return;
+    }
+
+    // KYC is no longer valid - remove ownership
+    const refundAmount = agentRecord.claim_deposit;
+
+    // Clear ownership
+    agentRecord.owner = EMPTY_NAME;
+    agentRecord.claim_deposit = 0;
+    agentRecord.deposit_payer = EMPTY_NAME;
+    this.agentsTable.update(agentRecord, this.receiver);
+
+    // Refund deposit to former owner (not penalized - KYC expiry isn't their fault)
+    if (refundAmount > 0) {
+      this.sendTokens(owner, new Asset(refundAmount, this.XPR_SYMBOL), "Claim deposit refund - KYC expired for " + agent.toString());
+    }
+
+    print(`Owner ${owner.toString()} KYC invalid. Agent ${agent.toString()} ownership removed. Deposit refunded.`);
+  }
+
+  /**
    * Send XPR tokens via inline action
    */
   private sendTokens(to: Name, quantity: Asset, memo: string): void {
@@ -1105,12 +1156,35 @@ export class AgentCoreContract extends Contract {
       check(agentRecord!.deposit_payer == from, "Deposit already started by different account");
     }
 
+    // Get config to check claim_fee
+    const config = this.configSingleton.get();
+
+    // Calculate new deposit amount (use i64 since Asset.amount is i64)
+    // Validate amount is positive first
+    check(quantity.amount > 0, "Transfer amount must be positive");
+    const transferAmount: u64 = <u64>quantity.amount;
+    let newDeposit: u64 = agentRecord!.claim_deposit + transferAmount;
+    let excess: u64 = 0;
+
+    // HIGH SECURITY FIX: Prevent deposit overflow and auto-refund excess
+    // Cap deposits at claim_fee (no need to overpay)
+    if (config.claim_fee > 0 && newDeposit > config.claim_fee) {
+      excess = newDeposit - config.claim_fee;
+      newDeposit = config.claim_fee;
+    }
+
     // Record the deposit and payer
-    agentRecord!.claim_deposit += quantity.amount;
+    agentRecord!.claim_deposit = newDeposit;
     agentRecord!.deposit_payer = from;
     this.agentsTable.update(agentRecord!, this.receiver);
 
-    print(`Claim deposit received: ${quantity.toString()} for agent ${agentName} from ${from.toString()}`);
+    // Refund any excess immediately
+    if (excess > 0) {
+      this.sendTokens(from, new Asset(<i64>excess, this.XPR_SYMBOL), "Excess claim deposit refund for " + agentName);
+      print(`Claim deposit received: ${(transferAmount - excess) / 10000} XPR for agent ${agentName} (refunded ${excess / 10000} XPR excess)`);
+    } else {
+      print(`Claim deposit received: ${quantity.toString()} for agent ${agentName} from ${from.toString()}`);
+    }
   }
 
 }

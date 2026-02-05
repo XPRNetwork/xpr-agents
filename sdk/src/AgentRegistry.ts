@@ -713,6 +713,40 @@ export class AgentRegistry {
   }
 
   /**
+   * Verify an agent's owner still has valid KYC.
+   * Anyone can call this to trigger re-verification.
+   *
+   * If the owner's KYC has dropped below level 1, the ownership
+   * is removed and the claim deposit is refunded to the former owner.
+   *
+   * This helps maintain trust score integrity by allowing community
+   * enforcement of KYC requirements.
+   *
+   * @param agent - The agent account to verify
+   */
+  async verifyClaim(agent: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'verifyclaim',
+          authorization: [
+            {
+              actor: this.session!.auth.actor,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            agent,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
    * Get agents owned by a specific account
    */
   async getAgentsByOwner(owner: string, limit: number = 100): Promise<Agent[]> {

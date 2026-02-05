@@ -76,7 +76,7 @@ export interface AgentPluginRaw {
 
 export interface Unstake {
   id: number;
-  agent: string;
+  validator: string;  // HIGH FIX: Changed from 'agent' to match agentvalid::unstakes table
   amount: number;
   request_time: number;
   available_at: number;
