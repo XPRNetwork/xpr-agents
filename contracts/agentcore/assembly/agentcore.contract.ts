@@ -1042,8 +1042,11 @@ export class AgentCoreContract extends Contract {
 
   /**
    * Handle incoming token transfers for claim deposits.
-   * Memo format: "claim:agentname"
+   * Memo format: "claim:agentname:ownername"
    * Only accepts XPR from eosio.token.
+   *
+   * IMPORTANT: Agent must call approveclaim BEFORE sending deposit.
+   * This prevents funds from being trapped with no refund path.
    */
   @action("transfer", notify)
   onTransfer(from: Name, to: Name, quantity: Asset, memo: string): void {
@@ -1083,13 +1086,14 @@ export class AgentCoreContract extends Contract {
     // Agent must not already have an owner
     check(agentRecord!.owner == EMPTY_NAME, "Agent already has an owner");
 
+    // SECURITY: Agent must have approved this claimant first (prevents trapped deposits)
+    check(agentRecord!.pending_owner != EMPTY_NAME,
+      "Agent has not approved any claimant yet. Agent must call approveclaim first.");
+    check(agentRecord!.pending_owner == intendedOwner,
+      "Agent approved a different claimant. Deposit must be from approved account: " + agentRecord!.pending_owner.toString());
+
     // SECURITY: Payer must match intended owner specified in memo
     check(from == intendedOwner, "Payer must match intended owner in memo. You cannot pay deposit for someone else.");
-
-    // If agent has approved a claimant, deposit must be from that account
-    if (agentRecord!.pending_owner != EMPTY_NAME) {
-      check(agentRecord!.pending_owner == from, "Deposit must be from approved claimant");
-    }
 
     // If there's already a deposit, it must be from the same payer
     if (agentRecord!.deposit_payer != EMPTY_NAME) {

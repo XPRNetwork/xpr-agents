@@ -638,6 +638,7 @@ proton action agentcore cancelclaim '{"agent":"myagent"}' myagent
 
 - **2-step flow**: Agent pre-approves, then human completes (no dual-signature needed)
 - **Agent consent via approveclaim**: Agent must explicitly approve who can claim
+- **Deposit requires prior approval**: Agent must call `approveclaim` BEFORE human sends deposit (prevents trapped funds)
 - **Payer must match claimant**: Deposit payer must be the approved pending_owner
 - **Cancellable**: Agent can cancel approval anytime before completion (deposit refunded)
 - **No third-party deposits**: You cannot pay the deposit for someone else
