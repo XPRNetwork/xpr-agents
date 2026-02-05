@@ -1111,6 +1111,15 @@ export class AgentFeedContract extends Contract {
       this.contextScoresTable.store(ctxScore, this.receiver);
     } else {
       if (add) {
+        // N1 FIX: Overflow protection for context score accumulation
+        check(
+          ctxScore.total_score <= U64.MAX_VALUE - weightedScore,
+          "Context score accumulation would overflow"
+        );
+        check(
+          ctxScore.total_weight <= U64.MAX_VALUE - normalizedWeight,
+          "Context weight accumulation would overflow"
+        );
         ctxScore.total_score += weightedScore;
         ctxScore.total_weight += normalizedWeight;
         ctxScore.feedback_count += 1;
@@ -1121,7 +1130,16 @@ export class AgentFeedContract extends Contract {
         else ctxScore.total_weight = 0;
         if (ctxScore.feedback_count > 0) ctxScore.feedback_count -= 1;
       }
-      ctxScore.avg_score = ctxScore.total_weight > 0 ? (ctxScore.total_score * 10000) / ctxScore.total_weight : 0;
+      // N2 FIX: Overflow protection for avg_score calculation
+      if (ctxScore.total_weight > 0) {
+        if (ctxScore.total_score > U64.MAX_VALUE / 10000) {
+          ctxScore.avg_score = (ctxScore.total_score / ctxScore.total_weight) * 10000;
+        } else {
+          ctxScore.avg_score = (ctxScore.total_score * 10000) / ctxScore.total_weight;
+        }
+      } else {
+        ctxScore.avg_score = 0;
+      }
       ctxScore.last_updated = currentTimeSec();
       this.contextScoresTable.update(ctxScore, this.receiver);
     }

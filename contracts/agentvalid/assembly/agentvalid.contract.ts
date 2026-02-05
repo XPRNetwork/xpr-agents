@@ -458,8 +458,10 @@ export class AgentValidContract extends Contract {
     check(!validation.challenged, "Validation already challenged");
 
     // C3 FIX: Rewrite to avoid timestamp overflow
-    // Instead of validation.timestamp + config.challenge_window, subtract to avoid overflow
-    const timeSinceValidation = currentTimeSec() - validation.timestamp;
+    // C5 FIX: Also check for underflow (timestamp in future)
+    const nowTime = currentTimeSec();
+    check(validation.timestamp <= nowTime, "Invalid validation timestamp - in future");
+    const timeSinceValidation = nowTime - validation.timestamp;
     check(timeSinceValidation <= config.challenge_window, "Challenge window expired");
 
     check(reason.length > 0 && reason.length <= 512, "Reason must be 1-512 characters");

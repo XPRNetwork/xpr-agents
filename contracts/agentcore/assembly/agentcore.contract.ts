@@ -433,6 +433,10 @@ export class AgentCoreContract extends Contract {
   ): void {
     requireAuth(account);
 
+    // H9 FIX: Check paused status
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
     const agent = this.agentsTable.requireGet(account.N, "Agent not found");
 
     // Validate inputs
@@ -474,6 +478,10 @@ export class AgentCoreContract extends Contract {
   @action("setstatus")
   setStatus(account: Name, active: boolean): void {
     requireAuth(account);
+
+    // M16 FIX: Check paused status
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
 
     const agent = this.agentsTable.requireGet(account.N, "Agent not found");
     agent.active = active;
@@ -653,6 +661,18 @@ export class AgentCoreContract extends Contract {
     // Only plugin contracts can call this
     const plugin = this.pluginsTable.requireGet(plugin_id, "Plugin not found");
     requireAuth(plugin.contract);
+
+    // M14/M15 FIX: Validate result_data and status
+    check(result_data.length <= 8192, "Result data must be <= 8192 characters");
+    const validStatuses = ["success", "failure", "partial", "pending"];
+    let validStatus = false;
+    for (let i = 0; i < validStatuses.length; i++) {
+      if (validStatuses[i] == status) {
+        validStatus = true;
+        break;
+      }
+    }
+    check(validStatus, "Status must be: success, failure, partial, or pending");
 
     // C4 FIX: Verify agent is registered and active before accepting results
     const agentRecord = this.agentsTable.get(agent.N);

@@ -365,6 +365,10 @@ export class AgentEscrowContract extends Contract {
   ): void {
     requireAuth(client);
 
+    // NEW FIX: Validate milestone title and description
+    check(title.length > 0 && title.length <= 128, "Title must be 1-128 characters");
+    check(description.length > 0 && description.length <= 2048, "Description must be 1-2048 characters");
+
     const job = this.jobsTable.requireGet(job_id, "Job not found");
     check(job.client == client, "Only client can add milestones");
     check(job.state == 0, "Can only add milestones to unfunded jobs");
@@ -434,6 +438,9 @@ export class AgentEscrowContract extends Contract {
   @action("submitmile")
   submitMilestone(agent: Name, milestone_id: u64, evidence_uri: string): void {
     requireAuth(agent);
+
+    // NEW FIX: Validate evidence URI
+    check(evidence_uri.length > 0 && evidence_uri.length <= 2048, "Evidence URI must be 1-2048 characters");
 
     const milestone = this.milestonesTable.requireGet(milestone_id, "Milestone not found");
     const job = this.jobsTable.requireGet(milestone.job_id, "Job not found");
@@ -553,6 +560,8 @@ export class AgentEscrowContract extends Contract {
       "Can only dispute in-progress or delivered jobs"
     );
     check(reason.length > 0 && reason.length <= 512, "Reason must be 1-512 characters");
+    // NEW FIX: Validate evidence URI
+    check(evidence_uri.length <= 2048, "Evidence URI must be <= 2048 characters");
 
     // Check dispute window for delivered jobs
     if (job.state == 4) {
@@ -634,6 +643,11 @@ export class AgentEscrowContract extends Contract {
     let amountAfterFee = remainingAmount;
 
     if (arb != null && arb.fee_percent > 0) {
+      // H5/NEW FIX: Overflow check before fee calculation
+      check(
+        arb.fee_percent == 0 || remainingAmount <= U64.MAX_VALUE / arb.fee_percent,
+        "Arbitrator fee calculation would overflow"
+      );
       arbFee = (remainingAmount * arb.fee_percent) / 10000;
       // H5 FIX: Ensure arbFee doesn't exceed remaining (defensive check)
       check(arbFee <= remainingAmount, "Arbitrator fee exceeds remaining amount");
