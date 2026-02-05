@@ -389,15 +389,20 @@ export class AgentValidContract extends Contract {
   }
 
   /**
-   * FINDING 3 FIX: Check if a validator has any pending funded challenges
+   * FINDING 3 FIX: Check if a validator has any pending challenges
    * This prevents validators from draining stake before challenge resolution
+   *
+   * P2 FIX: Now blocks on ANY pending challenge (status == 0), not just funded ones.
+   * This closes the race window where validator could unstake after challenge creation
+   * but before funding. Unfunded challenges expire after 24 hours via expireunfund.
    */
   private hasPendingChallenges(validator: Name): boolean {
     // Iterate through all challenges to find pending ones against this validator
     let challenge = this.challengesTable.first();
     while (challenge != null) {
-      // Only check funded pending challenges (status 0 = pending, stake > 0 = funded)
-      if (challenge.status == 0 && challenge.stake > 0) {
+      // Block on ANY pending challenge (status 0), funded or not
+      // This prevents stake reduction during the funding window
+      if (challenge.status == 0) {
         // Get the validation this challenge is against
         const validation = this.validationsTable.get(challenge.validation_id);
         if (validation != null && validation.validator == validator) {
