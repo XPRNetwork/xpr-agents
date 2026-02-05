@@ -5,12 +5,17 @@
   "main": "assembly/agentvalid.contract.ts",
   "scripts": {
     "build": "npx proton-asc assembly/agentvalid.contract.ts",
-    "test": "proton-vert tests/*.test.ts"
+    "test": "ts-mocha -p tests/tsconfig.json tests/*.test.ts --timeout 30000"
   },
   "dependencies": {
     "proton-tsc": "^0.3.58"
   },
   "devDependencies": {
-    "@proton/vert": "^0.2.0"
+    "@proton/vert": "^0.2.0",
+    "@types/chai": "^5.2.3",
+    "@types/mocha": "^10.0.10",
+    "chai": "^4.5.0",
+    "mocha": "^11.7.5",
+    "ts-mocha": "^11.1.0"
   }
 }

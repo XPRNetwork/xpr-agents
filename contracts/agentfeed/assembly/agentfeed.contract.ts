@@ -7,6 +7,7 @@ import {
   requireAuth,
   currentTimeSec,
   hasAuth,
+  isAccount,
   print,
   EMPTY_NAME,
   Singleton
@@ -556,6 +557,15 @@ export class AgentFeedContract extends Contract {
     this.configSingleton.set(config, this.receiver);
   }
 
+  @action("setowner")
+  setOwner(new_owner: Name): void {
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+    check(isAccount(new_owner), "New owner account does not exist");
+    config.owner = new_owner;
+    this.configSingleton.set(config, this.receiver);
+  }
+
   // ============== FEEDBACK SUBMISSION ==============
 
   @action("submit")
@@ -579,7 +589,8 @@ export class AgentFeedContract extends Contract {
     check(evidence_uri.length <= 256, "Evidence URI too long");
 
     // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
-    this.requireAgentRef(agent);
+    const agentRef = this.requireAgentRef(agent);
+    check(agentRef.active, "Agent is not active");
 
     // C1 FIX: Block feedback during active recalculation to prevent race condition
     // where new feedback is added but then overwritten when recalc completes
@@ -1058,7 +1069,8 @@ export class AgentFeedContract extends Contract {
     check(evidence_uri.length <= 256, "Evidence URI too long");
 
     // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
-    this.requireAgentRef(agent);
+    const agentRef = this.requireAgentRef(agent);
+    check(agentRef.active, "Agent is not active");
 
     // C1 FIX: Block feedback during active recalculation to prevent race condition
     // where new feedback is added but then overwritten when recalc completes
@@ -1269,7 +1281,8 @@ export class AgentFeedContract extends Contract {
     check(payment_tx_id.length > 0 && payment_tx_id.length <= 64, "Invalid transaction ID");
 
     // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
-    this.requireAgentRef(agent);
+    const agentRef = this.requireAgentRef(agent);
+    check(agentRef.active, "Agent is not active");
 
     // C1 FIX: Block feedback during active recalculation to prevent race condition
     // where new feedback is added but then overwritten when recalc completes

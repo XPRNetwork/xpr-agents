@@ -30,6 +30,7 @@ export class Validator extends Table {
     public total_validations: u64 = 0,
     public incorrect_validations: u64 = 0, // Track wrong validations instead
     public accuracy_score: u64 = 10000, // 0-10000 = 0-100.00% (starts at 100%)
+    public pending_challenges: u64 = 0, // Count of funded pending challenges
     public registered_at: u64 = 0,
     public active: boolean = true
   ) {
@@ -173,6 +174,7 @@ export class Config extends Table {
     public challenge_window: u64 = 259200, // 3 days
     public slash_percent: u64 = 1000, // 10.00%
     public dispute_period: u64 = 172800, // H2 FIX: 48 hours minimum before challenge can be resolved
+    public funded_challenge_timeout: u64 = 604800, // 7 days for funded challenges to be resolved before expiry
     public paused: boolean = false
   ) {
     super();
@@ -255,6 +257,7 @@ export class AgentValidContract extends Contract {
       259200, // challenge_window
       1000, // slash_percent
       172800, // dispute_period (48 hours)
+      604800, // funded_challenge_timeout (7 days)
       false
     );
     this.configSingleton.set(config, this.receiver);
@@ -269,6 +272,7 @@ export class AgentValidContract extends Contract {
     challenge_window: u64,
     slash_percent: u64,
     dispute_period: u64,
+    funded_challenge_timeout: u64,
     paused: boolean
   ): void {
     const config = this.configSingleton.get();
@@ -282,6 +286,7 @@ export class AgentValidContract extends Contract {
     check(challenge_window >= 3600, "Challenge window must be at least 1 hour (3600 seconds)");
     // H2 FIX: Validate dispute period is at least 24 hours to give validators time to respond
     check(dispute_period >= 86400, "Dispute period must be at least 24 hours (86400 seconds)");
+    check(funded_challenge_timeout >= 86400, "Funded challenge timeout must be at least 1 day (86400 seconds)");
     // M3 FIX: Validate core contract is a real account
     if (core_contract != EMPTY_NAME) {
       check(isAccount(core_contract), "Core contract must be a valid account");
@@ -294,8 +299,18 @@ export class AgentValidContract extends Contract {
     config.challenge_window = challenge_window;
     config.slash_percent = slash_percent;
     config.dispute_period = dispute_period;
+    config.funded_challenge_timeout = funded_challenge_timeout;
     config.paused = paused;
 
+    this.configSingleton.set(config, this.receiver);
+  }
+
+  @action("setowner")
+  setOwner(new_owner: Name): void {
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+    check(isAccount(new_owner), "New owner account does not exist");
+    config.owner = new_owner;
     this.configSingleton.set(config, this.receiver);
   }
 
@@ -325,6 +340,7 @@ export class AgentValidContract extends Contract {
       0, // total_validations
       0, // correct_validations
       10000, // Start at 100% accuracy (no validations yet)
+      0, // pending_challenges
       currentTimeSec(),
       true
     );
@@ -421,21 +437,9 @@ export class AgentValidContract extends Contract {
    * Validators have 24 hours to see a challenge before it can be funded.
    */
   private hasPendingChallenges(validator: Name): boolean {
-    // Iterate through all challenges to find FUNDED pending ones against this validator
-    let challenge = this.challengesTable.first();
-    while (challenge != null) {
-      // Only block on FUNDED pending challenges (status 0 AND stake > 0)
-      // Unfunded challenges (stake == 0) do not block unstaking
-      if (challenge.status == 0 && challenge.stake > 0) {
-        // Get the validation this challenge is against
-        const validation = this.validationsTable.get(challenge.validation_id);
-        if (validation != null && validation.validator == validator) {
-          return true; // Found a funded pending challenge against this validator
-        }
-      }
-      challenge = this.challengesTable.next(challenge);
-    }
-    return false;
+    const validatorRecord = this.validatorsTable.get(validator.N);
+    if (validatorRecord == null) return false;
+    return validatorRecord.pending_challenges > 0;
   }
 
   @action("withdraw")
@@ -586,6 +590,15 @@ export class AgentValidContract extends Contract {
     if (validation != null && validation.challenged) {
       validation.challenged = false;
       this.validationsTable.update(validation, this.receiver);
+
+      // Decrement pending_challenges counter (only if challenge was funded)
+      if (challengeRecord.stake > 0) {
+        const validator = this.validatorsTable.get(validation.validator.N);
+        if (validator != null && validator.pending_challenges > 0) {
+          validator.pending_challenges -= 1;
+          this.validatorsTable.update(validator, this.receiver);
+        }
+      }
     }
 
     // Mark challenge as cancelled
@@ -619,6 +632,46 @@ export class AgentValidContract extends Contract {
     this.challengesTable.update(challengeRecord, this.receiver);
 
     print(`Unfunded challenge ${challenge_id} expired`);
+  }
+
+  @action("expirefunded")
+  expireFundedChallenge(challenge_id: u64): void {
+    // Anyone can call this to clean up expired funded challenges
+    const config = this.configSingleton.get();
+    const challengeRecord = this.challengesTable.requireGet(challenge_id, "Challenge not found");
+    check(challengeRecord.status == 0, "Challenge already resolved");
+    check(challengeRecord.stake > 0, "Challenge is not funded");
+    check(challengeRecord.funded_at > 0, "Challenge has no funding timestamp");
+    check(
+      currentTimeSec() > challengeRecord.funded_at + config.funded_challenge_timeout,
+      "Funded challenge timeout not reached"
+    );
+
+    // Reset validation.challenged flag
+    const validation = this.validationsTable.get(challengeRecord.validation_id);
+    if (validation != null && validation.challenged) {
+      validation.challenged = false;
+      this.validationsTable.update(validation, this.receiver);
+
+      // Decrement pending_challenges counter on the validator
+      const validator = this.validatorsTable.get(validation.validator.N);
+      if (validator != null && validator.pending_challenges > 0) {
+        validator.pending_challenges -= 1;
+        this.validatorsTable.update(validator, this.receiver);
+      }
+    }
+
+    // Return stake to challenger
+    const stakeReturn = new Asset(challengeRecord.stake, this.XPR_SYMBOL);
+    this.sendTokens(challengeRecord.challenger, stakeReturn, "Funded challenge expired - stake returned");
+
+    // Mark challenge as cancelled (expired)
+    challengeRecord.status = 3; // cancelled/expired
+    challengeRecord.resolution_notes = "Expired: funded challenge not resolved within timeout";
+    challengeRecord.resolved_at = currentTimeSec();
+    this.challengesTable.update(challengeRecord, this.receiver);
+
+    print(`Funded challenge ${challenge_id} expired, stake returned to challenger`);
   }
 
   @action("resolve")
@@ -688,6 +741,11 @@ export class AgentValidContract extends Contract {
     this.validationsTable.update(validation, this.receiver);
 
     const validator = this.validatorsTable.requireGet(validation.validator.N, "Validator not found");
+
+    // Decrement pending_challenges counter
+    if (validator.pending_challenges > 0) {
+      validator.pending_challenges -= 1;
+    }
 
     // Track reward amount for sending after state update
     let rewardAmount: u64 = 0;
@@ -862,6 +920,13 @@ export class AgentValidContract extends Contract {
       check(!validation!.challenged, "Validation already has a funded challenge");
       validation!.challenged = true;
       this.validationsTable.update(validation!, this.receiver);
+
+      // Increment pending_challenges counter on the validator
+      const validator = this.validatorsTable.get(validation!.validator.N);
+      if (validator != null) {
+        validator.pending_challenges += 1;
+        this.validatorsTable.update(validator, this.receiver);
+      }
 
       print(`Challenge ${challengeId} funded. Validation ${challengeRecord.validation_id} is now challenged.`);
     } else {

@@ -502,6 +502,88 @@ export class ValidationRegistry {
     });
   }
 
+  /**
+   * Resolve a validation challenge (owner only)
+   */
+  async resolve(
+    challengeId: number,
+    upheld: boolean,
+    resolutionNotes: string
+  ): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'resolve',
+          authorization: [
+            {
+              actor: this.session!.auth.actor,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            resolver: this.session!.auth.actor,
+            challenge_id: challengeId,
+            upheld,
+            resolution_notes: resolutionNotes,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Expire an unfunded challenge (permissionless cleanup)
+   */
+  async expireUnfundedChallenge(challengeId: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'expireunfund',
+          authorization: [
+            {
+              actor: this.session!.auth.actor,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            challenge_id: challengeId,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Expire a funded challenge that was not resolved within timeout (permissionless cleanup)
+   */
+  async expireFundedChallenge(challengeId: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'expirefunded',
+          authorization: [
+            {
+              actor: this.session!.auth.actor,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            challenge_id: challengeId,
+          },
+        },
+      ],
+    });
+  }
+
   // ============== HELPERS ==============
 
   private requireSession(): void {

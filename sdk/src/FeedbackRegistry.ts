@@ -281,6 +281,63 @@ export class FeedbackRegistry {
     });
   }
 
+  /**
+   * Resolve a feedback dispute (owner only)
+   */
+  async resolve(
+    disputeId: number,
+    upheld: boolean,
+    resolutionNotes: string
+  ): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'resolve',
+          authorization: [
+            {
+              actor: this.session!.auth.actor,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            resolver: this.session!.auth.actor,
+            dispute_id: disputeId,
+            upheld,
+            resolution_notes: resolutionNotes,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Cancel an in-progress recalculation
+   */
+  async cancelRecalculation(agent: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'cancelrecalc',
+          authorization: [
+            {
+              actor: this.session!.auth.actor,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            agent,
+          },
+        },
+      ],
+    });
+  }
+
   // ============== HELPERS ==============
 
   private requireSession(): void {

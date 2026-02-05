@@ -651,6 +651,86 @@ export class EscrowRegistry {
   // ============== ARBITRATOR MANAGEMENT ==============
 
   /**
+   * Register as an arbitrator
+   */
+  async registerArbitrator(feePercent: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'regarb',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          account: this.session!.auth.actor,
+          fee_percent: feePercent,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Stake XPR as arbitrator (via token transfer)
+   *
+   * @param amount - Amount string (e.g., "1000.0000 XPR")
+   */
+  async stakeArbitrator(amount: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: 'eosio.token',
+        name: 'transfer',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          from: this.session!.auth.actor,
+          to: this.contract,
+          quantity: amount,
+          memo: 'arbstake',
+        },
+      }],
+    });
+  }
+
+  /**
+   * Arbitrate a dispute
+   *
+   * @param disputeId - The dispute to resolve
+   * @param clientPercent - Percentage of remaining funds to give to client (0-100)
+   * @param resolutionNotes - Explanation of the resolution
+   */
+  async arbitrate(
+    disputeId: number,
+    clientPercent: number,
+    resolutionNotes: string
+  ): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'arbitrate',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          arbitrator: this.session!.auth.actor,
+          dispute_id: disputeId,
+          client_percent: clientPercent,
+          resolution_notes: resolutionNotes,
+        },
+      }],
+    });
+  }
+
+  /**
    * Activate arbitrator (must have sufficient stake)
    */
   async activateArbitrator(): Promise<TransactionResult> {

@@ -155,6 +155,7 @@ export class Arbitrator extends Table {
     public fee_percent: u64 = 0,                // Fee in basis points (100 = 1%)
     public total_cases: u64 = 0,
     public successful_cases: u64 = 0,           // Cases without appeal/overturn
+    public active_disputes: u64 = 0,            // Count of currently active disputes
     public active: boolean = true
   ) {
     super();
@@ -306,6 +307,15 @@ export class AgentEscrowContract extends Contract {
     config.dispute_window = dispute_window;
     config.paused = paused;
 
+    this.configSingleton.set(config, this.receiver);
+  }
+
+  @action("setowner")
+  setOwner(new_owner: Name): void {
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+    check(isAccount(new_owner), "New owner account does not exist");
+    config.owner = new_owner;
     this.configSingleton.set(config, this.receiver);
   }
 
@@ -611,6 +621,15 @@ export class AgentEscrowContract extends Contract {
     job.updated_at = currentTimeSec();
     this.jobsTable.update(job, this.receiver);
 
+    // Increment active_disputes counter on the assigned arbitrator
+    if (job.arbitrator != EMPTY_NAME) {
+      const arb = this.arbitratorsTable.get(job.arbitrator.N);
+      if (arb != null) {
+        arb.active_disputes += 1;
+        this.arbitratorsTable.update(arb, this.receiver);
+      }
+    }
+
     const dispute = new EscrowDispute(
       this.disputesTable.availablePrimaryKey,
       job_id,
@@ -732,7 +751,20 @@ export class AgentEscrowContract extends Contract {
     // Update arbitrator stats (only for registered arbitrators, not owner fallback)
     if (!isOwnerFallback && arb != null) {
       arb!.total_cases += 1;
+      arb!.successful_cases += 1;
+      if (arb!.active_disputes > 0) {
+        arb!.active_disputes -= 1;
+      }
       this.arbitratorsTable.update(arb!, this.receiver);
+    } else if (isOwnerFallback) {
+      // Decrement active_disputes on the designated arbitrator (if any) even for owner fallback
+      if (job.arbitrator != EMPTY_NAME) {
+        const designatedArb = this.arbitratorsTable.get(job.arbitrator.N);
+        if (designatedArb != null && designatedArb.active_disputes > 0) {
+          designatedArb.active_disputes -= 1;
+          this.arbitratorsTable.update(designatedArb, this.receiver);
+        }
+      }
     }
 
     // Now safe to make external calls after all state is finalized
@@ -881,7 +913,7 @@ export class AgentEscrowContract extends Contract {
     const existing = this.arbitratorsTable.get(account.N);
     if (existing == null) {
       // New arbitrator - starts with 0 stake, must stake via transfer
-      const arb = new Arbitrator(account, 0, fee_percent, 0, 0, false);
+      const arb = new Arbitrator(account, 0, fee_percent, 0, 0, 0, false);
       this.arbitratorsTable.store(arb, this.receiver);
       print(`Arbitrator ${account.toString()} registered. Stake required: ${config.min_arbitrator_stake}`);
     } else {
@@ -934,18 +966,7 @@ export class AgentEscrowContract extends Contract {
     check(amount <= arb.stake, "Cannot unstake more than current stake");
 
     // Check for pending disputes assigned to this arbitrator
-    // Iterate through all jobs to find any disputed jobs with this arbitrator
-    let hasActiveDisputes = false;
-    let job = this.jobsTable.first();
-    while (job != null) {
-      if (job.arbitrator == account && job.state == 5) {
-        // State 5 = DISPUTED
-        hasActiveDisputes = true;
-        break;
-      }
-      job = this.jobsTable.next(job);
-    }
-    check(!hasActiveDisputes, "Cannot unstake while assigned to pending disputes");
+    check(arb.active_disputes == 0, "Cannot unstake while assigned to pending disputes");
 
     // Check for existing unstake request
     let unstakeRecord = this.arbUnstakesTable.get(account.N);

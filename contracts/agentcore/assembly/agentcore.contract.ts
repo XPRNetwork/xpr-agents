@@ -390,6 +390,15 @@ export class AgentCoreContract extends Contract {
     this.configSingleton.set(config, this.receiver);
   }
 
+  @action("setowner")
+  setOwner(new_owner: Name): void {
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+    check(isAccount(new_owner), "New owner account does not exist");
+    config.owner = new_owner;
+    this.configSingleton.set(config, this.receiver);
+  }
+
   // ============== AGENT REGISTRATION ==============
 
   @action("register")

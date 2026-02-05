@@ -253,6 +253,22 @@ export function initDatabase(dbPath: string): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_agent_plugins_agent ON agent_plugins(agent);
     CREATE INDEX IF NOT EXISTS idx_agent_plugins_plugin ON agent_plugins(plugin_id);
+
+    -- Plugin Results table
+    CREATE TABLE IF NOT EXISTS plugin_results (
+      id INTEGER PRIMARY KEY,
+      agent TEXT NOT NULL,
+      plugin_id INTEGER NOT NULL,
+      job_id INTEGER DEFAULT 0,
+      status TEXT,
+      result_data TEXT,
+      timestamp INTEGER,
+      FOREIGN KEY (agent) REFERENCES agents(account),
+      FOREIGN KEY (plugin_id) REFERENCES plugins(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_plugin_results_agent ON plugin_results(agent);
+    CREATE INDEX IF NOT EXISTS idx_plugin_results_plugin ON plugin_results(plugin_id);
   `);
 
   // Migrations: Add columns that may not exist in older databases.

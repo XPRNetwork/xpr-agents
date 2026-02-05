@@ -52,6 +52,12 @@ export function handleAgentAction(db: Database.Database, action: StreamAction): 
     case 'verifyclaim':
       handleVerifyClaim(db, data, action);
       break;
+    case 'pluginres':
+      handlePluginResult(db, data, action.timestamp);
+      break;
+    case 'cleanresults':
+      // On-chain cleanup only - indexer can keep historical results
+      break;
     default:
       // Log unknown action
       console.log(`Unknown agentcore action: ${name}`);
@@ -189,6 +195,21 @@ function handleVerifyPlugin(db: Database.Database, data: any): void {
   const stmt = db.prepare('UPDATE plugins SET verified = ? WHERE id = ?');
   stmt.run(data.verified ? 1 : 0, data.plugin_id);
   console.log(`Plugin ${data.plugin_id} ${data.verified ? 'verified' : 'unverified'}`);
+}
+
+function handlePluginResult(db: Database.Database, data: any, timestamp: string): void {
+  const countStmt = db.prepare('SELECT MAX(id) as max_id FROM plugin_results');
+  const result = countStmt.get() as { max_id: number | null };
+  const id = (result.max_id || 0) + 1;
+
+  const ts = Math.floor(new Date(timestamp).getTime() / 1000);
+
+  const stmt = db.prepare(`
+    INSERT INTO plugin_results (id, agent, plugin_id, job_id, status, result_data, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(id, data.agent, data.plugin_id, data.job_id || 0, data.status, data.result_data || '', ts);
+  console.log(`Plugin result stored: agent=${data.agent} plugin=${data.plugin_id} status=${data.status}`);
 }
 
 // P2 FIX: Ownership action handlers

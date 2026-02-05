@@ -29,13 +29,11 @@ export default function Dashboard() {
     try {
       await transact([
         {
-          account: 'eosio.token',
-          name: 'transfer',
+          account: 'eosio',
+          name: 'stakexpr',
           data: {
-            from: session.auth.actor,
-            to: CONTRACTS.AGENT_CORE,
-            quantity: `${parseFloat(stakeAmount).toFixed(4)} XPR`,
-            memo: 'stake',
+            owner_name: session.auth.actor,
+            amount: `${parseFloat(stakeAmount).toFixed(4)} XPR`,
           },
         },
       ]);
