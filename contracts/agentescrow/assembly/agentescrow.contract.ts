@@ -12,7 +12,11 @@ import {
   hasAuth,
   print,
   EMPTY_NAME,
-  Singleton
+  Singleton,
+  InlineAction,
+  ActionData,
+  PermissionLevel,
+  packer
 } from "proton-tsc";
 
 // ============== JOB STATES ==============
@@ -201,11 +205,18 @@ export class AgentEscrowContract extends Contract {
   private arbitratorsTable: TableStore<Arbitrator> = new TableStore<Arbitrator>(this.receiver);
   private configSingleton: Singleton<EscrowConfig> = new Singleton<EscrowConfig>(this.receiver);
 
-  // External table for agent verification
-  private agentRefTable: TableStore<AgentRef> = new TableStore<AgentRef>(
-    Name.fromString("agentcore"),
-    Name.fromString("agentcore")
-  );
+  // Helper to get agent from configured core contract
+  private getAgentRef(agent: Name): AgentRef | null {
+    const config = this.configSingleton.get();
+    const agentRefTable = new TableStore<AgentRef>(config.core_contract, config.core_contract);
+    return agentRefTable.get(agent.N);
+  }
+
+  private requireAgentRef(agent: Name): AgentRef {
+    const agentRef = this.getAgentRef(agent);
+    check(agentRef != null, "Agent not registered in agentcore");
+    return agentRef!;
+  }
 
   private readonly XPR_SYMBOL: Symbol = new Symbol("XPR", 4);
   private readonly TOKEN_CONTRACT: Name = Name.fromString("eosio.token");
@@ -216,15 +227,19 @@ export class AgentEscrowContract extends Contract {
   init(owner: Name, core_contract: Name, feed_contract: Name, platform_fee: u64): void {
     requireAuth(this.receiver);
 
+    // EscrowConfig: owner, core_contract, feed_contract, platform_fee, min_job_amount,
+    //               default_deadline_days, dispute_window, acceptance_timeout, min_arbitrator_stake, paused
     const config = new EscrowConfig(
       owner,
       core_contract,
       feed_contract,
       platform_fee,
-      10000,
-      30,
-      259200,
-      false
+      10000,       // min_job_amount (1.0000 XPR)
+      30,          // default_deadline_days
+      259200,      // dispute_window (3 days)
+      604800,      // acceptance_timeout (7 days)
+      10000000,    // min_arbitrator_stake (1000.0000 XPR)
+      false        // paused
     );
     this.configSingleton.set(config, this.receiver);
   }
@@ -275,10 +290,9 @@ export class AgentEscrowContract extends Contract {
     check(title.length > 0 && title.length <= 128, "Title must be 1-128 characters");
     check(amount >= config.min_job_amount, "Amount below minimum");
 
-    // SECURITY: Verify agent exists in agentcore registry
-    const agentRef = this.agentRefTable.get(agent.N);
-    check(agentRef != null, "Agent not registered in agentcore");
-    check(agentRef!.active, "Agent is not active");
+    // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
+    const agentRef = this.requireAgentRef(agent);
+    check(agentRef.active, "Agent is not active");
 
     // Set deadline
     let jobDeadline = deadline;
@@ -743,6 +757,9 @@ export class AgentEscrowContract extends Contract {
       this.arbitratorsTable.update(arb!, this.receiver);
 
       print(`Arbitrator ${from.toString()} staked ${quantity.toString()}`);
+    } else {
+      // Reject transfers with unrecognized memos to prevent trapped funds
+      check(false, "Invalid memo. Use 'fund:JOB_ID' or 'arbstake'");
     }
   }
 
@@ -750,6 +767,10 @@ export class AgentEscrowContract extends Contract {
 
   private releasePayment(job: Job, amount: u64): void {
     if (amount == 0) return;
+
+    // CRITICAL: Prevent releasing more than funded
+    const remaining = job.funded_amount - job.released_amount;
+    check(amount <= remaining, "Cannot release more than remaining funded amount");
 
     const config = this.configSingleton.get();
 
@@ -770,50 +791,25 @@ export class AgentEscrowContract extends Contract {
   }
 
   private sendTokens(to: Name, quantity: Asset, memo: string): void {
-    const transferAction = new InlineAction<TransferParams>("transfer");
-    transferAction.act.authorization = [
-      new PermissionLevel(this.receiver, Name.fromString("active"))
-    ];
-    transferAction.act.account = this.TOKEN_CONTRACT;
-    transferAction.send(this.receiver, to, quantity, memo);
+    const transfer = new InlineAction<Transfer>("transfer");
+    const action_data = new Transfer(this.receiver, to, quantity, memo);
+    transfer.send(
+      this.TOKEN_CONTRACT,
+      [new PermissionLevel(this.receiver, Name.fromString("active"))],
+      action_data
+    );
   }
 }
 
-// Helper class for inline transfers
+// Transfer action data structure for inline token transfers
 @packer
-class TransferParams {
+class Transfer extends ActionData {
   constructor(
     public from: Name = EMPTY_NAME,
     public to: Name = EMPTY_NAME,
     public quantity: Asset = new Asset(),
     public memo: string = ""
-  ) {}
-}
-
-class InlineAction<T> {
-  act: Action;
-
-  constructor(name: string) {
-    this.act = new Action();
-    this.act.name = Name.fromString(name);
-    this.act.authorization = [];
+  ) {
+    super();
   }
-
-  send(from: Name, to: Name, quantity: Asset, memo: string): void {
-    // Implementation handled by proton-tsc
-  }
-}
-
-class Action {
-  account: Name = EMPTY_NAME;
-  name: Name = EMPTY_NAME;
-  authorization: PermissionLevel[] = [];
-  data: u8[] = [];
-}
-
-class PermissionLevel {
-  constructor(
-    public actor: Name = EMPTY_NAME,
-    public permission: Name = EMPTY_NAME
-  ) {}
 }

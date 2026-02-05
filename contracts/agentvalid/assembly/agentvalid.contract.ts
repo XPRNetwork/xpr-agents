@@ -12,7 +12,11 @@ import {
   isAccount,
   print,
   EMPTY_NAME,
-  Singleton
+  Singleton,
+  InlineAction,
+  ActionData,
+  PermissionLevel,
+  packer
 } from "proton-tsc";
 
 // ============== TABLES ==============
@@ -25,8 +29,8 @@ export class Validator extends Table {
     public method: string = "",
     public specializations: string = "",
     public total_validations: u64 = 0,
-    public correct_validations: u64 = 0,
-    public accuracy_score: u64 = 0, // 0-10000 = 0-100.00%
+    public incorrect_validations: u64 = 0, // Track wrong validations instead
+    public accuracy_score: u64 = 10000, // 0-10000 = 0-100.00% (starts at 100%)
     public registered_at: u64 = 0,
     public active: boolean = true
   ) {
@@ -187,11 +191,18 @@ export class AgentValidContract extends Contract {
   private unstakesTable: TableStore<Unstake> = new TableStore<Unstake>(this.receiver);
   private configSingleton: Singleton<Config> = new Singleton<Config>(this.receiver);
 
-  // External table for agent verification
-  private agentRefTable: TableStore<AgentRef> = new TableStore<AgentRef>(
-    Name.fromString("agentcore"),
-    Name.fromString("agentcore")
-  );
+  // Helper to get agent from configured core contract
+  private getAgentRef(agent: Name): AgentRef | null {
+    const config = this.configSingleton.get();
+    const agentRefTable = new TableStore<AgentRef>(config.core_contract, config.core_contract);
+    return agentRefTable.get(agent.N);
+  }
+
+  private requireAgentRef(agent: Name): AgentRef {
+    const agentRef = this.getAgentRef(agent);
+    check(agentRef != null, "Agent not registered in agentcore");
+    return agentRef!;
+  }
 
   private readonly XPR_SYMBOL: Symbol = new Symbol("XPR", 4);
   private readonly TOKEN_CONTRACT: Name = Name.fromString("eosio.token");
@@ -368,9 +379,8 @@ export class AgentValidContract extends Contract {
     check(validatorRecord.active, "Validator is not active");
     check(validatorRecord.stake >= config.min_stake, "Insufficient validator stake");
 
-    // SECURITY: Verify agent exists in agentcore registry
-    const agentRef = this.agentRefTable.get(agent.N);
-    check(agentRef != null, "Agent not registered in agentcore");
+    // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
+    this.requireAgentRef(agent);
 
     check(result <= 2, "Invalid result (0=fail, 1=pass, 2=partial)");
     check(confidence <= 100, "Confidence must be 0-100");
@@ -459,6 +469,12 @@ export class AgentValidContract extends Contract {
     const challengeRecord = this.challengesTable.requireGet(challenge_id, "Challenge not found");
     check(challengeRecord.status == 0, "Challenge already resolved");
 
+    // CRITICAL: Require stake before resolution to prevent free challenge griefing
+    check(
+      challengeRecord.stake >= config.challenge_stake,
+      "Challenge must be funded before resolution. Send tokens with memo 'challenge:ID'"
+    );
+
     const validation = this.validationsTable.requireGet(
       challengeRecord.validation_id,
       "Validation not found"
@@ -475,35 +491,27 @@ export class AgentValidContract extends Contract {
 
     if (upheld) {
       // Challenge upheld - validator was wrong
+      validator.incorrect_validations += 1;
+
       // Slash validator
       const slashAmount = (validator.stake * config.slash_percent) / 10000;
       if (slashAmount > 0 && validator.stake >= slashAmount) {
         validator.stake -= slashAmount;
 
         // Return challenger stake + reward from slash
-        if (challengeRecord.stake > 0) {
-          const reward = new Asset(challengeRecord.stake + slashAmount, this.XPR_SYMBOL);
-          this.sendTokens(challengeRecord.challenger, reward, "Challenge upheld - reward");
-        }
-      }
-
-      // Update accuracy
-      if (validator.total_validations > 0) {
-        validator.accuracy_score =
-          (validator.correct_validations * 10000) / validator.total_validations;
+        const reward = new Asset(challengeRecord.stake + slashAmount, this.XPR_SYMBOL);
+        this.sendTokens(challengeRecord.challenger, reward, "Challenge upheld - reward");
       }
     } else {
       // Challenge rejected - validator was correct
-      validator.correct_validations += 1;
-      if (validator.total_validations > 0) {
-        validator.accuracy_score =
-          (validator.correct_validations * 10000) / validator.total_validations;
-      }
-
       // Forfeit challenger stake to validator
-      if (challengeRecord.stake > 0) {
-        validator.stake += challengeRecord.stake;
-      }
+      validator.stake += challengeRecord.stake;
+    }
+
+    // Update accuracy: (total - incorrect) / total
+    if (validator.total_validations > 0) {
+      const correct = validator.total_validations - validator.incorrect_validations;
+      validator.accuracy_score = (correct * 10000) / validator.total_validations;
     }
 
     this.validatorsTable.update(validator, this.receiver);
@@ -571,51 +579,25 @@ export class AgentValidContract extends Contract {
   // ============== HELPERS ==============
 
   private sendTokens(to: Name, quantity: Asset, memo: string): void {
-    const transferAction = new InlineAction<TransferParams>("transfer");
-    transferAction.act.authorization = [
-      new PermissionLevel(this.receiver, Name.fromString("active"))
-    ];
-    transferAction.act.account = this.TOKEN_CONTRACT;
-    transferAction.send(this.receiver, to, quantity, memo);
+    const transfer = new InlineAction<Transfer>("transfer");
+    const action_data = new Transfer(this.receiver, to, quantity, memo);
+    transfer.send(
+      this.TOKEN_CONTRACT,
+      [new PermissionLevel(this.receiver, Name.fromString("active"))],
+      action_data
+    );
   }
 }
 
-// Helper class for inline transfers
+// Transfer action data structure for inline token transfers
 @packer
-class TransferParams {
+class Transfer extends ActionData {
   constructor(
     public from: Name = EMPTY_NAME,
     public to: Name = EMPTY_NAME,
     public quantity: Asset = new Asset(),
     public memo: string = ""
-  ) {}
-}
-
-// Helper for inline action
-class InlineAction<T> {
-  act: Action;
-
-  constructor(name: string) {
-    this.act = new Action();
-    this.act.name = Name.fromString(name);
-    this.act.authorization = [];
+  ) {
+    super();
   }
-
-  send(from: Name, to: Name, quantity: Asset, memo: string): void {
-    // Implementation handled by proton-tsc
-  }
-}
-
-class Action {
-  account: Name = EMPTY_NAME;
-  name: Name = EMPTY_NAME;
-  authorization: PermissionLevel[] = [];
-  data: u8[] = [];
-}
-
-class PermissionLevel {
-  constructor(
-    public actor: Name = EMPTY_NAME,
-    public permission: Name = EMPTY_NAME
-  ) {}
 }

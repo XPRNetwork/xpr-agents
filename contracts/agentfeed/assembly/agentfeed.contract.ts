@@ -325,10 +325,19 @@ export class AgentFeedContract extends Contract {
     Name.fromString("eosio.proton"),
     Name.fromString("eosio.proton")
   );
-  private agentRefTable: TableStore<AgentRef> = new TableStore<AgentRef>(
-    Name.fromString("agentcore"),
-    Name.fromString("agentcore")
-  );
+
+  // Helper to get agent from configured core contract
+  private getAgentRef(agent: Name): AgentRef | null {
+    const config = this.configSingleton.get();
+    const agentRefTable = new TableStore<AgentRef>(config.core_contract, config.core_contract);
+    return agentRefTable.get(agent.N);
+  }
+
+  private requireAgentRef(agent: Name): AgentRef {
+    const agentRef = this.getAgentRef(agent);
+    check(agentRef != null, "Agent not registered in agentcore");
+    return agentRef!;
+  }
 
   // ============== INITIALIZATION ==============
 
@@ -336,7 +345,17 @@ export class AgentFeedContract extends Contract {
   init(owner: Name, core_contract: Name): void {
     requireAuth(this.receiver);
 
-    const config = new Config(owner, core_contract, 1, 5, 604800, false);
+    // Config: owner, core_contract, min_score, max_score, dispute_window, decay_period, decay_floor, paused
+    const config = new Config(
+      owner,
+      core_contract,
+      1,        // min_score
+      5,        // max_score
+      604800,   // dispute_window (7 days)
+      2592000,  // decay_period (30 days)
+      50,       // decay_floor (50%)
+      false     // paused
+    );
     this.configSingleton.set(config, this.receiver);
   }
 
@@ -346,15 +365,23 @@ export class AgentFeedContract extends Contract {
     min_score: u8,
     max_score: u8,
     dispute_window: u64,
+    decay_period: u64,
+    decay_floor: u64,
     paused: boolean
   ): void {
     const config = this.configSingleton.get();
     requireAuth(config.owner);
 
+    // Validate decay parameters to prevent division by zero
+    check(decay_period > 0, "Decay period must be positive");
+    check(decay_floor <= 100, "Decay floor cannot exceed 100%");
+
     config.core_contract = core_contract;
     config.min_score = min_score;
     config.max_score = max_score;
     config.dispute_window = dispute_window;
+    config.decay_period = decay_period;
+    config.decay_floor = decay_floor;
     config.paused = paused;
 
     this.configSingleton.set(config, this.receiver);
@@ -382,9 +409,8 @@ export class AgentFeedContract extends Contract {
     check(job_hash.length <= 128, "Job hash too long");
     check(evidence_uri.length <= 256, "Evidence URI too long");
 
-    // SECURITY: Verify agent exists in agentcore registry
-    const agentRef = this.agentRefTable.get(agent.N);
-    check(agentRef != null, "Agent not registered in agentcore");
+    // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
+    this.requireAgentRef(agent);
 
     // Get reviewer's KYC level
     const kycLevel = this.getKycLevel(reviewer);
@@ -598,9 +624,8 @@ export class AgentFeedContract extends Contract {
     check(job_hash.length <= 128, "Job hash too long");
     check(evidence_uri.length <= 256, "Evidence URI too long");
 
-    // SECURITY: Verify agent exists in agentcore registry
-    const agentRef = this.agentRefTable.get(agent.N);
-    check(agentRef != null, "Agent not registered in agentcore");
+    // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
+    this.requireAgentRef(agent);
 
     // Get reviewer's KYC level
     const kycLevel = this.getKycLevel(reviewer);
@@ -799,9 +824,8 @@ export class AgentFeedContract extends Contract {
     check(score >= config.min_score && score <= config.max_score, "Score out of range");
     check(payment_tx_id.length > 0 && payment_tx_id.length <= 64, "Invalid transaction ID");
 
-    // SECURITY: Verify agent exists in agentcore registry
-    const agentRef = this.agentRefTable.get(agent.N);
-    check(agentRef != null, "Agent not registered in agentcore");
+    // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
+    this.requireAgentRef(agent);
 
     // Get reviewer's KYC level
     const kycLevel = this.getKycLevel(reviewer);

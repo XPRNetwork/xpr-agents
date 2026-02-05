@@ -12,7 +12,11 @@ import {
   hasAuth,
   print,
   EMPTY_NAME,
-  Singleton
+  Singleton,
+  InlineAction,
+  ActionData,
+  PermissionLevel,
+  packer
 } from "proton-tsc";
 
 // ============== TABLES ==============
@@ -131,9 +135,11 @@ export class Unstake extends Table {
 export class Config extends Table {
   constructor(
     public owner: Name = EMPTY_NAME,
-    public min_stake: u64 = 10000000, // 100.0000 XPR default
+    public min_stake: u64 = 0, // Optional staking - KYC provides baseline trust
     public unstake_delay: u64 = 604800, // 7 days in seconds
     public registration_fee: u64 = 0,
+    public feed_contract: Name = EMPTY_NAME, // Authorized agentfeed contract
+    public valid_contract: Name = EMPTY_NAME, // Authorized agentvalid contract
     public paused: boolean = false
   ) {
     super();
@@ -182,21 +188,44 @@ export class AgentCoreContract extends Contract {
   // ============== INITIALIZATION ==============
 
   @action("init")
-  init(owner: Name, min_stake: u64, unstake_delay: u64): void {
+  init(
+    owner: Name,
+    min_stake: u64,
+    unstake_delay: u64,
+    feed_contract: Name,
+    valid_contract: Name
+  ): void {
     requireAuth(this.receiver);
 
-    const config = new Config(owner, min_stake, unstake_delay, 0, false);
+    const config = new Config(
+      owner,
+      min_stake,
+      unstake_delay,
+      0, // registration_fee
+      feed_contract,
+      valid_contract,
+      false // paused
+    );
     this.configSingleton.set(config, this.receiver);
   }
 
   @action("setconfig")
-  setConfig(min_stake: u64, unstake_delay: u64, registration_fee: u64, paused: boolean): void {
+  setConfig(
+    min_stake: u64,
+    unstake_delay: u64,
+    registration_fee: u64,
+    feed_contract: Name,
+    valid_contract: Name,
+    paused: boolean
+  ): void {
     const config = this.configSingleton.get();
     requireAuth(config.owner);
 
     config.min_stake = min_stake;
     config.unstake_delay = unstake_delay;
     config.registration_fee = registration_fee;
+    config.feed_contract = feed_contract;
+    config.valid_contract = valid_contract;
     config.paused = paused;
 
     this.configSingleton.set(config, this.receiver);
@@ -282,10 +311,15 @@ export class AgentCoreContract extends Contract {
 
   @action("incjobs")
   incrementJobs(account: Name): void {
-    // Allow agentfeed or agentvalid contracts to call this
+    // Allow agentfeed, agentvalid, or owner to call this
     const config = this.configSingleton.get();
+    const isOwner = hasAuth(config.owner);
+    const isSelf = hasAuth(this.receiver);
+    const isFeedContract = config.feed_contract != EMPTY_NAME && hasAuth(config.feed_contract);
+    const isValidContract = config.valid_contract != EMPTY_NAME && hasAuth(config.valid_contract);
+
     check(
-      hasAuth(config.owner) || hasAuth(this.receiver),
+      isOwner || isSelf || isFeedContract || isValidContract,
       "Only authorized contracts can increment jobs"
     );
 
@@ -508,62 +542,34 @@ export class AgentCoreContract extends Contract {
       this.agentsTable.update(agent!, this.receiver);
 
       print(`Staked ${quantity.toString()} for agent ${from.toString()}`);
+    } else {
+      // Reject transfers with unrecognized memos to prevent trapped funds
+      check(false, "Invalid memo. Use 'stake' to stake tokens.");
     }
   }
 
   // ============== HELPERS ==============
 
   private sendTokens(to: Name, quantity: Asset, memo: string): void {
-    const transferAction = new InlineAction<TransferParams>("transfer");
-    transferAction.act.authorization = [
-      new PermissionLevel(this.receiver, Name.fromString("active"))
-    ];
-    transferAction.act.account = this.TOKEN_CONTRACT;
-    transferAction.send(this.receiver, to, quantity, memo);
+    const transfer = new InlineAction<Transfer>("transfer");
+    const action_data = new Transfer(this.receiver, to, quantity, memo);
+    transfer.send(
+      this.TOKEN_CONTRACT,
+      [new PermissionLevel(this.receiver, Name.fromString("active"))],
+      action_data
+    );
   }
 }
 
-// TODO: Replace custom InlineAction implementation with proton-tsc built-in
-// The current implementation is a placeholder. When building with proton-tsc,
-// use the proper ActionWrapper or sendInline patterns from the library.
-// See: https://github.com/XPRNetwork/ts-smart-contracts
-
-// Helper class for inline transfers
+// Transfer action data structure for inline token transfers
 @packer
-class TransferParams {
+class Transfer extends ActionData {
   constructor(
     public from: Name = EMPTY_NAME,
     public to: Name = EMPTY_NAME,
     public quantity: Asset = new Asset(),
     public memo: string = ""
-  ) {}
-}
-
-// Helper for inline action
-class InlineAction<T> {
-  act: Action;
-
-  constructor(name: string) {
-    this.act = new Action();
-    this.act.name = Name.fromString(name);
-    this.act.authorization = [];
+  ) {
+    super();
   }
-
-  send(from: Name, to: Name, quantity: Asset, memo: string): void {
-    // Implementation handled by proton-tsc
-  }
-}
-
-class Action {
-  account: Name = EMPTY_NAME;
-  name: Name = EMPTY_NAME;
-  authorization: PermissionLevel[] = [];
-  data: u8[] = [];
-}
-
-class PermissionLevel {
-  constructor(
-    public actor: Name = EMPTY_NAME,
-    public permission: Name = EMPTY_NAME
-  ) {}
 }
