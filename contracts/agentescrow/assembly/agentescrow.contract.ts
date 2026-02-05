@@ -536,8 +536,20 @@ export class AgentEscrowContract extends Contract {
     check(client_percent <= 100, "Invalid percentage");
 
     const remainingAmount = job.funded_amount - job.released_amount;
-    const clientAmount = (remainingAmount * client_percent) / 100;
-    const agentAmount = remainingAmount - clientAmount;
+
+    // Calculate and deduct arbitrator fee
+    const arb = this.arbitratorsTable.get(arbitrator.N);
+    let arbFee: u64 = 0;
+    let amountAfterFee = remainingAmount;
+
+    if (arb != null && arb.fee_percent > 0) {
+      arbFee = (remainingAmount * arb.fee_percent) / 10000;
+      amountAfterFee = remainingAmount - arbFee;
+    }
+
+    // Split remaining amount between client and agent
+    const clientAmount = (amountAfterFee * client_percent) / 100;
+    const agentAmount = amountAfterFee - clientAmount;
 
     // Update dispute
     dispute.client_amount = clientAmount;
@@ -549,7 +561,10 @@ export class AgentEscrowContract extends Contract {
 
     this.disputesTable.update(dispute, this.receiver);
 
-    // Process payments
+    // Process payments - arbitrator fee first
+    if (arbFee > 0) {
+      this.sendTokens(arbitrator, new Asset(arbFee, this.XPR_SYMBOL), `Arbitration fee for job ${job.id}`);
+    }
     if (clientAmount > 0) {
       this.sendTokens(job.client, new Asset(clientAmount, this.XPR_SYMBOL), "Dispute refund");
     }
@@ -564,13 +579,12 @@ export class AgentEscrowContract extends Contract {
     this.jobsTable.update(job, this.receiver);
 
     // Update arbitrator stats
-    const arb = this.arbitratorsTable.get(arbitrator.N);
     if (arb != null) {
       arb.total_cases += 1;
       this.arbitratorsTable.update(arb, this.receiver);
     }
 
-    print(`Dispute ${dispute_id} resolved: ${client_percent}% to client`);
+    print(`Dispute ${dispute_id} resolved: ${client_percent}% to client, ${arbFee} arbitration fee`);
   }
 
   // ============== CANCELLATION & REFUND ==============
