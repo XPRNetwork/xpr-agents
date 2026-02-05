@@ -21,6 +21,18 @@ export function handleAgentAction(db: Database.Database, action: StreamAction): 
     case 'regplugin':
       handleRegPlugin(db, data);
       break;
+    case 'addplugin':
+      handleAddPlugin(db, data);
+      break;
+    case 'rmplugin':
+      handleRemovePlugin(db, data);
+      break;
+    case 'toggleplug':
+      handleTogglePlugin(db, data);
+      break;
+    case 'verifyplugin':
+      handleVerifyPlugin(db, data);
+      break;
     // P2 FIX: Add ownership action handlers
     case 'approveclaim':
       handleApproveClaim(db, data);
@@ -140,6 +152,43 @@ function handleRegPlugin(db: Database.Database, data: any): void {
   );
 
   console.log(`Plugin registered: ${data.name}`);
+}
+
+// Plugin lifecycle handlers
+
+function handleAddPlugin(db: Database.Database, data: any): void {
+  // Contract: addplugin(agent, plugin_id, pluginConfig)
+  const countStmt = db.prepare('SELECT MAX(id) as max_id FROM agent_plugins');
+  const result = countStmt.get() as { max_id: number | null };
+  const id = (result.max_id || 0) + 1;
+
+  const stmt = db.prepare(`
+    INSERT INTO agent_plugins (id, agent, plugin_id, config, enabled)
+    VALUES (?, ?, ?, ?, 1)
+  `);
+  stmt.run(id, data.agent, data.plugin_id, data.pluginConfig || '{}');
+  console.log(`Plugin ${data.plugin_id} added to agent ${data.agent}`);
+}
+
+function handleRemovePlugin(db: Database.Database, data: any): void {
+  // Contract: rmplugin(agent, agentplugin_id)
+  const stmt = db.prepare('DELETE FROM agent_plugins WHERE id = ?');
+  stmt.run(data.agentplugin_id);
+  console.log(`Agent plugin ${data.agentplugin_id} removed`);
+}
+
+function handleTogglePlugin(db: Database.Database, data: any): void {
+  // Contract: toggleplug(agent, agentplugin_id, enabled)
+  const stmt = db.prepare('UPDATE agent_plugins SET enabled = ? WHERE id = ?');
+  stmt.run(data.enabled ? 1 : 0, data.agentplugin_id);
+  console.log(`Agent plugin ${data.agentplugin_id} ${data.enabled ? 'enabled' : 'disabled'}`);
+}
+
+function handleVerifyPlugin(db: Database.Database, data: any): void {
+  // Contract: verifyplugin(plugin_id, verified)
+  const stmt = db.prepare('UPDATE plugins SET verified = ? WHERE id = ?');
+  stmt.run(data.verified ? 1 : 0, data.plugin_id);
+  console.log(`Plugin ${data.plugin_id} ${data.verified ? 'verified' : 'unverified'}`);
 }
 
 // P2 FIX: Ownership action handlers

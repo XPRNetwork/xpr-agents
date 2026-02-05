@@ -80,7 +80,7 @@ stream.on('action', (action: StreamAction) => {
       }
       // Handle token transfers to/from agentvalid for validator staking, challenge funding, and refunds
       if (to === config.contracts.agentvalid || from === config.contracts.agentvalid) {
-        handleValidationTransfer(db, action);
+        handleValidationTransfer(db, action, config.contracts.agentvalid);
       }
       // P2 FIX: Handle token transfers to agentcore for claim deposits
       if (to === config.contracts.agentcore) {

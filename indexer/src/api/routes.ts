@@ -87,6 +87,22 @@ export function createRoutes(db: Database.Database): Router {
     res.json({ validations });
   });
 
+  // Get agent plugins
+  router.get('/agents/:account/plugins', (req: Request, res: Response) => {
+    const { account } = req.params;
+
+    const plugins = db.prepare(`
+      SELECT ap.id, ap.plugin_id, ap.config, ap.enabled,
+             p.name, p.version, p.contract, p.action, p.category, p.author, p.verified
+      FROM agent_plugins ap
+      JOIN plugins p ON ap.plugin_id = p.id
+      WHERE ap.agent = ?
+      ORDER BY ap.id ASC
+    `).all(account);
+
+    res.json({ plugins });
+  });
+
   // ============== VALIDATORS ==============
 
   // List validators
@@ -119,6 +135,17 @@ export function createRoutes(db: Database.Database): Router {
     }
 
     return res.json(validator);
+  });
+
+  // Get validation challenges
+  router.get('/validations/:id/challenges', (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    const challenges = db.prepare(
+      'SELECT * FROM validation_challenges WHERE validation_id = ? ORDER BY created_at DESC'
+    ).all(parseInt(id));
+
+    res.json({ challenges });
   });
 
   // ============== PLUGINS ==============

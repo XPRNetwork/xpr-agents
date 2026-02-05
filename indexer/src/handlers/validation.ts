@@ -51,12 +51,18 @@ export function handleValidationAction(db: Database.Database, action: StreamActi
 }
 
 function handleRegVal(db: Database.Database, data: any, timestamp: string): void {
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO validators (account, stake, method, specializations, total_validations, incorrect_validations, accuracy_score, registered_at, active)
-    VALUES (?, 0, ?, ?, 0, 0, 10000, ?, 1)
-  `);
-
+  // Use ON CONFLICT to preserve existing stats on re-registration.
+  // INSERT OR REPLACE would reset stake, total_validations, accuracy_score to 0.
   const registeredAt = Math.floor(new Date(timestamp).getTime() / 1000);
+
+  const stmt = db.prepare(`
+    INSERT INTO validators (account, stake, method, specializations, total_validations, incorrect_validations, accuracy_score, registered_at, active)
+    VALUES (?, 0, ?, ?, 0, 0, 10000, ?, 1)
+    ON CONFLICT(account) DO UPDATE SET
+      method = excluded.method,
+      specializations = excluded.specializations,
+      active = 1
+  `);
 
   stmt.run(
     data.account,
@@ -321,15 +327,15 @@ function logEvent(db: Database.Database, action: StreamAction): void {
  * Handle eosio.token::transfer notifications to/from agentvalid
  * Updates validator stake, challenge funding, and processes refunds
  */
-export function handleValidationTransfer(db: Database.Database, action: StreamAction): void {
+export function handleValidationTransfer(db: Database.Database, action: StreamAction, validContract: string): void {
   const { from, to, quantity, memo } = action.act.data;
 
   // Parse quantity (e.g., "100.0000 XPR")
   const [amountStr] = quantity.split(' ');
   const amount = Math.floor(parseFloat(amountStr) * 10000);
 
-  // Determine if this is incoming (to agentvalid) or outgoing (from agentvalid)
-  const isOutgoing = from === 'agentvalid';
+  // Determine if this is incoming or outgoing using the passed contract name
+  const isOutgoing = from === validContract;
 
   if (isOutgoing) {
     // Handle outgoing transfers (refunds from agentvalid)

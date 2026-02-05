@@ -239,7 +239,40 @@ export function initDatabase(dbPath: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_escrow_disputes_job ON escrow_disputes(job_id);
     CREATE INDEX IF NOT EXISTS idx_feedback_disputes_feedback ON feedback_disputes(feedback_id);
     CREATE INDEX IF NOT EXISTS idx_validation_challenges_validation ON validation_challenges(validation_id);
+
+    -- Agent Plugins table (agent-to-plugin assignments)
+    CREATE TABLE IF NOT EXISTS agent_plugins (
+      id INTEGER PRIMARY KEY,
+      agent TEXT NOT NULL,
+      plugin_id INTEGER NOT NULL,
+      config TEXT,
+      enabled INTEGER DEFAULT 1,
+      FOREIGN KEY (agent) REFERENCES agents(account),
+      FOREIGN KEY (plugin_id) REFERENCES plugins(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_plugins_agent ON agent_plugins(agent);
+    CREATE INDEX IF NOT EXISTS idx_agent_plugins_plugin ON agent_plugins(plugin_id);
   `);
+
+  // Migrations: Add columns that may not exist in older databases.
+  // ALTER TABLE ... ADD COLUMN is a no-op error if the column already exists,
+  // so we catch and ignore each one individually.
+  const migrations = [
+    'ALTER TABLE arbitrators ADD COLUMN pending_unstake INTEGER DEFAULT 0',
+    'ALTER TABLE agents ADD COLUMN owner TEXT',
+    'ALTER TABLE agents ADD COLUMN pending_owner TEXT',
+    'ALTER TABLE agents ADD COLUMN claim_deposit INTEGER DEFAULT 0',
+    'ALTER TABLE agents ADD COLUMN deposit_payer TEXT',
+  ];
+
+  for (const migration of migrations) {
+    try {
+      db.exec(migration);
+    } catch (_e) {
+      // Column already exists - ignore
+    }
+  }
 
   return db;
 }
