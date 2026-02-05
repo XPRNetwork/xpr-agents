@@ -175,8 +175,10 @@ export class AgentRegistry {
     const result = await this.rpc.get_table_rows<{
       owner: string;
       min_stake: string;
-      unstake_delay: string;
       registration_fee: string;
+      feed_contract: string;
+      valid_contract: string;
+      escrow_contract: string;
       paused: number;
     }>({
       json: true,
@@ -194,8 +196,10 @@ export class AgentRegistry {
     return {
       owner: row.owner,
       min_stake: parseInt(row.min_stake),
-      unstake_delay: parseInt(row.unstake_delay),
       registration_fee: parseInt(row.registration_fee),
+      feed_contract: row.feed_contract,
+      valid_contract: row.valid_contract,
+      escrow_contract: row.escrow_contract,
       paused: row.paused === 1,
     };
   }

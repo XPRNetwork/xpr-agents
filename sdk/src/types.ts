@@ -77,8 +77,10 @@ export interface Unstake {
 export interface AgentCoreConfig {
   owner: string;
   min_stake: number;
-  unstake_delay: number;
   registration_fee: number;
+  feed_contract: string;
+  valid_contract: string;
+  escrow_contract: string;
   paused: boolean;
 }
 

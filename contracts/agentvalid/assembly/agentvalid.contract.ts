@@ -762,6 +762,10 @@ export class AgentValidContract extends Contract {
       check(challengeRecord.challenger == from, "Not your challenge");
       check(challengeRecord.stake == 0, "Challenge already staked");
 
+      // P1 FIX: Ensure challenge is still pending (not canceled/resolved)
+      // Status: 0=pending, 1=upheld, 2=rejected, 3=cancelled
+      check(challengeRecord.status == 0, "Challenge is not pending - cannot fund canceled or resolved challenges");
+
       // FINDING 2 FIX: Check funding deadline hasn't passed
       check(
         currentTimeSec() <= challengeRecord.funding_deadline,
