@@ -40,7 +40,7 @@ export function handleValidationAction(db: Database.Database, action: StreamActi
 
 function handleRegVal(db: Database.Database, data: any, timestamp: string): void {
   const stmt = db.prepare(`
-    INSERT OR REPLACE INTO validators (account, stake, method, specializations, total_validations, correct_validations, accuracy_score, registered_at, active)
+    INSERT OR REPLACE INTO validators (account, stake, method, specializations, total_validations, incorrect_validations, accuracy_score, registered_at, active)
     VALUES (?, 0, ?, ?, 0, 0, 10000, ?, 1)
   `);
 
