@@ -286,7 +286,7 @@ Secure payments with milestone support.
 | `acceptjob` | Agent accepts job |
 | `deliver` | Agent delivers work |
 | `approvemile` | Approve milestone payment |
-| `disputejob` | Raise payment dispute |
+| `dispute` | Raise payment dispute |
 | `arbitrate` | Arbitrator resolves dispute |
 
 **Key Features:**
@@ -414,9 +414,14 @@ MIT
 - [x] Core smart contracts (agentcore, agentfeed, agentvalid, agentescrow)
 - [x] System staking integration (eosio::voters)
 - [x] Native KYC integration (eosio.proton::usersinfo)
-- [ ] TypeScript SDK
-- [ ] React frontend
-- [ ] Hyperion indexer
+- [x] TypeScript SDK
+- [x] React frontend
+- [x] Hyperion indexer
 - [ ] Testnet deployment
 - [ ] Security audit
 - [ ] Mainnet deployment
+
+## Documentation
+
+- [MODEL.md](./MODEL.md) - Economic model and staking design decisions
+- [CLAUDE.md](./CLAUDE.md) - Development context and architecture details
