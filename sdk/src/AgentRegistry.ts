@@ -5,7 +5,6 @@ import {
   PluginRaw,
   AgentPlugin,
   AgentPluginRaw,
-  Unstake,
   AgentCoreConfig,
   AgentListOptions,
   RegisterAgentData,
@@ -76,9 +75,8 @@ export class AgentRegistry {
       agents = agents.filter((a) => a.active);
     }
 
-    if (options.min_stake !== undefined) {
-      agents = agents.filter((a) => a.stake >= options.min_stake!);
-    }
+    // Note: Agents use system staking (eosio::voters), not contract-managed staking
+    // To filter by stake, query system staking separately
 
     // Get next cursor from the last row if there are more
     const nextCursor = hasMore && rows.length > 0
@@ -166,36 +164,9 @@ export class AgentRegistry {
       .map((row) => this.parseAgentPlugin(row));
   }
 
-  /**
-   * Get pending unstake requests for an agent
-   */
-  async getUnstakeRequests(account: string): Promise<Unstake[]> {
-    const result = await this.rpc.get_table_rows<{
-      id: string;
-      agent: string;
-      amount: string;
-      request_time: string;
-      available_at: string;
-    }>({
-      json: true,
-      code: this.contract,
-      scope: this.contract,
-      table: 'unstakes',
-      index_position: 2,
-      key_type: 'i64',
-      limit: 100,
-    });
-
-    return result.rows
-      .filter((row) => row.agent === account)
-      .map((row) => ({
-        id: parseInt(row.id),
-        agent: row.agent,
-        amount: parseInt(row.amount),
-        request_time: parseInt(row.request_time),
-        available_at: parseInt(row.available_at),
-      }));
-  }
+  // Note: Agents use system staking via eosio::voters table, not contract-managed staking
+  // There is no unstakes table in agentcore - agents stake/unstake via system resources
+  // Use agentcore::getagentinfo action to query an agent's system stake
 
   /**
    * Get contract configuration
@@ -323,85 +294,16 @@ export class AgentRegistry {
     });
   }
 
-  /**
-   * Stake XPR to agent (requires separate token transfer)
-   */
-  async stake(amount: string): Promise<TransactionResult> {
-    this.requireSession();
-
-    return this.session!.link.transact({
-      actions: [
-        {
-          account: 'eosio.token',
-          name: 'transfer',
-          authorization: [
-            {
-              actor: this.session!.auth.actor,
-              permission: this.session!.auth.permission,
-            },
-          ],
-          data: {
-            from: this.session!.auth.actor,
-            to: this.contract,
-            quantity: amount,
-            memo: 'stake',
-          },
-        },
-      ],
-    });
-  }
-
-  /**
-   * Request unstake
-   */
-  async unstake(amount: number): Promise<TransactionResult> {
-    this.requireSession();
-
-    return this.session!.link.transact({
-      actions: [
-        {
-          account: this.contract,
-          name: 'unstake',
-          authorization: [
-            {
-              actor: this.session!.auth.actor,
-              permission: this.session!.auth.permission,
-            },
-          ],
-          data: {
-            account: this.session!.auth.actor,
-            amount,
-          },
-        },
-      ],
-    });
-  }
-
-  /**
-   * Withdraw completed unstake
-   */
-  async withdraw(unstakeId: number): Promise<TransactionResult> {
-    this.requireSession();
-
-    return this.session!.link.transact({
-      actions: [
-        {
-          account: this.contract,
-          name: 'withdraw',
-          authorization: [
-            {
-              actor: this.session!.auth.actor,
-              permission: this.session!.auth.permission,
-            },
-          ],
-          data: {
-            account: this.session!.auth.actor,
-            unstake_id: unstakeId,
-          },
-        },
-      ],
-    });
-  }
+  // ============== SYSTEM STAKING NOTE ==============
+  // Agents use XPR Network's native system staking (eosio::voters table)
+  // instead of contract-managed staking. To stake/unstake:
+  //
+  // 1. Stake: Use system stake action or resources.xprnetwork.org
+  // 2. Unstake: Use system unstake action
+  // 3. Query stake: Call agentcore::getagentinfo action or query eosio::voters table
+  //
+  // This design leverages the existing staking infrastructure and allows
+  // agents to earn staking rewards while meeting minimum stake requirements.
 
   /**
    * Add plugin to agent
@@ -510,10 +412,10 @@ export class AgentRegistry {
       endpoint: raw.endpoint,
       protocol: raw.protocol,
       capabilities: parseCapabilities(raw.capabilities),
-      stake: parseInt(raw.stake),
       total_jobs: parseInt(raw.total_jobs),
       registered_at: parseInt(raw.registered_at),
       active: raw.active === 1,
+      // Note: stake is queried from system staking (eosio::voters), not stored here
     };
   }
 

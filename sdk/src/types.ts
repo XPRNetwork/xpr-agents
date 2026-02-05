@@ -7,10 +7,11 @@ export interface Agent {
   endpoint: string;
   protocol: string;
   capabilities: string[];
-  stake: number;
   total_jobs: number;
   registered_at: number;
   active: boolean;
+  // Note: Agents stake via system staking (eosio::voters), not contract-managed staking
+  // Use getSystemStake() from agentcore::getagentinfo to query stake
 }
 
 export interface AgentRaw {
@@ -20,7 +21,6 @@ export interface AgentRaw {
   endpoint: string;
   protocol: string;
   capabilities: string;
-  stake: string;
   total_jobs: string;
   registered_at: string;
   active: number;
@@ -255,8 +255,9 @@ export interface ListOptions extends PaginationOptions {
 
 export interface AgentListOptions extends ListOptions {
   category?: PluginCategory;
-  min_stake?: number;
   min_trust_score?: number;
+  // Note: Agents use system staking, not contract-managed staking
+  // Filter by system stake via separate query to eosio::voters table
 }
 
 export interface FeedbackListOptions extends ListOptions {

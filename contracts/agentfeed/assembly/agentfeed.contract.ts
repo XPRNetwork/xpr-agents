@@ -300,6 +300,7 @@ export class Config extends Table {
 }
 
 // External table reference for agent verification
+// Note: Schema must match agentcore::agents table exactly
 @table("agents", "agentcore")
 export class AgentRef extends Table {
   constructor(
@@ -309,10 +310,10 @@ export class AgentRef extends Table {
     public endpoint: string = "",
     public protocol: string = "",
     public capabilities: string = "",
-    public stake: u64 = 0,
     public total_jobs: u64 = 0,
     public registered_at: u64 = 0,
     public active: boolean = true
+    // Note: Agents use system staking (eosio::voters), not contract-managed stake field
   ) {
     super();
   }
@@ -573,9 +574,62 @@ export class AgentFeedContract extends Contract {
     // If dispute upheld, remove feedback from score calculation
     if (upheld) {
       this.updateAgentScore(feedback.agent, feedback.score, feedback.reviewer_kyc_level, false);
+
+      // FINDING 4 FIX: Also rollback context score if feedback was context-specific
+      // Context feedback has tags in format "context:actual_tags"
+      if (feedback.tags.includes(":")) {
+        const colonIndex = feedback.tags.indexOf(":");
+        const context = feedback.tags.substring(0, colonIndex);
+        // Only rollback if it's a valid context
+        const validContexts = ["ai", "compute", "storage", "oracle", "payment", "messaging", "data", "automation", "analytics", "security"];
+        for (let i = 0; i < validContexts.length; i++) {
+          if (validContexts[i] == context) {
+            this.updateContextScore(feedback.agent, context, feedback.score, feedback.reviewer_kyc_level, false);
+            break;
+          }
+        }
+      }
+
+      // FINDING 4 FIX: Also rollback directional trust
+      // Directional trust adds (score - 3) as delta, so we reverse by subtracting the same
+      this.reverseDirectionalTrust(feedback.reviewer, feedback.agent, feedback.score);
     }
     // Note: If dispute rejected (upheld=false), scores are already included since they were
     // added at submission time. The feedback will be included in recalculate() as well.
+  }
+
+  /**
+   * FINDING 4 FIX: Reverse directional trust that was added when feedback was submitted
+   * This undoes the trust delta that was applied by updateDirectionalTrust()
+   */
+  private reverseDirectionalTrust(truster: Name, trustee: Name, originalScore: u8): void {
+    // Calculate the original delta that was added
+    const originalDelta: i64 = <i64>originalScore - 3;
+
+    // Find the directional trust record
+    let existingTrust = this.directionalTrustTable.getBySecondaryU64(truster.N, 0);
+    let trust: DirectionalTrust | null = null;
+
+    while (existingTrust != null) {
+      if (existingTrust.trustee == trustee) {
+        trust = existingTrust;
+        break;
+      }
+      existingTrust = this.directionalTrustTable.nextBySecondaryU64(existingTrust, 0);
+      if (existingTrust != null && existingTrust.truster != truster) break;
+    }
+
+    if (trust != null) {
+      // Reverse the delta (subtract what was added)
+      trust.trust_score -= originalDelta;
+      // Keep within bounds
+      if (trust.trust_score > 1000) trust.trust_score = 1000;
+      if (trust.trust_score < -1000) trust.trust_score = -1000;
+      // Decrement interaction count if possible
+      if (trust.interactions > 0) trust.interactions -= 1;
+      this.directionalTrustTable.update(trust, this.receiver);
+    }
+    // If trust record doesn't exist, nothing to reverse
   }
 
   @action("reinstate")

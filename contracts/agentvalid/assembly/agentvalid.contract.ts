@@ -178,6 +178,7 @@ export class Config extends Table {
 }
 
 // External table reference for agent verification
+// Note: Schema must match agentcore::agents table exactly
 @table("agents", "agentcore")
 export class AgentRef extends Table {
   constructor(
@@ -187,10 +188,10 @@ export class AgentRef extends Table {
     public endpoint: string = "",
     public protocol: string = "",
     public capabilities: string = "",
-    public stake: u64 = 0,
     public total_jobs: u64 = 0,
     public registered_at: u64 = 0,
     public active: boolean = true
+    // Note: Agents use system staking (eosio::voters), not contract-managed stake field
   ) {
     super();
   }
@@ -355,6 +356,22 @@ export class AgentValidContract extends Contract {
     check(amount > 0, "Amount must be positive");
     check(validator.stake >= amount, "Insufficient stake");
 
+    // FINDING 3 FIX: Check for pending challenges against this validator
+    // Validators cannot unstake while they have funded pending challenges
+    check(
+      !this.hasPendingChallenges(account),
+      "Cannot unstake while you have pending challenges. Wait for challenge resolution."
+    );
+
+    // Also check that remaining stake meets minimum if validator stays active
+    const remainingStake = validator.stake - amount;
+    if (validator.active && remainingStake > 0) {
+      check(
+        remainingStake >= config.min_stake,
+        "Remaining stake would be below minimum. Unstake all or keep >= min_stake"
+      );
+    }
+
     // Reduce stake
     validator.stake -= amount;
     this.validatorsTable.update(validator, this.receiver);
@@ -369,6 +386,27 @@ export class AgentValidContract extends Contract {
     );
 
     this.unstakesTable.store(unstakeRequest, this.receiver);
+  }
+
+  /**
+   * FINDING 3 FIX: Check if a validator has any pending funded challenges
+   * This prevents validators from draining stake before challenge resolution
+   */
+  private hasPendingChallenges(validator: Name): boolean {
+    // Iterate through all challenges to find pending ones against this validator
+    let challenge = this.challengesTable.first();
+    while (challenge != null) {
+      // Only check funded pending challenges (status 0 = pending, stake > 0 = funded)
+      if (challenge.status == 0 && challenge.stake > 0) {
+        // Get the validation this challenge is against
+        const validation = this.validationsTable.get(challenge.validation_id);
+        if (validation != null && validation.validator == validator) {
+          return true; // Found a pending challenge against this validator
+        }
+      }
+      challenge = this.challengesTable.next(challenge);
+    }
+    return false;
   }
 
   @action("withdraw")
@@ -724,6 +762,12 @@ export class AgentValidContract extends Contract {
       check(challengeRecord.challenger == from, "Not your challenge");
       check(challengeRecord.stake == 0, "Challenge already staked");
 
+      // FINDING 2 FIX: Check funding deadline hasn't passed
+      check(
+        currentTimeSec() <= challengeRecord.funding_deadline,
+        "Challenge funding deadline has passed. Use expireunfund to clean up."
+      );
+
       // H3 FIX: Refund excess stake above required amount
       const excess = quantity.amount - config.challenge_stake;
       if (excess > 0) {
@@ -733,6 +777,9 @@ export class AgentValidContract extends Contract {
       // Store only required stake amount
       challengeRecord.stake = config.challenge_stake;
       this.challengesTable.update(challengeRecord, this.receiver);
+    } else {
+      // FINDING 2 FIX: Reject unrecognized memos to prevent loss of funds
+      check(false, "Invalid memo. Use 'stake' for validator staking or 'challenge:ID' for challenge funding");
     }
   }
 
