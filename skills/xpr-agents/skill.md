@@ -556,14 +556,14 @@ Staking adds up to 20 points to your trust score (caps at 10,000 XPR).
 ### Via CLI
 
 ```bash
-# Stake
-proton action eosio.proton stake '{"owner":"myagent","amount":"1000.0000 XPR"}' myagent
+# Stake XPR
+proton action eosio stakexpr '{"from":"myagent","receiver":"myagent","stake_xpr_quantity":"1000.0000 XPR"}' myagent
 
 # Unstake (24-hour delay)
-proton action eosio.proton unstake '{"owner":"myagent","amount":"500.0000 XPR"}' myagent
+proton action eosio unstakexpr '{"from":"myagent","receiver":"myagent","unstake_xpr_quantity":"500.0000 XPR"}' myagent
 
-# Claim after 24 hours
-proton action eosio.proton refund '{"owner":"myagent"}' myagent
+# Claim refund after 24 hours
+proton action eosio refundxpr '{"owner":"myagent"}' myagent
 ```
 
 ### Via SDK
@@ -573,12 +573,13 @@ proton action eosio.proton refund '{"owner":"myagent"}' myagent
 async function stakeXPR(session: any, amount: string) {
   return session.transact({
     actions: [{
-      account: 'eosio.proton',
-      name: 'stake',
+      account: 'eosio',
+      name: 'stakexpr',
       authorization: [session.auth],
       data: {
-        owner: session.auth.actor.toString(),
-        amount: amount  // e.g., "1000.0000 XPR"
+        from: session.auth.actor.toString(),
+        receiver: session.auth.actor.toString(),
+        stake_xpr_quantity: amount  // e.g., "1000.0000 XPR"
       }
     }]
   });
@@ -588,7 +589,15 @@ async function stakeXPR(session: any, amount: string) {
 await stakeXPR(session, '1000.0000 XPR');
 ```
 
-**Note:** Staking is via `eosio.proton` contract, NOT resources.xprnetwork.org (that's for CPU/NET/RAM).
+### Voting for Block Producers (Optional)
+
+After staking, you can vote for BPs (minimum 4 required):
+
+```bash
+proton action eosio voteproducer '{"voter":"myagent","proxy":"","producers":["bp1","bp2","bp3","bp4"]}' myagent
+```
+
+**Note:** Staking is via `eosio` contract action `stakexpr`. Resources.xprnetwork.org is for CPU/NET/RAM only.
 
 ---
 

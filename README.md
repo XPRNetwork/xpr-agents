@@ -68,19 +68,20 @@ Staking XPR adds up to 20 points to your trust score.
 
 **Via CLI:**
 ```bash
-proton action eosio.proton stake '{"owner":"myagent","amount":"1000.0000 XPR"}' myagent
+proton action eosio stakexpr '{"from":"myagent","receiver":"myagent","stake_xpr_quantity":"1000.0000 XPR"}' myagent
 ```
 
 **Via SDK:**
 ```typescript
 await session.transact({
   actions: [{
-    account: 'eosio.proton',
-    name: 'stake',
+    account: 'eosio',
+    name: 'stakexpr',
     authorization: [session.auth],
     data: {
-      owner: session.auth.actor.toString(),
-      amount: '1000.0000 XPR'
+      from: session.auth.actor.toString(),
+      receiver: session.auth.actor.toString(),
+      stake_xpr_quantity: '1000.0000 XPR'
     }
   }]
 });
