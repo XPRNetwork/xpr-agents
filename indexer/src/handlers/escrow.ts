@@ -306,7 +306,14 @@ function logEvent(db: Database.Database, action: StreamAction): void {
 
 /**
  * Handle eosio.token::transfer notifications to/from agentescrow
- * Updates funded_amount for jobs (incoming) and released_amount (outgoing)
+ *
+ * Funding tracking:
+ * - Incoming transfers with memo "fund:JOB_ID" increment funded_amount
+ * - Overfunding refunds (outgoing with "refund" + job ID) decrement funded_amount
+ *
+ * Release tracking:
+ * - released_amount is set by terminal state actions (approve, arbitrate, cancel, timeout)
+ * - NOT tracked via transfers to avoid double-counting with action handlers
  */
 export function handleEscrowTransfer(db: Database.Database, action: StreamAction, escrowContract: string): void {
   const { from, to, quantity, memo } = action.act.data;
@@ -342,25 +349,27 @@ export function handleEscrowTransfer(db: Database.Database, action: StreamAction
       console.log(`Arbitrator ${from} staked ${amountStr}`);
     }
   } else if (from === escrowContract) {
-    // Outgoing transfer from escrow (payment release)
-    // Memo format: "Job X payment" or "Job X platform fee" or similar
-    // EXCLUDE refund memos to avoid double-counting (refunds go back to client, not released to agent)
-    const isRefund = /refund/i.test(memo);
-    if (!isRefund) {
-      const jobMatch = memo.match(/Job (\d+)/i);
+    // Outgoing transfer from escrow
+    // Only handle overfunding refunds - subtract from funded_amount
+    // Terminal payments are tracked via action handlers (approve, arbitrate, etc.)
+    const isOverfundingRefund = /overfund.*refund/i.test(memo);
+    if (isOverfundingRefund) {
+      const jobMatch = memo.match(/job\s*(\d+)/i);
       if (jobMatch) {
         const jobId = parseInt(jobMatch[1]);
         if (!isNaN(jobId)) {
           const stmt = db.prepare(`
             UPDATE jobs
-            SET released_amount = released_amount + ?, updated_at = strftime('%s', 'now')
+            SET funded_amount = funded_amount - ?, updated_at = strftime('%s', 'now')
             WHERE id = ?
           `);
           stmt.run(amount, jobId);
-          console.log(`Job ${jobId} released ${amountStr} to ${to}`);
+          console.log(`Job ${jobId} overfunding refund: ${amountStr}`);
         }
       }
     }
+    // Note: Other outgoing transfers (payments, refunds on terminal states)
+    // are handled by action handlers which set released_amount = funded_amount
   }
 
   // Log the transfer event
