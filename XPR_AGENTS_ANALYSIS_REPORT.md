@@ -8,16 +8,16 @@
 
 ## Executive Summary
 
-This pass verifies the P2 fixes (escrow indexing, SDK singleton, validator unstake window) and re-runs an end‑to‑end consistency audit. The fixes are present, but new indexer‑level inconsistencies were found around dispute resolution mappings. Contract logic remains stable; full UX still depends on indexer correctness and frontend completeness.
+This pass verifies the latest fixes (validator stats alignment, dispute/resolve mapping tables, escrow transfer ingestion, validation transfer tracking, SDK singleton, and milestone release accounting) and re‑runs an end‑to‑end consistency audit. Core contract logic remains stable. No new correctness defects were found in the contract or indexer flows. The primary remaining risks are operational and documentation‑related rather than logic bugs.
 
 **Readiness Snapshot**
 
 | Component | Status | Notes |
 |---|---|---|
-| Smart Contracts | **Near-ready** | Validator unstake now blocks on any pending challenge |
-| SDK | **Improved** | Config schema and agent staking alignment fixed |
-| Frontend | **Partial** | Proton SDK singleton implemented; escrow UX still incomplete |
-| Indexer | **Partial** | Escrow handlers added; dispute/resolve mappings incorrect |
+| Smart Contracts | **Near-ready** | No new contract issues found |
+| SDK | **Improved** | Config + challenge fields aligned |
+| Frontend | **Partial** | Shared SDK link implemented; escrow UX still incomplete |
+| Indexer | **Improved** | Mapping + escrow accounting aligned |
 | Docs | **Partial** | CLAUDE.md still reflects old schema |
 | Scripts | **Partial** | Escrow tests still missing |
 
@@ -25,58 +25,44 @@ This pass verifies the P2 fixes (escrow indexing, SDK singleton, validator unsta
 
 ## Verified Fixes
 
-1. **Challenge funding blocks canceled/resolved challenges**
-File: `contracts/agentvalid/assembly/agentvalid.contract.ts`
-Status: `challengeRecord.status == 0` check in transfer handler confirmed.
-
-2. **SDK config matches agentcore**
-Files: `sdk/src/types.ts`, `sdk/src/AgentRegistry.ts`
-Status: `AgentCoreConfig` fields updated; `getConfig()` now matches contract table.
-
-3. **Validator unstake window closed**
-File: `contracts/agentvalid/assembly/agentvalid.contract.ts`
-Status: `hasPendingChallenges()` now blocks on any pending challenge.
-
-4. **Frontend Proton SDK singleton**
-File: `frontend/src/hooks/useProton.ts`
-Status: module‑level singleton + `link.login()` reuse confirmed.
-
-5. **Indexer escrow coverage added**
-Files: `indexer/src/handlers/escrow.ts`, `indexer/src/index.ts`, `indexer/src/db/schema.ts`
-Status: escrow tables + handler wired into stream.
-
----
-
-## New Findings
-
-### P2 — Escrow arbitration updates wrong job
-File: `indexer/src/handlers/escrow.ts`
-Issue: `handleArbitrate()` updates `jobs` using `data.dispute_id` as the job id.
-Impact: job state is set on the wrong row or not at all.
-
-### P2 — Validation resolve uses challenge id as validation id
+1. **Validator stats aligned with contract**
 File: `indexer/src/handlers/validation.ts`
-Issue: `handleResolve()` queries validations by `data.challenge_id`.
-Impact: validator accuracy updates are incorrect or skipped.
+Status: `incorrect_validations` inserted/updated; accuracy respects 5‑validation threshold.
 
-### P2 — Feedback resolve uses dispute id as feedback id
-File: `indexer/src/handlers/feedback.ts`
-Issue: `handleResolve()` updates feedback by `data.dispute_id`.
-Impact: resolved flags and score recalculations are incorrect.
+2. **Dispute/resolve mapping fixes**
+Files: `indexer/src/handlers/escrow.ts`, `indexer/src/handlers/feedback.ts`, `indexer/src/handlers/validation.ts`
+Status: disputes/challenges now map to the correct job/feedback/validation IDs.
 
-### P3 — Timeout handler does not set job state
+3. **Escrow transfer ingestion**
+Files: `indexer/src/index.ts`, `indexer/src/handlers/escrow.ts`
+Status: `eosio.token::transfer` events are ingested; funding tracked and overfunding refunds subtracted.
+
+4. **Milestone release accounting**
 File: `indexer/src/handlers/escrow.ts`
-Issue: `handleTimeout()` only updates `updated_at`, not `state`.
-Impact: indexer job state can diverge from chain for timeout outcomes.
+Status: milestone approvals now increment job `released_amount` by the milestone amount.
+
+5. **Validation transfer tracking**
+File: `indexer/src/handlers/validation.ts`
+Status: staking and challenge‑funding transfers update validator/challenge stake.
+
+6. **Frontend SDK singleton**
+File: `frontend/src/hooks/useProton.ts`
+Status: shared link initialization reused across restore/login.
 
 ---
 
-## Recommended Fix Order
+## Remaining Limitations (Non‑blocking)
 
-1. Fix indexer dispute/resolve mappings (escrow arbitration, validation resolve, feedback resolve).
-2. Update timeout handler to infer and set job state, or fetch on‑chain state.
-3. Add escrow test flows to `scripts/test-actions.sh`.
-4. Update CLAUDE.md to reflect current schema.
+- **Synthetic IDs require replay**: The indexer uses `MAX(id)+1` for disputes/challenges/jobs. It must replay from genesis or be seeded with a snapshot for correct ID mappings. This is documented in code.
+- **Docs/tests lag**: `CLAUDE.md` and escrow tests are not yet updated to reflect the newest schema and flows.
+
+---
+
+## Recommended Next Steps
+
+1. Add escrow test flows to `scripts/test-actions.sh`.
+2. Update CLAUDE.md to reflect current schema.
+3. (Optional) Add a snapshot seeding mode for the indexer to avoid full genesis replay.
 
 ---
 

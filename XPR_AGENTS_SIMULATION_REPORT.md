@@ -8,14 +8,14 @@
 
 ## Simulation Summary
 
-Recent P2 fixes are present, and the core contract flows remain coherent. End‑to‑end UX still fails at the indexer layer due to dispute‑resolution mapping errors. Frontend now uses a singleton SDK link, improving session stability. Remaining issues are primarily in indexing logic.
+Latest fixes are present, including validator stats alignment, dispute/challenge mapping tables, escrow transfer ingestion, validation transfer tracking, and milestone release accounting. Contract flows remain coherent. No new correctness issues were discovered during the static simulation.
 
 **Blocker Count**
 
 | Severity | Count | Testnet Blocker |
 |---|---|---|
-| P2 | 3 | YES (for accurate indexing) |
-| P3 | 1 | NO |
+| P2 | 0 | NO |
+| P3 | 0 | NO |
 
 ---
 
@@ -23,7 +23,7 @@ Recent P2 fixes are present, and the core contract flows remain coherent. End‑
 
 **Path:** `register → update → setstatus → regplugin → addplugin`
 
-**Outcome:** OK. Agentcore uses system staking only. SDK no longer assumes contract‑managed staking.
+**Outcome:** OK. SDK no longer assumes contract‑managed staking.
 
 ---
 
@@ -31,7 +31,7 @@ Recent P2 fixes are present, and the core contract flows remain coherent. End‑
 
 **Path:** `submit → dispute → resolve → recalc`
 
-**Outcome:** Contract flow OK. Indexer mismatch: `resolve` updates feedback by `dispute_id` rather than `feedback_id`, so resolved flags and score recalcs diverge from chain.
+**Outcome:** OK. Dispute resolution maps correctly via `feedback_disputes`.
 
 ---
 
@@ -39,7 +39,7 @@ Recent P2 fixes are present, and the core contract flows remain coherent. End‑
 
 **Path:** `regval → stake → validate → challenge → fund → resolve`
 
-**Outcome:** Contract flow OK. Indexer mismatch: `resolve` uses `challenge_id` as validation id, so accuracy stats diverge.
+**Outcome:** OK. Challenge mapping uses `validation_challenges`; validator stats track `incorrect_validations` with the 5‑validation threshold.
 
 ---
 
@@ -47,7 +47,7 @@ Recent P2 fixes are present, and the core contract flows remain coherent. End‑
 
 **Path:** `createjob → fund → acceptjob → startjob → submitmile → approvemile → deliver → approve`
 
-**Outcome:** Contract flow OK. Escrow indexing exists, but `arbitrate` updates job state using `dispute_id` as job id. Timeout events do not update job state.
+**Outcome:** OK. Indexer now increments `released_amount` on milestone approval and sets it to `funded_amount` on terminal states.
 
 ---
 
@@ -55,7 +55,7 @@ Recent P2 fixes are present, and the core contract flows remain coherent. End‑
 
 **Path:** `disputejob → arbitrate → payouts`
 
-**Outcome:** Contract flow OK. Indexer incorrect job update on arbitration.
+**Outcome:** OK. `arbitrate` updates correct job via `escrow_disputes.job_id`.
 
 ---
 
@@ -63,26 +63,21 @@ Recent P2 fixes are present, and the core contract flows remain coherent. End‑
 
 **Path:** Hyperion stream → handlers → DB → REST API
 
-**Outcome:** Escrow handler present but mapping errors remain. Accuracy and dispute states diverge from chain.
+**Outcome:** Mapping fixes in place; escrow funding and milestone release tracking now align with on‑chain state.
 
 ---
 
 ## Flow 7: Frontend
 
-**Path:** wallet connect → session restore → transact
+**Path:** wallet connect → session restore → login → transact
 
-**Outcome:** Improved. Singleton SDK link reduces session churn.
+**Outcome:** Singleton SDK link now shared across restore/login.
 
 ---
 
 ## Testnet Readiness Call
 
-**Current:** Not ready for accurate end‑to‑end UX until indexer mapping issues are fixed.
-
-**Minimum to proceed:**
-1. Fix arbitration job update mapping.
-2. Fix feedback/validation resolve mappings.
-3. Update timeout handler to reflect correct job state.
+**Current:** Logic‑level flows look consistent for testnet. Remaining work is documentation and test coverage.
 
 ---
 

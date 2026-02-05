@@ -34,21 +34,29 @@ EIP-8004 proposes three registries for Ethereum-based trustless agents:
 
 ## Architecture
 
-### Three-Contract System
+### Four-Contract System
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     XPR AGENT REGISTRY                       │
-├─────────────────┬─────────────────┬─────────────────────────┤
-│   agentcore     │   agentfeed     │      agentvalid         │
-│   (Identity)    │   (Reputation)  │      (Validation)       │
-├─────────────────┼─────────────────┼─────────────────────────┤
-│ • Agent NFT/reg │ • Feedback      │ • Validator stake       │
-│ • Metadata      │ • Ratings       │ • Output verification   │
-│ • Capabilities  │ • Evidence URIs │ • Specializations       │
-│ • Stake/deposit │ • KYC-weighted  │ • Accuracy tracking     │
-└─────────────────┴─────────────────┴─────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                           XPR AGENT REGISTRY                                  │
+├─────────────────┬─────────────────┬─────────────────┬────────────────────────┤
+│   agentcore     │   agentfeed     │   agentvalid    │     agentescrow        │
+│   (Identity)    │   (Reputation)  │   (Validation)  │     (Payments)         │
+├─────────────────┼─────────────────┼─────────────────┼────────────────────────┤
+│ • Agent reg     │ • Feedback      │ • Validator reg │ • Job management       │
+│ • Metadata      │ • Ratings       │ • Validations   │ • Milestone payments   │
+│ • Capabilities  │ • Evidence URIs │ • Challenges    │ • Dispute resolution   │
+│ • Plugins       │ • KYC-weighted  │ • Accuracy      │ • Arbitrator registry  │
+└─────────────────┴─────────────────┴─────────────────┴────────────────────────┘
 ```
+
+### Staking Model
+
+| Entity | Staking Method | Slashable | Purpose |
+|--------|---------------|-----------|---------|
+| **Agents** | System staking (`eosio::voters`) | No | Skin-in-game, trust signal |
+| **Validators** | Contract staking (`agentvalid`) | Yes | Penalize incorrect validations |
+| **Arbitrators** | Contract staking (`agentescrow`) | No | Ensure availability |
 
 ### Table Definitions
 
@@ -163,12 +171,14 @@ export class AgentScore extends Table {
 export class Validator extends Table {
   constructor(
     public account: Name = new Name(),      // Validator account
-    public stake: u64 = 0,                  // Staked amount
+    public stake: u64 = 0,                  // Staked amount (slashable)
     public method: string = "",             // Validation method description
     public specializations: string = "",    // JSON array of specialties
     public total_validations: u64 = 0,      // Validation count
-    public accuracy_score: u64 = 0,         // Accuracy (0-10000 = 0-100.00%)
-    public registered_at: u64 = 0           // Registration time
+    public incorrect_validations: u64 = 0,  // Failed validations (for accuracy)
+    public accuracy_score: u64 = 10000,     // Accuracy (0-10000 = 0-100.00%)
+    public registered_at: u64 = 0,          // Registration time
+    public active: boolean = true           // Active status
   ) { super(); }
 
   @primary
@@ -185,6 +195,7 @@ export class Validation extends Table {
     public result: u8 = 0,                  // 0=fail, 1=pass, 2=partial
     public confidence: u8 = 0,              // Confidence (0-100)
     public evidence_uri: string = "",       // Evidence URI
+    public challenged: boolean = false,     // Has active challenge
     public timestamp: u64 = 0               // Validation time
   ) { super(); }
 
@@ -193,6 +204,127 @@ export class Validation extends Table {
 
   @secondary
   get byAgent(): u64 { return this.agent.N; }
+}
+
+@table("challenges")
+export class Challenge extends Table {
+  constructor(
+    public id: u64 = 0,                     // Primary key
+    public validation_id: u64 = 0,          // Validation being challenged
+    public challenger: Name = new Name(),   // Who raised the challenge
+    public reason: string = "",             // Challenge reason
+    public evidence_uri: string = "",       // Evidence URI
+    public stake: u64 = 0,                  // Challenger's stake
+    public funding_deadline: u64 = 0,       // Must fund within 24 hours
+    public status: u8 = 0,                  // 0=pending, 1=upheld, 2=rejected, 3=cancelled
+    public resolver: Name = new Name(),     // Who resolved
+    public resolution_notes: string = "",   // Resolution explanation
+    public created_at: u64 = 0,
+    public resolved_at: u64 = 0
+  ) { super(); }
+
+  @primary
+  get primary(): u64 { return this.id; }
+}
+```
+
+**Accuracy Calculation:**
+- Accuracy is only calculated after `MIN_VALIDATIONS_FOR_ACCURACY` (5) validations
+- Formula: `accuracy = (total - incorrect) * 10000 / total`
+- New validators start at 100% (10000) until they have enough sample size
+
+#### agentescrow Contract
+
+```typescript
+@table("jobs")
+export class Job extends Table {
+  constructor(
+    public id: u64 = 0,                     // Primary key
+    public client: Name = new Name(),       // Job creator/payer
+    public agent: Name = new Name(),        // Assigned agent
+    public title: string = "",              // Job title
+    public description: string = "",        // Job description
+    public deliverables: string = "",       // JSON array of deliverables
+    public amount: u64 = 0,                 // Total job amount
+    public symbol: Symbol = new Symbol(),   // Token symbol (e.g., XPR)
+    public funded_amount: u64 = 0,          // Amount funded so far
+    public released_amount: u64 = 0,        // Amount released to agent
+    public state: u8 = 0,                   // Job state (see below)
+    public deadline: u64 = 0,               // Completion deadline
+    public arbitrator: Name = new Name(),   // Assigned arbitrator
+    public job_hash: string = "",           // Content hash for verification
+    public created_at: u64 = 0,
+    public updated_at: u64 = 0
+  ) { super(); }
+
+  @primary
+  get primary(): u64 { return this.id; }
+}
+
+// Job States:
+// 0 = CREATED     - Job created, awaiting funding
+// 1 = FUNDED      - Funds deposited
+// 2 = ACCEPTED    - Agent accepted
+// 3 = ACTIVE      - Work in progress
+// 4 = DELIVERED   - Agent submitted deliverables
+// 5 = DISPUTED    - Under dispute
+// 6 = COMPLETED   - Approved, agent paid
+// 7 = REFUNDED    - Cancelled, client refunded
+// 8 = ARBITRATED  - Resolved by arbitrator
+
+@table("milestones")
+export class Milestone extends Table {
+  constructor(
+    public id: u64 = 0,                     // Primary key
+    public job_id: u64 = 0,                 // Parent job
+    public title: string = "",              // Milestone title
+    public description: string = "",        // Milestone description
+    public amount: u64 = 0,                 // Payment for this milestone
+    public milestone_order: u8 = 0,         // Sequence order
+    public state: u8 = 0,                   // 0=pending, 1=submitted, 2=approved
+    public evidence_uri: string = "",       // Submission evidence
+    public submitted_at: u64 = 0,
+    public approved_at: u64 = 0
+  ) { super(); }
+
+  @primary
+  get primary(): u64 { return this.id; }
+}
+
+@table("arbitrators")
+export class Arbitrator extends Table {
+  constructor(
+    public account: Name = new Name(),      // Arbitrator account
+    public stake: u64 = 0,                  // Staked amount
+    public fee_percent: u64 = 0,            // Fee in basis points (200 = 2%)
+    public total_cases: u64 = 0,            // Cases handled
+    public successful_cases: u64 = 0,       // Successfully resolved
+    public active: boolean = false          // Available for new cases
+  ) { super(); }
+
+  @primary
+  get primary(): u64 { return this.account.N; }
+}
+
+@table("disputes")
+export class Dispute extends Table {
+  constructor(
+    public id: u64 = 0,                     // Primary key
+    public job_id: u64 = 0,                 // Disputed job
+    public raised_by: Name = new Name(),    // Who raised dispute
+    public reason: string = "",             // Dispute reason
+    public evidence_uri: string = "",       // Evidence
+    public client_amount: u64 = 0,          // Amount to client (after resolution)
+    public agent_amount: u64 = 0,           // Amount to agent (after resolution)
+    public resolution: u8 = 0,              // 0=pending, 1=client, 2=agent, 3=split
+    public resolver: Name = new Name(),
+    public resolution_notes: string = "",
+    public created_at: u64 = 0,
+    public resolved_at: u64 = 0
+  ) { super(); }
+
+  @primary
+  get primary(): u64 { return this.id; }
 }
 ```
 
@@ -327,33 +459,39 @@ class Escrow extends Table {
 }
 ```
 
-## Implementation Steps
+## Implementation Status
 
-### Phase 1: Core Contracts
-- `agentcore.contract.ts` - Agent registration, staking, plugin management
-- `agentfeed.contract.ts` - Feedback submission, score calculation
-- `agentvalid.contract.ts` - Validator registration, output validation
+All phases are complete:
 
-### Phase 2: TypeScript SDK
-- `AgentRegistry` class for contract interactions
-- Type definitions for all tables
-- Helper functions for trust score queries
+### Phase 1: Core Contracts ✓
+- `agentcore.contract.ts` - Agent registration, system staking, plugin management
+- `agentfeed.contract.ts` - Feedback submission, KYC-weighted scoring, disputes
+- `agentvalid.contract.ts` - Validator registration, validations, challenges
+- `agentescrow.contract.ts` - Job escrow, milestones, arbitration
 
-### Phase 3: React Frontend
-- Agent discovery/search interface
-- Registration flow with KYC integration
+### Phase 2: TypeScript SDK ✓
+- `AgentRegistry` - Agent CRUD operations
+- `FeedbackRegistry` - Feedback and dispute management
+- `ValidationRegistry` - Validator and challenge operations
+- `EscrowRegistry` - Job and milestone management
+- Full type definitions for all tables
+
+### Phase 3: React Frontend ✓
+- Agent discovery with filtering
+- Registration and profile management
 - Feedback submission UI
-- Plugin marketplace
+- ProtonWebSDK singleton integration
 
-### Phase 4: Hyperion Indexer
-- Real-time event streaming
-- Fast agent queries by capability
-- Aggregated statistics
+### Phase 4: Hyperion Indexer ✓
+- Real-time event streaming for all 4 contracts
+- Token transfer tracking (staking, funding, releases)
+- SQLite database with comprehensive schema
+- REST API for queries
 
-### Phase 5: Deployment & Testing
+### Phase 5: Deployment & Testing ✓
 - Testnet deployment scripts
-- Integration tests
-- Documentation
+- Comprehensive test-actions.sh
+- Documentation (MODEL.md, analysis reports)
 
 ## Comparison: EIP-8004 vs XPR Network
 
@@ -372,6 +510,8 @@ class Escrow extends Table {
 ```
 xpr-agents/
 ├── CLAUDE.md                    # This file
+├── MODEL.md                     # Data model documentation
+├── README.md                    # Project overview
 ├── contracts/
 │   ├── agentcore/
 │   │   └── assembly/
@@ -379,28 +519,45 @@ xpr-agents/
 │   ├── agentfeed/
 │   │   └── assembly/
 │   │       └── agentfeed.contract.ts
-│   └── agentvalid/
+│   ├── agentvalid/
+│   │   └── assembly/
+│   │       └── agentvalid.contract.ts
+│   └── agentescrow/
 │       └── assembly/
-│           └── agentvalid.contract.ts
+│           └── agentescrow.contract.ts
 ├── sdk/
 │   ├── src/
 │   │   ├── index.ts
-│   │   ├── registry.ts
-│   │   ├── feedback.ts
-│   │   └── types.ts
+│   │   ├── AgentRegistry.ts
+│   │   ├── FeedbackRegistry.ts
+│   │   ├── ValidationRegistry.ts
+│   │   ├── EscrowRegistry.ts
+│   │   ├── types.ts
+│   │   └── utils.ts
 │   └── package.json
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
 │   │   ├── hooks/
+│   │   │   └── useProton.ts     # Singleton SDK hook
 │   │   └── pages/
 │   └── package.json
 ├── indexer/
 │   └── src/
-│       └── index.ts
+│       ├── index.ts             # Entry point, stream routing
+│       ├── stream.ts            # Hyperion WebSocket
+│       ├── handlers/
+│       │   ├── agent.ts
+│       │   ├── feedback.ts
+│       │   ├── validation.ts
+│       │   └── escrow.ts
+│       ├── db/
+│       │   └── schema.ts        # SQLite schema
+│       └── api/
+│           └── routes.ts        # REST endpoints
 └── scripts/
     ├── deploy-testnet.sh
-    └── test-contracts.sh
+    └── test-actions.sh
 ```
 
 ## Quick Start
@@ -422,6 +579,60 @@ proton chain:set proton-test
 # Run SDK tests
 cd sdk && npm test
 ```
+
+## Indexer Notes
+
+### Synthetic ID Mapping
+
+The indexer uses synthetic IDs (`MAX(id) + 1`) for records like jobs, challenges, and disputes. This works correctly when:
+- The indexer starts from genesis (block 1)
+- OR the indexer is seeded with a snapshot that matches chain state
+
+**Important:** If the indexer misses blocks or starts mid-stream, its IDs will drift from on-chain IDs, causing resolution lookups to fail.
+
+### Snapshot Seeding
+
+To avoid ID drift when deploying a new indexer:
+
+1. **Option A: Replay from genesis**
+   ```bash
+   # Clear database and replay all history
+   rm ./data/agents.db
+   # Start indexer - it will replay from first block
+   npm start
+   ```
+
+2. **Option B: Seed from chain state**
+   ```bash
+   # Export current chain state for all tables
+   proton table agentcore agents --limit 1000 > agents.json
+   proton table agentfeed feedback --limit 10000 > feedback.json
+   proton table agentvalid validators --limit 1000 > validators.json
+   proton table agentvalid validations --limit 10000 > validations.json
+   proton table agentvalid challenges --limit 1000 > challenges.json
+   proton table agentescrow jobs --limit 10000 > jobs.json
+   proton table agentescrow disputes --limit 1000 > disputes.json
+   proton table agentescrow milestones --limit 10000 > milestones.json
+   proton table agentescrow arbitrators --limit 100 > arbitrators.json
+
+   # Import into SQLite (use provided seed script)
+   ./scripts/seed-indexer.sh
+   ```
+
+3. **Option C: Use Hyperion history API**
+   ```bash
+   # Fetch historical actions and replay
+   curl "https://proton.eosusa.io/v2/history/get_actions?account=agentcore&limit=10000" \
+     | node scripts/replay-history.js
+   ```
+
+### Escrow Accounting
+
+The indexer tracks two amounts for jobs:
+- `funded_amount`: Incremented when tokens arrive with `fund:JOB_ID` memo, decremented on overfunding refunds
+- `released_amount`: Set by terminal state actions (approve, arbitrate, cancel, timeout) and milestone approvals
+
+Transfer-based release tracking was removed to prevent double-counting with action handlers.
 
 ## Resources
 
