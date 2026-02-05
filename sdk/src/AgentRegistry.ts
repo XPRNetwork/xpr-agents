@@ -226,21 +226,39 @@ export class AgentRegistry {
       });
 
       if (kycResult.rows.length > 0 && kycResult.rows[0].kyc?.length > 0) {
-        // Find the highest KYC level, handling both number and string formats
-        const levels = kycResult.rows[0].kyc.map(k => {
-          // Handle various formats: number, string number, or "provider:level" format
+        // Find the highest KYC level, handling various formats:
+        // - number: 3
+        // - string number: "3"
+        // - provider:level: "metallicus:3"
+        // - comma-separated multi-provider: "provA:3,provB:1"
+        const levels: number[] = [];
+
+        for (const k of kycResult.rows[0].kyc) {
           if (typeof k.kyc_level === 'number') {
-            return k.kyc_level;
+            levels.push(k.kyc_level);
+          } else {
+            const levelStr = String(k.kyc_level);
+            // Handle comma-separated multi-provider strings (e.g., "provA:3,provB:1")
+            const providers = levelStr.split(',');
+            for (const provider of providers) {
+              const trimmed = provider.trim();
+              if (trimmed.includes(':')) {
+                // "provider:level" format - take the level part
+                const parts = trimmed.split(':');
+                const level = parseInt(parts[parts.length - 1], 10);
+                if (!isNaN(level)) levels.push(level);
+              } else {
+                // Plain number string
+                const level = parseInt(trimmed, 10);
+                if (!isNaN(level)) levels.push(level);
+              }
+            }
           }
-          const levelStr = String(k.kyc_level);
-          // Check for "provider:level" format
-          if (levelStr.includes(':')) {
-            const parts = levelStr.split(':');
-            return parseInt(parts[parts.length - 1], 10) || 0;
-          }
-          return parseInt(levelStr, 10) || 0;
-        });
-        kycLevel = Math.max(...levels.filter(l => !isNaN(l)));
+        }
+
+        // P2 FIX: Safe max - fallback to 0 if no valid levels found
+        // Math.max(...[]) returns -Infinity, which would poison trust scores
+        kycLevel = levels.length > 0 ? Math.max(...levels) : 0;
       }
     }
 

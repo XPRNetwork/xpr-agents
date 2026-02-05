@@ -579,6 +579,16 @@ export class AgentCoreContract extends Contract {
     // Agent must not already have an owner
     check(agentRecord.owner == EMPTY_NAME, "Agent already has an owner");
 
+    // P2 FIX: Prevent deposit trapping when re-approving a different claimant.
+    // If a deposit exists from a different payer, agent must call cancelclaim first
+    // to refund the existing deposit before approving a new claimant.
+    if (agentRecord.claim_deposit > 0 && agentRecord.deposit_payer != EMPTY_NAME) {
+      check(
+        agentRecord.deposit_payer == new_owner,
+        "Deposit exists from " + agentRecord.deposit_payer.toString() + ". Call cancelclaim first to refund their deposit before approving a new claimant."
+      );
+    }
+
     // Verify new_owner has KYC (must have at least level 1 to sponsor)
     const kycLevel = this.getKycLevel(new_owner);
     check(kycLevel >= 1, "Approved owner must have KYC level 1 or higher");
