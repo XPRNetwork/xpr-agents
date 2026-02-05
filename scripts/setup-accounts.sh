@@ -14,9 +14,10 @@ NETWORK=${1:-proton-test}
 AGENT_CORE=${2:-agentcore}
 AGENT_FEED=${3:-agentfeed}
 AGENT_VALID=${4:-agentvalid}
+AGENT_ESCROW=${5:-agentescrow}
 
 echo "Network: $NETWORK"
-echo "Accounts: $AGENT_CORE, $AGENT_FEED, $AGENT_VALID"
+echo "Accounts: $AGENT_CORE, $AGENT_FEED, $AGENT_VALID, $AGENT_ESCROW"
 echo ""
 
 # Check if proton CLI is installed
@@ -32,7 +33,7 @@ proton chain:set $NETWORK
 # Create accounts
 echo -e "${YELLOW}Creating contract accounts...${NC}"
 
-for acc in $AGENT_CORE $AGENT_FEED $AGENT_VALID; do
+for acc in $AGENT_CORE $AGENT_FEED $AGENT_VALID $AGENT_ESCROW; do
     if proton account:get $acc &> /dev/null; then
         echo -e "${GREEN}✓ Account $acc already exists${NC}"
     else

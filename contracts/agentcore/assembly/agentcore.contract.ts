@@ -19,7 +19,58 @@ import {
   packer
 } from "proton-tsc";
 
-// ============== TABLES ==============
+// ============== EXTERNAL TABLES ==============
+
+// Read staking info from eosio::voters table (system staking)
+@table("voters", noabigen)
+export class VoterInfo extends Table {
+  constructor(
+    public owner: Name = EMPTY_NAME,
+    public proxy: Name = EMPTY_NAME,
+    public producers: Name[] = [],
+    public staked: i64 = 0,              // Staked amount in smallest units (divide by 10000 for XPR)
+    public last_vote_weight: f64 = 0,
+    public proxied_vote_weight: f64 = 0,
+    public is_proxy: u8 = 0,
+    public flags1: u32 = 0,
+    public reserved2: u32 = 0,
+    public reserved3: string = ""
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.owner.N;
+  }
+}
+
+// Read KYC info from eosio.proton::usersinfo table
+@table("usersinfo", noabigen)
+export class UserInfo extends Table {
+  constructor(
+    public acc: Name = EMPTY_NAME,
+    public name: string = "",
+    public avatar: string = "",
+    public verified: u8 = 0,             // 0 = unverified, 1 = verified
+    public date: u64 = 0,
+    public verifiedon: u64 = 0,
+    public verifier: Name = EMPTY_NAME,
+    public raccs: Name[] = [],
+    public aacts: string[] = [],
+    public ac: u64[] = [],
+    public kyc: u8[] = []                // KYC levels array
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.acc.N;
+  }
+}
+
+// ============== LOCAL TABLES ==============
 
 @table("agents")
 export class Agent extends Table {
@@ -30,7 +81,6 @@ export class Agent extends Table {
     public endpoint: string = "",
     public protocol: string = "",
     public capabilities: string = "",
-    public stake: u64 = 0,
     public total_jobs: u64 = 0,
     public registered_at: u64 = 0,
     public active: boolean = true
@@ -108,38 +158,15 @@ export class AgentPlugin extends Table {
   }
 }
 
-@table("unstakes")
-export class Unstake extends Table {
-  constructor(
-    public id: u64 = 0,
-    public agent: Name = EMPTY_NAME,
-    public amount: u64 = 0,
-    public request_time: u64 = 0,
-    public available_at: u64 = 0
-  ) {
-    super();
-  }
-
-  @primary
-  get primary(): u64 {
-    return this.id;
-  }
-
-  @secondary
-  get byAgent(): u64 {
-    return this.agent.N;
-  }
-}
-
 @table("config", singleton)
 export class Config extends Table {
   constructor(
     public owner: Name = EMPTY_NAME,
-    public min_stake: u64 = 0, // Optional staking - KYC provides baseline trust
-    public unstake_delay: u64 = 604800, // 7 days in seconds
+    public min_stake: u64 = 0, // Optional minimum stake requirement (reads from system)
     public registration_fee: u64 = 0,
     public feed_contract: Name = EMPTY_NAME, // Authorized agentfeed contract
     public valid_contract: Name = EMPTY_NAME, // Authorized agentvalid contract
+    public escrow_contract: Name = EMPTY_NAME, // Authorized agentescrow contract
     public paused: boolean = false
   ) {
     super();
@@ -175,15 +202,64 @@ export class PluginResult extends Table {
 
 @contract
 export class AgentCoreContract extends Contract {
+  // Local tables
   private agentsTable: TableStore<Agent> = new TableStore<Agent>(this.receiver);
   private pluginsTable: TableStore<Plugin> = new TableStore<Plugin>(this.receiver);
   private agentPlugsTable: TableStore<AgentPlugin> = new TableStore<AgentPlugin>(this.receiver);
-  private unstakesTable: TableStore<Unstake> = new TableStore<Unstake>(this.receiver);
   private pluginResultsTable: TableStore<PluginResult> = new TableStore<PluginResult>(this.receiver);
   private configSingleton: Singleton<Config> = new Singleton<Config>(this.receiver);
 
+  // External tables - read system staking and KYC
+  private readonly EOSIO: Name = Name.fromString("eosio");
+  private readonly EOSIO_PROTON: Name = Name.fromString("eosio.proton");
+
   private readonly XPR_SYMBOL: Symbol = new Symbol("XPR", 4);
   private readonly TOKEN_CONTRACT: Name = Name.fromString("eosio.token");
+
+  // ============== EXTERNAL DATA HELPERS ==============
+
+  /**
+   * Get account's staked XPR from system eosio::voters table
+   * @returns Staked amount in XPR units (not smallest units)
+   */
+  getSystemStake(account: Name): u64 {
+    const votersTable = new TableStore<VoterInfo>(this.EOSIO, this.EOSIO);
+    const voter = votersTable.get(account.N);
+    if (voter == null) {
+      return 0;
+    }
+    // staked is in smallest units (divide by 10000 for XPR)
+    return <u64>(voter.staked / 10000);
+  }
+
+  /**
+   * Get account's KYC level from eosio.proton::usersinfo table
+   * @returns Max KYC level (0-4)
+   */
+  getKycLevel(account: Name): u8 {
+    const usersTable = new TableStore<UserInfo>(this.EOSIO_PROTON, this.EOSIO_PROTON);
+    const user = usersTable.get(account.N);
+    if (user == null) {
+      return 0;
+    }
+    // Return max KYC level from array, or 0 if empty
+    let maxLevel: u8 = 0;
+    for (let i = 0; i < user.kyc.length; i++) {
+      if (user.kyc[i] > maxLevel) {
+        maxLevel = user.kyc[i];
+      }
+    }
+    return maxLevel;
+  }
+
+  /**
+   * Check if account is verified in eosio.proton
+   */
+  isVerified(account: Name): boolean {
+    const usersTable = new TableStore<UserInfo>(this.EOSIO_PROTON, this.EOSIO_PROTON);
+    const user = usersTable.get(account.N);
+    return user != null && user.verified == 1;
+  }
 
   // ============== INITIALIZATION ==============
 
@@ -191,19 +267,19 @@ export class AgentCoreContract extends Contract {
   init(
     owner: Name,
     min_stake: u64,
-    unstake_delay: u64,
     feed_contract: Name,
-    valid_contract: Name
+    valid_contract: Name,
+    escrow_contract: Name
   ): void {
     requireAuth(this.receiver);
 
     const config = new Config(
       owner,
       min_stake,
-      unstake_delay,
       0, // registration_fee
       feed_contract,
       valid_contract,
+      escrow_contract,
       false // paused
     );
     this.configSingleton.set(config, this.receiver);
@@ -212,20 +288,20 @@ export class AgentCoreContract extends Contract {
   @action("setconfig")
   setConfig(
     min_stake: u64,
-    unstake_delay: u64,
     registration_fee: u64,
     feed_contract: Name,
     valid_contract: Name,
+    escrow_contract: Name,
     paused: boolean
   ): void {
     const config = this.configSingleton.get();
     requireAuth(config.owner);
 
     config.min_stake = min_stake;
-    config.unstake_delay = unstake_delay;
     config.registration_fee = registration_fee;
     config.feed_contract = feed_contract;
     config.valid_contract = valid_contract;
+    config.escrow_contract = escrow_contract;
     config.paused = paused;
 
     this.configSingleton.set(config, this.receiver);
@@ -255,6 +331,15 @@ export class AgentCoreContract extends Contract {
     check(endpoint.length > 0 && endpoint.length <= 256, "Endpoint must be 1-256 characters");
     check(protocol.length > 0 && protocol.length <= 32, "Protocol must be 1-32 characters");
 
+    // Check minimum stake requirement (from system staking)
+    if (config.min_stake > 0) {
+      const systemStake = this.getSystemStake(account);
+      check(
+        systemStake >= config.min_stake,
+        `Insufficient stake. Required: ${config.min_stake} XPR, Current: ${systemStake} XPR. Stake via resources.xprnetwork.org`
+      );
+    }
+
     const agent = new Agent(
       account,
       name,
@@ -262,7 +347,6 @@ export class AgentCoreContract extends Contract {
       endpoint,
       protocol,
       capabilities,
-      0, // stake starts at 0
       0, // total_jobs
       currentTimeSec(),
       true
@@ -311,15 +395,16 @@ export class AgentCoreContract extends Contract {
 
   @action("incjobs")
   incrementJobs(account: Name): void {
-    // Allow agentfeed, agentvalid, or owner to call this
+    // Allow agentfeed, agentvalid, agentescrow, or owner to call this
     const config = this.configSingleton.get();
     const isOwner = hasAuth(config.owner);
     const isSelf = hasAuth(this.receiver);
     const isFeedContract = config.feed_contract != EMPTY_NAME && hasAuth(config.feed_contract);
     const isValidContract = config.valid_contract != EMPTY_NAME && hasAuth(config.valid_contract);
+    const isEscrowContract = config.escrow_contract != EMPTY_NAME && hasAuth(config.escrow_contract);
 
     check(
-      isOwner || isSelf || isFeedContract || isValidContract,
+      isOwner || isSelf || isFeedContract || isValidContract || isEscrowContract,
       "Only authorized contracts can increment jobs"
     );
 
@@ -329,66 +414,28 @@ export class AgentCoreContract extends Contract {
     this.agentsTable.update(agent, this.receiver);
   }
 
-  // ============== STAKING ==============
+  // ============== TRUST DATA QUERIES ==============
 
-  @action("unstake")
-  unstake(account: Name, amount: u64): void {
-    requireAuth(account);
+  /**
+   * View action to get an agent's trust-related data.
+   * Returns system stake and KYC level for trust score calculation.
+   */
+  @action("getagentinfo")
+  getAgentInfo(account: Name): void {
+    const agent = this.agentsTable.get(account.N);
+    check(agent != null, "Agent not found");
 
-    const config = this.configSingleton.get();
-    const agent = this.agentsTable.requireGet(account.N, "Agent not found");
+    const systemStake = this.getSystemStake(account);
+    const kycLevel = this.getKycLevel(account);
+    const verified = this.isVerified(account);
 
-    check(amount > 0, "Amount must be positive");
-    check(agent.stake >= amount, "Insufficient stake");
-
-    // Reduce stake
-    agent.stake -= amount;
-    this.agentsTable.update(agent, this.receiver);
-
-    // Create unstake request
-    const unstakeRequest = new Unstake(
-      this.unstakesTable.availablePrimaryKey,
-      account,
-      amount,
-      currentTimeSec(),
-      currentTimeSec() + config.unstake_delay
-    );
-
-    this.unstakesTable.store(unstakeRequest, this.receiver);
-  }
-
-  @action("withdraw")
-  withdraw(account: Name, unstake_id: u64): void {
-    requireAuth(account);
-
-    const unstakeRequest = this.unstakesTable.requireGet(unstake_id, "Unstake request not found");
-
-    check(unstakeRequest.agent == account, "Not your unstake request");
-    check(currentTimeSec() >= unstakeRequest.available_at, "Unstake period not complete");
-
-    // Transfer tokens back to agent
-    const quantity = new Asset(unstakeRequest.amount, this.XPR_SYMBOL);
-    this.sendTokens(account, quantity, "Unstake withdrawal");
-
-    // Remove unstake request
-    this.unstakesTable.remove(unstakeRequest);
-  }
-
-  @action("cancelunstk")
-  cancelUnstake(account: Name, unstake_id: u64): void {
-    requireAuth(account);
-
-    const unstakeRequest = this.unstakesTable.requireGet(unstake_id, "Unstake request not found");
-
-    check(unstakeRequest.agent == account, "Not your unstake request");
-
-    // Return stake to agent
-    const agent = this.agentsTable.requireGet(account.N, "Agent not found");
-    agent.stake += unstakeRequest.amount;
-    this.agentsTable.update(agent, this.receiver);
-
-    // Remove unstake request
-    this.unstakesTable.remove(unstakeRequest);
+    print(`Agent: ${account.toString()}`);
+    print(`System Stake: ${systemStake} XPR`);
+    print(`KYC Level: ${kycLevel}`);
+    print(`Verified: ${verified ? "Yes" : "No"}`);
+    print(`Total Jobs: ${agent!.total_jobs}`);
+    print(`Registered: ${agent!.registered_at}`);
+    print(`Active: ${agent!.active ? "Yes" : "No"}`);
   }
 
   // ============== PLUGIN MANAGEMENT ==============
@@ -506,6 +553,18 @@ export class AgentCoreContract extends Contract {
     const plugin = this.pluginsTable.requireGet(plugin_id, "Plugin not found");
     requireAuth(plugin.contract);
 
+    // H4 FIX: Verify agent has this plugin enabled before accepting results
+    // This prevents plugins from submitting results for agents that don't use them
+    const agentPlugins = this.agentPlugsTable.getBySecondaryU64(agent.N, 0);
+    let hasPlugin = false;
+    for (let i = 0; i < agentPlugins.length; i++) {
+      if (agentPlugins[i].plugin_id == plugin_id && agentPlugins[i].enabled) {
+        hasPlugin = true;
+        break;
+      }
+    }
+    check(hasPlugin, "Agent does not have this plugin enabled");
+
     const result = new PluginResult(
       this.pluginResultsTable.availablePrimaryKey,
       agent,
@@ -519,57 +578,4 @@ export class AgentCoreContract extends Contract {
     this.pluginResultsTable.store(result, this.receiver);
   }
 
-  // ============== TOKEN TRANSFER HANDLER ==============
-
-  @action("transfer", notify)
-  onTransfer(from: Name, to: Name, quantity: Asset, memo: string): void {
-    // Only handle incoming transfers
-    if (to != this.receiver) return;
-
-    // Ignore outgoing transfers from contract
-    if (from == this.receiver) return;
-
-    // Only accept XPR
-    check(quantity.symbol == this.XPR_SYMBOL, "Only XPR accepted");
-    check(this.firstReceiver == this.TOKEN_CONTRACT, "Invalid token contract");
-
-    // Parse memo for stake action
-    if (memo == "stake" || memo.startsWith("stake:")) {
-      const agent = this.agentsTable.get(from.N);
-      check(agent != null, "Agent not registered. Register first.");
-
-      agent!.stake += quantity.amount;
-      this.agentsTable.update(agent!, this.receiver);
-
-      print(`Staked ${quantity.toString()} for agent ${from.toString()}`);
-    } else {
-      // Reject transfers with unrecognized memos to prevent trapped funds
-      check(false, "Invalid memo. Use 'stake' to stake tokens.");
-    }
-  }
-
-  // ============== HELPERS ==============
-
-  private sendTokens(to: Name, quantity: Asset, memo: string): void {
-    const transfer = new InlineAction<Transfer>("transfer");
-    const action_data = new Transfer(this.receiver, to, quantity, memo);
-    transfer.send(
-      this.TOKEN_CONTRACT,
-      [new PermissionLevel(this.receiver, Name.fromString("active"))],
-      action_data
-    );
-  }
-}
-
-// Transfer action data structure for inline token transfers
-@packer
-class Transfer extends ActionData {
-  constructor(
-    public from: Name = EMPTY_NAME,
-    public to: Name = EMPTY_NAME,
-    public quantity: Asset = new Asset(),
-    public memo: string = ""
-  ) {
-    super();
-  }
 }

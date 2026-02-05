@@ -24,6 +24,7 @@ NETWORK="proton"
 AGENT_CORE="agentcore"
 AGENT_FEED="agentfeed"
 AGENT_VALID="agentvalid"
+AGENT_ESCROW="agentescrow"
 
 # Check if proton CLI is installed
 if ! command -v proton &> /dev/null; then
@@ -53,12 +54,17 @@ npm install
 npm run build
 echo -e "${GREEN}✓ agentvalid built${NC}"
 
+cd "../agentescrow"
+npm install
+npm run build
+echo -e "${GREEN}✓ agentescrow built${NC}"
+
 cd "$(dirname "$0")/.."
 
 # Step 2: Verify accounts exist
 echo -e "${YELLOW}Verifying contract accounts...${NC}"
 
-for acc in $AGENT_CORE $AGENT_FEED $AGENT_VALID; do
+for acc in $AGENT_CORE $AGENT_FEED $AGENT_VALID $AGENT_ESCROW; do
     if proton account:get $acc &> /dev/null; then
         echo -e "${GREEN}✓ Account $acc exists${NC}"
     else
@@ -88,10 +94,16 @@ if [ "$deploy_valid" == "y" ]; then
     echo -e "${GREEN}✓ agentvalid deployed${NC}"
 fi
 
+read -p "Deploy agentescrow? (y/n): " deploy_escrow
+if [ "$deploy_escrow" == "y" ]; then
+    proton contract:set $AGENT_ESCROW ./contracts/agentescrow/assembly/target
+    echo -e "${GREEN}✓ agentescrow deployed${NC}"
+fi
+
 # Step 4: Enable inline actions (if needed)
 read -p "Enable inline actions? (y/n): " enable_inline
 if [ "$enable_inline" == "y" ]; then
-    for acc in $AGENT_CORE $AGENT_FEED $AGENT_VALID; do
+    for acc in $AGENT_CORE $AGENT_FEED $AGENT_VALID $AGENT_ESCROW; do
         proton contract:enableinline $acc
         echo -e "${GREEN}✓ Inline actions enabled for $acc${NC}"
     done
@@ -102,8 +114,8 @@ read -p "Initialize contracts? (only for first deployment) (y/n): " init_contrac
 if [ "$init_contracts" == "y" ]; then
     # Initialize agentcore
     # min_stake: 1000.0000 XPR = 10000000
-    # unstake_delay: 7 days = 604800 seconds
-    proton action $AGENT_CORE init "{\"owner\":\"$AGENT_CORE\",\"min_stake\":10000000,\"unstake_delay\":604800}" $AGENT_CORE
+    # Requires: feed_contract, valid_contract, escrow_contract
+    proton action $AGENT_CORE init "{\"owner\":\"$AGENT_CORE\",\"min_stake\":10000000,\"feed_contract\":\"$AGENT_FEED\",\"valid_contract\":\"$AGENT_VALID\",\"escrow_contract\":\"$AGENT_ESCROW\"}" $AGENT_CORE
     echo -e "${GREEN}✓ agentcore initialized${NC}"
 
     # Initialize agentfeed
@@ -114,6 +126,11 @@ if [ "$init_contracts" == "y" ]; then
     # min_stake: 5000.0000 XPR = 50000000
     proton action $AGENT_VALID init "{\"owner\":\"$AGENT_VALID\",\"core_contract\":\"$AGENT_CORE\",\"min_stake\":50000000}" $AGENT_VALID
     echo -e "${GREEN}✓ agentvalid initialized${NC}"
+
+    # Initialize agentescrow
+    # platform_fee: 100 = 1%
+    proton action $AGENT_ESCROW init "{\"owner\":\"$AGENT_ESCROW\",\"core_contract\":\"$AGENT_CORE\",\"feed_contract\":\"$AGENT_FEED\",\"platform_fee\":100}" $AGENT_ESCROW
+    echo -e "${GREEN}✓ agentescrow initialized${NC}"
 fi
 
 echo ""
@@ -123,3 +140,4 @@ echo "Contract Accounts:"
 echo "  - Agent Core: $AGENT_CORE"
 echo "  - Agent Feed: $AGENT_FEED"
 echo "  - Agent Valid: $AGENT_VALID"
+echo "  - Agent Escrow: $AGENT_ESCROW"

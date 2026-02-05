@@ -92,8 +92,8 @@ echo -e "${YELLOW}Initializing contracts...${NC}"
 
 # Initialize agentcore
 # min_stake: 100.0000 XPR = 1000000
-# unstake_delay: 7 days = 604800 seconds
-proton action $AGENT_CORE init "{\"owner\":\"$AGENT_CORE\",\"min_stake\":1000000,\"unstake_delay\":604800}" $AGENT_CORE
+# Requires: feed_contract, valid_contract, escrow_contract
+proton action $AGENT_CORE init "{\"owner\":\"$AGENT_CORE\",\"min_stake\":1000000,\"feed_contract\":\"$AGENT_FEED\",\"valid_contract\":\"$AGENT_VALID\",\"escrow_contract\":\"$AGENT_ESCROW\"}" $AGENT_CORE
 echo -e "${GREEN}✓ agentcore initialized${NC}"
 
 # Initialize agentfeed

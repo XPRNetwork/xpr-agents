@@ -284,18 +284,21 @@ export class AgentRef extends Table {
 }
 
 // External table reference for KYC lookup
+// CRITICAL: Schema must match eosio.proton::usersinfo exactly
 @table("usersinfo", "eosio.proton")
 export class UserInfo extends Table {
   constructor(
     public acc: Name = EMPTY_NAME,
     public name: string = "",
     public avatar: string = "",
-    public verified: boolean = false,
+    public verified: u8 = 0,              // 0 = unverified, 1 = verified (must be u8, not boolean)
+    public date: u64 = 0,
     public verifiedon: u64 = 0,
     public verifier: Name = EMPTY_NAME,
-    public kycprovider: Name = EMPTY_NAME,
-    public blisted: boolean = false,
-    public kyc: u8[] = []
+    public raccs: Name[] = [],
+    public aacts: string[] = [],
+    public ac: u64[] = [],
+    public kyc: u8[] = []                 // KYC levels array
   ) {
     super();
   }
@@ -524,12 +527,52 @@ export class AgentFeedContract extends Contract {
     if (upheld) {
       this.updateAgentScore(feedback.agent, feedback.score, feedback.reviewer_kyc_level, false);
     }
+    // Note: If dispute rejected (upheld=false), scores are already included since they were
+    // added at submission time. The feedback will be included in recalculate() as well.
+  }
+
+  @action("reinstate")
+  reinstateFeedback(feedback_id: u64): void {
+    // SECURITY: Only contract owner can reinstate feedback
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+
+    const feedback = this.feedbackTable.requireGet(feedback_id, "Feedback not found");
+    check(feedback.disputed, "Feedback was not disputed");
+    check(feedback.resolved, "Dispute not yet resolved");
+
+    // Find the dispute record to check if it was rejected
+    const disputes = this.disputesTable.getBySecondaryU64(feedback_id, 0);
+    let disputeRejected = false;
+    for (let i = 0; i < disputes.length; i++) {
+      if (disputes[i].status == 2) { // status 2 = rejected
+        disputeRejected = true;
+        break;
+      }
+    }
+
+    check(disputeRejected, "Dispute was upheld, feedback cannot be reinstated");
+
+    // Clear the disputed flag since dispute was rejected
+    feedback.disputed = false;
+    this.feedbackTable.update(feedback, this.receiver);
+
+    // Note: The score was already added when feedback was submitted.
+    // This action just clears the disputed flag for clarity.
+    // If a full recalculation is needed, call recalculate(agent) separately.
+
+    print(`Feedback ${feedback_id} reinstated after rejected dispute`);
   }
 
   @action("recalc")
   recalculate(agent: Name): void {
-    // Anyone can trigger recalculation
+    // SECURITY: Only agent or contract owner can trigger recalculation
+    // This prevents DoS attacks via expensive recalculations
     const config = this.configSingleton.get();
+    check(
+      hasAuth(agent) || hasAuth(config.owner),
+      "Only agent or contract owner can trigger recalculation"
+    );
     const feedbacks = this.feedbackTable.getBySecondaryU64(agent.N, 0);
     const now = currentTimeSec();
 
@@ -578,7 +621,14 @@ export class AgentFeedContract extends Contract {
     agentScore.total_score = totalScore;
     agentScore.total_weight = totalWeight;
     agentScore.feedback_count = count;
-    agentScore.avg_score = totalWeight > 0 ? (totalScore * 10000) / totalWeight : 0;
+    // SECURITY: Overflow check before multiplication
+    // U64.MAX_VALUE / 10000 = 1844674407370955 (approx 1.8 quadrillion)
+    if (totalWeight > 0) {
+      check(totalScore <= U64.MAX_VALUE / 10000, "Score calculation would overflow");
+      agentScore.avg_score = (totalScore * 10000) / totalWeight;
+    } else {
+      agentScore.avg_score = 0;
+    }
     agentScore.last_updated = currentTimeSec();
 
     if (this.agentScoresTable.get(agent.N) == null) {

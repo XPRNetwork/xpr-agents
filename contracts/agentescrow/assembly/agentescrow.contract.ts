@@ -350,6 +350,11 @@ export class AgentEscrowContract extends Contract {
     const existingMilestones = this.milestonesTable.getBySecondaryU64(job_id, 0);
     let totalMilestoneAmount: u64 = amount;
     for (let i = 0; i < existingMilestones.length; i++) {
+      // SECURITY: Overflow check before accumulating milestone amounts
+      check(
+        totalMilestoneAmount <= U64.MAX_VALUE - existingMilestones[i].amount,
+        "Milestone sum would overflow"
+      );
       totalMilestoneAmount += existingMilestones[i].amount;
     }
     check(totalMilestoneAmount <= job.amount, "Milestone total exceeds job amount");
@@ -461,6 +466,17 @@ export class AgentEscrowContract extends Contract {
     check(job.client == client, "Only client can approve");
     check(job.state == 4, "Job must be delivered");
 
+    // CRITICAL FIX: Check if job has milestones - all must be approved first
+    const milestones = this.milestonesTable.getBySecondaryU64(job_id, 0);
+    if (milestones.length > 0) {
+      for (let i = 0; i < milestones.length; i++) {
+        check(
+          milestones[i].state == 2, // 2 = approved
+          `Milestone "${milestones[i].title}" must be approved before final delivery approval`
+        );
+      }
+    }
+
     // Release remaining funds to agent
     const remainingAmount = job.funded_amount - job.released_amount;
     this.releasePayment(job, remainingAmount);
@@ -469,6 +485,9 @@ export class AgentEscrowContract extends Contract {
     job.updated_at = currentTimeSec();
 
     this.jobsTable.update(job, this.receiver);
+
+    // CRITICAL FIX: Increment agent's job count in agentcore
+    this.incrementAgentJobs(job.agent);
 
     print(`Job ${job_id} completed`);
   }
@@ -505,6 +524,12 @@ export class AgentEscrowContract extends Contract {
       );
     }
 
+    // H9 FIX: Check if dispute already exists for this job
+    const existingDisputes = this.disputesTable.getBySecondaryU64(job_id, 0);
+    for (let i = 0; i < existingDisputes.length; i++) {
+      check(existingDisputes[i].status != 0, "Job already has an active dispute");
+    }
+
     job.state = 5; // DISPUTED
     job.updated_at = currentTimeSec();
     this.jobsTable.update(job, this.receiver);
@@ -536,15 +561,18 @@ export class AgentEscrowContract extends Contract {
     client_percent: u64,
     resolution_notes: string
   ): void {
+    // SECURITY FIX: requireAuth must come BEFORE permission checks to prevent
+    // unauthorized users from causing the permission check to fail first
+    requireAuth(arbitrator);
+
     const dispute = this.disputesTable.requireGet(dispute_id, "Dispute not found");
     const job = this.jobsTable.requireGet(dispute.job_id, "Job not found");
 
-    // Verify arbitrator
+    // Verify arbitrator is authorized for this job
     check(
-      job.arbitrator == arbitrator || hasAuth(this.configSingleton.get().owner),
-      "Not authorized to arbitrate"
+      job.arbitrator == arbitrator || arbitrator == this.configSingleton.get().owner,
+      "Not authorized to arbitrate this job"
     );
-    requireAuth(arbitrator);
 
     check(dispute.resolution == 0, "Dispute already resolved");
     check(client_percent <= 100, "Invalid percentage");
@@ -592,6 +620,11 @@ export class AgentEscrowContract extends Contract {
     job.updated_at = currentTimeSec();
     this.jobsTable.update(job, this.receiver);
 
+    // CRITICAL FIX: If agent received payment, count as completed job
+    if (agentAmount > 0) {
+      this.incrementAgentJobs(job.agent);
+    }
+
     // Update arbitrator stats
     if (arb != null) {
       arb.total_cases += 1;
@@ -616,12 +649,18 @@ export class AgentEscrowContract extends Contract {
       this.sendTokens(job.client, new Asset(job.funded_amount, this.XPR_SYMBOL), "Job cancelled - refund");
     }
 
+    // H12 FIX: Delete all milestones associated with this job
+    const milestones = this.milestonesTable.getBySecondaryU64(job_id, 0);
+    for (let i = 0; i < milestones.length; i++) {
+      this.milestonesTable.remove(milestones[i]);
+    }
+
     job.state = 7; // REFUNDED
     job.updated_at = currentTimeSec();
 
     this.jobsTable.update(job, this.receiver);
 
-    print(`Job ${job_id} cancelled`);
+    print(`Job ${job_id} cancelled, ${milestones.length} milestones deleted`);
   }
 
   @action("timeout")
@@ -635,18 +674,22 @@ export class AgentEscrowContract extends Contract {
     if (job.state == 4) {
       // Delivered but not approved - auto-approve after deadline
       requireAuth(job.agent);
-      this.sendTokens(job.agent, new Asset(remainingAmount, this.XPR_SYMBOL), "Auto-approved after deadline");
+      // CRITICAL FIX: Use releasePayment to ensure platform fees are deducted
+      this.releasePayment(job, remainingAmount);
       job.state = 6; // COMPLETED
+      job.updated_at = currentTimeSec();
+      this.jobsTable.update(job, this.receiver);
+      // CRITICAL FIX: Increment agent's job count
+      this.incrementAgentJobs(job.agent);
     } else {
       // Not delivered - refund client
       requireAuth(job.client);
       this.sendTokens(job.client, new Asset(remainingAmount, this.XPR_SYMBOL), "Timeout refund");
       job.state = 7; // REFUNDED
+      job.released_amount = job.funded_amount;
+      job.updated_at = currentTimeSec();
+      this.jobsTable.update(job, this.receiver);
     }
-
-    job.released_amount = job.funded_amount;
-    job.updated_at = currentTimeSec();
-    this.jobsTable.update(job, this.receiver);
 
     print(`Job ${job_id} timeout claimed`);
   }
@@ -733,7 +776,14 @@ export class AgentEscrowContract extends Contract {
 
     // Parse memo: "fund:JOB_ID" or "arbstake"
     if (memo.startsWith("fund:")) {
+      // H2 FIX: Validate memo format before parsing
       const jobIdStr = memo.substring(5);
+      check(jobIdStr.length > 0 && jobIdStr.length <= 20, "Invalid job ID format");
+      // Validate it contains only digits
+      for (let i = 0; i < jobIdStr.length; i++) {
+        const c = jobIdStr.charCodeAt(i);
+        check(c >= 48 && c <= 57, "Job ID must be numeric");
+      }
       const jobId = U64.parseInt(jobIdStr);
 
       const job = this.jobsTable.requireGet(jobId, "Job not found");
@@ -741,13 +791,20 @@ export class AgentEscrowContract extends Contract {
       check(job.state == 0, "Job already funded");
       check(quantity.amount >= job.amount, "Insufficient funding");
 
-      job.funded_amount = quantity.amount;
+      // CRITICAL FIX: Refund excess if overfunded
+      const excess = quantity.amount - job.amount;
+      if (excess > 0) {
+        this.sendTokens(from, new Asset(excess, this.XPR_SYMBOL), `Overfunding refund for job ${jobId}`);
+      }
+
+      // Store only the required amount
+      job.funded_amount = job.amount;
       job.state = 1; // FUNDED
       job.updated_at = currentTimeSec();
 
       this.jobsTable.update(job, this.receiver);
 
-      print(`Job ${jobId} funded with ${quantity.toString()}`);
+      print(`Job ${jobId} funded with ${job.amount}. Excess refunded: ${excess}`);
     } else if (memo == "arbstake" || memo.startsWith("arbstake:")) {
       // Arbitrator staking
       const arb = this.arbitratorsTable.get(from.N);
@@ -775,6 +832,11 @@ export class AgentEscrowContract extends Contract {
     const config = this.configSingleton.get();
 
     // Calculate platform fee
+    // SECURITY: Overflow check - amount * platform_fee must not overflow u64
+    check(
+      config.platform_fee == 0 || amount <= U64.MAX_VALUE / config.platform_fee,
+      "Fee calculation would overflow"
+    );
     const fee = (amount * config.platform_fee) / 10000;
     const agentAmount = amount - fee;
 
@@ -799,6 +861,20 @@ export class AgentEscrowContract extends Contract {
       action_data
     );
   }
+
+  // CRITICAL FIX: Notify agentcore to increment job count when job completes
+  private incrementAgentJobs(agent: Name): void {
+    const config = this.configSingleton.get();
+    if (config.core_contract == EMPTY_NAME) return;
+
+    const incjobs = new InlineAction<IncJobs>("incjobs");
+    const action_data = new IncJobs(agent);
+    incjobs.send(
+      config.core_contract,
+      [new PermissionLevel(this.receiver, Name.fromString("active"))],
+      action_data
+    );
+  }
 }
 
 // Transfer action data structure for inline token transfers
@@ -809,6 +885,16 @@ class Transfer extends ActionData {
     public to: Name = EMPTY_NAME,
     public quantity: Asset = new Asset(),
     public memo: string = ""
+  ) {
+    super();
+  }
+}
+
+// IncJobs action data for calling agentcore::incjobs
+@packer
+class IncJobs extends ActionData {
+  constructor(
+    public account: Name = EMPTY_NAME
   ) {
     super();
   }
