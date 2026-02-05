@@ -622,10 +622,13 @@ export class AgentEscrowContract extends Contract {
     const job = this.jobsTable.requireGet(dispute.job_id, "Job not found");
 
     // Verify arbitrator is authorized for this job
-    check(
-      job.arbitrator == arbitrator || arbitrator == this.configSingleton.get().owner,
-      "Not authorized to arbitrate this job"
-    );
+    check(job.arbitrator == arbitrator, "Not authorized to arbitrate this job");
+
+    // H2 FIX: Verify arbitrator is registered and active (even for job's designated arbitrator)
+    const config = this.configSingleton.get();
+    const arb = this.arbitratorsTable.requireGet(arbitrator.N, "Arbitrator not registered");
+    check(arb.active, "Arbitrator is not active");
+    check(arb.stake >= config.min_arbitrator_stake, "Arbitrator has insufficient stake");
 
     check(dispute.resolution == 0, "Dispute already resolved");
     check(client_percent <= 100, "Invalid percentage");
@@ -641,14 +644,16 @@ export class AgentEscrowContract extends Contract {
     const remainingAmount = job.funded_amount - job.released_amount;
 
     // Calculate and deduct arbitrator fee
-    const arb = this.arbitratorsTable.get(arbitrator.N);
+    // H3 FIX: Runtime validation of arbitrator fee cap (guards against corrupted records)
+    check(arb.fee_percent <= 500, "Invalid arbitrator fee");
+
     let arbFee: u64 = 0;
     let amountAfterFee = remainingAmount;
 
-    if (arb != null && arb.fee_percent > 0) {
+    if (arb.fee_percent > 0) {
       // H5/NEW FIX: Overflow check before fee calculation
       check(
-        arb.fee_percent == 0 || remainingAmount <= U64.MAX_VALUE / arb.fee_percent,
+        remainingAmount <= U64.MAX_VALUE / arb.fee_percent,
         "Arbitrator fee calculation would overflow"
       );
       arbFee = (remainingAmount * arb.fee_percent) / 10000;
@@ -694,10 +699,8 @@ export class AgentEscrowContract extends Contract {
     }
 
     // Update arbitrator stats
-    if (arb != null) {
-      arb.total_cases += 1;
-      this.arbitratorsTable.update(arb, this.receiver);
-    }
+    arb.total_cases += 1;
+    this.arbitratorsTable.update(arb, this.receiver);
 
     print(`Dispute ${dispute_id} resolved: ${client_percent}% to client, ${arbFee} arbitration fee`);
   }

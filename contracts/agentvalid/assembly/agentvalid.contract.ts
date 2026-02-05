@@ -114,7 +114,8 @@ export class Challenge extends Table {
     public resolution_notes: string = "",
     public created_at: u64 = 0,
     public resolved_at: u64 = 0,
-    public funding_deadline: u64 = 0 // Must fund within 24 hours
+    public funding_deadline: u64 = 0, // Must fund within 24 hours
+    public funded_at: u64 = 0 // H2 FIX: Timestamp when challenge was funded (for dispute period)
   ) {
     super();
   }
@@ -171,6 +172,7 @@ export class Config extends Table {
     public unstake_delay: u64 = 604800, // 7 days
     public challenge_window: u64 = 259200, // 3 days
     public slash_percent: u64 = 1000, // 10.00%
+    public dispute_period: u64 = 172800, // H2 FIX: 48 hours minimum before challenge can be resolved
     public paused: boolean = false
   ) {
     super();
@@ -234,6 +236,13 @@ export class AgentValidContract extends Contract {
   init(owner: Name, core_contract: Name, min_stake: u64): void {
     requireAuth(this.receiver);
 
+    // H1 FIX: Prevent re-initialization if already initialized
+    const existingConfig = this.configSingleton.get();
+    check(
+      existingConfig.owner == EMPTY_NAME,
+      "Contract already initialized. Use setconfig to modify settings."
+    );
+
     const config = new Config(
       owner,
       core_contract,
@@ -242,6 +251,7 @@ export class AgentValidContract extends Contract {
       604800, // unstake_delay
       259200, // challenge_window
       1000, // slash_percent
+      172800, // dispute_period (48 hours)
       false
     );
     this.configSingleton.set(config, this.receiver);
@@ -255,6 +265,7 @@ export class AgentValidContract extends Contract {
     unstake_delay: u64,
     challenge_window: u64,
     slash_percent: u64,
+    dispute_period: u64,
     paused: boolean
   ): void {
     const config = this.configSingleton.get();
@@ -266,6 +277,8 @@ export class AgentValidContract extends Contract {
     check(challenge_stake > 0, "Challenge stake must be positive");
     check(unstake_delay >= 86400, "Unstake delay must be at least 1 day (86400 seconds)");
     check(challenge_window >= 3600, "Challenge window must be at least 1 hour (3600 seconds)");
+    // H2 FIX: Validate dispute period is at least 24 hours to give validators time to respond
+    check(dispute_period >= 86400, "Dispute period must be at least 24 hours (86400 seconds)");
     // M3 FIX: Validate core contract is a real account
     if (core_contract != EMPTY_NAME) {
       check(isAccount(core_contract), "Core contract must be a valid account");
@@ -277,6 +290,7 @@ export class AgentValidContract extends Contract {
     config.unstake_delay = unstake_delay;
     config.challenge_window = challenge_window;
     config.slash_percent = slash_percent;
+    config.dispute_period = dispute_period;
     config.paused = paused;
 
     this.configSingleton.set(config, this.receiver);
@@ -631,6 +645,22 @@ export class AgentValidContract extends Contract {
       "Challenge must be funded. Send XPR with memo 'challenge:ID' (required: " + config.challenge_stake.toString() + ")"
     );
 
+    // H2 FIX: Enforce minimum dispute period after funding before challenge can be resolved
+    // This gives validators time to respond with evidence before resolution
+    check(
+      challengeRecord.funded_at > 0,
+      "Challenge funding timestamp not set"
+    );
+    const timeSinceFunding = currentTimeSec() - challengeRecord.funded_at;
+    check(
+      timeSinceFunding >= config.dispute_period,
+      "Dispute period not elapsed. Challenge can be resolved after " +
+        config.dispute_period.toString() +
+        " seconds from funding. Time remaining: " +
+        (config.dispute_period - timeSinceFunding).toString() +
+        " seconds"
+    );
+
     const validation = this.validationsTable.requireGet(
       challengeRecord.validation_id,
       "Validation not found"
@@ -793,8 +823,9 @@ export class AgentValidContract extends Contract {
         this.sendTokens(from, new Asset(excess, this.XPR_SYMBOL), "Challenge stake excess refund");
       }
 
-      // Store only required stake amount
+      // Store only required stake amount and record funding timestamp
       challengeRecord.stake = config.challenge_stake;
+      challengeRecord.funded_at = currentTimeSec(); // H2 FIX: Record when challenge was funded for dispute period
       this.challengesTable.update(challengeRecord, this.receiver);
 
       // CRITICAL GRIEFING FIX: NOW mark the validation as challenged

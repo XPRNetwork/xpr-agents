@@ -604,6 +604,9 @@ export class AgentCoreContract extends Contract {
    * Step 2 of 2-step claim: Human completes the claim after agent approval.
    * Requires the agent to have called approveclaim first.
    *
+   * H2 FIX: If KYC was revoked between deposit and claim, the deposit is refunded
+   * rather than being trapped.
+   *
    * @param agent - The agent account to claim
    */
   @action("claim")
@@ -625,9 +628,27 @@ export class AgentCoreContract extends Contract {
     // Only the approved owner can complete the claim
     requireAuth(new_owner);
 
-    // Verify new_owner still has KYC
+    // H2 FIX: Check KYC and refund deposit if KYC was revoked
     const kycLevel = this.getKycLevel(new_owner);
-    check(kycLevel >= 1, "Owner must have KYC level 1 or higher to claim an agent");
+    if (kycLevel < 1) {
+      // KYC was revoked between deposit and claim - refund the deposit
+      if (agentRecord.claim_deposit > 0 && agentRecord.deposit_payer != EMPTY_NAME) {
+        const refundAmount = agentRecord.claim_deposit;
+        const refundTo = agentRecord.deposit_payer;
+
+        // Clear deposit tracking but keep pending_owner so agent can re-approve same or different claimant
+        agentRecord.claim_deposit = 0;
+        agentRecord.deposit_payer = EMPTY_NAME;
+        this.agentsTable.update(agentRecord, this.receiver);
+
+        // Refund the deposit
+        this.sendTokens(refundTo, new Asset(refundAmount, this.XPR_SYMBOL), "Claim deposit refund - KYC revoked for " + agent.toString());
+
+        print(`KYC revoked for ${new_owner.toString()}. Refunded ${refundAmount / 10000} XPR to ${refundTo.toString()}.`);
+      }
+      check(false, "Owner must have KYC level 1 or higher to claim an agent. Your deposit has been refunded.");
+      return; // Unreachable but makes intent clear
+    }
 
     // Check that claim fee was paid by the new_owner
     if (config.claim_fee > 0) {
@@ -690,8 +711,11 @@ export class AgentCoreContract extends Contract {
 
   /**
    * Transfer ownership of an agent to a new owner.
-   * Both current owner and new owner must sign.
+   * Current owner, new owner, AND agent must all sign.
    * Claim deposit stays with the agent (not transferred to new owner).
+   *
+   * H1 FIX: Agent must consent to ownership transfers - the agent should have
+   * a say in who sponsors them.
    *
    * @param agent - The agent account
    * @param new_owner - The new owner (must have KYC)
@@ -707,9 +731,10 @@ export class AgentCoreContract extends Contract {
     // Must have current owner
     check(agentRecord.owner != EMPTY_NAME, "Agent has no owner");
 
-    // Both parties must sign
+    // H1 FIX: All three parties must sign - current owner, new owner, AND agent
     requireAuth(agentRecord.owner);
     requireAuth(new_owner);
+    requireAuth(agent);  // Agent must consent to the transfer
 
     // Verify new_owner has KYC
     const kycLevel = this.getKycLevel(new_owner);

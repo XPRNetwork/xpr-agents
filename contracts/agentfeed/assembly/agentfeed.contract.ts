@@ -667,8 +667,21 @@ export class AgentFeedContract extends Contract {
     print(`Feedback ${feedback_id} reinstated after rejected dispute`);
   }
 
+  /**
+   * Recalculate agent scores with pagination to prevent DoS attacks.
+   * H1 FIX: Added offset and limit parameters for paginated processing.
+   *
+   * @param agent - The agent whose scores to recalculate
+   * @param offset - Number of feedbacks to skip (for pagination)
+   * @param limit - Maximum feedbacks to process (max 100 per call)
+   *
+   * Usage: Call multiple times with increasing offset to process all feedbacks.
+   * First call: recalc(agent, 0, 100)
+   * If "more iterations needed" is printed, call: recalc(agent, 100, 100)
+   * Continue until no "more iterations needed" message.
+   */
   @action("recalc")
-  recalculate(agent: Name): void {
+  recalculate(agent: Name, offset: u64, limit: u64): void {
     // SECURITY: Only agent or contract owner can trigger recalculation
     // This prevents DoS attacks via expensive recalculations
     const config = this.configSingleton.get();
@@ -676,19 +689,36 @@ export class AgentFeedContract extends Contract {
       hasAuth(agent) || hasAuth(config.owner),
       "Only agent or contract owner can trigger recalculation"
     );
+
+    // H1 FIX: Enforce maximum limit to prevent CPU exhaustion
+    const MAX_LIMIT: u64 = 100;
+    check(limit > 0 && limit <= MAX_LIMIT, "Limit must be 1-100");
+
     let fb = this.feedbackTable.getBySecondaryU64(agent.N, 0);
     const now = currentTimeSec();
+
+    // Skip 'offset' feedbacks first
+    let skipped: u64 = 0;
+    while (fb != null && skipped < offset) {
+      const currentFb = fb!;
+      fb = this.feedbackTable.nextBySecondaryU64(currentFb, 0);
+      if (fb != null && fb!.agent != agent) { fb = null; }
+      skipped++;
+    }
 
     let totalScore: u64 = 0;
     let totalWeight: u64 = 0;
     let count: u64 = 0;
+    let processed: u64 = 0;
+    let hasMore: boolean = false;
 
-    while (fb != null) {
+    while (fb != null && processed < limit) {
       const currentFb = fb!;
       // Skip disputed but unresolved feedback
       if (currentFb.disputed && !currentFb.resolved) {
         fb = this.feedbackTable.nextBySecondaryU64(currentFb, 0);
         if (fb != null && fb!.agent != agent) { fb = null; }
+        processed++;
         continue;
       }
       // Skip upheld disputes (removed from scoring)
@@ -697,6 +727,7 @@ export class AgentFeedContract extends Contract {
         if (dispute != null && dispute.status == 1) {
           fb = this.feedbackTable.nextBySecondaryU64(currentFb, 0);
           if (fb != null && fb!.agent != agent) { fb = null; }
+          processed++;
           continue;
         }
       }
@@ -721,25 +752,53 @@ export class AgentFeedContract extends Contract {
       totalScore += <u64>currentFb.score * decayedWeight;
       totalWeight += decayedWeight * 5; // Normalize to 5-star scale
       count++;
+      processed++;
 
       fb = this.feedbackTable.nextBySecondaryU64(currentFb, 0);
       if (fb != null && fb!.agent != agent) { fb = null; }
     }
 
+    // Check if there are more feedbacks to process
+    if (fb != null) {
+      hasMore = true;
+    }
+
+    // Get or create agent score record
     let agentScore = this.agentScoresTable.get(agent.N);
 
     if (agentScore == null) {
       agentScore = new AgentScore(agent, 0, 0, 0, 0, 0);
     }
 
-    agentScore.total_score = totalScore;
-    agentScore.total_weight = totalWeight;
-    agentScore.feedback_count = count;
+    // H1 FIX: For paginated recalculation, accumulate scores across calls
+    // If offset is 0, this is the first batch - reset totals
+    // If offset > 0, this is a continuation - add to existing totals
+    if (offset == 0) {
+      // First batch: reset and set new values
+      agentScore.total_score = totalScore;
+      agentScore.total_weight = totalWeight;
+      agentScore.feedback_count = count;
+    } else {
+      // Continuation: accumulate values
+      // Overflow protection
+      check(
+        agentScore.total_score <= U64.MAX_VALUE - totalScore,
+        "Score accumulation would overflow during recalculation"
+      );
+      check(
+        agentScore.total_weight <= U64.MAX_VALUE - totalWeight,
+        "Weight accumulation would overflow during recalculation"
+      );
+      agentScore.total_score += totalScore;
+      agentScore.total_weight += totalWeight;
+      agentScore.feedback_count += count;
+    }
+
     // SECURITY: Overflow check before multiplication
     // U64.MAX_VALUE / 10000 = 1844674407370955 (approx 1.8 quadrillion)
-    if (totalWeight > 0) {
-      check(totalScore <= U64.MAX_VALUE / 10000, "Score calculation would overflow");
-      agentScore.avg_score = (totalScore * 10000) / totalWeight;
+    if (agentScore.total_weight > 0) {
+      check(agentScore.total_score <= U64.MAX_VALUE / 10000, "Score calculation would overflow");
+      agentScore.avg_score = (agentScore.total_score * 10000) / agentScore.total_weight;
     } else {
       agentScore.avg_score = 0;
     }
@@ -749,6 +808,14 @@ export class AgentFeedContract extends Contract {
       this.agentScoresTable.store(agentScore, this.receiver);
     } else {
       this.agentScoresTable.update(agentScore, this.receiver);
+    }
+
+    // H1 FIX: Inform caller if more iterations are needed
+    if (hasMore) {
+      const nextOffset = offset + processed;
+      print(`Processed ${processed} feedbacks. More iterations needed. Next offset: ${nextOffset}`);
+    } else {
+      print(`Recalculation complete for ${agent.toString()}. Processed ${processed} feedbacks in this batch, total count: ${agentScore.feedback_count}`);
     }
   }
 

@@ -21,6 +21,78 @@ import { parseCapabilities, safeJsonParse, formatXpr, calculateTrustScore } from
 
 const DEFAULT_CONTRACT = 'agentcore';
 
+// Valid protocols for agent endpoints
+const VALID_PROTOCOLS = ['http', 'https', 'grpc', 'websocket', 'mqtt', 'wss'] as const;
+
+// Valid endpoint URL prefixes
+const VALID_ENDPOINT_PREFIXES = ['http://', 'https://', 'grpc://', 'wss://'];
+
+/**
+ * Validates agent registration/update data before sending to the blockchain.
+ * Throws descriptive errors for invalid input.
+ */
+function validateAgentData(data: {
+  name?: string;
+  description?: string;
+  endpoint?: string;
+  protocol?: string;
+  capabilities?: string[];
+}): void {
+  // Validate name: 1-64 characters, non-empty
+  if (data.name !== undefined) {
+    if (typeof data.name !== 'string' || data.name.trim().length === 0) {
+      throw new Error('Name must be 1-64 characters');
+    }
+    if (data.name.length < 1 || data.name.length > 64) {
+      throw new Error('Name must be 1-64 characters');
+    }
+  }
+
+  // Validate description: 1-256 characters, non-empty
+  if (data.description !== undefined) {
+    if (typeof data.description !== 'string' || data.description.trim().length === 0) {
+      throw new Error('Description must be 1-256 characters');
+    }
+    if (data.description.length < 1 || data.description.length > 256) {
+      throw new Error('Description must be 1-256 characters');
+    }
+  }
+
+  // Validate endpoint: 1-256 characters, must start with valid protocol prefix
+  if (data.endpoint !== undefined) {
+    if (typeof data.endpoint !== 'string' || data.endpoint.trim().length === 0) {
+      throw new Error('Endpoint must be 1-256 characters and start with http://, https://, grpc://, or wss://');
+    }
+    if (data.endpoint.length < 1 || data.endpoint.length > 256) {
+      throw new Error('Endpoint must be 1-256 characters and start with http://, https://, grpc://, or wss://');
+    }
+    const hasValidPrefix = VALID_ENDPOINT_PREFIXES.some(prefix =>
+      data.endpoint!.toLowerCase().startsWith(prefix)
+    );
+    if (!hasValidPrefix) {
+      throw new Error('Endpoint must be 1-256 characters and start with http://, https://, grpc://, or wss://');
+    }
+  }
+
+  // Validate protocol: must be one of the valid protocols
+  if (data.protocol !== undefined) {
+    if (!VALID_PROTOCOLS.includes(data.protocol as typeof VALID_PROTOCOLS[number])) {
+      throw new Error(`Protocol must be one of: ${VALID_PROTOCOLS.join(', ')}`);
+    }
+  }
+
+  // Validate capabilities: array, when stringified must be <= 2048 characters
+  if (data.capabilities !== undefined) {
+    if (!Array.isArray(data.capabilities)) {
+      throw new Error('Capabilities must be an array with stringified length <= 2048 characters');
+    }
+    const stringified = JSON.stringify(data.capabilities);
+    if (stringified.length > 2048) {
+      throw new Error('Capabilities must be an array with stringified length <= 2048 characters');
+    }
+  }
+}
+
 export class AgentRegistry {
   private rpc: JsonRpc;
   private session: ProtonSession | null;
@@ -330,6 +402,15 @@ export class AgentRegistry {
   async register(data: RegisterAgentData): Promise<TransactionResult> {
     this.requireSession();
 
+    // Validate input before sending to blockchain
+    validateAgentData({
+      name: data.name,
+      description: data.description,
+      endpoint: data.endpoint,
+      protocol: data.protocol,
+      capabilities: data.capabilities,
+    });
+
     return this.session!.link.transact({
       actions: [
         {
@@ -359,6 +440,16 @@ export class AgentRegistry {
    */
   async update(data: UpdateAgentData): Promise<TransactionResult> {
     this.requireSession();
+
+    // Validate input before sending to blockchain
+    // Only validate fields that are provided (UpdateAgentData has optional fields)
+    validateAgentData({
+      name: data.name,
+      description: data.description,
+      endpoint: data.endpoint,
+      protocol: data.protocol,
+      capabilities: data.capabilities,
+    });
 
     // Get current agent data to merge with updates
     const current = await this.getAgent(this.session!.auth.actor);
