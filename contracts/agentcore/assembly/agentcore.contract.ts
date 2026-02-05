@@ -15,8 +15,7 @@ import {
   Singleton,
   InlineAction,
   ActionData,
-  PermissionLevel,
-  packer
+  PermissionLevel
 } from "proton-tsc";
 
 // ============== EXTERNAL TABLES ==============
@@ -129,9 +128,17 @@ export class Plugin extends Table {
     return this.author.N;
   }
 
+  set byAuthor(value: u64) {
+    this.author = Name.fromU64(value);
+  }
+
   @secondary
   get byCategory(): u64 {
     return hashString(this.category);
+  }
+
+  set byCategory(value: u64) {
+    // Category is derived from hash, setter is a no-op
   }
 }
 
@@ -155,6 +162,10 @@ export class AgentPlugin extends Table {
   @secondary
   get byAgent(): u64 {
     return this.agent.N;
+  }
+
+  set byAgent(value: u64) {
+    this.agent = Name.fromU64(value);
   }
 }
 
@@ -195,6 +206,10 @@ export class PluginResult extends Table {
   @secondary
   get byAgent(): u64 {
     return this.agent.N;
+  }
+
+  set byAgent(value: u64) {
+    this.agent = Name.fromU64(value);
   }
 }
 
@@ -273,6 +288,18 @@ export class AgentCoreContract extends Contract {
   ): void {
     requireAuth(this.receiver);
 
+    // H7 FIX: Validate contract accounts exist
+    check(isAccount(owner), "Owner must be a valid account");
+    if (feed_contract != EMPTY_NAME) {
+      check(isAccount(feed_contract), "Feed contract must be a valid account");
+    }
+    if (valid_contract != EMPTY_NAME) {
+      check(isAccount(valid_contract), "Valid contract must be a valid account");
+    }
+    if (escrow_contract != EMPTY_NAME) {
+      check(isAccount(escrow_contract), "Escrow contract must be a valid account");
+    }
+
     const config = new Config(
       owner,
       min_stake,
@@ -296,6 +323,17 @@ export class AgentCoreContract extends Contract {
   ): void {
     const config = this.configSingleton.get();
     requireAuth(config.owner);
+
+    // H7 FIX: Validate contract accounts exist
+    if (feed_contract != EMPTY_NAME) {
+      check(isAccount(feed_contract), "Feed contract must be a valid account");
+    }
+    if (valid_contract != EMPTY_NAME) {
+      check(isAccount(valid_contract), "Valid contract must be a valid account");
+    }
+    if (escrow_contract != EMPTY_NAME) {
+      check(isAccount(escrow_contract), "Escrow contract must be a valid account");
+    }
 
     config.min_stake = min_stake;
     config.registration_fee = registration_fee;
@@ -330,6 +368,9 @@ export class AgentCoreContract extends Contract {
     check(description.length <= 256, "Description must be <= 256 characters");
     check(endpoint.length > 0 && endpoint.length <= 256, "Endpoint must be 1-256 characters");
     check(protocol.length > 0 && protocol.length <= 32, "Protocol must be 1-32 characters");
+
+    // C1 FIX: Validate capabilities field to prevent unbounded storage
+    check(capabilities.length <= 2048, "Capabilities must be <= 2048 characters");
 
     // Check minimum stake requirement (from system staking)
     if (config.min_stake > 0) {
@@ -374,6 +415,9 @@ export class AgentCoreContract extends Contract {
     check(endpoint.length > 0 && endpoint.length <= 256, "Endpoint must be 1-256 characters");
     check(protocol.length > 0 && protocol.length <= 32, "Protocol must be 1-32 characters");
 
+    // C1 FIX: Validate capabilities field to prevent unbounded storage
+    check(capabilities.length <= 2048, "Capabilities must be <= 2048 characters");
+
     agent.name = name;
     agent.description = description;
     agent.endpoint = endpoint;
@@ -397,6 +441,10 @@ export class AgentCoreContract extends Contract {
   incrementJobs(account: Name): void {
     // Allow agentfeed, agentvalid, agentescrow, or owner to call this
     const config = this.configSingleton.get();
+
+    // H5 FIX: Respect paused flag
+    check(!config.paused, "Contract is paused");
+
     const isOwner = hasAuth(config.owner);
     const isSelf = hasAuth(this.receiver);
     const isFeedContract = config.feed_contract != EMPTY_NAME && hasAuth(config.feed_contract);
@@ -409,6 +457,9 @@ export class AgentCoreContract extends Contract {
     );
 
     const agent = this.agentsTable.requireGet(account.N, "Agent not found");
+
+    // C2 FIX: Overflow protection for job counter
+    check(agent.total_jobs < U64.MAX_VALUE, "Job counter would overflow");
     agent.total_jobs += 1;
 
     this.agentsTable.update(agent, this.receiver);
@@ -504,9 +555,13 @@ export class AgentCoreContract extends Contract {
     const plugin = this.pluginsTable.requireGet(plugin_id, "Plugin not found");
 
     // Check if agent already has this plugin
-    const existingPlugs = this.agentPlugsTable.getBySecondaryU64(agent.N, 0);
-    for (let i = 0; i < existingPlugs.length; i++) {
-      check(existingPlugs[i].plugin_id != plugin_id, "Plugin already added");
+    // Iterate through secondary index to find all plugins for this agent
+    let existingPlug = this.agentPlugsTable.getBySecondaryU64(agent.N, 0);
+    while (existingPlug != null) {
+      check(existingPlug.plugin_id != plugin_id, "Plugin already added");
+      existingPlug = this.agentPlugsTable.nextBySecondaryU64(existingPlug, 0);
+      // Break if we've moved past this agent's entries
+      if (existingPlug != null && existingPlug.agent != agent) break;
     }
 
     const agentPlugin = new AgentPlugin(
@@ -553,15 +608,23 @@ export class AgentCoreContract extends Contract {
     const plugin = this.pluginsTable.requireGet(plugin_id, "Plugin not found");
     requireAuth(plugin.contract);
 
+    // C4 FIX: Verify agent is registered and active before accepting results
+    const agentRecord = this.agentsTable.get(agent.N);
+    check(agentRecord != null, "Agent not found");
+    check(agentRecord!.active, "Agent is not active");
+
     // H4 FIX: Verify agent has this plugin enabled before accepting results
     // This prevents plugins from submitting results for agents that don't use them
-    const agentPlugins = this.agentPlugsTable.getBySecondaryU64(agent.N, 0);
+    let agentPlugin = this.agentPlugsTable.getBySecondaryU64(agent.N, 0);
     let hasPlugin = false;
-    for (let i = 0; i < agentPlugins.length; i++) {
-      if (agentPlugins[i].plugin_id == plugin_id && agentPlugins[i].enabled) {
+    while (agentPlugin != null) {
+      if (agentPlugin.plugin_id == plugin_id && agentPlugin.enabled) {
         hasPlugin = true;
         break;
       }
+      agentPlugin = this.agentPlugsTable.nextBySecondaryU64(agentPlugin, 0);
+      // Break if we've moved past this agent's entries
+      if (agentPlugin != null && agentPlugin.agent != agent) break;
     }
     check(hasPlugin, "Agent does not have this plugin enabled");
 

@@ -15,8 +15,7 @@ import {
   Singleton,
   InlineAction,
   ActionData,
-  PermissionLevel,
-  packer
+  PermissionLevel
 } from "proton-tsc";
 
 // ============== JOB STATES ==============
@@ -65,15 +64,21 @@ export class Job extends Table {
     return this.client.N;
   }
 
+  set byClient(value: u64) {
+    this.client = Name.fromU64(value);
+  }
+
   @secondary
   get byAgent(): u64 {
     return this.agent.N;
   }
 
-  @secondary
-  get byState(): u64 {
-    return <u64>this.state;
+  set byAgent(value: u64) {
+    this.agent = Name.fromU64(value);
   }
+
+  // Note: No secondary index on state - u8 to u64 conversion causes WASM validation issues
+  // Use getBySecondaryU64 on byClient or byAgent instead and filter by state in code
 }
 
 @table("milestones")
@@ -101,6 +106,10 @@ export class Milestone extends Table {
   @secondary
   get byJob(): u64 {
     return this.job_id;
+  }
+
+  set byJob(value: u64) {
+    this.job_id = value;
   }
 }
 
@@ -131,6 +140,10 @@ export class EscrowDispute extends Table {
   @secondary
   get byJob(): u64 {
     return this.job_id;
+  }
+
+  set byJob(value: u64) {
+    this.job_id = value;
   }
 }
 
@@ -347,15 +360,18 @@ export class AgentEscrowContract extends Contract {
     check(job.state == 0, "Can only add milestones to unfunded jobs");
 
     // Validate total milestone amounts don't exceed job amount
-    const existingMilestones = this.milestonesTable.getBySecondaryU64(job_id, 0);
+    let existingMilestone = this.milestonesTable.getBySecondaryU64(job_id, 0);
     let totalMilestoneAmount: u64 = amount;
-    for (let i = 0; i < existingMilestones.length; i++) {
+    while (existingMilestone != null) {
+      const ms = existingMilestone!;
       // SECURITY: Overflow check before accumulating milestone amounts
       check(
-        totalMilestoneAmount <= U64.MAX_VALUE - existingMilestones[i].amount,
+        totalMilestoneAmount <= U64.MAX_VALUE - ms.amount,
         "Milestone sum would overflow"
       );
-      totalMilestoneAmount += existingMilestones[i].amount;
+      totalMilestoneAmount += ms.amount;
+      existingMilestone = this.milestonesTable.nextBySecondaryU64(ms, 0);
+      if (existingMilestone != null && existingMilestone!.job_id != job_id) { existingMilestone = null; }
     }
     check(totalMilestoneAmount <= job.amount, "Milestone total exceeds job amount");
 
@@ -467,14 +483,15 @@ export class AgentEscrowContract extends Contract {
     check(job.state == 4, "Job must be delivered");
 
     // CRITICAL FIX: Check if job has milestones - all must be approved first
-    const milestones = this.milestonesTable.getBySecondaryU64(job_id, 0);
-    if (milestones.length > 0) {
-      for (let i = 0; i < milestones.length; i++) {
-        check(
-          milestones[i].state == 2, // 2 = approved
-          `Milestone "${milestones[i].title}" must be approved before final delivery approval`
-        );
-      }
+    let milestone = this.milestonesTable.getBySecondaryU64(job_id, 0);
+    while (milestone != null) {
+      const ms = milestone!;
+      check(
+        ms.state == 2, // 2 = approved
+        `Milestone "${ms.title}" must be approved before final delivery approval`
+      );
+      milestone = this.milestonesTable.nextBySecondaryU64(ms, 0);
+      if (milestone != null && milestone!.job_id != job_id) { milestone = null; }
     }
 
     // Release remaining funds to agent
@@ -525,9 +542,12 @@ export class AgentEscrowContract extends Contract {
     }
 
     // H9 FIX: Check if dispute already exists for this job
-    const existingDisputes = this.disputesTable.getBySecondaryU64(job_id, 0);
-    for (let i = 0; i < existingDisputes.length; i++) {
-      check(existingDisputes[i].status != 0, "Job already has an active dispute");
+    let existingDispute: EscrowDispute | null = this.disputesTable.getBySecondaryU64(job_id, 0);
+    while (existingDispute != null) {
+      const dispute = existingDispute!;
+      check(dispute.resolution != 0, "Job already has an active dispute");
+      const nextDispute = this.disputesTable.nextBySecondaryU64(dispute, 0);
+      existingDispute = (nextDispute != null && nextDispute.job_id == job_id) ? nextDispute : null;
     }
 
     job.state = 5; // DISPUTED
@@ -577,6 +597,8 @@ export class AgentEscrowContract extends Contract {
     check(dispute.resolution == 0, "Dispute already resolved");
     check(client_percent <= 100, "Invalid percentage");
 
+    // H5 FIX: Verify job state consistency
+    check(job.funded_amount >= job.released_amount, "Invalid job state");
     const remainingAmount = job.funded_amount - job.released_amount;
 
     // Calculate and deduct arbitrator fee
@@ -586,6 +608,8 @@ export class AgentEscrowContract extends Contract {
 
     if (arb != null && arb.fee_percent > 0) {
       arbFee = (remainingAmount * arb.fee_percent) / 10000;
+      // H5 FIX: Ensure arbFee doesn't exceed remaining (defensive check)
+      check(arbFee <= remainingAmount, "Arbitrator fee exceeds remaining amount");
       amountAfterFee = remainingAmount - arbFee;
     }
 
@@ -650,9 +674,14 @@ export class AgentEscrowContract extends Contract {
     }
 
     // H12 FIX: Delete all milestones associated with this job
-    const milestones = this.milestonesTable.getBySecondaryU64(job_id, 0);
-    for (let i = 0; i < milestones.length; i++) {
-      this.milestonesTable.remove(milestones[i]);
+    let milestoneCount: u64 = 0;
+    let milestoneToDelete = this.milestonesTable.getBySecondaryU64(job_id, 0);
+    while (milestoneToDelete != null && milestoneToDelete!.job_id == job_id) {
+      const ms = milestoneToDelete!;
+      this.milestonesTable.remove(ms);
+      milestoneCount++;
+      // Get next milestone (after removal, need to re-query)
+      milestoneToDelete = this.milestonesTable.getBySecondaryU64(job_id, 0);
     }
 
     job.state = 7; // REFUNDED
@@ -660,11 +689,14 @@ export class AgentEscrowContract extends Contract {
 
     this.jobsTable.update(job, this.receiver);
 
-    print(`Job ${job_id} cancelled, ${milestones.length} milestones deleted`);
+    print(`Job ${job_id} cancelled, ${milestoneCount} milestones deleted`);
   }
 
   @action("timeout")
   claimTimeout(claimer: Name, job_id: u64): void {
+    // C4 FIX: Require auth upfront before revealing job state
+    requireAuth(claimer);
+
     const job = this.jobsTable.requireGet(job_id, "Job not found");
     check(currentTimeSec() > job.deadline, "Deadline not reached");
     check(job.state >= 1 && job.state <= 4, "Invalid job state for timeout");
@@ -673,7 +705,7 @@ export class AgentEscrowContract extends Contract {
 
     if (job.state == 4) {
       // Delivered but not approved - auto-approve after deadline
-      requireAuth(job.agent);
+      check(claimer == job.agent, "Only agent can claim delivered job timeout");
       // CRITICAL FIX: Use releasePayment to ensure platform fees are deducted
       this.releasePayment(job, remainingAmount);
       job.state = 6; // COMPLETED
@@ -683,7 +715,7 @@ export class AgentEscrowContract extends Contract {
       this.incrementAgentJobs(job.agent);
     } else {
       // Not delivered - refund client
-      requireAuth(job.client);
+      check(claimer == job.client, "Only client can claim undelivered job timeout");
       this.sendTokens(job.client, new Asset(remainingAmount, this.XPR_SYMBOL), "Timeout refund");
       job.state = 7; // REFUNDED
       job.released_amount = job.funded_amount;
@@ -694,7 +726,7 @@ export class AgentEscrowContract extends Contract {
     print(`Job ${job_id} timeout claimed`);
   }
 
-  @action("accepttimeout")
+  @action("accpttimeout")
   claimAcceptanceTimeout(client: Name, job_id: u64): void {
     requireAuth(client);
 
@@ -755,7 +787,7 @@ export class AgentEscrowContract extends Contract {
     this.arbitratorsTable.update(arb, this.receiver);
   }
 
-  @action("deactivatearb")
+  @action("deactarb")
   deactivateArbitrator(account: Name): void {
     requireAuth(account);
 
@@ -789,7 +821,7 @@ export class AgentEscrowContract extends Contract {
       const job = this.jobsTable.requireGet(jobId, "Job not found");
       check(job.client == from, "Only client can fund");
       check(job.state == 0, "Job already funded");
-      check(quantity.amount >= job.amount, "Insufficient funding");
+      check(<u64>quantity.amount >= job.amount, "Insufficient funding");
 
       // CRITICAL FIX: Refund excess if overfunded
       const excess = quantity.amount - job.amount;
@@ -825,6 +857,9 @@ export class AgentEscrowContract extends Contract {
   private releasePayment(job: Job, amount: u64): void {
     if (amount == 0) return;
 
+    // C2 FIX: Verify state consistency before calculating remaining
+    check(job.funded_amount >= job.released_amount, "Invalid job state: released exceeds funded");
+
     // CRITICAL: Prevent releasing more than funded
     const remaining = job.funded_amount - job.released_amount;
     check(amount <= remaining, "Cannot release more than remaining funded amount");
@@ -853,13 +888,10 @@ export class AgentEscrowContract extends Contract {
   }
 
   private sendTokens(to: Name, quantity: Asset, memo: string): void {
-    const transfer = new InlineAction<Transfer>("transfer");
-    const action_data = new Transfer(this.receiver, to, quantity, memo);
-    transfer.send(
-      this.TOKEN_CONTRACT,
-      [new PermissionLevel(this.receiver, Name.fromString("active"))],
-      action_data
-    );
+    const TRANSFER = new InlineAction<Transfer>("transfer");
+    const action = TRANSFER.act(this.TOKEN_CONTRACT, new PermissionLevel(this.receiver));
+    const actionParams = new Transfer(this.receiver, to, quantity, memo);
+    action.send(actionParams);
   }
 
   // CRITICAL FIX: Notify agentcore to increment job count when job completes
@@ -867,13 +899,10 @@ export class AgentEscrowContract extends Contract {
     const config = this.configSingleton.get();
     if (config.core_contract == EMPTY_NAME) return;
 
-    const incjobs = new InlineAction<IncJobs>("incjobs");
-    const action_data = new IncJobs(agent);
-    incjobs.send(
-      config.core_contract,
-      [new PermissionLevel(this.receiver, Name.fromString("active"))],
-      action_data
-    );
+    const INCJOBS = new InlineAction<IncJobs>("incjobs");
+    const action = INCJOBS.act(config.core_contract, new PermissionLevel(this.receiver));
+    const actionParams = new IncJobs(agent);
+    action.send(actionParams);
   }
 }
 

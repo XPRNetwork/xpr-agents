@@ -1,0 +1,8 @@
+{
+  "extends": "./node_modules/proton-tsc/assembly/tsconfig.json",
+  "include": ["assembly/**/*.ts"],
+  "compilerOptions": {
+    "moduleResolution": "node",
+    "module": "commonjs"
+  }
+}

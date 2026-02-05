@@ -15,8 +15,7 @@ import {
   Singleton,
   InlineAction,
   ActionData,
-  PermissionLevel,
-  packer
+  PermissionLevel
 } from "proton-tsc";
 
 // ============== TABLES ==============
@@ -78,14 +77,26 @@ export class Validation extends Table {
     return this.agent.N;
   }
 
+  set byAgent(value: u64) {
+    this.agent = Name.fromU64(value);
+  }
+
   @secondary
   get byValidator(): u64 {
     return this.validator.N;
   }
 
+  set byValidator(value: u64) {
+    this.validator = Name.fromU64(value);
+  }
+
   @secondary
   get byJobHash(): u64 {
     return hashString(this.job_hash);
+  }
+
+  set byJobHash(value: u64) {
+    // Hash-derived field, setter is a no-op
   }
 }
 
@@ -117,6 +128,10 @@ export class Challenge extends Table {
   get byValidation(): u64 {
     return this.validation_id;
   }
+
+  set byValidation(value: u64) {
+    this.validation_id = value;
+  }
 }
 
 @table("unstakes")
@@ -139,6 +154,10 @@ export class Unstake extends Table {
   @secondary
   get byValidator(): u64 {
     return this.validator.N;
+  }
+
+  set byValidator(value: u64) {
+    this.validator = Name.fromU64(value);
   }
 }
 
@@ -429,11 +448,10 @@ export class AgentValidContract extends Contract {
     const validation = this.validationsTable.requireGet(validation_id, "Validation not found");
     check(!validation.challenged, "Validation already challenged");
 
-    // Check challenge window
-    check(
-      currentTimeSec() <= validation.timestamp + config.challenge_window,
-      "Challenge window expired"
-    );
+    // C3 FIX: Rewrite to avoid timestamp overflow
+    // Instead of validation.timestamp + config.challenge_window, subtract to avoid overflow
+    const timeSinceValidation = currentTimeSec() - validation.timestamp;
+    check(timeSinceValidation <= config.challenge_window, "Challenge window expired");
 
     check(reason.length > 0 && reason.length <= 512, "Reason must be 1-512 characters");
     check(evidence_uri.length <= 256, "Evidence URI too long");
@@ -443,7 +461,10 @@ export class AgentValidContract extends Contract {
     this.validationsTable.update(validation, this.receiver);
 
     // Create challenge record (stake is handled via transfer within 24 hours)
-    const fundingDeadline = currentTimeSec() + 86400; // 24 hours to fund
+    // C4 FIX: Check for timestamp overflow before calculating deadline
+    const currentTime = currentTimeSec();
+    check(currentTime < U64.MAX_VALUE - 86400, "Timestamp overflow in funding deadline");
+    const fundingDeadline = currentTime + 86400; // 24 hours to fund
     const challengeRecord = new Challenge(
       this.challengesTable.availablePrimaryKey,
       validation_id,
@@ -565,12 +586,22 @@ export class AgentValidContract extends Contract {
       if (slashAmount > 0 && validator.stake >= slashAmount) {
         validator.stake -= slashAmount;
 
+        // C2 FIX: Overflow check before reward calculation
+        check(
+          challengeRecord.stake <= U64.MAX_VALUE - slashAmount,
+          "Reward calculation would overflow"
+        );
         // Prepare reward for challenger (stake return + slash reward)
         rewardAmount = challengeRecord.stake + slashAmount;
         rewardRecipient = challengeRecord.challenger;
       }
     } else {
       // Challenge rejected - validator was correct
+      // C1 FIX: Overflow check before adding stake
+      check(
+        validator.stake <= U64.MAX_VALUE - challengeRecord.stake,
+        "Validator stake would overflow"
+      );
       // Forfeit challenger stake to validator
       validator.stake += challengeRecord.stake;
     }
@@ -581,10 +612,9 @@ export class AgentValidContract extends Contract {
     if (validator.total_validations >= MIN_VALIDATIONS_FOR_ACCURACY) {
       const correct = validator.total_validations - validator.incorrect_validations;
       validator.accuracy_score = (correct * 10000) / validator.total_validations;
-    } else {
-      // Not enough data for meaningful accuracy - show as pending (10001 = N/A)
-      validator.accuracy_score = 10001;
     }
+    // H2 FIX: Don't change accuracy if not enough data - keep at initial 10000 (100%)
+    // This stays within 0-10000 range and indicates "not yet challenged"
 
     // H1 FIX: Update state BEFORE external calls to prevent reentrancy
     this.validatorsTable.update(validator, this.receiver);
@@ -647,14 +677,19 @@ export class AgentValidContract extends Contract {
       const validator = this.validatorsTable.get(from.N);
       check(validator != null, "Validator not registered. Register first.");
 
-      validator!.stake += quantity.amount;
+      // H3 FIX: Cap maximum validator stake to prevent economic imbalance
+      const MAX_VALIDATOR_STAKE: u64 = 100000000000; // 10,000,000 XPR (10M)
+      const newStake = validator!.stake + <u64>quantity.amount;
+      check(newStake <= MAX_VALIDATOR_STAKE, "Validator stake would exceed maximum (10M XPR)");
+
+      validator!.stake = newStake;
       this.validatorsTable.update(validator!, this.receiver);
 
       print(`Staked ${quantity.toString()} for validator ${from.toString()}`);
     } else if (memo.startsWith("challenge:")) {
       // Challenge stake
       const config = this.configSingleton.get();
-      check(quantity.amount >= config.challenge_stake, "Insufficient challenge stake");
+      check(<u64>quantity.amount >= config.challenge_stake, "Insufficient challenge stake");
 
       // H2 FIX: Validate memo format before parsing
       const challengeIdStr = memo.substring(10);
@@ -685,13 +720,10 @@ export class AgentValidContract extends Contract {
   // ============== HELPERS ==============
 
   private sendTokens(to: Name, quantity: Asset, memo: string): void {
-    const transfer = new InlineAction<Transfer>("transfer");
-    const action_data = new Transfer(this.receiver, to, quantity, memo);
-    transfer.send(
-      this.TOKEN_CONTRACT,
-      [new PermissionLevel(this.receiver, Name.fromString("active"))],
-      action_data
-    );
+    const TRANSFER = new InlineAction<Transfer>("transfer");
+    const action = TRANSFER.act(this.TOKEN_CONTRACT, new PermissionLevel(this.receiver));
+    const actionParams = new Transfer(this.receiver, to, quantity, memo);
+    action.send(actionParams);
   }
 }
 

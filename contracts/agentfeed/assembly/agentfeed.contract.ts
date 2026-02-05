@@ -43,9 +43,17 @@ export class Feedback extends Table {
     return this.agent.N;
   }
 
+  set byAgent(value: u64) {
+    this.agent = Name.fromU64(value);
+  }
+
   @secondary
   get byReviewer(): u64 {
     return this.reviewer.N;
+  }
+
+  set byReviewer(value: u64) {
+    this.reviewer = Name.fromU64(value);
   }
 }
 
@@ -94,6 +102,10 @@ export class ContextScore extends Table {
   get byAgent(): u64 {
     return this.agent.N;
   }
+
+  set byAgent(value: u64) {
+    this.agent = Name.fromU64(value);
+  }
 }
 
 // Directional trust (Alice's trust in Bob differs from Charlie's trust in Bob)
@@ -121,9 +133,17 @@ export class DirectionalTrust extends Table {
     return this.truster.N;
   }
 
+  set byTruster(value: u64) {
+    this.truster = Name.fromU64(value);
+  }
+
   @secondary
   get byTrustee(): u64 {
     return this.trustee.N;
+  }
+
+  set byTrustee(value: u64) {
+    this.trustee = Name.fromU64(value);
   }
 }
 
@@ -174,9 +194,17 @@ export class ExternalScore extends Table {
     return this.agent.N;
   }
 
+  set byAgent(value: u64) {
+    this.agent = Name.fromU64(value);
+  }
+
   @secondary
   get byProvider(): u64 {
     return this.provider_id;
+  }
+
+  set byProvider(value: u64) {
+    this.provider_id = value;
   }
 }
 
@@ -209,9 +237,17 @@ export class PaymentProof extends Table {
     return this.feedback_id;
   }
 
+  set byFeedback(value: u64) {
+    this.feedback_id = value;
+  }
+
   @secondary
   get byPayer(): u64 {
     return this.payer.N;
+  }
+
+  set byPayer(value: u64) {
+    this.payer = Name.fromU64(value);
   }
 }
 
@@ -240,6 +276,10 @@ export class Dispute extends Table {
   @secondary
   get byFeedback(): u64 {
     return this.feedback_id;
+  }
+
+  set byFeedback(value: u64) {
+    this.feedback_id = value;
   }
 }
 
@@ -542,13 +582,15 @@ export class AgentFeedContract extends Contract {
     check(feedback.resolved, "Dispute not yet resolved");
 
     // Find the dispute record to check if it was rejected
-    const disputes = this.disputesTable.getBySecondaryU64(feedback_id, 0);
+    let dispute = this.disputesTable.getBySecondaryU64(feedback_id, 0);
     let disputeRejected = false;
-    for (let i = 0; i < disputes.length; i++) {
-      if (disputes[i].status == 2) { // status 2 = rejected
+    while (dispute != null) {
+      if (dispute.status == 2) { // status 2 = rejected
         disputeRejected = true;
         break;
       }
+      dispute = this.disputesTable.nextBySecondaryU64(dispute, 0);
+      if (dispute != null && dispute.feedback_id != feedback_id) break;
     }
 
     check(disputeRejected, "Dispute was upheld, feedback cannot be reinstated");
@@ -573,25 +615,33 @@ export class AgentFeedContract extends Contract {
       hasAuth(agent) || hasAuth(config.owner),
       "Only agent or contract owner can trigger recalculation"
     );
-    const feedbacks = this.feedbackTable.getBySecondaryU64(agent.N, 0);
+    let fb = this.feedbackTable.getBySecondaryU64(agent.N, 0);
     const now = currentTimeSec();
 
     let totalScore: u64 = 0;
     let totalWeight: u64 = 0;
     let count: u64 = 0;
 
-    for (let i = 0; i < feedbacks.length; i++) {
-      const fb = feedbacks[i];
+    while (fb != null) {
+      const currentFb = fb!;
       // Skip disputed but unresolved feedback
-      if (fb.disputed && !fb.resolved) continue;
+      if (currentFb.disputed && !currentFb.resolved) {
+        fb = this.feedbackTable.nextBySecondaryU64(currentFb, 0);
+        if (fb != null && fb!.agent != agent) { fb = null; }
+        continue;
+      }
       // Skip upheld disputes (removed from scoring)
-      if (fb.disputed && fb.resolved) {
-        const disputes = this.disputesTable.getBySecondaryU64(fb.id, 0);
-        if (disputes.length > 0 && disputes[0].status == 1) continue;
+      if (currentFb.disputed && currentFb.resolved) {
+        const dispute = this.disputesTable.getBySecondaryU64(currentFb.id, 0);
+        if (dispute != null && dispute.status == 1) {
+          fb = this.feedbackTable.nextBySecondaryU64(currentFb, 0);
+          if (fb != null && fb!.agent != agent) { fb = null; }
+          continue;
+        }
       }
 
       // Calculate time-based decay factor (100 = 100%, decays over time to floor)
-      const ageSeconds = now > fb.timestamp ? now - fb.timestamp : 0;
+      const ageSeconds = now > currentFb.timestamp ? now - currentFb.timestamp : 0;
       const decayPeriods = ageSeconds / config.decay_period;
       // Decay by 5% per period, with floor
       let decayFactor: u64 = 100;
@@ -605,11 +655,14 @@ export class AgentFeedContract extends Contract {
         }
       }
 
-      const baseWeight: u64 = <u64>(1 + fb.reviewer_kyc_level);
+      const baseWeight: u64 = <u64>(1 + currentFb.reviewer_kyc_level);
       const decayedWeight: u64 = (baseWeight * decayFactor) / 100;
-      totalScore += <u64>fb.score * decayedWeight;
+      totalScore += <u64>currentFb.score * decayedWeight;
       totalWeight += decayedWeight * 5; // Normalize to 5-star scale
       count++;
+
+      fb = this.feedbackTable.nextBySecondaryU64(currentFb, 0);
+      if (fb != null && fb!.agent != agent) { fb = null; }
     }
 
     let agentScore = this.agentScoresTable.get(agent.N);
@@ -721,14 +774,16 @@ export class AgentFeedContract extends Contract {
     check(trust_delta >= -100 && trust_delta <= 100, "Trust delta must be -100 to 100");
 
     // Find or create directional trust record
-    const existingTrusts = this.directionalTrustTable.getBySecondaryU64(truster.N, 0);
+    let existingTrust = this.directionalTrustTable.getBySecondaryU64(truster.N, 0);
     let trust: DirectionalTrust | null = null;
 
-    for (let i = 0; i < existingTrusts.length; i++) {
-      if (existingTrusts[i].trustee == trustee) {
-        trust = existingTrusts[i];
+    while (existingTrust != null) {
+      if (existingTrust.trustee == trustee) {
+        trust = existingTrust;
         break;
       }
+      existingTrust = this.directionalTrustTable.nextBySecondaryU64(existingTrust, 0);
+      if (existingTrust != null && existingTrust.truster != truster) break;
     }
 
     if (trust == null) {
@@ -819,14 +874,16 @@ export class AgentFeedContract extends Contract {
     check(score <= 10000, "Score must be 0-10000");
 
     // Find or create external score
-    const existingScores = this.externalScoresTable.getBySecondaryU64(agent.N, 0);
+    let existingScore = this.externalScoresTable.getBySecondaryU64(agent.N, 0);
     let extScore: ExternalScore | null = null;
 
-    for (let i = 0; i < existingScores.length; i++) {
-      if (existingScores[i].provider_id == provider_id) {
-        extScore = existingScores[i];
+    while (existingScore != null) {
+      if (existingScore.provider_id == provider_id) {
+        extScore = existingScore;
         break;
       }
+      existingScore = this.externalScoresTable.nextBySecondaryU64(existingScore, 0);
+      if (existingScore != null && existingScore.agent != agent) break;
     }
 
     if (extScore == null) {
@@ -974,16 +1031,18 @@ export class AgentFeedContract extends Contract {
     }
 
     // Get external scores and calculate weighted average
-    const extScores = this.externalScoresTable.getBySecondaryU64(agent.N, 0);
+    let extScoreItem = this.externalScoresTable.getBySecondaryU64(agent.N, 0);
     let extTotal: u64 = 0;
     let extWeight: u64 = 0;
 
-    for (let i = 0; i < extScores.length; i++) {
-      const provider = this.reputationProvidersTable.get(extScores[i].provider_id);
+    while (extScoreItem != null) {
+      const provider = this.reputationProvidersTable.get(extScoreItem.provider_id);
       if (provider != null && provider.active) {
-        extTotal += extScores[i].score * provider.weight;
+        extTotal += extScoreItem.score * provider.weight;
         extWeight += provider.weight;
       }
+      extScoreItem = this.externalScoresTable.nextBySecondaryU64(extScoreItem, 0);
+      if (extScoreItem != null && extScoreItem.agent != agent) break;
     }
 
     const extAvg: u64 = extWeight > 0 ? extTotal / extWeight : 0;
@@ -1014,14 +1073,16 @@ export class AgentFeedContract extends Contract {
 
   private updateContextScore(agent: Name, context: string, score: u8, kycLevel: u8, add: boolean): void {
     // Find existing context score
-    const existingScores = this.contextScoresTable.getBySecondaryU64(agent.N, 0);
+    let existingScore = this.contextScoresTable.getBySecondaryU64(agent.N, 0);
     let ctxScore: ContextScore | null = null;
 
-    for (let i = 0; i < existingScores.length; i++) {
-      if (existingScores[i].context == context) {
-        ctxScore = existingScores[i];
+    while (existingScore != null) {
+      if (existingScore.context == context) {
+        ctxScore = existingScore;
         break;
       }
+      existingScore = this.contextScoresTable.nextBySecondaryU64(existingScore, 0);
+      if (existingScore != null && existingScore.agent != agent) break;
     }
 
     const weight: u64 = <u64>(1 + kycLevel);
@@ -1063,14 +1124,16 @@ export class AgentFeedContract extends Contract {
     // Convert 1-5 score to trust delta: 1=-2, 2=-1, 3=0, 4=1, 5=2
     const trustDelta: i64 = <i64>score - 3;
 
-    const existingTrusts = this.directionalTrustTable.getBySecondaryU64(truster.N, 0);
+    let existingTrust = this.directionalTrustTable.getBySecondaryU64(truster.N, 0);
     let trust: DirectionalTrust | null = null;
 
-    for (let i = 0; i < existingTrusts.length; i++) {
-      if (existingTrusts[i].trustee == trustee) {
-        trust = existingTrusts[i];
+    while (existingTrust != null) {
+      if (existingTrust.trustee == trustee) {
+        trust = existingTrust;
         break;
       }
+      existingTrust = this.directionalTrustTable.nextBySecondaryU64(existingTrust, 0);
+      if (existingTrust != null && existingTrust.truster != truster) break;
     }
 
     if (trust == null) {
@@ -1127,6 +1190,16 @@ export class AgentFeedContract extends Contract {
     const normalizedWeight: u64 = weight * 5;
 
     if (add) {
+      // C1/C3 FIX: Overflow protection for score accumulation
+      check(
+        agentScore.total_score <= U64.MAX_VALUE - weightedScore,
+        "Score accumulation would overflow"
+      );
+      check(
+        agentScore.total_weight <= U64.MAX_VALUE - normalizedWeight,
+        "Weight accumulation would overflow"
+      );
+      check(agentScore.feedback_count < U64.MAX_VALUE, "Feedback count would overflow");
       agentScore.total_score += weightedScore;
       agentScore.total_weight += normalizedWeight;
       agentScore.feedback_count += 1;
@@ -1148,10 +1221,19 @@ export class AgentFeedContract extends Contract {
     }
 
     // Calculate average score (multiplied by 100 for precision)
-    agentScore.avg_score =
-      agentScore.total_weight > 0
-        ? (agentScore.total_score * 10000) / agentScore.total_weight
-        : 0;
+    // C1 FIX: Overflow protection for avg_score calculation
+    if (agentScore.total_weight > 0) {
+      // Check if multiplication would overflow
+      if (agentScore.total_score > U64.MAX_VALUE / 10000) {
+        // Use alternative calculation to avoid overflow: (score / weight) * 10000
+        // This is less precise but won't overflow
+        agentScore.avg_score = (agentScore.total_score / agentScore.total_weight) * 10000;
+      } else {
+        agentScore.avg_score = (agentScore.total_score * 10000) / agentScore.total_weight;
+      }
+    } else {
+      agentScore.avg_score = 0;
+    }
 
     agentScore.last_updated = currentTimeSec();
 
