@@ -1,0 +1,355 @@
+// ============== Agent Types ==============
+
+export interface Agent {
+  account: string;
+  name: string;
+  description: string;
+  endpoint: string;
+  protocol: string;
+  capabilities: string[];
+  stake: number;
+  total_jobs: number;
+  registered_at: number;
+  active: boolean;
+}
+
+export interface AgentRaw {
+  account: string;
+  name: string;
+  description: string;
+  endpoint: string;
+  protocol: string;
+  capabilities: string;
+  stake: string;
+  total_jobs: string;
+  registered_at: string;
+  active: number;
+}
+
+export interface Plugin {
+  id: number;
+  name: string;
+  version: string;
+  contract: string;
+  action: string;
+  schema: object;
+  category: PluginCategory;
+  author: string;
+  verified: boolean;
+}
+
+export interface PluginRaw {
+  id: string;
+  name: string;
+  version: string;
+  contract: string;
+  action: string;
+  schema: string;
+  category: string;
+  author: string;
+  verified: number;
+}
+
+export interface AgentPlugin {
+  id: number;
+  agent: string;
+  plugin_id: number;
+  config: object;
+  enabled: boolean;
+}
+
+export interface AgentPluginRaw {
+  id: string;
+  agent: string;
+  plugin_id: string;
+  config: string;
+  enabled: number;
+}
+
+export interface Unstake {
+  id: number;
+  agent: string;
+  amount: number;
+  request_time: number;
+  available_at: number;
+}
+
+export interface AgentCoreConfig {
+  owner: string;
+  min_stake: number;
+  unstake_delay: number;
+  registration_fee: number;
+  paused: boolean;
+}
+
+export type PluginCategory = 'compute' | 'storage' | 'oracle' | 'payment' | 'messaging' | 'ai';
+
+// ============== Feedback Types ==============
+
+export interface Feedback {
+  id: number;
+  agent: string;
+  reviewer: string;
+  reviewer_kyc_level: number;
+  score: number;
+  tags: string[];
+  job_hash: string;
+  evidence_uri: string;
+  amount_paid: number;
+  timestamp: number;
+  disputed: boolean;
+  resolved: boolean;
+}
+
+export interface FeedbackRaw {
+  id: string;
+  agent: string;
+  reviewer: string;
+  reviewer_kyc_level: number;
+  score: number;
+  tags: string;
+  job_hash: string;
+  evidence_uri: string;
+  amount_paid: string;
+  timestamp: string;
+  disputed: number;
+  resolved: number;
+}
+
+export interface AgentScore {
+  agent: string;
+  total_score: number;
+  total_weight: number;
+  feedback_count: number;
+  avg_score: number;
+  last_updated: number;
+}
+
+export interface AgentScoreRaw {
+  agent: string;
+  total_score: string;
+  total_weight: string;
+  feedback_count: string;
+  avg_score: string;
+  last_updated: string;
+}
+
+export interface Dispute {
+  id: number;
+  feedback_id: number;
+  disputer: string;
+  reason: string;
+  evidence_uri: string;
+  status: DisputeStatus;
+  resolver: string;
+  resolution_notes: string;
+  created_at: number;
+  resolved_at: number;
+}
+
+export type DisputeStatus = 'pending' | 'upheld' | 'rejected';
+
+// ============== Validation Types ==============
+
+export interface Validator {
+  account: string;
+  stake: number;
+  method: string;
+  specializations: string[];
+  total_validations: number;
+  correct_validations: number;
+  accuracy_score: number;
+  registered_at: number;
+  active: boolean;
+}
+
+export interface ValidatorRaw {
+  account: string;
+  stake: string;
+  method: string;
+  specializations: string;
+  total_validations: string;
+  correct_validations: string;
+  accuracy_score: string;
+  registered_at: string;
+  active: number;
+}
+
+export interface Validation {
+  id: number;
+  validator: string;
+  agent: string;
+  job_hash: string;
+  result: ValidationResult;
+  confidence: number;
+  evidence_uri: string;
+  challenged: boolean;
+  timestamp: number;
+}
+
+export interface ValidationRaw {
+  id: string;
+  validator: string;
+  agent: string;
+  job_hash: string;
+  result: number;
+  confidence: number;
+  evidence_uri: string;
+  challenged: number;
+  timestamp: string;
+}
+
+export type ValidationResult = 'fail' | 'pass' | 'partial';
+
+export interface Challenge {
+  id: number;
+  validation_id: number;
+  challenger: string;
+  reason: string;
+  evidence_uri: string;
+  stake: number;
+  status: DisputeStatus;
+  resolver: string;
+  resolution_notes: string;
+  created_at: number;
+  resolved_at: number;
+}
+
+// ============== Trust Score Types ==============
+
+export interface TrustScore {
+  agent: string;
+  total: number;
+  breakdown: TrustScoreBreakdown;
+  rating: TrustRating;
+}
+
+export interface TrustScoreBreakdown {
+  kyc: number;
+  stake: number;
+  reputation: number;
+  longevity: number;
+}
+
+export type TrustRating = 'untrusted' | 'low' | 'medium' | 'high' | 'verified';
+
+// ============== List Options ==============
+
+export interface ListOptions {
+  limit?: number;
+  offset?: number;
+  active_only?: boolean;
+}
+
+export interface AgentListOptions extends ListOptions {
+  category?: PluginCategory;
+  min_stake?: number;
+  min_trust_score?: number;
+}
+
+export interface FeedbackListOptions extends ListOptions {
+  agent?: string;
+  reviewer?: string;
+  min_score?: number;
+  max_score?: number;
+}
+
+export interface ValidatorListOptions extends ListOptions {
+  min_stake?: number;
+  min_accuracy?: number;
+  specialization?: string;
+}
+
+// ============== Transaction Types ==============
+
+export interface TransactionResult {
+  transaction_id: string;
+  processed: {
+    block_num: number;
+    block_time: string;
+  };
+}
+
+export interface RegisterAgentData {
+  name: string;
+  description: string;
+  endpoint: string;
+  protocol: string;
+  capabilities: string[];
+}
+
+export interface UpdateAgentData {
+  name?: string;
+  description?: string;
+  endpoint?: string;
+  protocol?: string;
+  capabilities?: string[];
+}
+
+export interface SubmitFeedbackData {
+  agent: string;
+  score: number;
+  tags?: string[];
+  job_hash?: string;
+  evidence_uri?: string;
+  amount_paid?: number;
+}
+
+export interface SubmitValidationData {
+  agent: string;
+  job_hash: string;
+  result: ValidationResult;
+  confidence: number;
+  evidence_uri?: string;
+}
+
+// ============== Session Types ==============
+
+export interface ProtonSession {
+  auth: {
+    actor: string;
+    permission: string;
+  };
+  link: {
+    transact: (args: TransactArgs) => Promise<TransactionResult>;
+  };
+}
+
+export interface TransactArgs {
+  actions: TransactAction[];
+}
+
+export interface TransactAction {
+  account: string;
+  name: string;
+  authorization: Array<{
+    actor: string;
+    permission: string;
+  }>;
+  data: Record<string, unknown>;
+}
+
+// ============== RPC Types ==============
+
+export interface JsonRpc {
+  get_table_rows<T>(params: GetTableRowsParams): Promise<GetTableRowsResult<T>>;
+}
+
+export interface GetTableRowsParams {
+  json: boolean;
+  code: string;
+  scope: string;
+  table: string;
+  lower_bound?: string;
+  upper_bound?: string;
+  limit?: number;
+  key_type?: string;
+  index_position?: number;
+  reverse?: boolean;
+}
+
+export interface GetTableRowsResult<T> {
+  rows: T[];
+  more: boolean;
+  next_key?: string;
+}

@@ -1,0 +1,16 @@
+{
+  "name": "agentfeed",
+  "version": "1.0.0",
+  "description": "XPR Network Agent Feedback Registry Contract",
+  "main": "assembly/agentfeed.contract.ts",
+  "scripts": {
+    "build": "proton-tsc assembly/agentfeed.contract.ts",
+    "test": "proton-vert tests/*.test.ts"
+  },
+  "dependencies": {
+    "proton-tsc": "^0.9.0"
+  },
+  "devDependencies": {
+    "@proton/vert": "^0.2.0"
+  }
+}

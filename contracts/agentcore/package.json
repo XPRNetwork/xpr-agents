@@ -1,0 +1,16 @@
+{
+  "name": "agentcore",
+  "version": "1.0.0",
+  "description": "XPR Network Agent Core Registry Contract",
+  "main": "assembly/agentcore.contract.ts",
+  "scripts": {
+    "build": "proton-tsc assembly/agentcore.contract.ts",
+    "test": "proton-vert tests/*.test.ts"
+  },
+  "dependencies": {
+    "proton-tsc": "^0.9.0"
+  },
+  "devDependencies": {
+    "@proton/vert": "^0.2.0"
+  }
+}

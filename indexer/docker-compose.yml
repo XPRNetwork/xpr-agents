@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  indexer:
+    build: .
+    container_name: xpr-agents-indexer
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - DB_PATH=/data/agents.db
+      - HYPERION_ENDPOINT=https://proton.eosusa.io
+      - AGENT_CORE_CONTRACT=agentcore
+      - AGENT_FEED_CONTRACT=agentfeed
+      - AGENT_VALID_CONTRACT=agentvalid
+    volumes:
+      - indexer-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  indexer-data:
