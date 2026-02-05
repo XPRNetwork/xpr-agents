@@ -165,19 +165,20 @@ function handleResolve(db: Database.Database, data: any): void {
   challengeStmt.run(
     data.upheld ? 1 : 2,
     data.resolver || '',
-    data.notes || '',
+    data.resolution_notes || '',
     data.challenge_id
   );
 
-  // If challenge was rejected, validator was correct - update accuracy
-  if (!data.upheld) {
+  // If challenge was upheld, validator was wrong - increment incorrect_validations
+  if (data.upheld) {
     const validation = db.prepare('SELECT validator FROM validations WHERE id = ?').get(challenge.validation_id) as { validator: string } | undefined;
     if (validation) {
+      // Match contract logic: accuracy = (total - incorrect) * 10000 / total
       const updateStmt = db.prepare(`
         UPDATE validators
-        SET correct_validations = correct_validations + 1,
+        SET incorrect_validations = incorrect_validations + 1,
             accuracy_score = CASE
-              WHEN total_validations > 0 THEN (correct_validations + 1) * 10000 / total_validations
+              WHEN total_validations > 0 THEN (total_validations - incorrect_validations - 1) * 10000 / total_validations
               ELSE 10000
             END
         WHERE account = ?

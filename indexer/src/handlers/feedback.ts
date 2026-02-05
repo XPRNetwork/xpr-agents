@@ -118,7 +118,7 @@ function handleResolve(db: Database.Database, data: any): void {
   disputeStmt.run(
     data.upheld ? 1 : 2,
     data.resolver || '',
-    data.notes || '',
+    data.resolution_notes || '',
     data.dispute_id
   );
 

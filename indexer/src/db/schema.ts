@@ -73,7 +73,7 @@ export function initDatabase(dbPath: string): Database.Database {
       method TEXT,
       specializations TEXT,
       total_validations INTEGER DEFAULT 0,
-      correct_validations INTEGER DEFAULT 0,
+      incorrect_validations INTEGER DEFAULT 0,
       accuracy_score INTEGER DEFAULT 10000,
       registered_at INTEGER,
       active INTEGER DEFAULT 1

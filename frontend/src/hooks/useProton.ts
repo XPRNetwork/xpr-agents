@@ -23,41 +23,67 @@ const APP_NAME = 'XPR Agents';
 const CHAIN_ID = process.env.NEXT_PUBLIC_CHAIN_ID || '384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0';
 const ENDPOINTS = [process.env.NEXT_PUBLIC_RPC_URL || 'https://proton.eosusa.io'];
 
-// Module-level singleton to track if SDK has been initialized
-let sdkInitialized = false;
+// Module-level singleton for the SDK link - shared across all hook instances
+let sharedLink: any = null;
+let initPromise: Promise<any> | null = null;
+
+/**
+ * Initialize SDK once and cache the link for reuse.
+ * If restoreSession is true, attempts to restore existing session.
+ */
+async function initSDK(restoreSession: boolean): Promise<{ link: any; session: LinkSession | null }> {
+  // If we already have a link and don't need to restore, return it
+  if (sharedLink && !restoreSession) {
+    return { link: sharedLink, session: null };
+  }
+
+  // If initialization is in progress, wait for it
+  if (initPromise) {
+    const result = await initPromise;
+    return { link: sharedLink, session: restoreSession ? result.session : null };
+  }
+
+  // Initialize SDK - this only happens once
+  initPromise = ProtonWebSDK({
+    linkOptions: {
+      chainId: CHAIN_ID,
+      endpoints: ENDPOINTS,
+      restoreSession,
+    },
+    transportOptions: {
+      requestAccount: APP_NAME,
+    },
+    selectorOptions: {
+      appName: APP_NAME,
+    },
+  });
+
+  const result = await initPromise;
+
+  if (result.link) {
+    sharedLink = result.link;
+  }
+
+  initPromise = null;
+
+  return { link: sharedLink, session: result.session || null };
+}
 
 export function useProton(): ProtonHook {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const linkRef = useRef<any>(null);
+  const initialized = useRef(false);
 
-  // Restore session on mount
+  // Restore session on mount - only once per app lifecycle
   useEffect(() => {
-    // Only restore once across all hook instances
-    if (sdkInitialized) return;
-    sdkInitialized = true;
+    if (initialized.current) return;
+    initialized.current = true;
 
     const restoreSession = async () => {
       try {
         setLoading(true);
-        const { link, session: restoredSession } = await ProtonWebSDK({
-          linkOptions: {
-            chainId: CHAIN_ID,
-            endpoints: ENDPOINTS,
-            restoreSession: true,
-          },
-          transportOptions: {
-            requestAccount: APP_NAME,
-          },
-          selectorOptions: {
-            appName: APP_NAME,
-          },
-        });
-
-        if (link) {
-          linkRef.current = link;
-        }
+        const { link, session: restoredSession } = await initSDK(true);
 
         if (restoredSession) {
           setSession({
@@ -69,7 +95,6 @@ export function useProton(): ProtonHook {
           });
         }
       } catch (e) {
-        // No session to restore
         console.log('No session to restore');
       } finally {
         setLoading(false);
@@ -84,30 +109,23 @@ export function useProton(): ProtonHook {
     setError(null);
 
     try {
-      const { link, session: newSession } = await ProtonWebSDK({
-        linkOptions: {
-          chainId: CHAIN_ID,
-          endpoints: ENDPOINTS,
-        },
-        transportOptions: {
-          requestAccount: APP_NAME,
-        },
-        selectorOptions: {
-          appName: APP_NAME,
-        },
-      });
+      // Get the shared link (or initialize if needed)
+      const { link } = await initSDK(false);
 
-      if (link) {
-        linkRef.current = link;
+      if (!link) {
+        throw new Error('Failed to initialize wallet connection');
       }
 
-      if (newSession) {
+      // Use the shared link to trigger login
+      const loginResult = await link.login(APP_NAME);
+
+      if (loginResult?.session) {
         setSession({
           auth: {
-            actor: newSession.auth.actor.toString(),
-            permission: newSession.auth.permission.toString(),
+            actor: loginResult.session.auth.actor.toString(),
+            permission: loginResult.session.auth.permission.toString(),
           },
-          linkSession: newSession,
+          linkSession: loginResult.session,
         });
       }
     } catch (e: any) {
@@ -118,14 +136,13 @@ export function useProton(): ProtonHook {
   }, []);
 
   const logout = useCallback(async () => {
-    if (linkRef.current && session) {
+    if (sharedLink && session) {
       try {
-        await linkRef.current.removeSession(APP_NAME, session.auth, CHAIN_ID);
+        await sharedLink.removeSession(APP_NAME, session.auth, CHAIN_ID);
       } catch (e) {
         console.log('Error removing session:', e);
       }
       setSession(null);
-      sdkInitialized = false; // Allow re-init on next mount
     }
   }, [session]);
 
