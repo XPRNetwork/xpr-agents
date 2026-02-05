@@ -51,6 +51,21 @@ export function initDatabase(dbPath: string): Database.Database {
       FOREIGN KEY (agent) REFERENCES agents(account)
     );
 
+    -- Feedback Disputes table (maps dispute_id -> feedback_id)
+    CREATE TABLE IF NOT EXISTS feedback_disputes (
+      id INTEGER PRIMARY KEY,
+      feedback_id INTEGER NOT NULL,
+      disputer TEXT NOT NULL,
+      reason TEXT,
+      evidence_uri TEXT,
+      status INTEGER DEFAULT 0,
+      resolver TEXT,
+      resolution_notes TEXT,
+      created_at INTEGER,
+      resolved_at INTEGER,
+      FOREIGN KEY (feedback_id) REFERENCES feedback(id)
+    );
+
     -- Validators table
     CREATE TABLE IF NOT EXISTS validators (
       account TEXT PRIMARY KEY,
@@ -77,6 +92,22 @@ export function initDatabase(dbPath: string): Database.Database {
       timestamp INTEGER,
       FOREIGN KEY (validator) REFERENCES validators(account),
       FOREIGN KEY (agent) REFERENCES agents(account)
+    );
+
+    -- Validation Challenges table (maps challenge_id -> validation_id)
+    CREATE TABLE IF NOT EXISTS validation_challenges (
+      id INTEGER PRIMARY KEY,
+      validation_id INTEGER NOT NULL,
+      challenger TEXT NOT NULL,
+      reason TEXT,
+      evidence_uri TEXT,
+      stake INTEGER DEFAULT 0,
+      status INTEGER DEFAULT 0,
+      resolver TEXT,
+      resolution_notes TEXT,
+      created_at INTEGER,
+      resolved_at INTEGER,
+      FOREIGN KEY (validation_id) REFERENCES validations(id)
     );
 
     -- Plugins table
@@ -196,6 +227,8 @@ export function initDatabase(dbPath: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state);
     CREATE INDEX IF NOT EXISTS idx_milestones_job ON milestones(job_id);
     CREATE INDEX IF NOT EXISTS idx_escrow_disputes_job ON escrow_disputes(job_id);
+    CREATE INDEX IF NOT EXISTS idx_feedback_disputes_feedback ON feedback_disputes(feedback_id);
+    CREATE INDEX IF NOT EXISTS idx_validation_challenges_validation ON validation_challenges(validation_id);
   `);
 
   return db;

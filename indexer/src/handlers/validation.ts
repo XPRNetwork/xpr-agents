@@ -19,7 +19,7 @@ export function handleValidationAction(db: Database.Database, action: StreamActi
       handleValidate(db, data, action.timestamp);
       break;
     case 'challenge':
-      handleChallenge(db, data);
+      handleChallenge(db, data, action.timestamp);
       break;
     case 'resolve':
       handleResolve(db, data);
@@ -115,22 +115,63 @@ function handleValidate(db: Database.Database, data: any, timestamp: string): vo
   console.log(`Validation submitted: ${data.validator} -> ${data.agent} (result: ${data.result})`);
 }
 
-function handleChallenge(db: Database.Database, data: any): void {
+function handleChallenge(db: Database.Database, data: any, timestamp: string): void {
+  // Update validation challenged flag
   const stmt = db.prepare(`
     UPDATE validations
     SET challenged = 1
     WHERE id = ?
   `);
-
   stmt.run(data.validation_id);
 
-  console.log(`Validation challenged: ${data.validation_id}`);
+  // Create challenge record for mapping
+  const createdAt = Math.floor(new Date(timestamp).getTime() / 1000);
+  const countStmt = db.prepare('SELECT MAX(id) as max_id FROM validation_challenges');
+  const result = countStmt.get() as { max_id: number | null };
+  const id = (result.max_id || 0) + 1;
+
+  const challengeStmt = db.prepare(`
+    INSERT INTO validation_challenges (id, validation_id, challenger, reason, evidence_uri, stake, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+  `);
+  challengeStmt.run(
+    id,
+    data.validation_id,
+    data.challenger || '',
+    data.reason || '',
+    data.evidence_uri || '',
+    data.stake || 0,
+    createdAt
+  );
+
+  console.log(`Validation ${data.validation_id} challenged (challenge ${id})`);
 }
 
 function handleResolve(db: Database.Database, data: any): void {
-  // If challenge was rejected, validator was correct
+  // Look up challenge to get validation_id
+  const challenge = db.prepare('SELECT validation_id FROM validation_challenges WHERE id = ?').get(data.challenge_id) as { validation_id: number } | undefined;
+
+  if (!challenge) {
+    console.log(`Challenge ${data.challenge_id} not found in index`);
+    return;
+  }
+
+  // Update challenge status
+  const challengeStmt = db.prepare(`
+    UPDATE validation_challenges
+    SET status = ?, resolver = ?, resolution_notes = ?, resolved_at = strftime('%s', 'now')
+    WHERE id = ?
+  `);
+  challengeStmt.run(
+    data.upheld ? 1 : 2,
+    data.resolver || '',
+    data.notes || '',
+    data.challenge_id
+  );
+
+  // If challenge was rejected, validator was correct - update accuracy
   if (!data.upheld) {
-    const validation = db.prepare('SELECT validator FROM validations WHERE id = ?').get(data.challenge_id) as { validator: string } | undefined;
+    const validation = db.prepare('SELECT validator FROM validations WHERE id = ?').get(challenge.validation_id) as { validator: string } | undefined;
     if (validation) {
       const updateStmt = db.prepare(`
         UPDATE validators
@@ -145,7 +186,7 @@ function handleResolve(db: Database.Database, data: any): void {
     }
   }
 
-  console.log(`Challenge resolved: ${data.challenge_id} (upheld: ${data.upheld})`);
+  console.log(`Challenge ${data.challenge_id} resolved (validation ${challenge.validation_id}, upheld: ${data.upheld})`);
 }
 
 function handleSlash(db: Database.Database, data: any): void {

@@ -157,11 +157,16 @@ function handleDispute(db: Database.Database, data: any, timestamp: string): voi
 }
 
 function handleArbitrate(db: Database.Database, data: any): void {
-  // Update job state
-  const jobStmt = db.prepare(`
-    UPDATE jobs SET state = 8, updated_at = strftime('%s', 'now') WHERE id = ?
-  `);
-  jobStmt.run(data.dispute_id);
+  // Look up dispute to get job_id
+  const dispute = db.prepare('SELECT job_id FROM escrow_disputes WHERE id = ?').get(data.dispute_id) as { job_id: number } | undefined;
+
+  if (dispute) {
+    // Update job state using the correct job_id
+    const jobStmt = db.prepare(`
+      UPDATE jobs SET state = 8, updated_at = strftime('%s', 'now') WHERE id = ?
+    `);
+    jobStmt.run(dispute.job_id);
+  }
 
   // Update dispute resolution
   const disputeStmt = db.prepare(`
@@ -178,7 +183,7 @@ function handleArbitrate(db: Database.Database, data: any): void {
     data.dispute_id
   );
 
-  console.log(`Dispute ${data.dispute_id} arbitrated`);
+  console.log(`Dispute ${data.dispute_id} arbitrated${dispute ? ` (job ${dispute.job_id})` : ''}`);
 }
 
 function handleCancel(db: Database.Database, data: any): void {
@@ -190,13 +195,18 @@ function handleCancel(db: Database.Database, data: any): void {
 }
 
 function handleTimeout(db: Database.Database, data: any): void {
-  // The actual state depends on whether it was delivered or not
-  // We'll set to 7 (REFUNDED) by default; the contract handles the nuance
+  // Look up current job state to determine outcome
+  const job = db.prepare('SELECT state FROM jobs WHERE id = ?').get(data.job_id) as { state: number } | undefined;
+
+  // State 4 = DELIVERED -> becomes 6 (COMPLETED, agent gets paid)
+  // Other states -> becomes 7 (REFUNDED, client gets refund)
+  const newState = job && job.state === 4 ? 6 : 7;
+
   const stmt = db.prepare(`
-    UPDATE jobs SET updated_at = strftime('%s', 'now') WHERE id = ?
+    UPDATE jobs SET state = ?, updated_at = strftime('%s', 'now') WHERE id = ?
   `);
-  stmt.run(data.job_id);
-  console.log(`Job ${data.job_id} timeout claimed`);
+  stmt.run(newState, data.job_id);
+  console.log(`Job ${data.job_id} timeout claimed -> state ${newState === 6 ? 'COMPLETED' : 'REFUNDED'}`);
 }
 
 function handleRegisterArbitrator(db: Database.Database, data: any): void {

@@ -10,7 +10,7 @@ export function handleFeedbackAction(db: Database.Database, action: StreamAction
       handleSubmit(db, data, action.timestamp);
       break;
     case 'dispute':
-      handleDispute(db, data);
+      handleDispute(db, data, action.timestamp);
       break;
     case 'resolve':
       handleResolve(db, data);
@@ -61,34 +61,74 @@ function handleSubmit(db: Database.Database, data: any, timestamp: string): void
   console.log(`Feedback submitted: ${data.reviewer} -> ${data.agent} (${data.score}/5)`);
 }
 
-function handleDispute(db: Database.Database, data: any): void {
+function handleDispute(db: Database.Database, data: any, timestamp: string): void {
+  // Update feedback disputed flag
   const stmt = db.prepare(`
     UPDATE feedback
     SET disputed = 1
     WHERE id = ?
   `);
-
   stmt.run(data.feedback_id);
 
-  console.log(`Feedback disputed: ${data.feedback_id}`);
+  // Create dispute record for mapping
+  const createdAt = Math.floor(new Date(timestamp).getTime() / 1000);
+  const countStmt = db.prepare('SELECT MAX(id) as max_id FROM feedback_disputes');
+  const result = countStmt.get() as { max_id: number | null };
+  const id = (result.max_id || 0) + 1;
+
+  const disputeStmt = db.prepare(`
+    INSERT INTO feedback_disputes (id, feedback_id, disputer, reason, evidence_uri, status, created_at)
+    VALUES (?, ?, ?, ?, ?, 0, ?)
+  `);
+  disputeStmt.run(
+    id,
+    data.feedback_id,
+    data.disputer || '',
+    data.reason || '',
+    data.evidence_uri || '',
+    createdAt
+  );
+
+  console.log(`Feedback disputed: ${data.feedback_id} (dispute ${id})`);
 }
 
 function handleResolve(db: Database.Database, data: any): void {
-  const stmt = db.prepare(`
+  // Look up dispute to get feedback_id
+  const dispute = db.prepare('SELECT feedback_id FROM feedback_disputes WHERE id = ?').get(data.dispute_id) as { feedback_id: number } | undefined;
+
+  if (!dispute) {
+    console.log(`Dispute ${data.dispute_id} not found in index`);
+    return;
+  }
+
+  // Update feedback resolved flag using correct feedback_id
+  const feedbackStmt = db.prepare(`
     UPDATE feedback
     SET resolved = 1
     WHERE id = ?
   `);
+  feedbackStmt.run(dispute.feedback_id);
 
-  stmt.run(data.dispute_id);
+  // Update dispute status
+  const disputeStmt = db.prepare(`
+    UPDATE feedback_disputes
+    SET status = ?, resolver = ?, resolution_notes = ?, resolved_at = strftime('%s', 'now')
+    WHERE id = ?
+  `);
+  disputeStmt.run(
+    data.upheld ? 1 : 2,
+    data.resolver || '',
+    data.notes || '',
+    data.dispute_id
+  );
 
-  // If dispute was upheld, recalculate agent score
-  const feedback = db.prepare('SELECT agent FROM feedback WHERE id = ?').get(data.dispute_id) as { agent: string } | undefined;
+  // Recalculate agent score
+  const feedback = db.prepare('SELECT agent FROM feedback WHERE id = ?').get(dispute.feedback_id) as { agent: string } | undefined;
   if (feedback) {
     updateAgentScore(db, feedback.agent);
   }
 
-  console.log(`Dispute resolved: ${data.dispute_id}`);
+  console.log(`Dispute ${data.dispute_id} resolved (feedback ${dispute.feedback_id})`);
 }
 
 function handleRecalc(db: Database.Database, data: any): void {

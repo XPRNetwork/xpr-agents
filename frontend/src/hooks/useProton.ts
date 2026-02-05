@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import ProtonWebSDK, { ProtonWebLink } from '@proton/web-sdk';
+import ProtonWebSDK from '@proton/web-sdk';
+import type { LinkSession } from '@proton/link';
 
 interface Session {
   auth: {
     actor: string;
     permission: string;
   };
-  link: ProtonWebLink;
+  linkSession: LinkSession;
 }
 
 interface ProtonHook {
@@ -22,60 +23,41 @@ const APP_NAME = 'XPR Agents';
 const CHAIN_ID = process.env.NEXT_PUBLIC_CHAIN_ID || '384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0';
 const ENDPOINTS = [process.env.NEXT_PUBLIC_RPC_URL || 'https://proton.eosusa.io'];
 
-// Module-level singleton for the SDK link
-let sdkLink: ProtonWebLink | null = null;
-let sdkInitPromise: Promise<{ link: ProtonWebLink; session: any }> | null = null;
-
-async function getOrCreateSDK(restoreSession: boolean = false): Promise<{ link: ProtonWebLink; session: any }> {
-  // If we already have a link, return it (with null session for non-restore calls)
-  if (sdkLink && !restoreSession) {
-    return { link: sdkLink, session: null };
-  }
-
-  // If initialization is in progress, wait for it
-  if (sdkInitPromise) {
-    return sdkInitPromise;
-  }
-
-  // Initialize the SDK
-  sdkInitPromise = ProtonWebSDK({
-    linkOptions: {
-      chainId: CHAIN_ID,
-      endpoints: ENDPOINTS,
-      restoreSession,
-    },
-    transportOptions: {
-      requestAccount: APP_NAME,
-    },
-    selectorOptions: {
-      appName: APP_NAME,
-    },
-  }).then((result) => {
-    sdkLink = result.link;
-    return result;
-  }).finally(() => {
-    // Clear the promise after completion so future calls can re-init if needed
-    // (but keep sdkLink so we reuse the same instance)
-    sdkInitPromise = null;
-  });
-
-  return sdkInitPromise;
-}
+// Module-level singleton to track if SDK has been initialized
+let sdkInitialized = false;
 
 export function useProton(): ProtonHook {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const linkRef = useRef<ProtonWebLink | null>(null);
+  const linkRef = useRef<any>(null);
 
   // Restore session on mount
   useEffect(() => {
+    // Only restore once across all hook instances
+    if (sdkInitialized) return;
+    sdkInitialized = true;
+
     const restoreSession = async () => {
       try {
         setLoading(true);
-        const { link, session: restoredSession } = await getOrCreateSDK(true);
+        const { link, session: restoredSession } = await ProtonWebSDK({
+          linkOptions: {
+            chainId: CHAIN_ID,
+            endpoints: ENDPOINTS,
+            restoreSession: true,
+          },
+          transportOptions: {
+            requestAccount: APP_NAME,
+          },
+          selectorOptions: {
+            appName: APP_NAME,
+          },
+        });
 
-        linkRef.current = link;
+        if (link) {
+          linkRef.current = link;
+        }
 
         if (restoredSession) {
           setSession({
@@ -83,7 +65,7 @@ export function useProton(): ProtonHook {
               actor: restoredSession.auth.actor.toString(),
               permission: restoredSession.auth.permission.toString(),
             },
-            link,
+            linkSession: restoredSession,
           });
         }
       } catch (e) {
@@ -102,21 +84,30 @@ export function useProton(): ProtonHook {
     setError(null);
 
     try {
-      // Use the existing SDK link if available, or create a new one
-      const { link } = await getOrCreateSDK(false);
-      linkRef.current = link;
+      const { link, session: newSession } = await ProtonWebSDK({
+        linkOptions: {
+          chainId: CHAIN_ID,
+          endpoints: ENDPOINTS,
+        },
+        transportOptions: {
+          requestAccount: APP_NAME,
+        },
+        selectorOptions: {
+          appName: APP_NAME,
+        },
+      });
 
-      // Trigger the login flow using the existing link
-      const identityResult = await link.login(APP_NAME);
+      if (link) {
+        linkRef.current = link;
+      }
 
-      if (identityResult && identityResult.session) {
-        const newSession = identityResult.session;
+      if (newSession) {
         setSession({
           auth: {
             actor: newSession.auth.actor.toString(),
             permission: newSession.auth.permission.toString(),
           },
-          link,
+          linkSession: newSession,
         });
       }
     } catch (e: any) {
@@ -128,8 +119,13 @@ export function useProton(): ProtonHook {
 
   const logout = useCallback(async () => {
     if (linkRef.current && session) {
-      await linkRef.current.removeSession(APP_NAME, session.auth as any, CHAIN_ID);
+      try {
+        await linkRef.current.removeSession(APP_NAME, session.auth, CHAIN_ID);
+      } catch (e) {
+        console.log('Error removing session:', e);
+      }
       setSession(null);
+      sdkInitialized = false; // Allow re-init on next mount
     }
   }, [session]);
 
@@ -140,7 +136,7 @@ export function useProton(): ProtonHook {
       }
 
       try {
-        const result = await session.link.transact(
+        const result = await session.linkSession.transact(
           {
             actions: actions.map((action) => ({
               ...action,
