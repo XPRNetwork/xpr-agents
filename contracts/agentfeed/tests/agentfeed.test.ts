@@ -197,10 +197,7 @@ describe('agentfeed', () => {
       ]).send('bob@active');
     });
 
-    // NOTE: dispute action triggers proton-vert secondary index cache invariant bug
-    // The action works on-chain but the test VM crashes on db_idx64_update.
-    // Skipping successful dispute tests; the rejection test below still validates auth logic.
-    it.skip('should create a dispute from the reviewed agent (proton-vert cache bug)', async () => {
+    it('should create a dispute from the reviewed agent', async () => {
       await agentfeed.actions.dispute([
         'alice', 0, 'Inaccurate feedback', 'ipfs://dispute-evidence'
       ]).send('alice@active');
@@ -208,7 +205,7 @@ describe('agentfeed', () => {
       expect(rows.length).to.equal(1);
     });
 
-    it.skip('should create a dispute from the reviewer (proton-vert cache bug)', async () => {
+    it('should create a dispute from the reviewer', async () => {
       await agentfeed.actions.dispute([
         'bob', 0, 'I want to correct my review', 'ipfs://correction'
       ]).send('bob@active');

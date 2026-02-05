@@ -179,10 +179,7 @@ describe('agentescrow', () => {
       expect(job.amount).to.equal(1000000);
     });
 
-    // NOTE: Job funding via token transfer triggers proton-vert secondary index cache bug
-    // (db_idx64_update on job state change). All tests that require funded jobs are skipped.
-    // These tests work correctly on-chain; only the test VM is affected.
-    it.skip('should fund a job (proton-vert cache bug)', async () => {
+    it('should fund a job', async () => {
       const deadline = Math.floor(Date.now() / 1000) + 86400 * 30;
       await agentescrow.actions.createjob([
         'client', 'agent1', 'Test Job', 'Test description', '["deliverable1"]',
@@ -198,14 +195,14 @@ describe('agentescrow', () => {
       expect(job.state).to.equal(1); // FUNDED
     });
 
-    it.skip('should accept a funded job (proton-vert cache bug)', async () => {
+    it('should accept a funded job', async () => {
       await createAndFundJob();
       await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
       const job = getJob(0);
       expect(job.state).to.equal(2); // ACCEPTED
     });
 
-    it.skip('should start an accepted job (proton-vert cache bug)', async () => {
+    it('should start an accepted job', async () => {
       await createAndFundJob();
       await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
       await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
@@ -213,7 +210,7 @@ describe('agentescrow', () => {
       expect(job.state).to.equal(3); // ACTIVE
     });
 
-    it.skip('should deliver an active job (proton-vert cache bug)', async () => {
+    it('should deliver an active job', async () => {
       await createAndFundJob();
       await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
       await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
@@ -222,7 +219,7 @@ describe('agentescrow', () => {
       expect(job.state).to.equal(4); // DELIVERED
     });
 
-    it.skip('should approve a delivered job (proton-vert cache bug)', async () => {
+    it.skip('should approve a delivered job (inline token transfer triggers db access violation in vert)', async () => {
       await createAndFundJob();
       await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
       await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
@@ -245,7 +242,7 @@ describe('agentescrow', () => {
       );
     });
 
-    it.skip('should reject wrong agent accepting (proton-vert cache bug)', async () => {
+    it('should reject wrong agent accepting', async () => {
       await createAndFundJob();
       await expectToThrow(
         agentescrow.actions.acceptjob(['client', 0]).send('client@active'),
@@ -253,7 +250,7 @@ describe('agentescrow', () => {
       );
     });
 
-    it.skip('should cancel a created job (proton-vert cache bug)', async () => {
+    it('should cancel a created job', async () => {
       const deadline = Math.floor(Date.now() / 1000) + 86400 * 30;
       await agentescrow.actions.createjob([
         'client', 'agent1', 'Test Job', 'Test description', '["deliverable1"]',
@@ -267,8 +264,6 @@ describe('agentescrow', () => {
   });
 
   /* ==================== Milestones ==================== */
-  // NOTE: All milestone tests require createAndFundJob which triggers proton-vert cache bug.
-  // Skipped until proton-vert fixes db_idx64_update invariant.
 
   describe('milestones', () => {
     beforeEach(async () => {
@@ -276,8 +271,14 @@ describe('agentescrow', () => {
       await registerArbitrator('arbitrator1');
     });
 
-    it.skip('should add a milestone (proton-vert cache bug)', async () => {
-      await createAndFundJob();
+    it('should add a milestone to unfunded job', async () => {
+      // Milestones can only be added to CREATED (unfunded) jobs
+      const deadline = Math.floor(Date.now() / 1000) + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Test Job', 'Test description', '["deliverable1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'jobhash123'
+      ]).send('client@active');
+
       await agentescrow.actions.addmilestone([
         'client', 0, 'Phase 1', 'First phase', 500000, 1
       ]).send('client@active');
@@ -289,8 +290,13 @@ describe('agentescrow', () => {
       expect(ms.state).to.equal(0); // pending
     });
 
-    it.skip('should reject milestone from non-client (proton-vert cache bug)', async () => {
-      await createAndFundJob();
+    it('should reject milestone from non-client', async () => {
+      const deadline = Math.floor(Date.now() / 1000) + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Test Job', 'Test description', '["deliverable1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'jobhash123'
+      ]).send('client@active');
+
       await expectToThrow(
         agentescrow.actions.addmilestone([
           'agent1', 0, 'Phase 1', 'First phase', 500000, 1
@@ -301,21 +307,19 @@ describe('agentescrow', () => {
   });
 
   /* ==================== Disputes ==================== */
-  // NOTE: All dispute tests require createAndFundJob which triggers proton-vert cache bug.
-  // Skipped until proton-vert fixes db_idx64_update invariant.
 
   describe('disputes', () => {
     beforeEach(async () => {
       await initAll();
       await registerArbitrator('arbitrator1');
-    });
-
-    it.skip('should raise a dispute (proton-vert cache bug)', async () => {
       await createAndFundJob();
+      // Progress to DELIVERED state
       await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
       await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
       await agentescrow.actions.deliver(['agent1', 0, 'ipfs://deliverables']).send('agent1@active');
+    });
 
+    it('should raise a dispute', async () => {
       await agentescrow.actions.dispute([
         'client', 0, 'Low quality deliverables', 'ipfs://evidence'
       ]).send('client@active');
@@ -324,17 +328,14 @@ describe('agentescrow', () => {
       expect(job.state).to.equal(5); // DISPUTED
     });
 
-    it.skip('should arbitrate a dispute (proton-vert cache bug)', async () => {
-      await createAndFundJob();
-      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
-      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
-      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://deliverables']).send('agent1@active');
+    it.skip('should arbitrate a dispute (inline token transfer db access violation)', async () => {
       await agentescrow.actions.dispute([
         'client', 0, 'Low quality deliverables', 'ipfs://evidence'
       ]).send('client@active');
 
+      // client_percent is 0-100 (not basis points)
       await agentescrow.actions.arbitrate([
-        'arbitrator1', 0, 7000, 'Partial delivery'
+        'arbitrator1', 0, 70, 'Partial delivery'
       ]).send('arbitrator1@active');
 
       const arb = getArbitrator('arbitrator1');
@@ -342,11 +343,7 @@ describe('agentescrow', () => {
       expect(arb.successful_cases).to.equal(1);
     });
 
-    it.skip('should track active_disputes counter (proton-vert cache bug)', async () => {
-      await createAndFundJob();
-      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
-      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
-      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://deliverables']).send('agent1@active');
+    it.skip('should track active_disputes counter (inline token transfer db access violation)', async () => {
       await agentescrow.actions.dispute([
         'client', 0, 'Low quality', 'ipfs://evidence'
       ]).send('client@active');
@@ -355,18 +352,14 @@ describe('agentescrow', () => {
       expect(arbBefore.active_disputes).to.equal(1);
 
       await agentescrow.actions.arbitrate([
-        'arbitrator1', 0, 5000, 'Split decision'
+        'arbitrator1', 0, 50, 'Split decision'
       ]).send('arbitrator1@active');
 
       const arbAfter = getArbitrator('arbitrator1');
       expect(arbAfter.active_disputes).to.equal(0);
     });
 
-    it.skip('should reject arbitration from wrong arbitrator (proton-vert cache bug)', async () => {
-      await createAndFundJob();
-      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
-      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
-      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://deliverables']).send('agent1@active');
+    it('should reject arbitration from wrong arbitrator', async () => {
       await agentescrow.actions.dispute([
         'client', 0, 'Low quality', 'ipfs://evidence'
       ]).send('client@active');
@@ -374,9 +367,9 @@ describe('agentescrow', () => {
       await registerArbitrator('arbitrator2', 300);
       await expectToThrow(
         agentescrow.actions.arbitrate([
-          'arbitrator2', 0, 5000, 'Split'
+          'arbitrator2', 0, 50, 'Split'
         ]).send('arbitrator2@active'),
-        protonAssert('Only assigned arbitrator can resolve')
+        protonAssert('Not authorized to arbitrate this job')
       );
     });
   });
@@ -410,8 +403,7 @@ describe('agentescrow', () => {
       expect(unstake.amount).to.equal(500000);
     });
 
-    it.skip('should reject unstake with active disputes (proton-vert cache bug)', async () => {
-      // Requires createAndFundJob which triggers proton-vert cache bug
+    it('should reject unstake with active disputes', async () => {
       await createAndFundJob();
       await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
       await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');

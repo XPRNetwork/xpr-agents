@@ -5,6 +5,7 @@
   "main": "assembly/agentvalid.contract.ts",
   "scripts": {
     "build": "npx proton-asc assembly/agentvalid.contract.ts",
+    "postinstall": "npx patch-package",
     "test": "ts-mocha -p tests/tsconfig.json tests/*.test.ts --timeout 30000"
   },
   "dependencies": {
