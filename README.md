@@ -86,6 +86,7 @@ await agents.release('myagent');
 - 2-step flow avoids dual-signature UX issues
 - Agent pre-approves via `approveclaim`
 - Agent can cancel anytime before completion
+- Ownership **transfers** require 3 signatures (owner, new_owner, agent) via multi-sig proposal
 
 ### Stake XPR (Additional Trust Boost)
 

@@ -67,20 +67,34 @@ EIP-8004 proposes three registries for Ethereum-based trustless agents:
 export class Agent extends Table {
   constructor(
     public account: Name = new Name(),      // Primary key (human-readable)
+    public owner: Name = new Name(),        // KYC'd human who sponsors this agent
+    public pending_owner: Name = new Name(), // Approved claimant (2-step flow)
     public name: string = "",               // Display name
     public description: string = "",        // Agent description
     public endpoint: string = "",           // API endpoint URL
     public protocol: string = "",           // Communication protocol
     public capabilities: string = "",       // JSON array of capabilities
-    public stake: u64 = 0,                  // Staked XPR amount
     public total_jobs: u64 = 0,             // Completed job count
     public registered_at: u64 = 0,          // Registration timestamp
-    public active: boolean = true           // Active status
+    public active: boolean = true,          // Active status
+    public claim_deposit: u64 = 0,          // Refundable deposit paid when claiming
+    public deposit_payer: Name = new Name() // Who paid the deposit (for refund tracking)
   ) { super(); }
 
   @primary
   get primary(): u64 { return this.account.N; }
+
+  @secondary
+  get byOwner(): u64 { return this.owner.N; }
 }
+
+// Ownership Flow:
+// 1. approveclaim - Agent approves a KYC'd human to claim them
+// 2. transfer XPR with memo "claim:agent:owner" - Pay claim deposit
+// 3. claim - Human completes the claim
+// 4. transfer - Transfer ownership (requires 3 signatures: owner, new_owner, agent)
+// 5. release - Owner releases agent (deposit refunded to original payer)
+// 6. verifyclaim - Anyone can trigger KYC re-verification
 
 @table("plugins")
 export class Plugin extends Table {
@@ -162,6 +176,25 @@ export class AgentScore extends Table {
   @primary
   get primary(): u64 { return this.agent.N; }
 }
+
+@table("recalcstate")
+export class RecalcState extends Table {
+  constructor(
+    public agent: Name = new Name(),        // Agent being recalculated
+    public total_score: u64 = 0,            // Running sum of weighted scores
+    public total_weight: u64 = 0,           // Running sum of weights
+    public feedback_count: u64 = 0,         // Running count
+    public next_offset: u64 = 0,            // Next feedback ID to process
+    public started_at: u64 = 0,             // When recalculation started
+    public expires_at: u64 = 0              // Must complete before this time
+  ) { super(); }
+
+  @primary
+  get primary(): u64 { return this.agent.N; }
+}
+// Note: RecalcState enables paginated recalculation to prevent score corruption.
+// Scores are only committed to agentscores when recalculation completes fully.
+// Incomplete recalculations can be cancelled via cancelRecalculation() action.
 ```
 
 #### agentvalid Contract
@@ -326,6 +359,22 @@ export class Dispute extends Table {
   @primary
   get primary(): u64 { return this.id; }
 }
+
+@table("arbunstakes")
+export class ArbUnstake extends Table {
+  constructor(
+    public account: Name = new Name(),      // Arbitrator account
+    public amount: u64 = 0,                 // Amount being unstaked
+    public requested_at: u64 = 0,           // When unstake was requested
+    public available_at: u64 = 0            // When funds can be withdrawn
+  ) { super(); }
+
+  @primary
+  get primary(): u64 { return this.account.N; }
+}
+// Note: Arbitrator unstaking has a time delay (ARB_UNSTAKE_DELAY_SECONDS = 7 days).
+// Arbitrators call unstakearb() to request, wait for delay, then withdrawarb() to claim.
+// cancelunstk() can cancel a pending unstake and return stake to active status.
 ```
 
 ## Trust Score Algorithm

@@ -134,6 +134,28 @@ Winner gets loser's stake
 
 Arbitrators in the escrow system also use contract-managed staking. They resolve disputes between clients and agents, so financial accountability is essential for fair resolution.
 
+### Unstaking Process
+
+Arbitrators cannot instantly withdraw their stake—this prevents a "withdraw and disappear" attack where an arbitrator could make a bad ruling and immediately exit. The unstaking process has a **7-day delay**:
+
+```
+unstakearb() → 7 days → withdrawarb()
+     ↓              ↓           ↓
+Request unstake  Wait period  Claim funds
+```
+
+**Actions:**
+- `unstakearb(amount)` - Request to unstake, starts the delay timer
+- `withdrawarb()` - After delay expires, claim the unstaked funds
+- `cancelunstk()` - Cancel a pending unstake request (return stake to active)
+
+**Why 7 Days?**
+- Gives time for dispute rulings to be reviewed
+- Allows challenges to be raised if arbitrator acted improperly
+- Prevents front-running (ruling, then immediately unstaking before consequences)
+
+During the unstake delay period, the arbitrator remains accountable for any pending disputes they resolved.
+
 ---
 
 ## Trust Score Calculation
@@ -200,6 +222,41 @@ Challenge resolution is currently owner-controlled. This could transition to DAO
 ### Reputation Portability
 
 External reputation providers can be integrated via the agentfeed contract's `repproviders` table, allowing reputation to be aggregated from multiple sources.
+
+---
+
+## Security Patterns
+
+### Checks-Effects-Interactions (CEI)
+
+All contracts follow the CEI pattern for reentrancy protection:
+
+```typescript
+// 1. Checks - Validate inputs and state
+check(amount > 0, "Amount must be positive");
+check(user.balance >= amount, "Insufficient balance");
+
+// 2. Effects - Update state BEFORE external calls
+user.balance -= amount;
+this.userTable.update(user, this.receiver);
+
+// 3. Interactions - External calls last
+sendTokens(user.account, amount);
+```
+
+This prevents reentrancy attacks where an external call could re-enter the contract before state is updated.
+
+### Deposit Payer Tracking
+
+When ownership transfers occur, the original `deposit_payer` is preserved so refunds go to the correct account:
+
+```
+Alice pays claim deposit → claim_deposit=100, deposit_payer=alice
+Transfer to Bob → owner=bob, deposit_payer=alice (unchanged)
+Bob releases agent → refund goes to alice (original payer)
+```
+
+This prevents the "steal the deposit" attack where someone could transfer ownership and then release to get someone else's deposit.
 
 ---
 

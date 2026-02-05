@@ -9,8 +9,11 @@ export function initDatabase(dbPath: string): Database.Database {
   // Create tables
   db.exec(`
     -- Agents table
+    -- P2 FIX: Added ownership fields (owner, pending_owner, claim_deposit, deposit_payer)
     CREATE TABLE IF NOT EXISTS agents (
       account TEXT PRIMARY KEY,
+      owner TEXT,
+      pending_owner TEXT,
       name TEXT NOT NULL,
       description TEXT,
       endpoint TEXT,
@@ -21,8 +24,13 @@ export function initDatabase(dbPath: string): Database.Database {
       registered_at INTEGER,
       active INTEGER DEFAULT 1,
       trust_score INTEGER DEFAULT 0,
+      claim_deposit INTEGER DEFAULT 0,
+      deposit_payer TEXT,
       updated_at INTEGER DEFAULT (strftime('%s', 'now'))
     );
+
+    -- Index for querying agents by owner
+    CREATE INDEX IF NOT EXISTS idx_agents_owner ON agents(owner);
 
     -- Agent scores table
     CREATE TABLE IF NOT EXISTS agent_scores (

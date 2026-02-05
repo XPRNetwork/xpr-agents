@@ -30,6 +30,8 @@ const VALID_ENDPOINT_PREFIXES = ['http://', 'https://', 'grpc://', 'wss://'];
 /**
  * Validates agent registration/update data before sending to the blockchain.
  * Throws descriptive errors for invalid input.
+ *
+ * CRITICAL FIX: Validates TRIMMED length to prevent whitespace padding bypass.
  */
 function validateAgentData(data: {
   name?: string;
@@ -38,45 +40,52 @@ function validateAgentData(data: {
   protocol?: string;
   capabilities?: string[];
 }): void {
-  // Validate name: 1-64 characters, non-empty
+  // Validate name: 1-64 characters after trimming, non-empty
   if (data.name !== undefined) {
-    if (typeof data.name !== 'string' || data.name.trim().length === 0) {
-      throw new Error('Name must be 1-64 characters');
+    if (typeof data.name !== 'string') {
+      throw new Error('Name must be a string');
     }
-    if (data.name.length < 1 || data.name.length > 64) {
-      throw new Error('Name must be 1-64 characters');
+    const trimmedName = data.name.trim();
+    // CRITICAL FIX: Check trimmed length to prevent whitespace padding bypass
+    if (trimmedName.length < 1 || trimmedName.length > 64) {
+      throw new Error('Name must be 1-64 characters (after trimming whitespace)');
     }
   }
 
-  // Validate description: 1-256 characters, non-empty
+  // Validate description: 1-256 characters after trimming, non-empty
   if (data.description !== undefined) {
-    if (typeof data.description !== 'string' || data.description.trim().length === 0) {
-      throw new Error('Description must be 1-256 characters');
+    if (typeof data.description !== 'string') {
+      throw new Error('Description must be a string');
     }
-    if (data.description.length < 1 || data.description.length > 256) {
-      throw new Error('Description must be 1-256 characters');
+    const trimmedDesc = data.description.trim();
+    // CRITICAL FIX: Check trimmed length to prevent whitespace padding bypass
+    if (trimmedDesc.length < 1 || trimmedDesc.length > 256) {
+      throw new Error('Description must be 1-256 characters (after trimming whitespace)');
     }
   }
 
-  // Validate endpoint: 1-256 characters, must start with valid protocol prefix
+  // Validate endpoint: 1-256 characters after trimming, must start with valid protocol prefix
   if (data.endpoint !== undefined) {
-    if (typeof data.endpoint !== 'string' || data.endpoint.trim().length === 0) {
-      throw new Error('Endpoint must be 1-256 characters and start with http://, https://, grpc://, or wss://');
+    if (typeof data.endpoint !== 'string') {
+      throw new Error('Endpoint must be a string');
     }
-    if (data.endpoint.length < 1 || data.endpoint.length > 256) {
+    const trimmedEndpoint = data.endpoint.trim();
+    // CRITICAL FIX: Check trimmed length to prevent whitespace padding bypass
+    if (trimmedEndpoint.length < 1 || trimmedEndpoint.length > 256) {
       throw new Error('Endpoint must be 1-256 characters and start with http://, https://, grpc://, or wss://');
     }
     const hasValidPrefix = VALID_ENDPOINT_PREFIXES.some(prefix =>
-      data.endpoint!.toLowerCase().startsWith(prefix)
+      trimmedEndpoint.toLowerCase().startsWith(prefix)
     );
     if (!hasValidPrefix) {
       throw new Error('Endpoint must be 1-256 characters and start with http://, https://, grpc://, or wss://');
     }
   }
 
-  // Validate protocol: must be one of the valid protocols
+  // Validate protocol: must be one of the valid protocols (case-insensitive)
   if (data.protocol !== undefined) {
-    if (!VALID_PROTOCOLS.includes(data.protocol as typeof VALID_PROTOCOLS[number])) {
+    const normalizedProtocol = data.protocol.toLowerCase();
+    if (!VALID_PROTOCOLS.includes(normalizedProtocol as typeof VALID_PROTOCOLS[number])) {
       throw new Error(`Protocol must be one of: ${VALID_PROTOCOLS.join(', ')}`);
     }
   }
@@ -758,19 +767,30 @@ export class AgentRegistry {
   /**
    * Transfer ownership of an agent to a new owner.
    *
-   * NOTE: The contract requires BOTH current owner AND new owner to sign.
-   * This method only includes the session holder's authorization.
-   * For a complete transfer, you need to use a multi-sig proposal or
-   * have the session holder control both accounts.
+   * IMPORTANT: The contract requires THREE signatures:
+   * 1. Current owner (must authorize)
+   * 2. New owner (must authorize)
+   * 3. Agent itself (must consent to the transfer)
    *
-   * Consider using a 2-step transfer flow similar to the claim process
-   * for better UX in future versions.
+   * This method includes only the session holder's authorization.
+   * It will FAIL unless the session holder controls all three accounts,
+   * which is rare in practice.
+   *
+   * For most use cases, use `buildTransferProposal()` to create a multi-sig
+   * proposal that can be signed by all three parties.
    *
    * @param agent - The agent account
    * @param newOwner - The new owner (must have KYC)
+   * @throws Will fail if session holder doesn't control all 3 required accounts
    */
   async transferOwnership(agent: string, newOwner: string): Promise<TransactionResult> {
     this.requireSession();
+
+    // P2 FIX: Warn about the three-signature requirement
+    console.warn(
+      'transferOwnership requires 3 signatures (current owner, new owner, agent). ' +
+      'This will fail unless session controls all accounts. Use buildTransferProposal() for multi-sig.'
+    );
 
     return this.session!.link.transact({
       actions: [
@@ -790,6 +810,41 @@ export class AgentRegistry {
         },
       ],
     });
+  }
+
+  /**
+   * Build a transfer ownership action for use in a multi-sig proposal.
+   * Returns the action data that can be used with msig.propose.
+   *
+   * The transfer requires signatures from:
+   * 1. Current owner
+   * 2. New owner
+   * 3. Agent itself
+   *
+   * @param agent - The agent account
+   * @param currentOwner - The current owner account
+   * @param newOwner - The new owner account (must have KYC)
+   * @returns Action data for multi-sig proposal
+   */
+  buildTransferProposal(agent: string, currentOwner: string, newOwner: string): {
+    account: string;
+    name: string;
+    authorization: Array<{ actor: string; permission: string }>;
+    data: { agent: string; new_owner: string };
+  } {
+    return {
+      account: this.contract,
+      name: 'transfer',
+      authorization: [
+        { actor: currentOwner, permission: 'active' },
+        { actor: newOwner, permission: 'active' },
+        { actor: agent, permission: 'active' },
+      ],
+      data: {
+        agent,
+        new_owner: newOwner,
+      },
+    };
   }
 
   /**

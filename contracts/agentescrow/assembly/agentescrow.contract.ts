@@ -178,9 +178,28 @@ export class EscrowConfig extends Table {
     public dispute_window: u64 = 259200,        // 3 days after delivery
     public acceptance_timeout: u64 = 604800,    // 7 days for agent to accept
     public min_arbitrator_stake: u64 = 10000000, // 1000.0000 XPR minimum stake
+    public arb_unstake_delay: u64 = 604800,     // 7 days unstaking delay for arbitrators
     public paused: boolean = false
   ) {
     super();
+  }
+}
+
+// CRITICAL FIX: Track arbitrator unstaking requests
+@table("arbunstakes")
+export class ArbUnstake extends Table {
+  constructor(
+    public account: Name = EMPTY_NAME,
+    public amount: u64 = 0,                     // Amount being unstaked
+    public requested_at: u64 = 0,               // When unstake was requested
+    public available_at: u64 = 0                // When withdrawal is available
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.account.N;
   }
 }
 
@@ -216,6 +235,7 @@ export class AgentEscrowContract extends Contract {
   private milestonesTable: TableStore<Milestone> = new TableStore<Milestone>(this.receiver);
   private disputesTable: TableStore<EscrowDispute> = new TableStore<EscrowDispute>(this.receiver);
   private arbitratorsTable: TableStore<Arbitrator> = new TableStore<Arbitrator>(this.receiver);
+  private arbUnstakesTable: TableStore<ArbUnstake> = new TableStore<ArbUnstake>(this.receiver);
   private configSingleton: Singleton<EscrowConfig> = new Singleton<EscrowConfig>(this.receiver);
 
   // Helper to get agent from configured core contract
@@ -666,6 +686,9 @@ export class AgentEscrowContract extends Contract {
     const clientAmount = (amountAfterFee * client_percent) / 100;
     const agentAmount = amountAfterFee - clientAmount;
 
+    // P3 FIX (CEI PATTERN): Update ALL state BEFORE any external calls
+    // This prevents reentrancy and ensures consistent state
+
     // Update dispute
     dispute.client_amount = clientAmount;
     dispute.agent_amount = agentAmount;
@@ -673,9 +696,19 @@ export class AgentEscrowContract extends Contract {
     dispute.resolver = arbitrator;
     dispute.resolution_notes = resolution_notes;
     dispute.resolved_at = currentTimeSec();
-
     this.disputesTable.update(dispute, this.receiver);
 
+    // Update job state BEFORE token transfers
+    job.state = 8; // ARBITRATED
+    job.released_amount = job.funded_amount;
+    job.updated_at = currentTimeSec();
+    this.jobsTable.update(job, this.receiver);
+
+    // Update arbitrator stats
+    arb.total_cases += 1;
+    this.arbitratorsTable.update(arb, this.receiver);
+
+    // Now safe to make external calls after all state is finalized
     // Process payments - arbitrator fee first
     if (arbFee > 0) {
       this.sendTokens(arbitrator, new Asset(arbFee, this.XPR_SYMBOL), `Arbitration fee for job ${job.id}`);
@@ -685,22 +718,9 @@ export class AgentEscrowContract extends Contract {
     }
     if (agentAmount > 0) {
       this.sendTokens(job.agent, new Asset(agentAmount, this.XPR_SYMBOL), "Dispute payment");
-    }
-
-    // Update job
-    job.state = 8; // ARBITRATED
-    job.released_amount = job.funded_amount;
-    job.updated_at = currentTimeSec();
-    this.jobsTable.update(job, this.receiver);
-
-    // CRITICAL FIX: If agent received payment, count as completed job
-    if (agentAmount > 0) {
+      // CRITICAL FIX: If agent received payment, count as completed job
       this.incrementAgentJobs(job.agent);
     }
-
-    // Update arbitrator stats
-    arb.total_cases += 1;
-    this.arbitratorsTable.update(arb, this.receiver);
 
     print(`Dispute ${dispute_id} resolved: ${client_percent}% to client, ${arbFee} arbitration fee`);
   }
@@ -715,12 +735,12 @@ export class AgentEscrowContract extends Contract {
     check(job.client == client, "Only client can cancel");
     check(job.state <= 1, "Can only cancel unfunded or funded jobs before acceptance");
 
-    // Refund if funded
-    if (job.funded_amount > 0) {
-      this.sendTokens(job.client, new Asset(job.funded_amount, this.XPR_SYMBOL), "Job cancelled - refund");
-    }
+    // Store refund amount before state changes
+    const refundAmount = job.funded_amount;
 
-    // H12 FIX: Delete all milestones associated with this job
+    // P3 FIX (CEI PATTERN): Update all state BEFORE external calls
+
+    // Delete all milestones associated with this job
     let milestoneCount: u64 = 0;
     let milestoneToDelete = this.milestonesTable.getBySecondaryU64(job_id, 0);
     while (milestoneToDelete != null && milestoneToDelete!.job_id == job_id) {
@@ -731,10 +751,15 @@ export class AgentEscrowContract extends Contract {
       milestoneToDelete = this.milestonesTable.getBySecondaryU64(job_id, 0);
     }
 
+    // Update job state BEFORE token transfer
     job.state = 7; // REFUNDED
     job.updated_at = currentTimeSec();
-
     this.jobsTable.update(job, this.receiver);
+
+    // Now safe to make external calls after all state is finalized
+    if (refundAmount > 0) {
+      this.sendTokens(job.client, new Asset(refundAmount, this.XPR_SYMBOL), "Job cancelled - refund");
+    }
 
     print(`Job ${job_id} cancelled, ${milestoneCount} milestones deleted`);
   }
@@ -754,6 +779,7 @@ export class AgentEscrowContract extends Contract {
       // Delivered but not approved - auto-approve after deadline
       check(claimer == job.agent, "Only agent can claim delivered job timeout");
       // CRITICAL FIX: Use releasePayment to ensure platform fees are deducted
+      // Note: releasePayment already follows CEI (state update before token transfer)
       this.releasePayment(job, remainingAmount);
       job.state = 6; // COMPLETED
       job.updated_at = currentTimeSec();
@@ -763,11 +789,15 @@ export class AgentEscrowContract extends Contract {
     } else {
       // Not delivered - refund client
       check(claimer == job.client, "Only client can claim undelivered job timeout");
-      this.sendTokens(job.client, new Asset(remainingAmount, this.XPR_SYMBOL), "Timeout refund");
+
+      // P3 FIX (CEI PATTERN): Update state BEFORE token transfer
       job.state = 7; // REFUNDED
       job.released_amount = job.funded_amount;
       job.updated_at = currentTimeSec();
       this.jobsTable.update(job, this.receiver);
+
+      // Now safe to send refund after state is finalized
+      this.sendTokens(job.client, new Asset(remainingAmount, this.XPR_SYMBOL), "Timeout refund");
     }
 
     print(`Job ${job_id} timeout claimed`);
@@ -787,15 +817,19 @@ export class AgentEscrowContract extends Contract {
       "Acceptance timeout not reached"
     );
 
-    // Refund client
-    if (job.funded_amount > 0) {
-      this.sendTokens(job.client, new Asset(job.funded_amount, this.XPR_SYMBOL), "Acceptance timeout refund");
-    }
+    // Store refund amount before state changes
+    const refundAmount = job.funded_amount;
 
+    // P3 FIX (CEI PATTERN): Update state BEFORE token transfer
     job.state = 7; // REFUNDED
     job.released_amount = job.funded_amount;
     job.updated_at = currentTimeSec();
     this.jobsTable.update(job, this.receiver);
+
+    // Now safe to send refund after state is finalized
+    if (refundAmount > 0) {
+      this.sendTokens(job.client, new Asset(refundAmount, this.XPR_SYMBOL), "Acceptance timeout refund");
+    }
 
     print(`Job ${job_id} refunded due to acceptance timeout`);
   }
@@ -841,6 +875,124 @@ export class AgentEscrowContract extends Contract {
     const arb = this.arbitratorsTable.requireGet(account.N, "Arbitrator not found");
     arb.active = false;
     this.arbitratorsTable.update(arb, this.receiver);
+  }
+
+  /**
+   * CRITICAL FIX: Request to unstake arbitrator funds.
+   * Starts a time-delayed withdrawal process.
+   * Arbitrator must be deactivated and have no pending disputes.
+   *
+   * @param account - Arbitrator account
+   * @param amount - Amount to unstake (must be <= current stake)
+   */
+  @action("unstakearb")
+  unstakeArbitrator(account: Name, amount: u64): void {
+    requireAuth(account);
+
+    const config = this.configSingleton.get();
+    const arb = this.arbitratorsTable.requireGet(account.N, "Arbitrator not found");
+
+    // Must be deactivated to unstake (prevents unstaking while actively arbitrating)
+    check(!arb.active, "Deactivate arbitrator before unstaking");
+
+    // Validate amount
+    check(amount > 0, "Amount must be positive");
+    check(amount <= arb.stake, "Cannot unstake more than current stake");
+
+    // Check for pending disputes assigned to this arbitrator
+    // Iterate through all jobs to find any disputed jobs with this arbitrator
+    let hasActiveDisputes = false;
+    let job = this.jobsTable.first();
+    while (job != null) {
+      if (job.arbitrator == account && job.state == 5) {
+        // State 5 = DISPUTED
+        hasActiveDisputes = true;
+        break;
+      }
+      job = this.jobsTable.next(job);
+    }
+    check(!hasActiveDisputes, "Cannot unstake while assigned to pending disputes");
+
+    // Check for existing unstake request
+    let unstakeRecord = this.arbUnstakesTable.get(account.N);
+    const now = currentTimeSec();
+
+    if (unstakeRecord == null) {
+      // Create new unstake request
+      unstakeRecord = new ArbUnstake(
+        account,
+        amount,
+        now,
+        now + config.arb_unstake_delay
+      );
+      this.arbUnstakesTable.store(unstakeRecord, this.receiver);
+    } else {
+      // Update existing request (adds to pending amount, resets timer)
+      // Overflow check
+      check(
+        unstakeRecord.amount <= U64.MAX_VALUE - amount,
+        "Unstake amount would overflow"
+      );
+      unstakeRecord.amount += amount;
+      unstakeRecord.requested_at = now;
+      unstakeRecord.available_at = now + config.arb_unstake_delay;
+      this.arbUnstakesTable.update(unstakeRecord, this.receiver);
+    }
+
+    // Reduce stake immediately (locked in unstake record)
+    arb.stake -= amount;
+    this.arbitratorsTable.update(arb, this.receiver);
+
+    print(`Arbitrator ${account.toString()} unstaking ${amount / 10000} XPR. Available at: ${unstakeRecord.available_at}`);
+  }
+
+  /**
+   * CRITICAL FIX: Withdraw unstaked arbitrator funds after delay period.
+   *
+   * @param account - Arbitrator account
+   */
+  @action("withdrawarb")
+  withdrawArbitratorStake(account: Name): void {
+    requireAuth(account);
+
+    const unstakeRecord = this.arbUnstakesTable.requireGet(account.N, "No pending unstake request");
+    const now = currentTimeSec();
+
+    check(now >= unstakeRecord.available_at, "Unstake delay not complete. Available at: " + unstakeRecord.available_at.toString());
+
+    const withdrawAmount = unstakeRecord.amount;
+
+    // Remove unstake record
+    this.arbUnstakesTable.remove(unstakeRecord);
+
+    // Send tokens
+    this.sendTokens(account, new Asset(withdrawAmount, this.XPR_SYMBOL), "Arbitrator stake withdrawal");
+
+    print(`Arbitrator ${account.toString()} withdrew ${withdrawAmount / 10000} XPR`);
+  }
+
+  /**
+   * Cancel a pending unstake request (returns funds to active stake).
+   *
+   * @param account - Arbitrator account
+   */
+  @action("cancelunstk")
+  cancelUnstake(account: Name): void {
+    requireAuth(account);
+
+    const unstakeRecord = this.arbUnstakesTable.requireGet(account.N, "No pending unstake request");
+    const arb = this.arbitratorsTable.requireGet(account.N, "Arbitrator not found");
+
+    const returnAmount = unstakeRecord.amount;
+
+    // Return to stake
+    arb.stake += returnAmount;
+    this.arbitratorsTable.update(arb, this.receiver);
+
+    // Remove unstake record
+    this.arbUnstakesTable.remove(unstakeRecord);
+
+    print(`Arbitrator ${account.toString()} cancelled unstake. Returned ${returnAmount / 10000} XPR to stake`);
   }
 
   // ============== TOKEN HANDLING ==============

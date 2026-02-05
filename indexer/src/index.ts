@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { initDatabase, updateStats } from './db/schema';
 import { HyperionStream, StreamAction } from './stream';
-import { handleAgentAction } from './handlers/agent';
+import { handleAgentAction, handleAgentCoreTransfer } from './handlers/agent';
 import { handleFeedbackAction } from './handlers/feedback';
 import { handleValidationAction, handleValidationTransfer } from './handlers/validation';
 import { handleEscrowAction, handleEscrowTransfer } from './handlers/escrow';
@@ -81,6 +81,10 @@ stream.on('action', (action: StreamAction) => {
       // Handle token transfers to agentvalid for validator staking and challenge funding
       if (to === config.contracts.agentvalid) {
         handleValidationTransfer(db, action);
+      }
+      // P2 FIX: Handle token transfers to agentcore for claim deposits
+      if (to === config.contracts.agentcore) {
+        handleAgentCoreTransfer(db, action);
       }
     }
   } catch (error) {

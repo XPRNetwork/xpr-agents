@@ -299,6 +299,29 @@ export class Config extends Table {
   }
 }
 
+// CRITICAL FIX: Track recalculation state to prevent incomplete pagination from corrupting scores
+// When recalculating with pagination, we accumulate in this table until complete,
+// then commit to agentscores only when finished.
+@table("recalcstate")
+export class RecalcState extends Table {
+  constructor(
+    public agent: Name = EMPTY_NAME,
+    public total_score: u64 = 0,        // Accumulated score during recalc
+    public total_weight: u64 = 0,       // Accumulated weight during recalc
+    public feedback_count: u64 = 0,     // Accumulated count during recalc
+    public next_offset: u64 = 0,        // Next offset to process (0 = not started or complete)
+    public started_at: u64 = 0,         // When recalc started (for expiry)
+    public expires_at: u64 = 0          // Recalc must complete before this time
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.agent.N;
+  }
+}
+
 // External table reference for agent verification
 // Note: Schema must match agentcore::agents table exactly
 @table("agents", "agentcore")
@@ -362,6 +385,7 @@ export class AgentFeedContract extends Contract {
   private externalScoresTable: TableStore<ExternalScore> = new TableStore<ExternalScore>(this.receiver);
   private paymentProofsTable: TableStore<PaymentProof> = new TableStore<PaymentProof>(this.receiver);
   private disputesTable: TableStore<Dispute> = new TableStore<Dispute>(this.receiver);
+  private recalcStateTable: TableStore<RecalcState> = new TableStore<RecalcState>(this.receiver);
   private configSingleton: Singleton<Config> = new Singleton<Config>(this.receiver);
 
   // External tables
@@ -668,36 +692,71 @@ export class AgentFeedContract extends Contract {
   }
 
   /**
-   * Recalculate agent scores with pagination to prevent DoS attacks.
-   * H1 FIX: Added offset and limit parameters for paginated processing.
+   * CRITICAL FIX: Recalculate agent scores with proper pagination state tracking.
+   * Prevents incomplete recalculations from corrupting agent scores.
+   *
+   * The recalculation process:
+   * 1. First call (offset=0) creates/resets RecalcState and accumulates batch
+   * 2. Subsequent calls MUST use the expected next_offset from RecalcState
+   * 3. Scores are ONLY committed to agentscores when recalculation completes
+   * 4. Recalculations expire after 1 hour to prevent stale state
    *
    * @param agent - The agent whose scores to recalculate
-   * @param offset - Number of feedbacks to skip (for pagination)
+   * @param offset - Must be 0 for first call, or match next_offset for continuation
    * @param limit - Maximum feedbacks to process (max 100 per call)
-   *
-   * Usage: Call multiple times with increasing offset to process all feedbacks.
-   * First call: recalc(agent, 0, 100)
-   * If "more iterations needed" is printed, call: recalc(agent, 100, 100)
-   * Continue until no "more iterations needed" message.
    */
   @action("recalc")
   recalculate(agent: Name, offset: u64, limit: u64): void {
     // SECURITY: Only agent or contract owner can trigger recalculation
-    // This prevents DoS attacks via expensive recalculations
     const config = this.configSingleton.get();
     check(
       hasAuth(agent) || hasAuth(config.owner),
       "Only agent or contract owner can trigger recalculation"
     );
 
-    // H1 FIX: Enforce maximum limit to prevent CPU exhaustion
+    // Enforce maximum limit to prevent CPU exhaustion
     const MAX_LIMIT: u64 = 100;
     check(limit > 0 && limit <= MAX_LIMIT, "Limit must be 1-100");
 
-    let fb = this.feedbackTable.getBySecondaryU64(agent.N, 0);
     const now = currentTimeSec();
+    const RECALC_EXPIRY: u64 = 3600; // 1 hour to complete recalculation
 
-    // Skip 'offset' feedbacks first
+    // Get or validate recalc state
+    let recalcState = this.recalcStateTable.get(agent.N);
+
+    if (offset == 0) {
+      // Starting new recalculation - create or reset state
+      if (recalcState == null) {
+        recalcState = new RecalcState(
+          agent,
+          0, 0, 0,  // totals start at 0
+          0,        // next_offset (will be set after processing)
+          now,
+          now + RECALC_EXPIRY
+        );
+        this.recalcStateTable.store(recalcState, this.receiver);
+      } else {
+        // Reset existing state for new recalculation
+        recalcState.total_score = 0;
+        recalcState.total_weight = 0;
+        recalcState.feedback_count = 0;
+        recalcState.next_offset = 0;
+        recalcState.started_at = now;
+        recalcState.expires_at = now + RECALC_EXPIRY;
+        this.recalcStateTable.update(recalcState, this.receiver);
+      }
+    } else {
+      // Continuing existing recalculation - validate state
+      check(recalcState != null, "No recalculation in progress. Start with offset=0");
+      check(now < recalcState!.expires_at, "Recalculation expired. Start over with offset=0");
+      check(offset == recalcState!.next_offset,
+        "Invalid offset. Expected: " + recalcState!.next_offset.toString() + ", got: " + offset.toString());
+    }
+
+    // Process feedbacks
+    let fb = this.feedbackTable.getBySecondaryU64(agent.N, 0);
+
+    // Skip to offset
     let skipped: u64 = 0;
     while (fb != null && skipped < offset) {
       const currentFb = fb!;
@@ -706,9 +765,9 @@ export class AgentFeedContract extends Contract {
       skipped++;
     }
 
-    let totalScore: u64 = 0;
-    let totalWeight: u64 = 0;
-    let count: u64 = 0;
+    let batchScore: u64 = 0;
+    let batchWeight: u64 = 0;
+    let batchCount: u64 = 0;
     let processed: u64 = 0;
     let hasMore: boolean = false;
 
@@ -732,13 +791,11 @@ export class AgentFeedContract extends Contract {
         }
       }
 
-      // Calculate time-based decay factor (100 = 100%, decays over time to floor)
+      // Calculate time-based decay factor
       const ageSeconds = now > currentFb.timestamp ? now - currentFb.timestamp : 0;
       const decayPeriods = ageSeconds / config.decay_period;
-      // Decay by 5% per period, with floor
       let decayFactor: u64 = 100;
       if (decayPeriods > 0) {
-        // Each period reduces by 5%, minimum is decay_floor
         const reduction = decayPeriods * 5;
         if (reduction >= (100 - config.decay_floor)) {
           decayFactor = config.decay_floor;
@@ -749,74 +806,91 @@ export class AgentFeedContract extends Contract {
 
       const baseWeight: u64 = <u64>(1 + currentFb.reviewer_kyc_level);
       const decayedWeight: u64 = (baseWeight * decayFactor) / 100;
-      totalScore += <u64>currentFb.score * decayedWeight;
-      totalWeight += decayedWeight * 5; // Normalize to 5-star scale
-      count++;
+      batchScore += <u64>currentFb.score * decayedWeight;
+      batchWeight += decayedWeight * 5;
+      batchCount++;
       processed++;
 
       fb = this.feedbackTable.nextBySecondaryU64(currentFb, 0);
       if (fb != null && fb!.agent != agent) { fb = null; }
     }
 
-    // Check if there are more feedbacks to process
+    // Check if there are more feedbacks
     if (fb != null) {
       hasMore = true;
     }
 
-    // Get or create agent score record
-    let agentScore = this.agentScoresTable.get(agent.N);
+    // Accumulate batch into recalc state with overflow protection
+    check(
+      recalcState!.total_score <= U64.MAX_VALUE - batchScore,
+      "Score accumulation would overflow"
+    );
+    check(
+      recalcState!.total_weight <= U64.MAX_VALUE - batchWeight,
+      "Weight accumulation would overflow"
+    );
 
-    if (agentScore == null) {
-      agentScore = new AgentScore(agent, 0, 0, 0, 0, 0);
-    }
+    recalcState!.total_score += batchScore;
+    recalcState!.total_weight += batchWeight;
+    recalcState!.feedback_count += batchCount;
+    recalcState!.next_offset = offset + processed;
 
-    // H1 FIX: For paginated recalculation, accumulate scores across calls
-    // If offset is 0, this is the first batch - reset totals
-    // If offset > 0, this is a continuation - add to existing totals
-    if (offset == 0) {
-      // First batch: reset and set new values
-      agentScore.total_score = totalScore;
-      agentScore.total_weight = totalWeight;
-      agentScore.feedback_count = count;
-    } else {
-      // Continuation: accumulate values
-      // Overflow protection
-      check(
-        agentScore.total_score <= U64.MAX_VALUE - totalScore,
-        "Score accumulation would overflow during recalculation"
-      );
-      check(
-        agentScore.total_weight <= U64.MAX_VALUE - totalWeight,
-        "Weight accumulation would overflow during recalculation"
-      );
-      agentScore.total_score += totalScore;
-      agentScore.total_weight += totalWeight;
-      agentScore.feedback_count += count;
-    }
-
-    // SECURITY: Overflow check before multiplication
-    // U64.MAX_VALUE / 10000 = 1844674407370955 (approx 1.8 quadrillion)
-    if (agentScore.total_weight > 0) {
-      check(agentScore.total_score <= U64.MAX_VALUE / 10000, "Score calculation would overflow");
-      agentScore.avg_score = (agentScore.total_score * 10000) / agentScore.total_weight;
-    } else {
-      agentScore.avg_score = 0;
-    }
-    agentScore.last_updated = currentTimeSec();
-
-    if (this.agentScoresTable.get(agent.N) == null) {
-      this.agentScoresTable.store(agentScore, this.receiver);
-    } else {
-      this.agentScoresTable.update(agentScore, this.receiver);
-    }
-
-    // H1 FIX: Inform caller if more iterations are needed
     if (hasMore) {
-      const nextOffset = offset + processed;
-      print(`Processed ${processed} feedbacks. More iterations needed. Next offset: ${nextOffset}`);
+      // More batches needed - save state and inform caller
+      this.recalcStateTable.update(recalcState!, this.receiver);
+      print(`Batch processed. Next call: recalc(${agent.toString()}, ${recalcState!.next_offset}, ${limit})`);
     } else {
-      print(`Recalculation complete for ${agent.toString()}. Processed ${processed} feedbacks in this batch, total count: ${agentScore.feedback_count}`);
+      // RECALCULATION COMPLETE - commit to agentscores
+      let agentScore = this.agentScoresTable.get(agent.N);
+
+      if (agentScore == null) {
+        agentScore = new AgentScore(agent, 0, 0, 0, 0, 0);
+      }
+
+      agentScore.total_score = recalcState!.total_score;
+      agentScore.total_weight = recalcState!.total_weight;
+      agentScore.feedback_count = recalcState!.feedback_count;
+
+      // Calculate average
+      if (agentScore.total_weight > 0) {
+        check(agentScore.total_score <= U64.MAX_VALUE / 10000, "Score calculation would overflow");
+        agentScore.avg_score = (agentScore.total_score * 10000) / agentScore.total_weight;
+      } else {
+        agentScore.avg_score = 0;
+      }
+      agentScore.last_updated = now;
+
+      // Store or update agent score
+      if (this.agentScoresTable.get(agent.N) == null) {
+        this.agentScoresTable.store(agentScore, this.receiver);
+      } else {
+        this.agentScoresTable.update(agentScore, this.receiver);
+      }
+
+      // Clean up recalc state
+      this.recalcStateTable.remove(recalcState!);
+
+      print(`Recalculation COMPLETE for ${agent.toString()}. Total feedbacks: ${agentScore.feedback_count}, avg_score: ${agentScore.avg_score}`);
     }
+  }
+
+  /**
+   * Cancel an in-progress recalculation.
+   * Useful if recalc was started but cannot be completed.
+   */
+  @action("cancelrecalc")
+  cancelRecalculation(agent: Name): void {
+    const config = this.configSingleton.get();
+    check(
+      hasAuth(agent) || hasAuth(config.owner),
+      "Only agent or contract owner can cancel recalculation"
+    );
+
+    const recalcState = this.recalcStateTable.get(agent.N);
+    check(recalcState != null, "No recalculation in progress for this agent");
+
+    this.recalcStateTable.remove(recalcState!);
+    print(`Recalculation cancelled for ${agent.toString()}`);
   }
 
   // ============== CONTEXT-SPECIFIC FEEDBACK ==============

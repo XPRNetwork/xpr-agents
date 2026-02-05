@@ -658,11 +658,13 @@ export class AgentCoreContract extends Contract {
         "Deposit was paid by different account. Payer must match claimant.");
     }
 
-    // Complete the claim - clear pending state and tracking fields
+    // Complete the claim - clear pending state but KEEP deposit_payer for refund tracking
+    // CRITICAL FIX: deposit_payer must be tracked through ownership transfers
+    // so that when the agent is eventually released, the refund goes to whoever
+    // originally paid the deposit, not the current owner at release time.
     agentRecord.owner = new_owner;
     agentRecord.pending_owner = EMPTY_NAME;
-    agentRecord.deposit_payer = EMPTY_NAME;  // Clear after successful claim
-    // Note: claim_deposit stays for potential refund on release
+    // Note: deposit_payer and claim_deposit stay for correct refund on release
     this.agentsTable.update(agentRecord, this.receiver);
 
     print(`Agent ${agent.toString()} claimed by ${new_owner.toString()} (KYC level ${kycLevel})`);
@@ -750,7 +752,8 @@ export class AgentCoreContract extends Contract {
   /**
    * Release ownership of an agent.
    * Only the current owner can release.
-   * Claim deposit is refunded to the owner.
+   * CRITICAL FIX: Claim deposit is refunded to the ORIGINAL deposit payer,
+   * not the current owner. This handles the case where ownership was transferred.
    *
    * @param agent - The agent account to release
    */
@@ -770,6 +773,8 @@ export class AgentCoreContract extends Contract {
 
     const oldOwner = agentRecord.owner;
     const refundAmount = agentRecord.claim_deposit;
+    // CRITICAL FIX: Refund to original deposit payer, not current owner
+    const refundTo = agentRecord.deposit_payer != EMPTY_NAME ? agentRecord.deposit_payer : oldOwner;
 
     // Clear ownership and deposit tracking
     agentRecord.owner = EMPTY_NAME;
@@ -777,12 +782,17 @@ export class AgentCoreContract extends Contract {
     agentRecord.deposit_payer = EMPTY_NAME;
     this.agentsTable.update(agentRecord, this.receiver);
 
-    // Refund claim deposit if any
+    // Refund claim deposit to original payer
     if (refundAmount > 0) {
-      this.sendTokens(oldOwner, new Asset(refundAmount, this.XPR_SYMBOL), "Claim deposit refund for " + agent.toString());
+      this.sendTokens(refundTo, new Asset(refundAmount, this.XPR_SYMBOL), "Claim deposit refund for " + agent.toString());
+      if (refundTo != oldOwner) {
+        print(`Agent ${agent.toString()} released by ${oldOwner.toString()}. Deposit refunded to original payer: ${refundTo.toString()}`);
+      } else {
+        print(`Agent ${agent.toString()} released by ${oldOwner.toString()}. Refunded: ${refundAmount / 10000} XPR`);
+      }
+    } else {
+      print(`Agent ${agent.toString()} released by ${oldOwner.toString()}`);
     }
-
-    print(`Agent ${agent.toString()} released by ${oldOwner.toString()}. Refunded: ${refundAmount / 10000} XPR`);
   }
 
   /**
@@ -805,8 +815,8 @@ export class AgentCoreContract extends Contract {
    * This solves the KYC revocation problem - owners who lose KYC
    * are automatically removed from agent sponsorship.
    *
-   * The claim deposit is refunded to the owner (they didn't do anything wrong,
-   * their KYC just expired or was revoked).
+   * P2 FIX: The claim deposit is refunded to the ORIGINAL deposit payer,
+   * not the current owner. This handles ownership transfer scenarios correctly.
    *
    * @param agent - The agent account to verify
    */
@@ -833,6 +843,8 @@ export class AgentCoreContract extends Contract {
 
     // KYC is no longer valid - remove ownership
     const refundAmount = agentRecord.claim_deposit;
+    // P2 FIX: Refund to original deposit payer, not current owner (matches release() behavior)
+    const refundTo = agentRecord.deposit_payer != EMPTY_NAME ? agentRecord.deposit_payer : owner;
 
     // Clear ownership
     agentRecord.owner = EMPTY_NAME;
@@ -840,12 +852,17 @@ export class AgentCoreContract extends Contract {
     agentRecord.deposit_payer = EMPTY_NAME;
     this.agentsTable.update(agentRecord, this.receiver);
 
-    // Refund deposit to former owner (not penalized - KYC expiry isn't their fault)
+    // Refund deposit to original payer (not penalized - KYC expiry isn't their fault)
     if (refundAmount > 0) {
-      this.sendTokens(owner, new Asset(refundAmount, this.XPR_SYMBOL), "Claim deposit refund - KYC expired for " + agent.toString());
+      this.sendTokens(refundTo, new Asset(refundAmount, this.XPR_SYMBOL), "Claim deposit refund - KYC expired for " + agent.toString());
+      if (refundTo != owner) {
+        print(`Owner ${owner.toString()} KYC invalid. Agent ${agent.toString()} ownership removed. Deposit refunded to original payer: ${refundTo.toString()}`);
+      } else {
+        print(`Owner ${owner.toString()} KYC invalid. Agent ${agent.toString()} ownership removed. Deposit refunded.`);
+      }
+    } else {
+      print(`Owner ${owner.toString()} KYC invalid. Agent ${agent.toString()} ownership removed.`);
     }
-
-    print(`Owner ${owner.toString()} KYC invalid. Agent ${agent.toString()} ownership removed. Deposit refunded.`);
   }
 
   /**

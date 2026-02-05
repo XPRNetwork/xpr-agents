@@ -11,6 +11,14 @@ export interface StreamAction {
     authorization: Array<{ actor: string; permission: string }>;
     data: Record<string, any>;
   };
+  // P2 FIX: Optional inline traces for detecting side effects like token transfers
+  inline_traces?: Array<{
+    act: {
+      account: string;
+      name: string;
+      data: Record<string, any>;
+    };
+  }>;
 }
 
 export interface StreamConfig {
@@ -93,6 +101,8 @@ export class HyperionStream extends EventEmitter {
         timestamp: message.content['@timestamp'],
         trx_id: message.content.trx_id,
         act: message.content.act,
+        // P2 FIX: Capture inline traces if available (for detecting side effects)
+        inline_traces: message.content.inline_traces || message.content.traces,
       };
 
       this.emit('action', action);
