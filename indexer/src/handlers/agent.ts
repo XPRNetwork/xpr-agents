@@ -239,22 +239,20 @@ function handleVerifyClaim(db: Database.Database, data: any, action?: StreamActi
       return;
     }
 
-    // P2 FIX: Case 3 - No refund but ownership may still be removed if claim_deposit was 0
-    // Check current DB state for claim_deposit
-    const getStmt = db.prepare('SELECT claim_deposit FROM agents WHERE account = ?');
-    const agent = getStmt.get(data.agent) as { claim_deposit: number } | undefined;
+    // Case 3: No refund detected
+    // If claim_deposit > 0 and no refund, KYC was valid - ownership remains (correct)
+    // If claim_deposit == 0, we CANNOT distinguish:
+    //   - KYC valid → no refund, ownership remains
+    //   - KYC invalid → no refund (nothing to refund), ownership cleared
+    //
+    // Conservative approach: do NOT make destructive changes without proof.
+    // Leave ownership unchanged and log for chain sync verification.
+    const getStmt = db.prepare('SELECT claim_deposit, owner FROM agents WHERE account = ?');
+    const agent = getStmt.get(data.agent) as { claim_deposit: number; owner: string | null } | undefined;
 
-    if (agent && agent.claim_deposit === 0) {
-      // Deposit was 0, so no refund would occur even if ownership was removed
-      // We must clear ownership since we can't distinguish valid KYC from invalid
-      // when there's nothing to refund. Mark as needing chain sync to confirm.
-      const stmt = db.prepare(`
-        UPDATE agents
-        SET owner = NULL, updated_at = strftime('%s', 'now')
-        WHERE account = ?
-      `);
-      stmt.run(data.agent);
-      console.log(`Agent ${data.agent} ownership cleared by verifyclaim (no deposit, assuming KYC invalid - verify on-chain)`);
+    if (agent && agent.claim_deposit === 0 && agent.owner) {
+      // Cannot determine outcome - leave unchanged, mark for sync
+      console.log(`Agent ${data.agent} verifyclaim: claim_deposit=0, cannot determine KYC outcome. Requires chain sync to verify ownership state.`);
       return;
     }
 

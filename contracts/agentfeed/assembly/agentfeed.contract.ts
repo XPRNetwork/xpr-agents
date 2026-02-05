@@ -407,6 +407,23 @@ export class AgentFeedContract extends Contract {
     return agentRef!;
   }
 
+  /**
+   * C1 FIX: Ensure no active recalculation is in progress for the agent.
+   * This prevents a race condition where feedback submitted during recalculation
+   * would be lost when the recalculation completes and overwrites the scores.
+   */
+  private requireNoActiveRecalc(agent: Name): void {
+    const recalcState = this.recalcStateTable.get(agent.N);
+    if (recalcState != null) {
+      const now = currentTimeSec();
+      // Only block if recalculation is still active (not expired)
+      check(
+        now >= recalcState.expires_at,
+        "Cannot submit feedback while recalculation is in progress. Wait for completion or expiry."
+      );
+    }
+  }
+
   // ============== INITIALIZATION ==============
 
   @action("init")
@@ -443,6 +460,8 @@ export class AgentFeedContract extends Contract {
     // H8 FIX: Validate decay parameters with minimum thresholds
     // Decay period must be at least 1 hour (3600 seconds) to prevent functional collapse
     check(decay_period >= 3600, "Decay period must be at least 3600 seconds (1 hour)");
+    // C2 FIX: Enforce minimum decay_floor to ensure old feedback always has some weight
+    check(decay_floor >= 10, "Decay floor must be at least 10% to preserve feedback value");
     check(decay_floor <= 100, "Decay floor cannot exceed 100%");
     // Validate score range
     check(min_score <= max_score, "min_score must be <= max_score");
@@ -483,6 +502,10 @@ export class AgentFeedContract extends Contract {
 
     // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
     this.requireAgentRef(agent);
+
+    // C1 FIX: Block feedback during active recalculation to prevent race condition
+    // where new feedback is added but then overwritten when recalc completes
+    this.requireNoActiveRecalc(agent);
 
     // Get reviewer's KYC level
     const kycLevel = this.getKycLevel(reviewer);
@@ -932,6 +955,10 @@ export class AgentFeedContract extends Contract {
     // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
     this.requireAgentRef(agent);
 
+    // C1 FIX: Block feedback during active recalculation to prevent race condition
+    // where new feedback is added but then overwritten when recalc completes
+    this.requireNoActiveRecalc(agent);
+
     // Get reviewer's KYC level
     const kycLevel = this.getKycLevel(reviewer);
 
@@ -1135,6 +1162,10 @@ export class AgentFeedContract extends Contract {
 
     // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
     this.requireAgentRef(agent);
+
+    // C1 FIX: Block feedback during active recalculation to prevent race condition
+    // where new feedback is added but then overwritten when recalc completes
+    this.requireNoActiveRecalc(agent);
 
     // Get reviewer's KYC level
     const kycLevel = this.getKycLevel(reviewer);

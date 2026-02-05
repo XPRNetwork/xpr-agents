@@ -985,6 +985,9 @@ export class AgentEscrowContract extends Contract {
 
     const returnAmount = unstakeRecord.amount;
 
+    // C1 FIX: Check for overflow before adding to stake
+    check(arb.stake <= U64.MAX_VALUE - returnAmount, "Stake would overflow on cancel");
+
     // Return to stake
     arb.stake += returnAmount;
     this.arbitratorsTable.update(arb, this.receiver);

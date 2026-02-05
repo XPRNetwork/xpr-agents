@@ -635,7 +635,7 @@ export class EscrowRegistry {
     return this.session!.link.transact({
       actions: [{
         account: this.contract,
-        name: 'accepttimeout',
+        name: 'accpttimeout',
         authorization: [{
           actor: this.session!.auth.actor,
           permission: this.session!.auth.permission,

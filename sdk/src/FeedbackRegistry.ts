@@ -246,9 +246,18 @@ export class FeedbackRegistry {
   }
 
   /**
-   * Recalculate agent score (anyone can call)
+   * Recalculate agent score (paginated).
+   *
+   * Recalculation is done in batches to avoid CPU exhaustion.
+   * - First call: offset=0, processes first `limit` feedbacks
+   * - Subsequent calls: use the next_offset from RecalcState
+   * - Recalculation expires after 1 hour if not completed
+   *
+   * @param agent - Agent account to recalculate
+   * @param offset - Must be 0 to start, or match next_offset to continue
+   * @param limit - Feedbacks to process per call (max 100)
    */
-  async recalculate(agent: string): Promise<TransactionResult> {
+  async recalculate(agent: string, offset: number = 0, limit: number = 100): Promise<TransactionResult> {
     this.requireSession();
 
     return this.session!.link.transact({
@@ -264,6 +273,8 @@ export class FeedbackRegistry {
           ],
           data: {
             agent,
+            offset,
+            limit,
           },
         },
       ],
