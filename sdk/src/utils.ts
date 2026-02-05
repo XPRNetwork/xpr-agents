@@ -11,11 +11,16 @@ import {
 /**
  * Calculate trust score for an agent
  * Combines KYC level, stake, reputation, and longevity
+ * @param agent - Agent data
+ * @param agentScore - Aggregated score from feedback
+ * @param kycLevel - KYC verification level (0-4)
+ * @param stakeAmount - Staked XPR in smallest units (optional, fetched from system staking)
  */
 export function calculateTrustScore(
   agent: Agent,
   agentScore: AgentScore | null,
-  kycLevel: number
+  kycLevel: number,
+  stakeAmount: number = 0
 ): TrustScore {
   const breakdown: TrustScoreBreakdown = {
     kyc: 0,
@@ -30,7 +35,7 @@ export function calculateTrustScore(
 
   // Stake score (0-20 points, caps at 10000 XPR)
   // Every 500 XPR = 1 point, max 20 points
-  const stakeXpr = agent.stake / 10000; // Convert from smallest unit
+  const stakeXpr = stakeAmount / 10000; // Convert from smallest unit
   breakdown.stake = Math.min(Math.floor(stakeXpr / 500), 20);
 
   // Reputation score (0-40 points)

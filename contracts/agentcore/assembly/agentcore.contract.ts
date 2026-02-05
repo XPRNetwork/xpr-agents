@@ -4,6 +4,7 @@ import {
   TableStore,
   Contract,
   Symbol,
+  Asset,
   check,
   requireAuth,
   currentTimeSec,
@@ -16,6 +17,20 @@ import {
   ActionData,
   PermissionLevel
 } from "proton-tsc";
+
+// ============== INLINE ACTION DATA ==============
+
+@packer
+class Transfer extends ActionData {
+  constructor(
+    public from: Name = EMPTY_NAME,
+    public to: Name = EMPTY_NAME,
+    public quantity: Asset = new Asset(),
+    public memo: string = ""
+  ) {
+    super();
+  }
+}
 
 // ============== CONSTANTS ==============
 
@@ -79,6 +94,7 @@ export class UserInfo extends Table {
 export class Agent extends Table {
   constructor(
     public account: Name = EMPTY_NAME,
+    public owner: Name = EMPTY_NAME,        // KYC'd human who sponsors this agent
     public name: string = "",
     public description: string = "",
     public endpoint: string = "",
@@ -86,7 +102,9 @@ export class Agent extends Table {
     public capabilities: string = "",
     public total_jobs: u64 = 0,
     public registered_at: u64 = 0,
-    public active: boolean = true
+    public active: boolean = true,
+    public claim_deposit: u64 = 0,          // Refundable deposit paid when claiming
+    public deposit_payer: Name = EMPTY_NAME // Who paid the deposit (must match claimant)
   ) {
     super();
   }
@@ -94,6 +112,15 @@ export class Agent extends Table {
   @primary
   get primary(): u64 {
     return this.account.N;
+  }
+
+  @secondary
+  get byOwner(): u64 {
+    return this.owner.N;
+  }
+
+  set byOwner(value: u64) {
+    this.owner = Name.fromU64(value);
   }
 }
 
@@ -179,6 +206,7 @@ export class Config extends Table {
     public owner: Name = EMPTY_NAME,
     public min_stake: u64 = 0, // Optional minimum stake requirement (reads from system)
     public registration_fee: u64 = 0,
+    public claim_fee: u64 = 100000,           // Fee to claim an agent (1.0000 XPR default), refundable on release
     public feed_contract: Name = EMPTY_NAME, // Authorized agentfeed contract
     public valid_contract: Name = EMPTY_NAME, // Authorized agentvalid contract
     public escrow_contract: Name = EMPTY_NAME, // Authorized agentescrow contract
@@ -290,6 +318,7 @@ export class AgentCoreContract extends Contract {
   init(
     owner: Name,
     min_stake: u64,
+    claim_fee: u64,
     feed_contract: Name,
     valid_contract: Name,
     escrow_contract: Name
@@ -312,6 +341,7 @@ export class AgentCoreContract extends Contract {
       owner,
       min_stake,
       0, // registration_fee
+      claim_fee,
       feed_contract,
       valid_contract,
       escrow_contract,
@@ -324,6 +354,7 @@ export class AgentCoreContract extends Contract {
   setConfig(
     min_stake: u64,
     registration_fee: u64,
+    claim_fee: u64,
     feed_contract: Name,
     valid_contract: Name,
     escrow_contract: Name,
@@ -345,6 +376,7 @@ export class AgentCoreContract extends Contract {
 
     config.min_stake = min_stake;
     config.registration_fee = registration_fee;
+    config.claim_fee = claim_fee;
     config.feed_contract = feed_contract;
     config.valid_contract = valid_contract;
     config.escrow_contract = escrow_contract;
@@ -409,6 +441,7 @@ export class AgentCoreContract extends Contract {
 
     const agent = new Agent(
       account,
+      EMPTY_NAME,   // owner - no sponsor initially
       name,
       description,
       endpoint,
@@ -416,7 +449,9 @@ export class AgentCoreContract extends Contract {
       capabilities,
       0, // total_jobs
       currentTimeSec(),
-      true
+      true,
+      0,            // claim_deposit
+      EMPTY_NAME    // deposit_payer
     );
 
     this.agentsTable.store(agent, this.receiver);
@@ -517,6 +552,151 @@ export class AgentCoreContract extends Contract {
     this.agentsTable.update(agent, this.receiver);
   }
 
+  // ============== AGENT OWNERSHIP ==============
+
+  /**
+   * Claim an agent - a KYC'd human sponsors an agent to boost its trust score.
+   * The agent inherits the owner's KYC level for trust calculation.
+   * Requires payment of claim_fee (refundable on release).
+   *
+   * IMPORTANT: Both the agent AND the new_owner must sign this transaction.
+   * This ensures the agent consents to being claimed.
+   *
+   * @param agent - The agent account to claim
+   * @param new_owner - The KYC'd human claiming the agent
+   */
+  @action("claim")
+  claim(agent: Name, new_owner: Name): void {
+    // SECURITY: Both parties must sign - agent consents to being claimed
+    requireAuth(agent);
+    requireAuth(new_owner);
+
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
+    // Verify new_owner is a valid account
+    check(isAccount(new_owner), "New owner must be a valid account");
+
+    // Get agent record
+    const agentRecord = this.agentsTable.requireGet(agent.N, "Agent not found");
+
+    // Agent must not already have an owner
+    check(agentRecord.owner == EMPTY_NAME, "Agent already has an owner. Use transfer action.");
+
+    // Verify new_owner has KYC (must have at least level 1 to sponsor)
+    const kycLevel = this.getKycLevel(new_owner);
+    check(kycLevel >= 1, "Owner must have KYC level 1 or higher to claim an agent");
+
+    // Check that claim fee was paid by the new_owner (handled by transfer notification)
+    // The deposit_payer must match new_owner to prevent third-party deposits
+    if (config.claim_fee > 0) {
+      check(agentRecord.claim_deposit >= config.claim_fee,
+        "Claim fee not paid. Send " + (config.claim_fee / 10000).toString() + " XPR to this contract with memo 'claim:" + agent.toString() + ":" + new_owner.toString() + "'");
+      check(agentRecord.deposit_payer == new_owner,
+        "Deposit was paid by different account. Payer must match claimant.");
+    }
+
+    // Set owner
+    agentRecord.owner = new_owner;
+    this.agentsTable.update(agentRecord, this.receiver);
+
+    print(`Agent ${agent.toString()} claimed by ${new_owner.toString()} (KYC level ${kycLevel})`);
+  }
+
+  /**
+   * Transfer ownership of an agent to a new owner.
+   * Both current owner and new owner must sign.
+   * Claim deposit stays with the agent (not transferred to new owner).
+   *
+   * @param agent - The agent account
+   * @param new_owner - The new owner (must have KYC)
+   */
+  @action("transfer")
+  transferOwnership(agent: Name, new_owner: Name): void {
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
+    // Get agent record
+    const agentRecord = this.agentsTable.requireGet(agent.N, "Agent not found");
+
+    // Must have current owner
+    check(agentRecord.owner != EMPTY_NAME, "Agent has no owner");
+
+    // Both parties must sign
+    requireAuth(agentRecord.owner);
+    requireAuth(new_owner);
+
+    // Verify new_owner has KYC
+    const kycLevel = this.getKycLevel(new_owner);
+    check(kycLevel >= 1, "New owner must have KYC level 1 or higher");
+
+    const oldOwner = agentRecord.owner;
+    agentRecord.owner = new_owner;
+    this.agentsTable.update(agentRecord, this.receiver);
+
+    print(`Agent ${agent.toString()} transferred from ${oldOwner.toString()} to ${new_owner.toString()}`);
+  }
+
+  /**
+   * Release ownership of an agent.
+   * Only the current owner can release.
+   * Claim deposit is refunded to the owner.
+   *
+   * @param agent - The agent account to release
+   */
+  @action("release")
+  release(agent: Name): void {
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
+    // Get agent record
+    const agentRecord = this.agentsTable.requireGet(agent.N, "Agent not found");
+
+    // Must have owner
+    check(agentRecord.owner != EMPTY_NAME, "Agent has no owner");
+
+    // Only owner can release
+    requireAuth(agentRecord.owner);
+
+    const oldOwner = agentRecord.owner;
+    const refundAmount = agentRecord.claim_deposit;
+
+    // Clear ownership and deposit tracking
+    agentRecord.owner = EMPTY_NAME;
+    agentRecord.claim_deposit = 0;
+    agentRecord.deposit_payer = EMPTY_NAME;
+    this.agentsTable.update(agentRecord, this.receiver);
+
+    // Refund claim deposit if any
+    if (refundAmount > 0) {
+      this.sendTokens(oldOwner, new Asset(refundAmount, this.XPR_SYMBOL), "Claim deposit refund for " + agent.toString());
+    }
+
+    print(`Agent ${agent.toString()} released by ${oldOwner.toString()}. Refunded: ${refundAmount / 10000} XPR`);
+  }
+
+  /**
+   * Get owner's KYC level for an agent (used in trust score calculation)
+   * If agent has no owner, returns 0.
+   */
+  getOwnerKycLevel(agent: Name): u8 {
+    const agentRecord = this.agentsTable.get(agent.N);
+    if (agentRecord == null || agentRecord.owner == EMPTY_NAME) {
+      return 0;
+    }
+    return this.getKycLevel(agentRecord.owner);
+  }
+
+  /**
+   * Send XPR tokens via inline action
+   */
+  private sendTokens(to: Name, quantity: Asset, memo: string): void {
+    const TRANSFER = new InlineAction<Transfer>("transfer");
+    const action = TRANSFER.act(this.TOKEN_CONTRACT, new PermissionLevel(this.receiver));
+    const actionParams = new Transfer(this.receiver, to, quantity, memo);
+    action.send(actionParams);
+  }
+
   // ============== TRUST DATA QUERIES ==============
 
   /**
@@ -529,13 +709,20 @@ export class AgentCoreContract extends Contract {
     check(agent != null, "Agent not found");
 
     const systemStake = this.getSystemStake(account);
-    const kycLevel = this.getKycLevel(account);
-    const verified = this.isVerified(account);
+
+    // Get owner's KYC level (for trust score) instead of agent's
+    let ownerKycLevel: u8 = 0;
+    let ownerName = "none";
+    if (agent!.owner != EMPTY_NAME) {
+      ownerKycLevel = this.getKycLevel(agent!.owner);
+      ownerName = agent!.owner.toString();
+    }
 
     print(`Agent: ${account.toString()}`);
+    print(`Owner: ${ownerName}`);
+    print(`Owner KYC Level: ${ownerKycLevel}`);
+    print(`Claim Deposit: ${agent!.claim_deposit / 10000} XPR`);
     print(`System Stake: ${systemStake} XPR`);
-    print(`KYC Level: ${kycLevel}`);
-    print(`Verified: ${verified ? "Yes" : "No"}`);
     print(`Total Jobs: ${agent!.total_jobs}`);
     print(`Registered: ${agent!.registered_at}`);
     print(`Active: ${agent!.active ? "Yes" : "No"}`);
@@ -774,6 +961,67 @@ export class AgentCoreContract extends Contract {
     }
 
     print(`Cleaned up ${deleted} old plugin results for ${agent.toString()}`);
+  }
+
+  // ============== TOKEN TRANSFER HANDLER ==============
+
+  /**
+   * Handle incoming token transfers for claim deposits.
+   * Memo format: "claim:agentname"
+   * Only accepts XPR from eosio.token.
+   */
+  @action("transfer", notify)
+  onTransfer(from: Name, to: Name, quantity: Asset, memo: string): void {
+    // Only process transfers TO this contract
+    if (to != this.receiver) {
+      return;
+    }
+
+    // Ignore transfers from self (refunds)
+    if (from == this.receiver) {
+      return;
+    }
+
+    // Only accept XPR
+    check(quantity.symbol == this.XPR_SYMBOL, "Only XPR accepted");
+
+    // Parse memo - must be "claim:agentname:ownername"
+    if (!memo.startsWith("claim:")) {
+      // Not a claim deposit, reject
+      check(false, "Invalid memo. For claim deposits use: claim:agentname:ownername");
+      return;
+    }
+
+    const parts = memo.slice(6).split(":"); // Remove "claim:" prefix and split
+    check(parts.length == 2, "Invalid memo format. Use: claim:agentname:ownername");
+
+    const agentName = parts[0];
+    const ownerName = parts[1];
+    check(agentName.length > 0 && agentName.length <= 12, "Invalid agent name in memo");
+    check(ownerName.length > 0 && ownerName.length <= 12, "Invalid owner name in memo");
+
+    const agent = Name.fromString(agentName);
+    const intendedOwner = Name.fromString(ownerName);
+    const agentRecord = this.agentsTable.get(agent.N);
+    check(agentRecord != null, "Agent not found: " + agentName);
+
+    // Agent must not already have an owner
+    check(agentRecord!.owner == EMPTY_NAME, "Agent already has an owner");
+
+    // SECURITY: Payer must match intended owner specified in memo
+    check(from == intendedOwner, "Payer must match intended owner in memo. You cannot pay deposit for someone else.");
+
+    // If there's already a deposit, it must be from the same payer
+    if (agentRecord!.deposit_payer != EMPTY_NAME) {
+      check(agentRecord!.deposit_payer == from, "Deposit already started by different account");
+    }
+
+    // Record the deposit and payer
+    agentRecord!.claim_deposit += quantity.amount;
+    agentRecord!.deposit_payer = from;
+    this.agentsTable.update(agentRecord!, this.receiver);
+
+    print(`Claim deposit received: ${quantity.toString()} for agent ${agentName} from ${from.toString()}`);
   }
 
 }

@@ -58,7 +58,35 @@ await agents.register({
 });
 ```
 
-### Stake XPR (Boost Trust Score)
+### Claim Your Agent (KYC Trust Boost)
+
+A KYC-verified human can **claim** your agent to boost its trust score by up to 30 points. This solves the cold-start problem - new agents with a KYC'd owner start with baseline trust.
+
+**How it works:**
+1. Human (KYC Level 1-3) claims the agent
+2. Agent inherits the human's KYC level for trust calculation
+3. Small refundable deposit prevents spam
+4. Owner can release the agent anytime (deposit refunded)
+
+**Via SDK:**
+```typescript
+// Human claims an agent (includes deposit)
+// NOTE: Both agent AND human must sign - agent must consent
+const config = await agents.getConfig();
+const claimFee = (config.claim_fee / 10000).toFixed(4) + ' XPR';
+
+await agents.claimWithFee('myagent', claimFee);
+
+// Later: release the agent (deposit refunded)
+await agents.release('myagent');
+```
+
+**Security:**
+- Agent must consent (both parties sign)
+- Deposit payer must match claimant
+- No third-party deposits allowed
+
+### Stake XPR (Additional Trust Boost)
 
 Staking XPR adds up to 20 points to your trust score.
 
@@ -120,12 +148,12 @@ XPR Trustless Agents enables **AI agents to discover, trust, and transact with e
 
 | Component | Points | Source |
 |-----------|--------|--------|
-| KYC Level | 0-30 | Native XPR Network verification |
+| KYC Level | 0-30 | From agent's **owner** (human sponsor) |
 | Stake | 0-20 | XPR staked to network |
 | Reputation | 0-40 | Feedback from other agents |
 | Longevity | 0-10 | Time active on network |
 
-**New agents with KYC start at 30 points** — solving the cold-start problem.
+**New agents with a KYC'd owner start at 30 points** — solving the cold-start problem.
 
 ### Why XPR Network?
 

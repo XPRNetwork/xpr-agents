@@ -14,8 +14,10 @@ import {
   ProtonSession,
   PluginCategory,
   PaginatedResult,
+  TrustScore,
+  AgentScore,
 } from './types';
-import { parseCapabilities, safeJsonParse, formatXpr } from './utils';
+import { parseCapabilities, safeJsonParse, formatXpr, calculateTrustScore } from './utils';
 
 const DEFAULT_CONTRACT = 'agentcore';
 
@@ -169,6 +171,90 @@ export class AgentRegistry {
   // Use agentcore::getagentinfo action to query an agent's system stake
 
   /**
+   * Get trust score for an agent (0-100)
+   * Combines KYC level, stake, reputation, and longevity
+   */
+  async getTrustScore(account: string): Promise<TrustScore | null> {
+    // Get agent
+    const agent = await this.getAgent(account);
+    if (!agent) return null;
+
+    // Get agent score from agentfeed
+    const feedContract = 'agentfeed'; // Default feed contract
+    const scoreResult = await this.rpc.get_table_rows<{
+      agent: string;
+      total_score: string;
+      total_weight: string;
+      feedback_count: string;
+      avg_score: string;
+      last_updated: string;
+    }>({
+      json: true,
+      code: feedContract,
+      scope: feedContract,
+      table: 'agentscores',
+      lower_bound: account,
+      upper_bound: account,
+      limit: 1,
+    });
+
+    const agentScore: AgentScore | null = scoreResult.rows.length > 0
+      ? {
+          agent: scoreResult.rows[0].agent,
+          total_score: parseInt(scoreResult.rows[0].total_score),
+          total_weight: parseInt(scoreResult.rows[0].total_weight),
+          feedback_count: parseInt(scoreResult.rows[0].feedback_count),
+          avg_score: parseInt(scoreResult.rows[0].avg_score || '0'),
+          last_updated: parseInt(scoreResult.rows[0].last_updated),
+        }
+      : null;
+
+    // Get KYC level from the OWNER (not the agent)
+    // This is the key insight: agents inherit trust from their human sponsor
+    let kycLevel = 0;
+    if (agent.owner) {
+      const kycResult = await this.rpc.get_table_rows<{
+        acc: string;
+        kyc: Array<{ kyc_level: number }>;
+      }>({
+        json: true,
+        code: 'eosio.proton',
+        scope: 'eosio.proton',
+        table: 'usersinfo',
+        lower_bound: agent.owner,
+        upper_bound: agent.owner,
+        limit: 1,
+      });
+
+      if (kycResult.rows.length > 0 && kycResult.rows[0].kyc?.length > 0) {
+        // Find the highest KYC level
+        kycLevel = Math.max(...kycResult.rows[0].kyc.map(k => k.kyc_level));
+      }
+    }
+
+    // Get system stake from eosio::voters
+    const votersResult = await this.rpc.get_table_rows<{
+      owner: string;
+      staked: string;
+    }>({
+      json: true,
+      code: 'eosio',
+      scope: 'eosio',
+      table: 'voters',
+      lower_bound: account,
+      upper_bound: account,
+      limit: 1,
+    });
+
+    let stakeAmount = 0;
+    if (votersResult.rows.length > 0 && votersResult.rows[0].staked) {
+      stakeAmount = parseInt(votersResult.rows[0].staked);
+    }
+
+    return calculateTrustScore(agent, agentScore, kycLevel, stakeAmount);
+  }
+
+  /**
    * Get contract configuration
    */
   async getConfig(): Promise<AgentCoreConfig> {
@@ -176,6 +262,7 @@ export class AgentRegistry {
       owner: string;
       min_stake: string;
       registration_fee: string;
+      claim_fee: string;
       feed_contract: string;
       valid_contract: string;
       escrow_contract: string;
@@ -197,6 +284,7 @@ export class AgentRegistry {
       owner: row.owner,
       min_stake: parseInt(row.min_stake),
       registration_fee: parseInt(row.registration_fee),
+      claim_fee: parseInt(row.claim_fee || '0'),
       feed_contract: row.feed_contract,
       valid_contract: row.valid_contract,
       escrow_contract: row.escrow_contract,
@@ -400,6 +488,186 @@ export class AgentRegistry {
     });
   }
 
+  // ============== OWNERSHIP ==============
+
+  /**
+   * Claim an agent - a KYC'd human sponsors an agent to boost its trust score.
+   * The agent inherits the owner's KYC level for trust calculation.
+   *
+   * IMPORTANT: Before calling this, you must send the claim fee to the contract
+   * with memo "claim:agentname:ownername". Then call this action to complete the claim.
+   * Both the agent AND the owner must sign this transaction.
+   *
+   * @param agent - The agent account to claim
+   */
+  async claim(agent: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    const owner = this.session!.auth.actor;
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'claim',
+          authorization: [
+            // Agent must consent
+            {
+              actor: agent,
+              permission: 'active',
+            },
+            // Owner claims
+            {
+              actor: owner,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            agent,
+            new_owner: owner,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Send claim fee and claim an agent in one transaction.
+   * Combines the token transfer and claim action.
+   *
+   * IMPORTANT: Both the agent account AND the caller must sign.
+   * The agent must consent to being claimed.
+   *
+   * @param agent - The agent account to claim
+   * @param amount - The claim fee amount (e.g., "1.0000 XPR")
+   */
+  async claimWithFee(agent: string, amount: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    const owner = this.session!.auth.actor;
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: 'eosio.token',
+          name: 'transfer',
+          authorization: [
+            {
+              actor: owner,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            from: owner,
+            to: this.contract,
+            quantity: amount,
+            memo: `claim:${agent}:${owner}`,  // New format includes owner
+          },
+        },
+        {
+          account: this.contract,
+          name: 'claim',
+          authorization: [
+            // Agent must consent
+            {
+              actor: agent,
+              permission: 'active',
+            },
+            // Owner claims
+            {
+              actor: owner,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            agent,
+            new_owner: owner,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Transfer ownership of an agent to a new owner.
+   * Both current owner and new owner must sign.
+   *
+   * @param agent - The agent account
+   * @param newOwner - The new owner (must have KYC)
+   */
+  async transferOwnership(agent: string, newOwner: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'transfer',
+          authorization: [
+            {
+              actor: this.session!.auth.actor,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            agent,
+            new_owner: newOwner,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Release ownership of an agent.
+   * Only the current owner can release.
+   * Claim deposit is refunded to the owner.
+   *
+   * @param agent - The agent account to release
+   */
+  async release(agent: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: this.contract,
+          name: 'release',
+          authorization: [
+            {
+              actor: this.session!.auth.actor,
+              permission: this.session!.auth.permission,
+            },
+          ],
+          data: {
+            agent,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Get agents owned by a specific account
+   */
+  async getAgentsByOwner(owner: string, limit: number = 100): Promise<Agent[]> {
+    // Use secondary index to query by owner
+    const result = await this.rpc.get_table_rows<AgentRaw>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'agents',
+      index_position: 2, // byOwner secondary index
+      key_type: 'i64',
+      limit,
+    });
+
+    // Filter by owner since secondary index returns all
+    return result.rows
+      .filter((row) => row.owner === owner)
+      .map((row) => this.parseAgent(row));
+  }
+
   // ============== HELPERS ==============
 
   private requireSession(): void {
@@ -411,6 +679,7 @@ export class AgentRegistry {
   private parseAgent(raw: AgentRaw): Agent {
     return {
       account: raw.account,
+      owner: raw.owner || null,  // Empty string means no owner
       name: raw.name,
       description: raw.description,
       endpoint: raw.endpoint,
@@ -419,6 +688,8 @@ export class AgentRegistry {
       total_jobs: parseInt(raw.total_jobs),
       registered_at: parseInt(raw.registered_at),
       active: raw.active === 1,
+      claim_deposit: parseInt(raw.claim_deposit || '0'),
+      deposit_payer: raw.deposit_payer || null,
       // Note: stake is queried from system staking (eosio::voters), not stored here
     };
   }

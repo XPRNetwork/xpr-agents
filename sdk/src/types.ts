@@ -2,6 +2,7 @@
 
 export interface Agent {
   account: string;
+  owner: string | null;           // KYC'd human who sponsors this agent (null if unowned)
   name: string;
   description: string;
   endpoint: string;
@@ -10,12 +11,15 @@ export interface Agent {
   total_jobs: number;
   registered_at: number;
   active: boolean;
+  claim_deposit: number;          // Refundable deposit paid when claiming
+  deposit_payer: string | null;   // Who paid the deposit (must match claimant)
   // Note: Agents stake via system staking (eosio::voters), not contract-managed staking
   // Use getSystemStake() from agentcore::getagentinfo to query stake
 }
 
 export interface AgentRaw {
   account: string;
+  owner: string;
   name: string;
   description: string;
   endpoint: string;
@@ -24,6 +28,8 @@ export interface AgentRaw {
   total_jobs: string;
   registered_at: string;
   active: number;
+  claim_deposit: string;
+  deposit_payer: string;
 }
 
 export interface Plugin {
@@ -78,6 +84,7 @@ export interface AgentCoreConfig {
   owner: string;
   min_stake: number;
   registration_fee: number;
+  claim_fee: number;              // Fee to claim an agent (refundable on release)
   feed_contract: string;
   valid_contract: string;
   escrow_contract: string;

@@ -158,6 +158,7 @@ export class ValidationRegistry {
       reason: string;
       evidence_uri: string;
       stake: string;
+      funding_deadline: string;
       status: number;
       resolver: string;
       resolution_notes: string;
@@ -188,6 +189,7 @@ export class ValidationRegistry {
       reason: string;
       evidence_uri: string;
       stake: string;
+      funding_deadline: string;
       status: number;
       resolver: string;
       resolution_notes: string;
