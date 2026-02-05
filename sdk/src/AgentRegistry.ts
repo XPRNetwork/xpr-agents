@@ -156,14 +156,13 @@ export class AgentRegistry {
       scope: this.contract,
       table: 'agentplugs',
       index_position: 2,
-      key_type: 'i64',
+      key_type: 'name',
+      lower_bound: account,
+      upper_bound: account,
       limit: 100,
     });
 
-    // Filter by agent since secondary index returns all
-    return result.rows
-      .filter((row) => row.agent === account)
-      .map((row) => this.parseAgentPlugin(row));
+    return result.rows.map((row) => this.parseAgentPlugin(row));
   }
 
   // Note: Agents use system staking via eosio::voters table, not contract-managed staking
@@ -621,10 +620,12 @@ export class AgentRegistry {
    * Only the agent can cancel their own approval.
    * Any deposit will be refunded to the payer.
    *
-   * @param agent - The agent account (must be current session)
+   * NOTE: The session holder must be the agent account.
    */
-  async cancelClaim(agent: string): Promise<TransactionResult> {
+  async cancelClaim(): Promise<TransactionResult> {
     this.requireSession();
+
+    const agent = this.session!.auth.actor;
 
     return this.session!.link.transact({
       actions: [
@@ -634,7 +635,7 @@ export class AgentRegistry {
           authorization: [
             {
               actor: agent,
-              permission: 'active',
+              permission: this.session!.auth.permission,
             },
           ],
           data: {
@@ -647,7 +648,14 @@ export class AgentRegistry {
 
   /**
    * Transfer ownership of an agent to a new owner.
-   * Both current owner and new owner must sign.
+   *
+   * NOTE: The contract requires BOTH current owner AND new owner to sign.
+   * This method only includes the session holder's authorization.
+   * For a complete transfer, you need to use a multi-sig proposal or
+   * have the session holder control both accounts.
+   *
+   * Consider using a 2-step transfer flow similar to the claim process
+   * for better UX in future versions.
    *
    * @param agent - The agent account
    * @param newOwner - The new owner (must have KYC)
@@ -715,14 +723,13 @@ export class AgentRegistry {
       scope: this.contract,
       table: 'agents',
       index_position: 2, // byOwner secondary index
-      key_type: 'i64',
+      key_type: 'name',
+      lower_bound: owner,
+      upper_bound: owner,
       limit,
     });
 
-    // Filter by owner since secondary index returns all
-    return result.rows
-      .filter((row) => row.owner === owner)
-      .map((row) => this.parseAgent(row));
+    return result.rows.map((row) => this.parseAgent(row));
   }
 
   // ============== HELPERS ==============

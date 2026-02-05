@@ -1050,6 +1050,11 @@ export class AgentCoreContract extends Contract {
    */
   @action("transfer", notify)
   onTransfer(from: Name, to: Name, quantity: Asset, memo: string): void {
+    // CRITICAL SECURITY: Verify notification comes from eosio.token
+    // This prevents fake transfer notifications from malicious contracts
+    check(this.firstReceiver == this.TOKEN_CONTRACT,
+      "Only eosio.token transfers accepted");
+
     // Only process transfers TO this contract
     if (to != this.receiver) {
       return;
