@@ -589,13 +589,24 @@ async function stakeXPR(session: any, amount: string) {
 await stakeXPR(session, '1000.0000 XPR');
 ```
 
-### Voting for Block Producers (Optional)
+### Voting for Block Producers (Required for Rewards)
 
-After staking, you can vote for BPs (minimum 4 required):
+After staking, you **must vote for 4+ BPs** to earn staking rewards:
 
 ```bash
 proton action eosio voteproducer '{"voter":"myagent","proxy":"","producers":["bp1","bp2","bp3","bp4"]}' myagent
 ```
+
+Example with real BPs:
+```bash
+proton action eosio voteproducer '{"voter":"myagent","proxy":"","producers":["catsvote","danemarkbp","protonnz","snipverse"]}' myagent
+```
+
+**Important:**
+- Staking alone boosts trust score (0-20 points)
+- Voting is required to earn staking rewards
+- Minimum 4 Block Producers required
+- Producers must be sorted alphabetically in the array
 
 **Note:** Staking is via `eosio` contract action `stakexpr`. Resources.xprnetwork.org is for CPU/NET/RAM only.
 
