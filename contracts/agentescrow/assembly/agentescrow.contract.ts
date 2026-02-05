@@ -185,6 +185,7 @@ export class EscrowConfig extends Table {
 }
 
 // External table reference for agent verification
+// Note: Agents use system staking (eosio::voters), not contract-managed staking
 @table("agents", "agentcore")
 export class AgentRef extends Table {
   constructor(
@@ -194,7 +195,6 @@ export class AgentRef extends Table {
     public endpoint: string = "",
     public protocol: string = "",
     public capabilities: string = "",
-    public stake: u64 = 0,
     public total_jobs: u64 = 0,
     public registered_at: u64 = 0,
     public active: boolean = true

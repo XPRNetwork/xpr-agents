@@ -178,7 +178,7 @@ function handleResolve(db: Database.Database, data: any): void {
         UPDATE validators
         SET incorrect_validations = incorrect_validations + 1,
             accuracy_score = CASE
-              WHEN total_validations > 0 THEN (total_validations - incorrect_validations - 1) * 10000 / total_validations
+              WHEN total_validations > 0 THEN (total_validations - incorrect_validations) * 10000 / total_validations
               ELSE 10000
             END
         WHERE account = ?

@@ -159,7 +159,7 @@ export interface Validator {
   method: string;
   specializations: string[];
   total_validations: number;
-  correct_validations: number;
+  incorrect_validations: number;
   accuracy_score: number;
   registered_at: number;
   active: boolean;
@@ -171,7 +171,7 @@ export interface ValidatorRaw {
   method: string;
   specializations: string;
   total_validations: string;
-  correct_validations: string;
+  incorrect_validations: string;
   accuracy_score: string;
   registered_at: string;
   active: number;
