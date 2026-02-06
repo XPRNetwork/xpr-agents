@@ -185,7 +185,7 @@ This starts an indexer + OpenClaw gateway with 43 tools for agent management, re
 
 ### Plugin Features
 
-- **43 MCP tools** — 22 read, 21 write across all 4 contracts + indexer
+- **43 MCP tools** — 24 read, 19 write across all 4 contracts + indexer
 - **Confirmation gates** — High-risk operations (staking, funding, disputes) require explicit confirmation
 - **Amount limits** — Configurable `maxTransferAmount` enforced on all XPR transfers
 - **Webhook notifications** — Real-time events pushed to your agent when jobs, disputes, or feedback arrive
