@@ -48,9 +48,9 @@ const initAll = async () => {
 
   // Lower challenge_stake so tests can afford it (default is 100.0000 XPR)
   // setconfig: core_contract, min_stake, challenge_stake, unstake_delay, challenge_window,
-  //            slash_percent, dispute_period, funded_challenge_timeout, paused
+  //            slash_percent, dispute_period, funded_challenge_timeout, paused, validation_fee
   await agentvalid.actions.setconfig([
-    'agentcore', 10000, 50000, 86400, 3600, 1000, 172800, 604800, false
+    'agentcore', 10000, 50000, 86400, 3600, 1000, 172800, 604800, false, 0
   ]).send('owner@active');
 
   // Register an agent in agentcore so we have something to validate
@@ -403,9 +403,9 @@ describe('agentvalid', () => {
 
     it('should update config', async () => {
       // core_contract, min_stake, challenge_stake, unstake_delay, challenge_window,
-      // slash_percent, dispute_period, funded_challenge_timeout, paused
+      // slash_percent, dispute_period, funded_challenge_timeout, paused, validation_fee
       await agentvalid.actions.setconfig([
-        'agentcore', 20000, 50000, 604800, 86400, 1000, 172800, 604800, false
+        'agentcore', 20000, 50000, 604800, 86400, 1000, 172800, 604800, false, 0
       ]).send('owner@active');
       const cfg = getConfig();
       expect(cfg.min_stake).to.equal(20000);
@@ -414,7 +414,7 @@ describe('agentvalid', () => {
 
     it('should pause the contract', async () => {
       await agentvalid.actions.setconfig([
-        'agentcore', 10000, 50000, 604800, 86400, 1000, 172800, 604800, true
+        'agentcore', 10000, 50000, 604800, 86400, 1000, 172800, 604800, true, 0
       ]).send('owner@active');
       const cfg = getConfig();
       expect(cfg.paused).to.equal(true);

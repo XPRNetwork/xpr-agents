@@ -156,8 +156,8 @@ describe('agentfeed', () => {
     });
 
     it('should reject when paused', async () => {
-      // setconfig: core_contract, min_score, max_score, dispute_window, decay_period, decay_floor, paused
-      await agentfeed.actions.setconfig(['agentcore', 1, 5, 86400, 3600, 50, true]).send('owner@active');
+      // setconfig: core_contract, min_score, max_score, dispute_window, decay_period, decay_floor, paused, feedback_fee
+      await agentfeed.actions.setconfig(['agentcore', 1, 5, 86400, 3600, 50, true, 0]).send('owner@active');
       await expectToThrow(
         agentfeed.actions.submit([
           'bob', 'alice', 4, 'quality', 'hash123', 'ipfs://evidence', 0
@@ -243,7 +243,7 @@ describe('agentfeed', () => {
 
     it('new owner can use admin actions', async () => {
       await agentfeed.actions.setowner(['bob']).send('owner@active');
-      await agentfeed.actions.setconfig(['agentcore', 1, 5, 86400, 3600, 50, false]).send('bob@active');
+      await agentfeed.actions.setconfig(['agentcore', 1, 5, 86400, 3600, 50, false, 0]).send('bob@active');
       const cfg = getConfig();
       expect(cfg.dispute_window).to.equal(86400);
     });
@@ -257,8 +257,8 @@ describe('agentfeed', () => {
     });
 
     it('should update config', async () => {
-      // core_contract, min_score, max_score, dispute_window, decay_period, decay_floor, paused
-      await agentfeed.actions.setconfig(['agentcore', 1, 10, 172800, 7200, 30, false]).send('owner@active');
+      // core_contract, min_score, max_score, dispute_window, decay_period, decay_floor, paused, feedback_fee
+      await agentfeed.actions.setconfig(['agentcore', 1, 10, 172800, 7200, 30, false, 0]).send('owner@active');
       const cfg = getConfig();
       expect(cfg.dispute_window).to.equal(172800);
       expect(cfg.max_score).to.equal(10);
@@ -266,21 +266,21 @@ describe('agentfeed', () => {
     });
 
     it('should pause the contract', async () => {
-      await agentfeed.actions.setconfig(['agentcore', 1, 5, 86400, 3600, 50, true]).send('owner@active');
+      await agentfeed.actions.setconfig(['agentcore', 1, 5, 86400, 3600, 50, true, 0]).send('owner@active');
       const cfg = getConfig();
       expect(cfg.paused).to.equal(true);
     });
 
     it('should reject decay_period below minimum', async () => {
       await expectToThrow(
-        agentfeed.actions.setconfig(['agentcore', 1, 5, 86400, 0, 50, false]).send('owner@active'),
+        agentfeed.actions.setconfig(['agentcore', 1, 5, 86400, 0, 50, false, 0]).send('owner@active'),
         protonAssert('Decay period must be at least 3600 seconds (1 hour)')
       );
     });
 
     it('should reject from non-owner', async () => {
       await expectToThrow(
-        agentfeed.actions.setconfig(['agentcore', 1, 5, 86400, 3600, 50, false]).send('alice@active'),
+        agentfeed.actions.setconfig(['agentcore', 1, 5, 86400, 3600, 50, false, 0]).send('alice@active'),
         'missing required authority owner'
       );
     });
