@@ -219,7 +219,7 @@ describe('agentescrow', () => {
       expect(job.state).to.equal(4); // DELIVERED
     });
 
-    it.skip('should approve a delivered job (inline token transfer triggers db access violation in vert)', async () => {
+    it('should approve a delivered job', async () => {
       await createAndFundJob();
       await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
       await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
@@ -328,7 +328,7 @@ describe('agentescrow', () => {
       expect(job.state).to.equal(5); // DISPUTED
     });
 
-    it.skip('should arbitrate a dispute (inline token transfer db access violation)', async () => {
+    it('should arbitrate a dispute', async () => {
       await agentescrow.actions.dispute([
         'client', 0, 'Low quality deliverables', 'ipfs://evidence'
       ]).send('client@active');
@@ -343,7 +343,7 @@ describe('agentescrow', () => {
       expect(arb.successful_cases).to.equal(1);
     });
 
-    it.skip('should track active_disputes counter (inline token transfer db access violation)', async () => {
+    it('should track active_disputes counter', async () => {
       await agentescrow.actions.dispute([
         'client', 0, 'Low quality', 'ipfs://evidence'
       ]).send('client@active');

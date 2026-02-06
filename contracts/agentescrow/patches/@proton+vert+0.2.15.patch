@@ -1,3 +1,19 @@
+diff --git a/node_modules/@proton/vert/dist/proton/table.js b/node_modules/@proton/vert/dist/proton/table.js
+index f3f3b10..4bac9a9 100644
+--- a/node_modules/@proton/vert/dist/proton/table.js
++++ b/node_modules/@proton/vert/dist/proton/table.js
+@@ -118,9 +118,9 @@ class IndexObject {
+     }
+     static compare(a, b) {
+         return IndexObject.compareTable(a, b) ||
+-            (a.ignorePrimaryKey || b.ignorePrimaryKey)
++            ((a.ignorePrimaryKey || b.ignorePrimaryKey)
+             ? 0
+-            : ((a.primaryKey < b.primaryKey) ? -1 : (a.primaryKey > b.primaryKey) ? 1 : 0);
++            : ((a.primaryKey < b.primaryKey) ? -1 : (a.primaryKey > b.primaryKey) ? 1 : 0));
+     }
+     static comparePrimitives(a, b) {
+         return IndexObject.compareTable(a, b) ||
 diff --git a/node_modules/@proton/vert/dist/proton/vm.js b/node_modules/@proton/vert/dist/proton/vm.js
 index bb63985..1759e3f 100644
 --- a/node_modules/@proton/vert/dist/proton/vm.js
@@ -24,6 +40,22 @@ index bb63985..1759e3f 100644
                  (0, assert_1.default)(tab.code === this.context.receiver.toBigInt(), 'db access violation');
                  index.delete(obj);
                  cache.remove(iterator);
+diff --git a/node_modules/@proton/vert/src/proton/table.ts b/node_modules/@proton/vert/src/proton/table.ts
+index 0f5d5e2..3c55c4f 100644
+--- a/node_modules/@proton/vert/src/proton/table.ts
++++ b/node_modules/@proton/vert/src/proton/table.ts
+@@ -148,9 +148,9 @@ class IndexObject<K> implements IndexKey<K> {
+ 
+   static compare(a, b): number {
+     return IndexObject.compareTable(a, b) ||
+-      (a.ignorePrimaryKey || b.ignorePrimaryKey)
++      ((a.ignorePrimaryKey || b.ignorePrimaryKey)
+         ? 0
+-        : ((a.primaryKey < b.primaryKey) ? -1 : (a.primaryKey > b.primaryKey) ? 1 : 0);
++        : ((a.primaryKey < b.primaryKey) ? -1 : (a.primaryKey > b.primaryKey) ? 1 : 0));
+   }
+ 
+   static comparePrimitives(a, b) {
 diff --git a/node_modules/@proton/vert/src/proton/vm.ts b/node_modules/@proton/vert/src/proton/vm.ts
 index 962e43d..2e22744 100644
 --- a/node_modules/@proton/vert/src/proton/vm.ts
