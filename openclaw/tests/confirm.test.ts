@@ -3,12 +3,17 @@ import { needsConfirmation, formatConfirmation } from '../src/util/confirm';
 
 describe('Confirmation Gate', () => {
   it('returns null when confirmHighRisk is false', () => {
-    const result = needsConfirmation(false, 'Test Action', { key: 'value' }, 'Test message');
+    const result = needsConfirmation(false, undefined, 'Test Action', { key: 'value' }, 'Test message');
     expect(result).toBeNull();
   });
 
-  it('returns confirmation object when confirmHighRisk is true', () => {
-    const result = needsConfirmation(true, 'Test Action', { key: 'value' }, 'Test message');
+  it('returns null when confirmed is true', () => {
+    const result = needsConfirmation(true, true, 'Test Action', { key: 'value' }, 'Test message');
+    expect(result).toBeNull();
+  });
+
+  it('returns confirmation object when confirmHighRisk is true and not confirmed', () => {
+    const result = needsConfirmation(true, undefined, 'Test Action', { key: 'value' }, 'Test message');
     expect(result).not.toBeNull();
     expect(result!.needs_confirmation).toBe(true);
     expect(result!.action).toBe('Test Action');

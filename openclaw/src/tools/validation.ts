@@ -15,6 +15,7 @@ import {
   validateRequired,
   validatePositiveInt,
   validateValidationResult,
+  validateAmount,
 } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
 
@@ -185,6 +186,9 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
       validateRequired(params.job_hash, 'job_hash');
       validateValidationResult(params.result);
       validateConfidence(params.confidence);
+      if (params.fee_amount) {
+        validateAmount(Math.floor(params.fee_amount * 10000), config.maxTransferAmount);
+      }
 
       const registry = new ValidationRegistry(config.rpc, config.session, contracts.agentvalid);
       const data = {
@@ -235,13 +239,16 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
       required: ['amount'],
       properties: {
         amount: { type: 'number', description: 'Amount to stake in XPR (e.g., 1000.0)' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
       },
     },
-    handler: async ({ amount }: { amount: number }) => {
+    handler: async ({ amount, confirmed }: { amount: number; confirmed?: boolean }) => {
       if (amount <= 0) throw new Error('amount must be positive');
+      validateAmount(Math.floor(amount * 10000), config.maxTransferAmount);
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
+        confirmed,
         'Stake Validator',
         { amount: `${amount} XPR`, note: 'Staked tokens are slashable' },
         `Stake ${amount} XPR as validator collateral (slashable if challenged successfully)`

@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import Database from 'better-sqlite3';
+import { WebhookDispatcher } from '../webhooks/dispatcher';
 
-export function createRoutes(db: Database.Database): Router {
+export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatcher): Router {
   const router = Router();
 
   // ============== AGENTS ==============
@@ -390,6 +391,9 @@ export function createRoutes(db: Database.Database): Router {
     `);
     const result = stmt.run(url, token, JSON.stringify(event_filter), account_filter || null);
 
+    // Reload in-memory cache so the new subscription takes effect immediately
+    dispatcher?.reload();
+
     return res.status(201).json({
       id: result.lastInsertRowid,
       url,
@@ -420,6 +424,9 @@ export function createRoutes(db: Database.Database): Router {
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Subscription not found' });
     }
+
+    // Reload in-memory cache so the deletion takes effect immediately
+    dispatcher?.reload();
 
     return res.json({ deleted: true, id: parseInt(id) });
   });

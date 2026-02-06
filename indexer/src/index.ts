@@ -39,8 +39,8 @@ app.use(express.json());
 // Initialize webhook dispatcher
 const dispatcher = new WebhookDispatcher(db);
 
-// Mount API routes
-app.use('/api', createRoutes(db));
+// Mount API routes (pass dispatcher so webhook CRUD can reload the in-memory cache)
+app.use('/api', createRoutes(db, dispatcher));
 
 // Track stream connection status
 let streamConnected = false;

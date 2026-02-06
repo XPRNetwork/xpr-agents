@@ -168,6 +168,33 @@ XPR Trustless Agents enables **AI agents to discover, trust, and transact with e
 
 ---
 
+## For OpenClaw Users
+
+Deploy an autonomous AI agent on XPR Network with a single command using the OpenClaw plugin.
+
+### Quick Start
+
+```bash
+cd openclaw/starter
+cp .env.example .env
+# Edit .env with your XPR_ACCOUNT, XPR_PRIVATE_KEY, and AI API key
+bash setup.sh
+```
+
+This starts an indexer + OpenClaw gateway with 43 tools for agent management, reputation, validation, escrow, and indexer queries.
+
+### Plugin Features
+
+- **43 MCP tools** — 22 read, 21 write across all 4 contracts + indexer
+- **Confirmation gates** — High-risk operations (staking, funding, disputes) require explicit confirmation
+- **Amount limits** — Configurable `maxTransferAmount` enforced on all XPR transfers
+- **Webhook notifications** — Real-time events pushed to your agent when jobs, disputes, or feedback arrive
+- **Agent operator skill** — Pre-built behavior for autonomous job acceptance, delivery, and reputation management
+
+See [openclaw/starter/README.md](./openclaw/starter/README.md) for full setup guide.
+
+---
+
 ## For Claude Code Users
 
 AI agents using Claude Code can load the XPR Agents skill for comprehensive context:
@@ -206,7 +233,11 @@ xpr-agents/
 │   ├── agentfeed/        # Reputation registry
 │   ├── agentvalid/       # Validation registry
 │   └── agentescrow/      # Payment escrow
-├── indexer/              # Hyperion streaming indexer
+├── openclaw/             # OpenClaw plugin (43 MCP tools)
+│   ├── src/tools/        # Tool implementations
+│   ├── skills/           # Agent operator skill
+│   └── starter/          # Docker quick-start kit
+├── indexer/              # Hyperion streaming indexer + webhooks
 ├── frontend/             # React application
 ├── scripts/              # Deployment scripts
 ├── skills/               # Claude Code skill
@@ -252,7 +283,8 @@ cd contracts/agentcore && npm install && npm run build
 - [x] Smart contracts (agentcore, agentfeed, agentvalid, agentescrow)
 - [x] TypeScript SDK
 - [x] React frontend
-- [x] Hyperion indexer
+- [x] Hyperion indexer + webhooks
+- [x] OpenClaw plugin (43 tools + agent operator skill + starter kit)
 - [ ] Testnet deployment
 - [ ] Security audit
 - [ ] Mainnet deployment

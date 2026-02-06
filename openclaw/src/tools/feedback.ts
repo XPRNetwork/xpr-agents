@@ -6,7 +6,7 @@
 
 import { FeedbackRegistry } from '@xpr-agents/sdk';
 import type { PluginApi, PluginConfig } from '../types';
-import { validateAccountName, validateScore, validateRequired, validatePositiveInt } from '../util/validate';
+import { validateAccountName, validateScore, validateRequired, validatePositiveInt, validateAmount } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
 
 export function registerFeedbackTools(api: PluginApi, config: PluginConfig): void {
@@ -115,6 +115,7 @@ export function registerFeedbackTools(api: PluginApi, config: PluginConfig): voi
         job_hash: { type: 'string', description: 'Hash of the completed job for verification' },
         evidence_uri: { type: 'string', description: 'IPFS/Arweave URI with evidence' },
         fee_amount: { type: 'number', description: 'Feedback fee in XPR. Check xpr_get_feedback_config for current fee.' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
       },
     },
     handler: async (params: {
@@ -124,12 +125,17 @@ export function registerFeedbackTools(api: PluginApi, config: PluginConfig): voi
       job_hash?: string;
       evidence_uri?: string;
       fee_amount?: number;
+      confirmed?: boolean;
     }) => {
       validateAccountName(params.agent, 'agent');
       validateScore(params.score);
+      if (params.fee_amount) {
+        validateAmount(Math.floor(params.fee_amount * 10000), config.maxTransferAmount);
+      }
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
+        params.confirmed,
         'Submit Feedback',
         { agent: params.agent, score: params.score, fee: params.fee_amount ? `${params.fee_amount} XPR` : 'none' },
         `Submit ${params.score}/5 rating for agent "${params.agent}"` + (params.fee_amount ? ` (fee: ${params.fee_amount} XPR)` : '')

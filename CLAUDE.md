@@ -547,6 +547,15 @@ All phases are complete:
 - Comprehensive test-actions.sh
 - Documentation (MODEL.md, analysis reports)
 
+### Phase 6: OpenClaw Plugin ✓
+- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 43 MCP tools (22 read, 21 write)
+- Session factory for server-side signing via `@proton/js`
+- Confirmation gate for high-risk write operations (10 tools require confirmation)
+- `maxTransferAmount` enforcement on all XPR transfer/stake/fee operations
+- Agent operator skill (`skills/xpr-agent-operator/SKILL.md`)
+- Indexer webhook system (subscriptions, async dispatch with retry, auto-disable)
+- Starter kit with Docker Compose, setup script, and config templates
+
 ## Comparison: EIP-8004 vs XPR Network
 
 | Aspect | EIP-8004 (Ethereum) | XPR Network |
@@ -589,6 +598,34 @@ xpr-agents/
 │   │   ├── types.ts
 │   │   └── utils.ts
 │   └── package.json
+├── openclaw/                    # OpenClaw plugin package
+│   ├── openclaw.plugin.json     # Plugin manifest
+│   ├── src/
+│   │   ├── index.ts             # Plugin entry, registers 43 tools
+│   │   ├── session.ts           # ProtonSession factory from env vars
+│   │   ├── types.ts             # Plugin config/API interfaces
+│   │   ├── tools/
+│   │   │   ├── agent.ts         # 10 agentcore tools
+│   │   │   ├── feedback.ts      # 7 agentfeed tools
+│   │   │   ├── validation.ts    # 9 agentvalid tools
+│   │   │   ├── escrow.ts        # 13 agentescrow tools
+│   │   │   └── indexer.ts       # 4 indexer query tools
+│   │   └── util/
+│   │       ├── validate.ts      # Input validation helpers
+│   │       └── confirm.ts       # Confirmation gate logic
+│   ├── skills/
+│   │   └── xpr-agent-operator/
+│   │       └── SKILL.md         # Agent operator role behavior
+│   ├── starter/                 # Quick-start deployment kit
+│   │   ├── docker-compose.yml
+│   │   ├── .env.example
+│   │   ├── openclaw.json
+│   │   ├── setup.sh
+│   │   └── README.md
+│   └── tests/
+│       ├── tools.test.ts
+│       ├── confirm.test.ts
+│       └── validate.test.ts
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
@@ -605,10 +642,12 @@ xpr-agents/
 │       │   ├── feedback.ts
 │       │   ├── validation.ts
 │       │   └── escrow.ts
+│       ├── webhooks/
+│       │   └── dispatcher.ts    # Webhook dispatch with retry
 │       ├── db/
-│       │   └── schema.ts        # SQLite schema
+│       │   └── schema.ts        # SQLite schema + webhook tables
 │       └── api/
-│           └── routes.ts        # REST endpoints
+│           └── routes.ts        # REST endpoints + webhook CRUD
 └── scripts/
     ├── deploy-testnet.sh
     └── test-actions.sh

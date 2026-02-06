@@ -198,12 +198,31 @@ describe('Confirmation Gate', () => {
       name: 'Test Agent',
       description: 'A test agent',
       endpoint: 'https://example.com',
-      protocol: 'rest',
+      protocol: 'https',
       capabilities: ['test'],
     });
 
     expect(result).toHaveProperty('needs_confirmation', true);
     expect(result).toHaveProperty('action', 'Register Agent');
+  });
+
+  it('executes when confirmed is true even with confirmHighRisk', async () => {
+    const api = createMockApi();
+    const config = createConfig({ confirmHighRisk: true });
+    registerAgentTools(api, config);
+
+    const tool = api.tools.get('xpr_register_agent')!;
+    const result = await tool.handler({
+      name: 'Test Agent',
+      description: 'A test agent',
+      endpoint: 'https://example.com',
+      protocol: 'https',
+      capabilities: ['test'],
+      confirmed: true,
+    });
+
+    // Should bypass confirmation and execute
+    expect(result).not.toHaveProperty('needs_confirmation');
   });
 
   it('executes directly when confirmHighRisk is false', async () => {
@@ -212,8 +231,6 @@ describe('Confirmation Gate', () => {
     registerAgentTools(api, config);
 
     const tool = api.tools.get('xpr_register_agent')!;
-    // This will call through to the SDK which uses our mock RPC
-    // It should NOT return a confirmation object
     const result = await tool.handler({
       name: 'Test Agent',
       description: 'A test agent',
@@ -235,6 +252,10 @@ describe('Confirmation Gate', () => {
     const result = await fundTool.handler({ job_id: 1, amount: 1000 });
     expect(result).toHaveProperty('needs_confirmation', true);
     expect(result).toHaveProperty('action', 'Fund Job');
+
+    // Verify second-step confirmed=true bypasses the gate
+    const result2 = await fundTool.handler({ job_id: 1, amount: 1000, confirmed: true });
+    expect(result2).not.toHaveProperty('needs_confirmation');
   });
 });
 

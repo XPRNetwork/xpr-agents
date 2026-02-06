@@ -14,6 +14,7 @@ import {
   validateRequired,
   validatePositiveInt,
   validateClientPercent,
+  validateAmount,
 } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
 
@@ -165,6 +166,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
         amount: { type: 'number', description: 'Total job amount in XPR (e.g., 5000.0)' },
         deadline: { type: 'number', description: 'Unix timestamp deadline (0 = no deadline)' },
         arbitrator: { type: 'string', description: 'Arbitrator account (empty = contract owner as fallback)' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
       },
     },
     handler: async (params: {
@@ -175,14 +177,17 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       amount: number;
       deadline?: number;
       arbitrator?: string;
+      confirmed?: boolean;
     }) => {
       validateAccountName(params.agent, 'agent');
       validateRequired(params.title, 'title');
       if (params.amount <= 0) throw new Error('amount must be positive');
+      validateAmount(Math.floor(params.amount * 10000), config.maxTransferAmount);
       if (params.arbitrator) validateAccountName(params.arbitrator, 'arbitrator');
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
+        params.confirmed,
         'Create Job',
         {
           agent: params.agent,
@@ -216,14 +221,17 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       properties: {
         job_id: { type: 'number', description: 'Job ID to fund' },
         amount: { type: 'number', description: 'Amount to send in XPR (e.g., 5000.0)' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
       },
     },
-    handler: async ({ job_id, amount }: { job_id: number; amount: number }) => {
+    handler: async ({ job_id, amount, confirmed }: { job_id: number; amount: number; confirmed?: boolean }) => {
       validatePositiveInt(job_id, 'job_id');
       if (amount <= 0) throw new Error('amount must be positive');
+      validateAmount(Math.floor(amount * 10000), config.maxTransferAmount);
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
+        confirmed,
         'Fund Job',
         { job_id, amount: `${amount} XPR` },
         `Send ${amount} XPR to fund job #${job_id}`
@@ -279,13 +287,15 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       required: ['job_id'],
       properties: {
         job_id: { type: 'number', description: 'Job ID to approve' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
       },
     },
-    handler: async ({ job_id }: { job_id: number }) => {
+    handler: async ({ job_id, confirmed }: { job_id: number; confirmed?: boolean }) => {
       validatePositiveInt(job_id, 'job_id');
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
+        confirmed,
         'Approve Delivery',
         { job_id },
         `Approve delivery for job #${job_id} and release payment to agent`
@@ -307,18 +317,21 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
         job_id: { type: 'number', description: 'Job ID to dispute' },
         reason: { type: 'string', description: 'Reason for the dispute' },
         evidence_uri: { type: 'string', description: 'URI to supporting evidence' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
       },
     },
-    handler: async ({ job_id, reason, evidence_uri }: {
+    handler: async ({ job_id, reason, evidence_uri, confirmed }: {
       job_id: number;
       reason: string;
       evidence_uri?: string;
+      confirmed?: boolean;
     }) => {
       validatePositiveInt(job_id, 'job_id');
       validateRequired(reason, 'reason');
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
+        confirmed,
         'Raise Dispute',
         { job_id, reason },
         `Raise dispute on job #${job_id}: "${reason}"`
@@ -359,12 +372,14 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
         dispute_id: { type: 'number', description: 'Dispute ID to resolve' },
         client_percent: { type: 'number', description: 'Percentage of funds to client (0-100, remainder to agent)' },
         resolution_notes: { type: 'string', description: 'Explanation of the resolution decision' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
       },
     },
-    handler: async ({ dispute_id, client_percent, resolution_notes }: {
+    handler: async ({ dispute_id, client_percent, resolution_notes, confirmed }: {
       dispute_id: number;
       client_percent: number;
       resolution_notes: string;
+      confirmed?: boolean;
     }) => {
       validatePositiveInt(dispute_id, 'dispute_id');
       validateClientPercent(client_percent);
@@ -372,6 +387,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
+        confirmed,
         'Arbitrate Dispute',
         { dispute_id, client_percent, agent_percent: 100 - client_percent },
         `Resolve dispute #${dispute_id}: ${client_percent}% to client, ${100 - client_percent}% to agent`

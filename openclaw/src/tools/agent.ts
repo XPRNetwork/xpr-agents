@@ -9,8 +9,8 @@
 import { AgentRegistry } from '@xpr-agents/sdk';
 import type { PluginCategory } from '@xpr-agents/sdk';
 import type { PluginApi, PluginConfig } from '../types';
-import { validateAccountName, validateRequired } from '../util/validate';
-import { needsConfirmation, formatConfirmation } from '../util/confirm';
+import { validateAccountName, validateRequired, validateAmount } from '../util/validate';
+import { needsConfirmation } from '../util/confirm';
 
 export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
   const contracts = config.contracts;
@@ -145,6 +145,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
           description: 'List of agent capabilities',
         },
         fee_amount: { type: 'number', description: 'Registration fee in XPR (e.g., 10.0). Check xpr_get_core_config for current fee.' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
       },
     },
     handler: async (params: {
@@ -154,12 +155,17 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
       protocol: string;
       capabilities: string[];
       fee_amount?: number;
+      confirmed?: boolean;
     }) => {
       validateRequired(params.name, 'name');
       validateRequired(params.endpoint, 'endpoint');
+      if (params.fee_amount) {
+        validateAmount(Math.floor(params.fee_amount * 10000), config.maxTransferAmount);
+      }
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
+        params.confirmed,
         'Register Agent',
         { name: params.name, endpoint: params.endpoint, fee: params.fee_amount ? `${params.fee_amount} XPR` : 'none' },
         `Register agent "${params.name}" at ${params.endpoint}` + (params.fee_amount ? ` (fee: ${params.fee_amount} XPR)` : '')
