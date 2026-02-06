@@ -1,16 +1,31 @@
 import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
 import { updateStats } from '../db/schema';
+import { WebhookDispatcher } from '../webhooks/dispatcher';
 
-export function handleFeedbackAction(db: Database.Database, action: StreamAction): void {
+export function handleFeedbackAction(db: Database.Database, action: StreamAction, dispatcher?: WebhookDispatcher): void {
   const { name, data } = action.act;
 
   switch (name) {
     case 'submit':
       handleSubmit(db, data, action.timestamp);
+      dispatcher?.dispatch(
+        'feedback.received',
+        [data.agent, data.reviewer],
+        data,
+        `Feedback ${data.score}/5 for agent ${data.agent} from ${data.reviewer}`,
+        action.block_num
+      );
       break;
     case 'dispute':
       handleDispute(db, data, action.timestamp);
+      dispatcher?.dispatch(
+        'feedback.disputed',
+        [data.disputer],
+        data,
+        `Feedback #${data.feedback_id} disputed by ${data.disputer}`,
+        action.block_num
+      );
       break;
     case 'resolve':
       handleResolve(db, data);

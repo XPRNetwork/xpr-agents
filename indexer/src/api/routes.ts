@@ -353,5 +353,76 @@ export function createRoutes(db: Database.Database): Router {
     res.json({ status: 'not_implemented' });
   });
 
+  // ============== WEBHOOKS ==============
+
+  const webhookAdminToken = process.env.WEBHOOK_ADMIN_TOKEN;
+
+  function requireWebhookAuth(req: Request, res: Response): boolean {
+    if (!webhookAdminToken) {
+      res.status(503).json({ error: 'Webhooks not configured (WEBHOOK_ADMIN_TOKEN not set)' });
+      return false;
+    }
+    const auth = req.headers.authorization;
+    if (!auth || auth !== `Bearer ${webhookAdminToken}`) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return false;
+    }
+    return true;
+  }
+
+  // Register webhook subscription
+  router.post('/webhooks', (req: Request, res: Response) => {
+    if (!requireWebhookAuth(req, res)) return;
+
+    const { url, token, event_filter, account_filter } = req.body;
+
+    if (!url || !token || !event_filter) {
+      return res.status(400).json({ error: 'url, token, and event_filter are required' });
+    }
+
+    if (!Array.isArray(event_filter) || event_filter.length === 0) {
+      return res.status(400).json({ error: 'event_filter must be a non-empty array of event types' });
+    }
+
+    const stmt = db.prepare(`
+      INSERT INTO webhook_subscriptions (url, token, event_filter, account_filter, enabled)
+      VALUES (?, ?, ?, ?, 1)
+    `);
+    const result = stmt.run(url, token, JSON.stringify(event_filter), account_filter || null);
+
+    return res.status(201).json({
+      id: result.lastInsertRowid,
+      url,
+      event_filter,
+      account_filter: account_filter || null,
+      enabled: true,
+    });
+  });
+
+  // List webhook subscriptions
+  router.get('/webhooks', (req: Request, res: Response) => {
+    if (!requireWebhookAuth(req, res)) return;
+
+    const subscriptions = db.prepare(
+      'SELECT id, url, event_filter, account_filter, enabled, failure_count, created_at FROM webhook_subscriptions ORDER BY id ASC'
+    ).all();
+
+    return res.json({ subscriptions });
+  });
+
+  // Delete webhook subscription
+  router.delete('/webhooks/:id', (req: Request, res: Response) => {
+    const { id } = req.params;
+    if (!requireWebhookAuth(req, res)) return;
+
+    const result = db.prepare('DELETE FROM webhook_subscriptions WHERE id = ?').run(parseInt(id));
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    return res.json({ deleted: true, id: parseInt(id) });
+  });
+
   return router;
 }

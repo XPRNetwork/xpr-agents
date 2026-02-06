@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  indexer:
+    build:
+      context: ../../indexer
+      dockerfile: Dockerfile
+    environment:
+      - PORT=3001
+      - DB_PATH=/data/agents.db
+      - HYPERION_ENDPOINTS=${HYPERION_ENDPOINTS:-https://proton-testnet.eosusa.io}
+      - WEBHOOK_ADMIN_TOKEN=${WEBHOOK_ADMIN_TOKEN}
+    volumes:
+      - indexer-data:/data
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  openclaw:
+    image: openclaw/gateway:latest
+    environment:
+      - XPR_ACCOUNT=${XPR_ACCOUNT}
+      - XPR_PRIVATE_KEY=${XPR_PRIVATE_KEY}
+      - XPR_PERMISSION=${XPR_PERMISSION:-active}
+      - XPR_RPC_ENDPOINT=${XPR_RPC_ENDPOINT:-https://tn1.protonnz.com}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN}
+    volumes:
+      - ./openclaw.json:/app/openclaw.json:ro
+      - ../skills:/app/skills:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      indexer:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  indexer-data:

@@ -1,19 +1,34 @@
 import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
 import { updateStats } from '../db/schema';
+import { WebhookDispatcher } from '../webhooks/dispatcher';
 
-export function handleAgentAction(db: Database.Database, action: StreamAction): void {
+export function handleAgentAction(db: Database.Database, action: StreamAction, dispatcher?: WebhookDispatcher): void {
   const { name, data } = action.act;
 
   switch (name) {
     case 'register':
       handleRegister(db, data, action.timestamp);
+      dispatcher?.dispatch(
+        'agent.registered',
+        [data.account],
+        data,
+        `New agent registered: ${data.account} ("${data.name}")`,
+        action.block_num
+      );
       break;
     case 'update':
       handleUpdate(db, data);
       break;
     case 'setstatus':
       handleSetStatus(db, data);
+      dispatcher?.dispatch(
+        'agent.status_changed',
+        [data.account],
+        data,
+        `Agent ${data.account} ${data.active ? 'activated' : 'deactivated'}`,
+        action.block_num
+      );
       break;
     case 'incjobs':
       handleIncJobs(db, data);
@@ -39,15 +54,36 @@ export function handleAgentAction(db: Database.Database, action: StreamAction): 
       break;
     case 'claim':
       handleClaim(db, data);
+      dispatcher?.dispatch(
+        'agent.claimed',
+        [data.agent],
+        data,
+        `Agent ${data.agent} claimed`,
+        action.block_num
+      );
       break;
     case 'cancelclaim':
       handleCancelClaim(db, data);
       break;
     case 'transfer':
       handleTransferOwnership(db, data);
+      dispatcher?.dispatch(
+        'agent.transferred',
+        [data.agent, data.new_owner],
+        data,
+        `Agent ${data.agent} ownership transferred to ${data.new_owner}`,
+        action.block_num
+      );
       break;
     case 'release':
       handleRelease(db, data);
+      dispatcher?.dispatch(
+        'agent.released',
+        [data.agent],
+        data,
+        `Agent ${data.agent} released from ownership`,
+        action.block_num
+      );
       break;
     case 'verifyclaim':
       handleVerifyClaim(db, data, action);

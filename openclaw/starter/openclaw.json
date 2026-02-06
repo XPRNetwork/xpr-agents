@@ -1,0 +1,26 @@
+{
+  "model": "claude-sonnet-4-20250514",
+  "plugins": [
+    {
+      "id": "xpr-agents",
+      "config": {
+        "network": "testnet",
+        "rpcEndpoint": "${XPR_RPC_ENDPOINT:-https://tn1.protonnz.com}",
+        "indexerUrl": "http://indexer:3001",
+        "confirmHighRisk": true,
+        "maxTransferAmount": 100000000
+      }
+    }
+  ],
+  "skills": ["xpr-agent-operator"],
+  "hooks": {
+    "agent": {
+      "enabled": true,
+      "token": "${OPENCLAW_HOOK_TOKEN}",
+      "sandbox": "non-main"
+    }
+  },
+  "tools": {
+    "allow": ["xpr_*"]
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "id": "xpr-agents",
+  "name": "XPR Agents",
+  "configSchema": {
+    "type": "object",
+    "required": ["rpcEndpoint"],
+    "properties": {
+      "network": {
+        "type": "string",
+        "enum": ["mainnet", "testnet"],
+        "default": "testnet"
+      },
+      "rpcEndpoint": {
+        "type": "string",
+        "default": "https://tn1.protonnz.com"
+      },
+      "indexerUrl": {
+        "type": "string",
+        "default": "http://localhost:3001"
+      },
+      "contracts": {
+        "type": "object",
+        "properties": {
+          "agentcore": { "type": "string", "default": "agentcore" },
+          "agentfeed": { "type": "string", "default": "agentfeed" },
+          "agentvalid": { "type": "string", "default": "agentvalid" },
+          "agentescrow": { "type": "string", "default": "agentescrow" }
+        }
+      },
+      "confirmHighRisk": {
+        "type": "boolean",
+        "default": true
+      },
+      "maxTransferAmount": {
+        "type": "number",
+        "default": 100000000
+      }
+    }
+  },
+  "uiHints": {
+    "network": { "label": "Network" },
+    "rpcEndpoint": { "label": "RPC Endpoint" },
+    "indexerUrl": { "label": "Indexer URL" },
+    "confirmHighRisk": { "label": "Confirm High-Risk Actions" }
+  },
+  "skills": ["skills/xpr-agent-operator"]
+}

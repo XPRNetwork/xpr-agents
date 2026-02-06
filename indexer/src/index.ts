@@ -7,6 +7,7 @@ import { handleFeedbackAction } from './handlers/feedback';
 import { handleValidationAction, handleValidationTransfer } from './handlers/validation';
 import { handleEscrowAction, handleEscrowTransfer } from './handlers/escrow';
 import { createRoutes } from './api/routes';
+import { WebhookDispatcher } from './webhooks/dispatcher';
 
 // Configuration
 const config = {
@@ -34,6 +35,9 @@ updateStats(db);
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Initialize webhook dispatcher
+const dispatcher = new WebhookDispatcher(db);
 
 // Mount API routes
 app.use('/api', createRoutes(db));
@@ -85,20 +89,20 @@ stream.on('action', (action: StreamAction) => {
 
   try {
     if (contract === config.contracts.agentcore) {
-      handleAgentAction(db, action);
+      handleAgentAction(db, action, dispatcher);
     } else if (contract === config.contracts.agentfeed) {
-      handleFeedbackAction(db, action);
+      handleFeedbackAction(db, action, dispatcher);
     } else if (contract === config.contracts.agentvalid) {
-      handleValidationAction(db, action);
+      handleValidationAction(db, action, dispatcher);
     } else if (contract === config.contracts.agentescrow) {
-      handleEscrowAction(db, action);
+      handleEscrowAction(db, action, dispatcher);
     } else if (contract === config.contracts.token && action.act.name === 'transfer') {
       const { from, to } = action.act.data;
       if (to === config.contracts.agentescrow || from === config.contracts.agentescrow) {
-        handleEscrowTransfer(db, action, config.contracts.agentescrow);
+        handleEscrowTransfer(db, action, config.contracts.agentescrow, dispatcher);
       }
       if (to === config.contracts.agentvalid || from === config.contracts.agentvalid) {
-        handleValidationTransfer(db, action, config.contracts.agentvalid);
+        handleValidationTransfer(db, action, config.contracts.agentvalid, dispatcher);
       }
       if (to === config.contracts.agentcore) {
         handleAgentCoreTransfer(db, action);

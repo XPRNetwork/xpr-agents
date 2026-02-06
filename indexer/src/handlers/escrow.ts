@@ -1,16 +1,24 @@
 import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
 import { updateStats } from '../db/schema';
+import { WebhookDispatcher } from '../webhooks/dispatcher';
 
 /**
  * Handle escrow contract actions
  */
-export function handleEscrowAction(db: Database.Database, action: StreamAction): void {
+export function handleEscrowAction(db: Database.Database, action: StreamAction, dispatcher?: WebhookDispatcher): void {
   const { name, data } = action.act;
 
   switch (name) {
     case 'createjob':
       handleCreateJob(db, data, action.timestamp);
+      dispatcher?.dispatch(
+        'job.created',
+        [data.client, data.agent],
+        data,
+        `New job from ${data.client} for agent ${data.agent}: "${data.title}" (${(data.amount || 0) / 10000} XPR)`,
+        action.block_num
+      );
       break;
     case 'acceptjob':
       handleAcceptJob(db, data);
@@ -20,15 +28,57 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction):
       break;
     case 'deliver':
       handleDeliver(db, data);
+      if (dispatcher) {
+        const deliverJob = db.prepare('SELECT client, agent FROM jobs WHERE id = ?').get(data.job_id) as { client: string; agent: string } | undefined;
+        dispatcher.dispatch(
+          'job.delivered',
+          deliverJob ? [deliverJob.client, deliverJob.agent] : [],
+          data,
+          `Job #${data.job_id} delivered`,
+          action.block_num
+        );
+      }
       break;
     case 'approve':
       handleApprove(db, data);
+      if (dispatcher) {
+        const approveJob = db.prepare('SELECT client, agent FROM jobs WHERE id = ?').get(data.job_id) as { client: string; agent: string } | undefined;
+        dispatcher.dispatch(
+          'job.completed',
+          approveJob ? [approveJob.client, approveJob.agent] : [],
+          data,
+          `Job #${data.job_id} approved and completed`,
+          action.block_num
+        );
+      }
       break;
     case 'dispute':
       handleDispute(db, data, action.timestamp);
+      if (dispatcher) {
+        const disputeJob = db.prepare('SELECT client, agent, arbitrator FROM jobs WHERE id = ?').get(data.job_id) as { client: string; agent: string; arbitrator: string } | undefined;
+        const disputeAccounts = disputeJob ? [disputeJob.client, disputeJob.agent, disputeJob.arbitrator].filter(Boolean) : [data.raised_by];
+        dispatcher.dispatch(
+          'job.disputed',
+          disputeAccounts,
+          data,
+          `Dispute raised on job #${data.job_id} by ${data.raised_by}`,
+          action.block_num
+        );
+      }
       break;
     case 'arbitrate':
       handleArbitrate(db, data);
+      if (dispatcher) {
+        const arbDispute = db.prepare('SELECT job_id FROM escrow_disputes WHERE id = ?').get(data.dispute_id) as { job_id: number } | undefined;
+        const arbJob = arbDispute ? db.prepare('SELECT client, agent FROM jobs WHERE id = ?').get(arbDispute.job_id) as { client: string; agent: string } | undefined : undefined;
+        dispatcher.dispatch(
+          'dispute.resolved',
+          arbJob ? [arbJob.client, arbJob.agent, data.arbitrator] : [data.arbitrator],
+          data,
+          `Dispute #${data.dispute_id} arbitrated by ${data.arbitrator}`,
+          action.block_num
+        );
+      }
       break;
     case 'cancel':
       handleCancel(db, data);
@@ -382,7 +432,7 @@ function logEvent(db: Database.Database, action: StreamAction): void {
  * - released_amount is set by terminal state actions (approve, arbitrate, cancel, timeout)
  * - NOT tracked via transfers to avoid double-counting with action handlers
  */
-export function handleEscrowTransfer(db: Database.Database, action: StreamAction, escrowContract: string): void {
+export function handleEscrowTransfer(db: Database.Database, action: StreamAction, escrowContract: string, dispatcher?: WebhookDispatcher): void {
   const { from, to, quantity, memo } = action.act.data;
 
   // Parse quantity (e.g., "100.0000 XPR")
@@ -404,6 +454,14 @@ export function handleEscrowTransfer(db: Database.Database, action: StreamAction
         `);
         stmt.run(amount, jobId);
         console.log(`Job ${jobId} funded with ${amountStr}`);
+
+        dispatcher?.dispatch(
+          'job.funded',
+          [from],
+          { job_id: jobId, amount: amountStr, funder: from },
+          `Job #${jobId} funded with ${amountStr} by ${from}`,
+          action.block_num
+        );
       }
     } else if (memo === 'arbstake' || memo.startsWith('arbstake:')) {
       // Arbitrator staking

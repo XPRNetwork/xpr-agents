@@ -278,6 +278,28 @@ export function initDatabase(dbPath: string): Database.Database {
     );
 
     INSERT OR IGNORE INTO stream_cursor (id, last_block_num) VALUES (1, 0);
+
+    -- Webhook subscriptions for push notifications
+    CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      url TEXT NOT NULL,
+      token TEXT NOT NULL,
+      event_filter TEXT NOT NULL,
+      account_filter TEXT,
+      enabled INTEGER DEFAULT 1,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      failure_count INTEGER DEFAULT 0
+    );
+
+    -- Webhook delivery log
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subscription_id INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status_code INTEGER,
+      attempted_at INTEGER DEFAULT (strftime('%s','now'))
+    );
   `);
 
   // Migrations: Add columns that may not exist in older databases.

@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
 import { updateStats } from '../db/schema';
+import { WebhookDispatcher } from '../webhooks/dispatcher';
 
-export function handleValidationAction(db: Database.Database, action: StreamAction): void {
+export function handleValidationAction(db: Database.Database, action: StreamAction, dispatcher?: WebhookDispatcher): void {
   const { name, data } = action.act;
 
   switch (name) {
@@ -17,12 +18,26 @@ export function handleValidationAction(db: Database.Database, action: StreamActi
       break;
     case 'validate':
       handleValidate(db, data, action.timestamp);
+      dispatcher?.dispatch(
+        'validation.submitted',
+        [data.agent, data.validator],
+        data,
+        `Validation for agent ${data.agent} by ${data.validator}: ${data.result === 1 ? 'pass' : data.result === 2 ? 'partial' : 'fail'} (${data.confidence}% confidence)`,
+        action.block_num
+      );
       break;
     case 'challenge':
       handleChallenge(db, data, action.timestamp);
       break;
     case 'resolve':
       handleResolve(db, data);
+      dispatcher?.dispatch(
+        'validation.challenge_resolved',
+        [data.resolver],
+        data,
+        `Challenge #${data.challenge_id} resolved (${data.upheld ? 'upheld' : 'rejected'})`,
+        action.block_num
+      );
       break;
     case 'slash':
       handleSlash(db, data);
@@ -327,7 +342,7 @@ function logEvent(db: Database.Database, action: StreamAction): void {
  * Handle eosio.token::transfer notifications to/from agentvalid
  * Updates validator stake, challenge funding, and processes refunds
  */
-export function handleValidationTransfer(db: Database.Database, action: StreamAction, validContract: string): void {
+export function handleValidationTransfer(db: Database.Database, action: StreamAction, validContract: string, dispatcher?: WebhookDispatcher): void {
   const { from, to, quantity, memo } = action.act.data;
 
   // Parse quantity (e.g., "100.0000 XPR")
@@ -401,6 +416,14 @@ export function handleValidationTransfer(db: Database.Database, action: StreamAc
       }
 
       console.log(`Challenge ${challengeId} funded with ${amountStr}`);
+
+      dispatcher?.dispatch(
+        'validation.challenged',
+        challenge ? [from] : [from],
+        { challenge_id: challengeId, amount: amountStr, challenger: from },
+        `Validation challenge #${challengeId} funded with ${amountStr}`,
+        action.block_num
+      );
     }
   }
 

@@ -1,0 +1,38 @@
+{
+  "name": "@xpr-agents/openclaw",
+  "version": "0.1.0",
+  "description": "OpenClaw plugin for XPR Network Trustless Agent Registry - autonomous agent operation, escrow jobs, feedback, and validation",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "skills",
+    "openclaw.plugin.json"
+  ],
+  "openclaw": {
+    "extensions": [
+      "dist/index.js"
+    ]
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "@xpr-agents/sdk": "file:../sdk",
+    "@proton/js": "^28.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}
