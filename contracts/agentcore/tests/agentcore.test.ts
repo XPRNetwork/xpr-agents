@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { Blockchain, protonAssert, expectToThrow, nameToBigInt } from '@proton/vert';
+import { Blockchain, protonAssert, expectToThrow, mintTokens, nameToBigInt } from '@proton/vert';
 
 /* ------------------------------------------------------------------ */
 /*  Bootstrap                                                          */
@@ -7,8 +7,52 @@ import { Blockchain, protonAssert, expectToThrow, nameToBigInt } from '@proton/v
 
 const blockchain = new Blockchain();
 
-// Contract under test
-const agentcore = blockchain.createContract('agentcore', 'assembly/target/agentcore.contract');
+// Contract under test — sendsInline=true for token refund transfers
+const agentcore = blockchain.createContract('agentcore', 'assembly/target/agentcore.contract', true);
+
+// eosio.token for claim deposits
+const eosioToken = blockchain.createContract('eosio.token', 'node_modules/proton-tsc/external/eosio.token/eosio.token');
+
+// eosio.proton mock for KYC data — needs both ABI + wasm for table accessors to work
+const USERSINFO_ABI = {
+  version: 'eosio::abi/1.1',
+  types: [],
+  structs: [{
+    name: 'usersinfo',
+    base: '',
+    fields: [
+      { name: 'acc', type: 'name' },
+      { name: 'name', type: 'string' },
+      { name: 'avatar', type: 'string' },
+      { name: 'verified', type: 'uint8' },
+      { name: 'date', type: 'uint64' },
+      { name: 'verifiedon', type: 'uint64' },
+      { name: 'verifier', type: 'name' },
+      { name: 'raccs', type: 'name[]' },
+      { name: 'aacts', type: 'string[]' },
+      { name: 'ac', type: 'uint64[]' },
+      { name: 'kyc', type: 'uint8[]' },
+    ],
+  }],
+  actions: [],
+  tables: [{
+    name: 'usersinfo',
+    index_type: 'i64',
+    key_names: ['acc'],
+    key_types: ['name'],
+    type: 'usersinfo',
+  }],
+  ricardian_clauses: [],
+  variants: [],
+};
+// Minimal valid wasm module (empty)
+const MINIMAL_WASM = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+
+const eosioProton = blockchain.createAccount({
+  name: 'eosio.proton',
+  abi: USERSINFO_ABI,
+  wasm: MINIMAL_WASM,
+});
 
 // Accounts
 const [owner, alice, bob, carol, plugcon] = blockchain.createAccounts('owner', 'alice', 'bob', 'carol', 'plugcon');
@@ -40,6 +84,24 @@ const validReg = (account: string) => [
   'https',
   '["chat","compute"]',
 ];
+
+/* Set KYC level for an account in eosio.proton::usersinfo */
+const setKyc = (account: string, kycLevel: number) => {
+  const scope = nameToBigInt('eosio.proton');
+  eosioProton.tables.usersinfo(scope).set(nameToBigInt(account), 'eosio.proton' as any, {
+    acc: account,
+    name: '',
+    avatar: '',
+    verified: kycLevel > 0 ? 1 : 0,
+    date: 0,
+    verifiedon: 0,
+    verifier: '',
+    raccs: [],
+    aacts: [],
+    ac: [],
+    kyc: kycLevel > 0 ? [kycLevel] : [],
+  });
+};
 
 /* ------------------------------------------------------------------ */
 /*  Tests                                                              */
@@ -296,6 +358,226 @@ describe('agentcore', () => {
       await agentcore.actions.toggleplug(['alice', 0, true]).send('alice@active');
       ap = getAgentPlugin(0);
       expect(ap.enabled).to.equal(true);
+    });
+  });
+
+  /* ==================== Ownership / Claim Lifecycle ==================== */
+
+  describe('ownership lifecycle', () => {
+    beforeEach(async () => {
+      await agentcore.actions.init(['owner', 0, 100000, '', '', '']).send('agentcore@active');
+      await mintTokens(eosioToken, 'XPR', 4, 1000000000, 100000, [owner, alice, bob, carol]);
+      await agentcore.actions.register(validReg('alice')).send('alice@active');
+    });
+
+    describe('approveclaim', () => {
+      it('should set pending_owner on unowned agent', async () => {
+        setKyc('bob', 2);
+        await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+        const agent = getAgent('alice');
+        expect(agent.pending_owner).to.equal('bob');
+      });
+
+      it('should reject if agent already has an owner', async () => {
+        // First complete a claim so alice has an owner
+        setKyc('bob', 2);
+        await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+        await eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active');
+        await agentcore.actions.claim(['alice']).send('bob@active');
+
+        setKyc('carol', 2);
+        await expectToThrow(
+          agentcore.actions.approveclaim(['alice', 'carol']).send('alice@active'),
+          protonAssert('Agent already has an owner')
+        );
+      });
+
+      it('should reject if new_owner has no KYC', async () => {
+        // bob has no KYC
+        await expectToThrow(
+          agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active'),
+          protonAssert('Approved owner must have KYC level 1 or higher')
+        );
+      });
+
+      it('should reject from non-agent auth', async () => {
+        await expectToThrow(
+          agentcore.actions.approveclaim(['alice', 'bob']).send('bob@active'),
+          'missing required authority alice'
+        );
+      });
+    });
+
+    describe('claim (with deposit)', () => {
+      it('should complete claim when KYC valid and fee paid', async () => {
+        setKyc('bob', 2);
+        await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+        await eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active');
+        await agentcore.actions.claim(['alice']).send('bob@active');
+
+        const agent = getAgent('alice');
+        expect(agent.owner).to.equal('bob');
+        expect(agent.pending_owner).to.equal('');
+        expect(agent.claim_deposit).to.equal(100000); // 10.0000 XPR stored
+        expect(agent.deposit_payer).to.equal('bob');
+      });
+
+      it('should reject claim without deposit when fee is required', async () => {
+        setKyc('bob', 2);
+        await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+
+        await expectToThrow(
+          agentcore.actions.claim(['alice']).send('bob@active'),
+          protonAssert("Claim fee not paid. Send 10 XPR to this contract with memo 'claim:alice:bob'")
+        );
+      });
+
+      it('should abort claim and refund if KYC revoked between approve and claim', async () => {
+        setKyc('bob', 2);
+        await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+        await eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active');
+
+        // Revoke KYC before claim
+        setKyc('bob', 0);
+
+        // claim should NOT throw — it gracefully aborts and refunds
+        await agentcore.actions.claim(['alice']).send('bob@active');
+
+        const agent = getAgent('alice');
+        expect(agent.owner).to.equal(''); // ownership NOT assigned
+        expect(agent.pending_owner).to.equal(''); // pending cleared
+        expect(agent.claim_deposit).to.equal(0); // deposit refunded
+      });
+
+      it('should reject if no pending claim', async () => {
+        setKyc('bob', 2);
+        await expectToThrow(
+          agentcore.actions.claim(['alice']).send('bob@active'),
+          protonAssert('Agent has not approved any claimant. Agent must call approveclaim first.')
+        );
+      });
+
+      it('should reject claim from wrong account', async () => {
+        setKyc('bob', 2);
+        await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+        await expectToThrow(
+          agentcore.actions.claim(['alice']).send('carol@active'),
+          'missing required authority bob'
+        );
+      });
+    });
+
+    describe('cancelclaim', () => {
+      it('should cancel pending claim and refund deposit', async () => {
+        setKyc('bob', 2);
+        await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+        await eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active');
+
+        await agentcore.actions.cancelclaim(['alice']).send('alice@active');
+
+        const agent = getAgent('alice');
+        expect(agent.pending_owner).to.equal('');
+        expect(agent.claim_deposit).to.equal(0);
+      });
+
+      it('should cancel pending claim without deposit', async () => {
+        setKyc('bob', 2);
+        await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+        await agentcore.actions.cancelclaim(['alice']).send('alice@active');
+
+        const agent = getAgent('alice');
+        expect(agent.pending_owner).to.equal('');
+      });
+
+      it('should reject if no pending claim', async () => {
+        await expectToThrow(
+          agentcore.actions.cancelclaim(['alice']).send('alice@active'),
+          protonAssert('No pending claim to cancel')
+        );
+      });
+
+      it('should reject from non-agent auth', async () => {
+        setKyc('bob', 2);
+        await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+        await expectToThrow(
+          agentcore.actions.cancelclaim(['alice']).send('bob@active'),
+          'missing required authority alice'
+        );
+      });
+    });
+
+    describe('release', () => {
+      beforeEach(async () => {
+        setKyc('bob', 2);
+        await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+        await eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active');
+        await agentcore.actions.claim(['alice']).send('bob@active');
+      });
+
+      it('should release ownership and refund deposit to original payer', async () => {
+        await agentcore.actions.release(['alice']).send('bob@active');
+
+        const agent = getAgent('alice');
+        expect(agent.owner).to.equal('');
+        expect(agent.claim_deposit).to.equal(0);
+        expect(agent.deposit_payer).to.equal('');
+      });
+
+      it('should reject release from non-owner', async () => {
+        await expectToThrow(
+          agentcore.actions.release(['alice']).send('alice@active'),
+          'missing required authority bob'
+        );
+      });
+
+      it('should reject release if no owner', async () => {
+        await agentcore.actions.release(['alice']).send('bob@active');
+        await expectToThrow(
+          agentcore.actions.release(['alice']).send('bob@active'),
+          protonAssert('Agent has no owner')
+        );
+      });
+    });
+
+    describe('verifyclaim', () => {
+      beforeEach(async () => {
+        setKyc('bob', 2);
+        await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+        await eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active');
+        await agentcore.actions.claim(['alice']).send('bob@active');
+      });
+
+      it('should do nothing when KYC is still valid', async () => {
+        // bob still has KYC level 2
+        await agentcore.actions.verifyclaim(['alice']).send('carol@active');
+        const agent = getAgent('alice');
+        expect(agent.owner).to.equal('bob'); // unchanged
+      });
+
+      it('should remove ownership when KYC revoked', async () => {
+        // Remove bob's KYC by setting level 0
+        setKyc('bob', 0);
+
+        await agentcore.actions.verifyclaim(['alice']).send('carol@active');
+
+        const agent = getAgent('alice');
+        expect(agent.owner).to.equal(''); // ownership removed
+        expect(agent.claim_deposit).to.equal(0); // deposit refunded
+      });
+
+      it('should reject if agent has no owner', async () => {
+        await agentcore.actions.release(['alice']).send('bob@active');
+        await expectToThrow(
+          agentcore.actions.verifyclaim(['alice']).send('carol@active'),
+          protonAssert('Agent has no owner to verify')
+        );
+      });
+
+      it('anyone can call verifyclaim (permissionless)', async () => {
+        // carol can call it even though she's unrelated
+        await agentcore.actions.verifyclaim(['alice']).send('carol@active');
+        // No error means it works
+      });
     });
   });
 

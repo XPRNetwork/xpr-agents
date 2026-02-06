@@ -18,13 +18,21 @@
 - [ ] Confirm config values on-chain (fees, timeouts, min stake, `paused=false`)
 - [ ] Confirm emergency pause and unpause paths work:
   ```bash
-  # Pause
-  proton action agentcore setconfig '["owner","agentcore",0,true]' owner@active
+  # Pause all contracts
+  # agentcore setconfig: min_stake, registration_fee, claim_fee, feed_contract, valid_contract, escrow_contract, paused
+  proton action agentcore setconfig '[0,0,100000,"agentfeed","agentvalid","agentescrow",true]' owner@active
+  # agentfeed setconfig: core_contract, min_score, max_score, dispute_window, decay_period, decay_floor, paused, feedback_fee
   proton action agentfeed setconfig '["agentcore",1,5,86400,3600,50,true,0]' owner@active
+  # agentvalid setconfig: core_contract, min_stake, challenge_stake, unstake_delay, challenge_window, slash_percent, dispute_period, funded_challenge_timeout, paused, validation_fee
   proton action agentvalid setconfig '["agentcore",10000,50000,86400,3600,1000,172800,604800,true,0]' owner@active
-  proton action agentescrow setconfig '["agentcore",10000,500,200,true]' owner@active
+  # agentescrow setconfig: platform_fee, min_job_amount, default_deadline_days, dispute_window, paused
+  proton action agentescrow setconfig '[200,10000,30,604800,true]' owner@active
 
   # Unpause (same commands with paused=false)
+  proton action agentcore setconfig '[0,0,100000,"agentfeed","agentvalid","agentescrow",false]' owner@active
+  proton action agentfeed setconfig '["agentcore",1,5,86400,3600,50,false,0]' owner@active
+  proton action agentvalid setconfig '["agentcore",10000,50000,86400,3600,1000,172800,604800,false,0]' owner@active
+  proton action agentescrow setconfig '[200,10000,30,604800,false]' owner@active
   ```
 
 ## End-to-End Shadow Simulation
@@ -47,6 +55,7 @@
 - [ ] Compare sampled API rows vs chain tables for agents, jobs, disputes, challenges
 - [ ] Validate ownership events (approveclaim/claim/verifyclaim/release/transfer) match chain state
 - [ ] Verify cursor tracking: stop indexer, restart, confirm it resumes from last block
+- [ ] Verify `verifyclaim` with zero deposit does not desync indexer (known gap — reconcile via periodic chain sync or accept drift)
 
 ## Operational Readiness
 
@@ -70,6 +79,7 @@
 - [ ] Explicitly accept known limitations:
   - Indexer synthetic ID mapping requires genesis replay or trusted snapshot seeding
   - `reviewer_kyc_level` in indexer remains 0 unless external sync job is added (scores diverge from on-chain)
+  - `verifyclaim` with zero-deposit owner removal may drift indexer state without periodic chain reconciliation
 - [ ] Final security review recorded
 - [ ] Legal/compliance sign-off recorded (if applicable)
 
@@ -93,31 +103,45 @@
 
 ```bash
 # Requires owner authority on each contract
-proton action agentcore setconfig '["owner","agentcore",0,true]' owner@active
+# agentcore: min_stake, registration_fee, claim_fee, feed_contract, valid_contract, escrow_contract, paused
+proton action agentcore setconfig '[0,0,100000,"agentfeed","agentvalid","agentescrow",true]' owner@active
+# agentfeed: core_contract, min_score, max_score, dispute_window, decay_period, decay_floor, paused, feedback_fee
 proton action agentfeed setconfig '["agentcore",1,5,86400,3600,50,true,0]' owner@active
+# agentvalid: core_contract, min_stake, challenge_stake, unstake_delay, challenge_window, slash_percent, dispute_period, funded_challenge_timeout, paused, validation_fee
 proton action agentvalid setconfig '["agentcore",10000,50000,86400,3600,1000,172800,604800,true,0]' owner@active
-proton action agentescrow setconfig '["agentcore",10000,500,200,true]' owner@active
+# agentescrow: platform_fee, min_job_amount, default_deadline_days, dispute_window, paused
+proton action agentescrow setconfig '[200,10000,30,604800,true]' owner@active
 ```
 
 ### Indexer Resync
 
 ```bash
-# Stop indexer
+# All commands run from the indexer/ directory
+cd indexer/
+
+# Stop indexer process
 # Back up current DB
 cp ./data/agents.db ./data/agents.db.bak
 
-# Option A: Full replay
+# Option A: Full replay from genesis
 rm ./data/agents.db
 HYPERION_ENDPOINTS="https://proton.eosusa.io,https://proton.greymass.com" npm start
 
-# Option B: Restore from backup
+# Option B: Restore from backup and resume from cursor
 cp ./data/agents.db.bak ./data/agents.db
-npm start  # resumes from cursor
+npm start  # resumes from last saved cursor block
 ```
 
 ### Frontend Maintenance Mode
 
 ```bash
-# Deploy static maintenance page or set env flag
-NEXT_PUBLIC_MAINTENANCE=true npm run build && npm run deploy
+# From frontend/ directory — Next.js has no built-in deploy script;
+# use your hosting provider's CLI or CI/CD pipeline
+cd frontend/
+NEXT_PUBLIC_MAINTENANCE=true npm run build
+
+# Deploy via your platform (e.g., Vercel, Netlify, or custom):
+# vercel --prod
+# netlify deploy --prod
+# rsync -avz out/ user@host:/var/www/frontend/
 ```
