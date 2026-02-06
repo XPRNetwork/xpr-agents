@@ -11,7 +11,6 @@ export interface StreamAction {
     authorization: Array<{ actor: string; permission: string }>;
     data: Record<string, any>;
   };
-  // P2 FIX: Optional inline traces for detecting side effects like token transfers
   inline_traces?: Array<{
     act: {
       account: string;
@@ -22,7 +21,7 @@ export interface StreamAction {
 }
 
 export interface StreamConfig {
-  endpoint: string;
+  endpoints: string[];
   contracts: string[];
   startBlock?: number;
   irreversibleOnly?: boolean;
@@ -34,6 +33,9 @@ export class HyperionStream extends EventEmitter {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pingTimer: NodeJS.Timeout | null = null;
   private reqId = 0;
+  private currentEndpointIndex = 0;
+  private reconnectDelay = 1000;
+  private readonly MAX_RECONNECT_DELAY = 30000;
 
   constructor(config: StreamConfig) {
     super();
@@ -41,13 +43,15 @@ export class HyperionStream extends EventEmitter {
   }
 
   connect(): void {
-    const wsUrl = this.config.endpoint.replace(/^http/, 'ws') + '/stream';
-    console.log(`Connecting to Hyperion stream: ${wsUrl}`);
+    const endpoint = this.config.endpoints[this.currentEndpointIndex];
+    const wsUrl = endpoint.replace(/^http/, 'ws') + '/stream';
+    console.log(`Connecting to Hyperion stream: ${wsUrl} (endpoint ${this.currentEndpointIndex + 1}/${this.config.endpoints.length})`);
 
     this.ws = new WebSocket(wsUrl);
 
     this.ws.on('open', () => {
       console.log('Hyperion WebSocket connected');
+      this.reconnectDelay = 1000;
       this.emit('connected');
       this.subscribe();
       this.startPing();
@@ -68,8 +72,9 @@ export class HyperionStream extends EventEmitter {
     });
 
     this.ws.on('close', () => {
-      console.log('WebSocket closed, reconnecting...');
+      console.log('WebSocket closed');
       this.stopPing();
+      this.emit('disconnected');
       this.scheduleReconnect();
     });
   }
@@ -101,7 +106,6 @@ export class HyperionStream extends EventEmitter {
         timestamp: message.content['@timestamp'],
         trx_id: message.content.trx_id,
         act: message.content.act,
-        // P2 FIX: Capture inline traces if available (for detecting side effects)
         inline_traces: message.content.inline_traces || message.content.traces,
       };
 
@@ -133,10 +137,22 @@ export class HyperionStream extends EventEmitter {
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
 
+    // Cycle to next endpoint
+    this.currentEndpointIndex = (this.currentEndpointIndex + 1) % this.config.endpoints.length;
+
+    console.log(`Reconnecting in ${this.reconnectDelay}ms to endpoint ${this.currentEndpointIndex + 1}/${this.config.endpoints.length}...`);
+
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, 5000);
+    }, this.reconnectDelay);
+
+    // Exponential backoff with cap
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.MAX_RECONNECT_DELAY);
+  }
+
+  isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 
   disconnect(): void {

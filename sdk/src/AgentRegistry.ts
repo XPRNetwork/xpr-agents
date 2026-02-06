@@ -445,6 +445,62 @@ export class AgentRegistry {
   }
 
   /**
+   * Register a new agent with registration fee in one transaction.
+   * Sends the fee deposit and registers in a single tx.
+   *
+   * @param data - Agent registration data
+   * @param amount - The registration fee (e.g., "1.0000 XPR")
+   */
+  async registerWithFee(data: RegisterAgentData, amount: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    validateAgentData({
+      name: data.name,
+      description: data.description,
+      endpoint: data.endpoint,
+      protocol: data.protocol,
+      capabilities: data.capabilities,
+    });
+
+    const actor = this.session!.auth.actor;
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: 'eosio.token',
+          name: 'transfer',
+          authorization: [{
+            actor,
+            permission: this.session!.auth.permission,
+          }],
+          data: {
+            from: actor,
+            to: this.contract,
+            quantity: amount,
+            memo: `regfee:${actor}`,
+          },
+        },
+        {
+          account: this.contract,
+          name: 'register',
+          authorization: [{
+            actor,
+            permission: this.session!.auth.permission,
+          }],
+          data: {
+            account: actor,
+            name: data.name,
+            description: data.description,
+            endpoint: data.endpoint,
+            protocol: data.protocol,
+            capabilities: JSON.stringify(data.capabilities),
+          },
+        },
+      ],
+    });
+  }
+
+  /**
    * Update agent metadata
    */
   async update(data: UpdateAgentData): Promise<TransactionResult> {

@@ -1053,6 +1053,62 @@ export class AgentEscrowContract extends Contract {
     print(`Arbitrator ${account.toString()} cancelled unstake. Returned ${returnAmount / 10000} XPR to stake`);
   }
 
+  // ============== CLEANUP ==============
+
+  @action("cleanjobs")
+  cleanJobs(max_age: u64, max_delete: u64): void {
+    check(max_age >= 7776000, "Max age must be at least 90 days (7776000 seconds)");
+    check(max_delete >= 1 && max_delete <= 100, "Max delete must be 1-100");
+
+    const cutoff = currentTimeSec() - max_age;
+    let deleted: u64 = 0;
+
+    let job = this.jobsTable.first();
+    while (job != null && deleted < max_delete) {
+      const current = job;
+      job = this.jobsTable.next(current);
+
+      // Only delete terminal states: completed(6), refunded(7), arbitrated(8)
+      if ((current.state == 6 || current.state == 7 || current.state == 8) && current.updated_at < cutoff) {
+        // Delete associated milestones
+        let ms = this.milestonesTable.getBySecondaryU64(current.id, 0);
+        while (ms != null && ms.job_id == current.id) {
+          const currentMs = ms;
+          ms = this.milestonesTable.nextBySecondaryU64(currentMs, 0);
+          if (ms != null && ms.job_id != current.id) ms = null;
+          this.milestonesTable.remove(currentMs);
+        }
+
+        this.jobsTable.remove(current);
+        deleted++;
+      }
+    }
+
+    print(`Cleaned ${deleted} completed jobs`);
+  }
+
+  @action("cleandisps")
+  cleanDisputes(max_age: u64, max_delete: u64): void {
+    check(max_age >= 7776000, "Max age must be at least 90 days (7776000 seconds)");
+    check(max_delete >= 1 && max_delete <= 100, "Max delete must be 1-100");
+
+    const cutoff = currentTimeSec() - max_age;
+    let deleted: u64 = 0;
+
+    let dispute = this.disputesTable.first();
+    while (dispute != null && deleted < max_delete) {
+      const current = dispute;
+      dispute = this.disputesTable.next(current);
+
+      if (current.resolution != 0 && current.resolved_at > 0 && current.resolved_at < cutoff) {
+        this.disputesTable.remove(current);
+        deleted++;
+      }
+    }
+
+    print(`Cleaned ${deleted} resolved disputes`);
+  }
+
   // ============== TOKEN HANDLING ==============
 
   @action("transfer", notify)

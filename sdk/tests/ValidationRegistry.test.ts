@@ -319,6 +319,136 @@ describe('ValidationRegistry read operations', () => {
   });
 });
 
+// ============== Fee + Cleanup + Config ==============
+
+describe('ValidationRegistry fee and cleanup methods', () => {
+  describe('validateWithFee()', () => {
+    it('sends 2-action tx: transfer + validate', async () => {
+      const session = mockSession();
+      const registry = new ValidationRegistry(mockRpc(), session);
+
+      await registry.validateWithFee({
+        agent: 'testagent',
+        job_hash: 'hash123',
+        result: 'pass',
+        confidence: 95,
+        evidence_uri: 'https://proof.com',
+      }, '3.0000 XPR');
+
+      const call = (session.link.transact as jest.Mock).mock.calls[0][0];
+      expect(call.actions).toHaveLength(2);
+
+      // First action: token transfer with valfee memo
+      const transfer = call.actions[0];
+      expect(transfer.account).toBe('eosio.token');
+      expect(transfer.name).toBe('transfer');
+      expect(transfer.data.from).toBe('testuser');
+      expect(transfer.data.to).toBe('agentvalid');
+      expect(transfer.data.quantity).toBe('3.0000 XPR');
+      expect(transfer.data.memo).toBe('valfee:testuser');
+
+      // Second action: validate
+      const validate = call.actions[1];
+      expect(validate.account).toBe('agentvalid');
+      expect(validate.name).toBe('validate');
+      expect(validate.data).toEqual({
+        validator: 'testuser',
+        agent: 'testagent',
+        job_hash: 'hash123',
+        result: 1, // 'pass' → 1
+        confidence: 95,
+        evidence_uri: 'https://proof.com',
+      });
+    });
+  });
+
+  describe('cleanValidations()', () => {
+    it('sends "cleanvals" action with agent, max_age, max_delete', async () => {
+      const session = mockSession();
+      const registry = new ValidationRegistry(mockRpc(), session);
+
+      await registry.cleanValidations('testagent', 7776000, 50);
+
+      const call = (session.link.transact as jest.Mock).mock.calls[0][0];
+      const action = call.actions[0];
+      expect(action.account).toBe('agentvalid');
+      expect(action.name).toBe('cleanvals');
+      expect(action.data).toEqual({
+        agent: 'testagent',
+        max_age: 7776000,
+        max_delete: 50,
+      });
+    });
+  });
+
+  describe('cleanChallenges()', () => {
+    it('sends "cleanchals" action with max_age, max_delete', async () => {
+      const session = mockSession();
+      const registry = new ValidationRegistry(mockRpc(), session);
+
+      await registry.cleanChallenges(7776000, 100);
+
+      const call = (session.link.transact as jest.Mock).mock.calls[0][0];
+      const action = call.actions[0];
+      expect(action.account).toBe('agentvalid');
+      expect(action.name).toBe('cleanchals');
+      expect(action.data).toEqual({
+        max_age: 7776000,
+        max_delete: 100,
+      });
+    });
+  });
+
+  describe('getConfig()', () => {
+    it('reads config singleton and parses numeric fields', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [{
+          owner: 'admin',
+          core_contract: 'agentcore',
+          min_stake: '50000',
+          challenge_stake: '10000',
+          unstake_delay: '604800',
+          challenge_window: '259200',
+          slash_percent: '1000',
+          dispute_period: '604800',
+          funded_challenge_timeout: '86400',
+          paused: 0,
+          validation_fee: '5000',
+        }],
+        more: false,
+      });
+      const registry = new ValidationRegistry(rpc);
+
+      const config = await registry.getConfig();
+
+      expect(rpc.get_table_rows).toHaveBeenCalledWith(expect.objectContaining({
+        code: 'agentvalid',
+        table: 'config',
+        limit: 1,
+      }));
+      expect(config).toEqual({
+        owner: 'admin',
+        core_contract: 'agentcore',
+        min_stake: 50000,
+        challenge_stake: 10000,
+        unstake_delay: 604800,
+        challenge_window: 259200,
+        slash_percent: 1000,
+        dispute_period: 604800,
+        funded_challenge_timeout: 86400,
+        paused: false,
+        validation_fee: 5000,
+      });
+    });
+
+    it('throws when contract not initialized', async () => {
+      const registry = new ValidationRegistry(mockRpc());
+      await expect(registry.getConfig()).rejects.toThrow('Contract not initialized');
+    });
+  });
+});
+
 // ============== Error Handling ==============
 
 describe('ValidationRegistry error handling', () => {

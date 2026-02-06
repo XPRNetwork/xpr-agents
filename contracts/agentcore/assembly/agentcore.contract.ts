@@ -90,6 +90,21 @@ export class UserInfo extends Table {
 
 // ============== LOCAL TABLES ==============
 
+@table("deposits")
+export class Deposit extends Table {
+  constructor(
+    public account: Name = EMPTY_NAME,
+    public amount: u64 = 0
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.account.N;
+  }
+}
+
 @table("agents")
 export class Agent extends Table {
   constructor(
@@ -255,6 +270,7 @@ export class AgentCoreContract extends Contract {
   private pluginsTable: TableStore<Plugin> = new TableStore<Plugin>(this.receiver);
   private agentPlugsTable: TableStore<AgentPlugin> = new TableStore<AgentPlugin>(this.receiver);
   private pluginResultsTable: TableStore<PluginResult> = new TableStore<PluginResult>(this.receiver);
+  private depositsTable: TableStore<Deposit> = new TableStore<Deposit>(this.receiver);
   private configSingleton: Singleton<Config> = new Singleton<Config>(this.receiver);
 
   // External tables - read system staking and KYC
@@ -443,6 +459,21 @@ export class AgentCoreContract extends Contract {
 
     // C1 FIX: Validate capabilities field to prevent unbounded storage
     check(capabilities.length <= 2048, "Capabilities must be <= 2048 characters");
+
+    // Check registration fee (deposit pattern)
+    if (config.registration_fee > 0) {
+      const deposit = this.depositsTable.get(account.N);
+      check(deposit != null, "Registration fee not paid. Send XPR with memo 'regfee:" + account.toString() + "'");
+      check(deposit!.amount >= config.registration_fee,
+        "Insufficient registration fee. Required: " + (config.registration_fee / 10000).toString() + " XPR");
+
+      // Consume fee, refund excess
+      const excess = deposit!.amount - config.registration_fee;
+      if (excess > 0) {
+        this.sendTokens(account, new Asset(<i64>excess, this.XPR_SYMBOL), "Registration fee excess refund");
+      }
+      this.depositsTable.remove(deposit!);
+    }
 
     // Check minimum stake requirement (from system staking)
     if (config.min_stake > 0) {
@@ -726,6 +757,8 @@ export class AgentCoreContract extends Contract {
       const refundAmount = agentRecord.claim_deposit;
       const refundTo = agentRecord.deposit_payer;
 
+      check(isAccount(refundTo), "Refund recipient account no longer exists");
+
       agentRecord.claim_deposit = 0;
       agentRecord.deposit_payer = EMPTY_NAME;
       this.agentsTable.update(agentRecord, this.receiver);
@@ -804,6 +837,10 @@ export class AgentCoreContract extends Contract {
     // CRITICAL FIX: Refund to original deposit payer, not current owner
     const refundTo = agentRecord.deposit_payer != EMPTY_NAME ? agentRecord.deposit_payer : oldOwner;
 
+    if (refundAmount > 0) {
+      check(isAccount(refundTo), "Refund recipient account no longer exists");
+    }
+
     // Clear ownership and deposit tracking
     agentRecord.owner = EMPTY_NAME;
     agentRecord.claim_deposit = 0;
@@ -873,6 +910,10 @@ export class AgentCoreContract extends Contract {
     const refundAmount = agentRecord.claim_deposit;
     // P2 FIX: Refund to original deposit payer, not current owner (matches release() behavior)
     const refundTo = agentRecord.deposit_payer != EMPTY_NAME ? agentRecord.deposit_payer : owner;
+
+    if (refundAmount > 0) {
+      check(isAccount(refundTo), "Refund recipient account no longer exists");
+    }
 
     // Clear ownership
     agentRecord.owner = EMPTY_NAME;
@@ -1199,10 +1240,33 @@ export class AgentCoreContract extends Contract {
     // Only accept XPR
     check(quantity.symbol == this.XPR_SYMBOL, "Only XPR accepted");
 
-    // Parse memo - must be "claim:agentname:ownername"
+    // Parse memo
+    if (memo.startsWith("regfee:")) {
+      // Registration fee deposit
+      const accountName = memo.slice(7); // Remove "regfee:" prefix
+      check(accountName.length > 0 && accountName.length <= 12, "Invalid account name in memo");
+      const depositAccount = Name.fromString(accountName);
+      check(from == depositAccount, "Payer must match account in memo");
+      check(quantity.amount > 0, "Transfer amount must be positive");
+
+      const existingDeposit = this.depositsTable.get(depositAccount.N);
+      const transferAmount: u64 = <u64>quantity.amount;
+      if (existingDeposit != null) {
+        check(existingDeposit.amount <= U64.MAX_VALUE - transferAmount, "Deposit would overflow");
+        existingDeposit.amount += transferAmount;
+        this.depositsTable.update(existingDeposit, this.receiver);
+      } else {
+        const deposit = new Deposit(depositAccount, transferAmount);
+        this.depositsTable.store(deposit, this.receiver);
+      }
+
+      print(`Registration fee deposit received: ${quantity.toString()} from ${from.toString()}`);
+      return;
+    }
+
     if (!memo.startsWith("claim:")) {
-      // Not a claim deposit, reject
-      check(false, "Invalid memo. For claim deposits use: claim:agentname:ownername");
+      // Not a recognized memo, reject
+      check(false, "Invalid memo. Use 'regfee:accountname' or 'claim:agentname:ownername'");
       return;
     }
 

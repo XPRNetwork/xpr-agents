@@ -839,6 +839,50 @@ export class EscrowRegistry {
     });
   }
 
+  /**
+   * Clean up completed jobs (permissionless)
+   */
+  async cleanJobs(maxAge: number, maxDelete: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'cleanjobs',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          max_age: maxAge,
+          max_delete: maxDelete,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Clean up resolved disputes (permissionless)
+   */
+  async cleanDisputes(maxAge: number, maxDelete: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'cleandisps',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          max_age: maxAge,
+          max_delete: maxDelete,
+        },
+      }],
+    });
+  }
+
   // ============== HELPERS ==============
 
   private requireSession(): void {

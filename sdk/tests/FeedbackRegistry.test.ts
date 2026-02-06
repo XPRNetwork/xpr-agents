@@ -244,6 +244,132 @@ describe('FeedbackRegistry read operations', () => {
   });
 });
 
+// ============== Fee + Cleanup + Config ==============
+
+describe('FeedbackRegistry fee and cleanup methods', () => {
+  describe('submitWithFee()', () => {
+    it('sends 2-action tx: transfer + submit', async () => {
+      const session = mockSession();
+      const registry = new FeedbackRegistry(mockRpc(), session);
+
+      await registry.submitWithFee({
+        agent: 'testagent',
+        score: 5,
+        tags: ['fast', 'reliable'],
+        job_hash: 'abc123',
+      }, '2.0000 XPR');
+
+      const call = (session.link.transact as jest.Mock).mock.calls[0][0];
+      expect(call.actions).toHaveLength(2);
+
+      // First action: token transfer with feedfee memo
+      const transfer = call.actions[0];
+      expect(transfer.account).toBe('eosio.token');
+      expect(transfer.name).toBe('transfer');
+      expect(transfer.data.from).toBe('testuser');
+      expect(transfer.data.to).toBe('agentfeed');
+      expect(transfer.data.quantity).toBe('2.0000 XPR');
+      expect(transfer.data.memo).toBe('feedfee:testuser');
+
+      // Second action: submit
+      const submit = call.actions[1];
+      expect(submit.account).toBe('agentfeed');
+      expect(submit.name).toBe('submit');
+      expect(submit.data).toEqual({
+        reviewer: 'testuser',
+        agent: 'testagent',
+        score: 5,
+        tags: 'fast,reliable',
+        job_hash: 'abc123',
+        evidence_uri: '',
+        amount_paid: 0,
+      });
+    });
+  });
+
+  describe('cleanFeedback()', () => {
+    it('sends "cleanfback" action with agent, max_age, max_delete', async () => {
+      const session = mockSession();
+      const registry = new FeedbackRegistry(mockRpc(), session);
+
+      await registry.cleanFeedback('testagent', 7776000, 50);
+
+      const call = (session.link.transact as jest.Mock).mock.calls[0][0];
+      const action = call.actions[0];
+      expect(action.account).toBe('agentfeed');
+      expect(action.name).toBe('cleanfback');
+      expect(action.data).toEqual({
+        agent: 'testagent',
+        max_age: 7776000,
+        max_delete: 50,
+      });
+    });
+  });
+
+  describe('cleanDisputes()', () => {
+    it('sends "cleandisps" action with max_age, max_delete', async () => {
+      const session = mockSession();
+      const registry = new FeedbackRegistry(mockRpc(), session);
+
+      await registry.cleanDisputes(7776000, 100);
+
+      const call = (session.link.transact as jest.Mock).mock.calls[0][0];
+      const action = call.actions[0];
+      expect(action.account).toBe('agentfeed');
+      expect(action.name).toBe('cleandisps');
+      expect(action.data).toEqual({
+        max_age: 7776000,
+        max_delete: 100,
+      });
+    });
+  });
+
+  describe('getConfig()', () => {
+    it('reads config singleton and parses numeric fields', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [{
+          owner: 'admin',
+          core_contract: 'agentcore',
+          min_score: 1,
+          max_score: 5,
+          dispute_window: '604800',
+          decay_period: '7776000',
+          decay_floor: '5000',
+          paused: 0,
+          feedback_fee: '10000',
+        }],
+        more: false,
+      });
+      const registry = new FeedbackRegistry(rpc);
+
+      const config = await registry.getConfig();
+
+      expect(rpc.get_table_rows).toHaveBeenCalledWith(expect.objectContaining({
+        code: 'agentfeed',
+        table: 'config',
+        limit: 1,
+      }));
+      expect(config).toEqual({
+        owner: 'admin',
+        core_contract: 'agentcore',
+        min_score: 1,
+        max_score: 5,
+        dispute_window: 604800,
+        decay_period: 7776000,
+        decay_floor: 5000,
+        paused: false,
+        feedback_fee: 10000,
+      });
+    });
+
+    it('throws when contract not initialized', async () => {
+      const registry = new FeedbackRegistry(mockRpc());
+      await expect(registry.getConfig()).rejects.toThrow('Contract not initialized');
+    });
+  });
+});
+
 // ============== Error Handling ==============
 
 describe('FeedbackRegistry error handling', () => {

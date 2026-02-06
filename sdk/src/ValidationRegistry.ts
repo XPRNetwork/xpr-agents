@@ -3,6 +3,7 @@ import {
   ValidatorRaw,
   Validation,
   ValidationRaw,
+  ValidationConfig,
   Challenge,
   ValidatorListOptions,
   SubmitValidationData,
@@ -582,6 +583,142 @@ export class ValidationRegistry {
         },
       ],
     });
+  }
+
+  /**
+   * Submit validation with fee in one transaction.
+   *
+   * @param data - Validation data
+   * @param amount - The validation fee (e.g., "1.0000 XPR")
+   */
+  async validateWithFee(data: SubmitValidationData, amount: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    const actor = this.session!.auth.actor;
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: 'eosio.token',
+          name: 'transfer',
+          authorization: [{
+            actor,
+            permission: this.session!.auth.permission,
+          }],
+          data: {
+            from: actor,
+            to: this.contract,
+            quantity: amount,
+            memo: `valfee:${actor}`,
+          },
+        },
+        {
+          account: this.contract,
+          name: 'validate',
+          authorization: [{
+            actor,
+            permission: this.session!.auth.permission,
+          }],
+          data: {
+            validator: actor,
+            agent: data.agent,
+            job_hash: data.job_hash,
+            result: validationResultToNumber(data.result),
+            confidence: data.confidence,
+            evidence_uri: data.evidence_uri || '',
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Clean up old validations (permissionless)
+   */
+  async cleanValidations(agent: string, maxAge: number, maxDelete: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'cleanvals',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          agent,
+          max_age: maxAge,
+          max_delete: maxDelete,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Clean up resolved challenges (permissionless)
+   */
+  async cleanChallenges(maxAge: number, maxDelete: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'cleanchals',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          max_age: maxAge,
+          max_delete: maxDelete,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Get validation contract configuration
+   */
+  async getConfig(): Promise<ValidationConfig> {
+    const result = await this.rpc.get_table_rows<{
+      owner: string;
+      core_contract: string;
+      min_stake: string;
+      challenge_stake: string;
+      unstake_delay: string;
+      challenge_window: string;
+      slash_percent: string;
+      dispute_period: string;
+      funded_challenge_timeout: string;
+      paused: number;
+      validation_fee: string;
+    }>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'config',
+      limit: 1,
+    });
+
+    if (result.rows.length === 0) {
+      throw new Error('Contract not initialized');
+    }
+
+    const row = result.rows[0];
+    return {
+      owner: row.owner,
+      core_contract: row.core_contract,
+      min_stake: parseInt(row.min_stake),
+      challenge_stake: parseInt(row.challenge_stake),
+      unstake_delay: parseInt(row.unstake_delay),
+      challenge_window: parseInt(row.challenge_window),
+      slash_percent: parseInt(row.slash_percent),
+      dispute_period: parseInt(row.dispute_period),
+      funded_challenge_timeout: parseInt(row.funded_challenge_timeout),
+      paused: row.paused === 1,
+      validation_fee: parseInt(row.validation_fee || '0'),
+    };
   }
 
   // ============== HELPERS ==============

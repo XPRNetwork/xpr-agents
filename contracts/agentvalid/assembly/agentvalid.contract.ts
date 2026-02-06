@@ -175,7 +175,8 @@ export class Config extends Table {
     public slash_percent: u64 = 1000, // 10.00%
     public dispute_period: u64 = 172800, // H2 FIX: 48 hours minimum before challenge can be resolved
     public funded_challenge_timeout: u64 = 604800, // 7 days for funded challenges to be resolved before expiry
-    public paused: boolean = false
+    public paused: boolean = false,
+    public validation_fee: u64 = 0
   ) {
     super();
   }
@@ -209,6 +210,21 @@ export class AgentRef extends Table {
   }
 }
 
+@table("deposits")
+export class Deposit extends Table {
+  constructor(
+    public account: Name = EMPTY_NAME,
+    public amount: u64 = 0
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.account.N;
+  }
+}
+
 // ============== CONTRACT ==============
 
 @contract
@@ -217,6 +233,7 @@ export class AgentValidContract extends Contract {
   private validationsTable: TableStore<Validation> = new TableStore<Validation>(this.receiver);
   private challengesTable: TableStore<Challenge> = new TableStore<Challenge>(this.receiver);
   private unstakesTable: TableStore<Unstake> = new TableStore<Unstake>(this.receiver);
+  private depositsTable: TableStore<Deposit> = new TableStore<Deposit>(this.receiver);
   private configSingleton: Singleton<Config> = new Singleton<Config>(this.receiver);
 
   // Helper to get agent from configured core contract
@@ -258,7 +275,8 @@ export class AgentValidContract extends Contract {
       1000, // slash_percent
       172800, // dispute_period (48 hours)
       604800, // funded_challenge_timeout (7 days)
-      false
+      false,
+      0 // validation_fee
     );
     this.configSingleton.set(config, this.receiver);
   }
@@ -273,7 +291,8 @@ export class AgentValidContract extends Contract {
     slash_percent: u64,
     dispute_period: u64,
     funded_challenge_timeout: u64,
-    paused: boolean
+    paused: boolean,
+    validation_fee: u64
   ): void {
     const config = this.configSingleton.get();
     requireAuth(config.owner);
@@ -301,6 +320,7 @@ export class AgentValidContract extends Contract {
     config.dispute_period = dispute_period;
     config.funded_challenge_timeout = funded_challenge_timeout;
     config.paused = paused;
+    config.validation_fee = validation_fee;
 
     this.configSingleton.set(config, this.receiver);
   }
@@ -474,6 +494,18 @@ export class AgentValidContract extends Contract {
 
     const config = this.configSingleton.get();
     check(!config.paused, "Contract is paused");
+
+    if (config.validation_fee > 0) {
+      const deposit = this.depositsTable.get(validator.N);
+      check(deposit != null, "Validation fee not paid. Send XPR with memo 'valfee:" + validator.toString() + "'");
+      check(deposit!.amount >= config.validation_fee,
+        "Insufficient validation fee. Required: " + (config.validation_fee / 10000).toString() + " XPR");
+      const excess = deposit!.amount - config.validation_fee;
+      if (excess > 0) {
+        this.sendTokens(validator, new Asset(<i64>excess, this.XPR_SYMBOL), "Validation fee excess refund");
+      }
+      this.depositsTable.remove(deposit!);
+    }
 
     const validatorRecord = this.validatorsTable.requireGet(validator.N, "Validator not found");
     check(validatorRecord.active, "Validator is not active");
@@ -855,6 +887,28 @@ export class AgentValidContract extends Contract {
     check(this.firstReceiver == this.TOKEN_CONTRACT, "Invalid token contract");
 
     // Parse memo
+    if (memo.startsWith("valfee:")) {
+      const accountName = memo.slice(7);
+      check(accountName.length > 0 && accountName.length <= 12, "Invalid account name in memo");
+      const depositAccount = Name.fromString(accountName);
+      check(from == depositAccount, "Payer must match account in memo");
+      check(quantity.amount > 0, "Transfer amount must be positive");
+
+      const existingDeposit = this.depositsTable.get(depositAccount.N);
+      const transferAmount: u64 = <u64>quantity.amount;
+      if (existingDeposit != null) {
+        check(existingDeposit.amount <= U64.MAX_VALUE - transferAmount, "Deposit would overflow");
+        existingDeposit.amount += transferAmount;
+        this.depositsTable.update(existingDeposit, this.receiver);
+      } else {
+        const deposit = new Deposit(depositAccount, transferAmount);
+        this.depositsTable.store(deposit, this.receiver);
+      }
+
+      print(`Validation fee deposit received: ${quantity.toString()} from ${from.toString()}`);
+      return;
+    }
+
     if (memo == "stake" || memo.startsWith("stake:")) {
       // Validator stake
       const validator = this.validatorsTable.get(from.N);
@@ -933,6 +987,53 @@ export class AgentValidContract extends Contract {
       // FINDING 2 FIX: Reject unrecognized memos to prevent loss of funds
       check(false, "Invalid memo. Use 'stake' for validator staking or 'challenge:ID' for challenge funding");
     }
+  }
+
+  // ============== CLEANUP ==============
+
+  @action("cleanvals")
+  cleanValidations(agent: Name, max_age: u64, max_delete: u64): void {
+    check(max_age >= 7776000, "Max age must be at least 90 days (7776000 seconds)");
+    check(max_delete >= 1 && max_delete <= 100, "Max delete must be 1-100");
+
+    const cutoff = currentTimeSec() - max_age;
+    let deleted: u64 = 0;
+
+    let val = this.validationsTable.getBySecondaryU64(agent.N, 0);
+    while (val != null && deleted < max_delete) {
+      const current = val;
+      val = this.validationsTable.nextBySecondaryU64(current, 0);
+      if (val != null && val.agent != agent) val = null;
+
+      if (current.timestamp < cutoff && !current.challenged) {
+        this.validationsTable.remove(current);
+        deleted++;
+      }
+    }
+
+    print(`Cleaned ${deleted} old validations for ${agent.toString()}`);
+  }
+
+  @action("cleanchals")
+  cleanChallenges(max_age: u64, max_delete: u64): void {
+    check(max_age >= 7776000, "Max age must be at least 90 days (7776000 seconds)");
+    check(max_delete >= 1 && max_delete <= 100, "Max delete must be 1-100");
+
+    const cutoff = currentTimeSec() - max_age;
+    let deleted: u64 = 0;
+
+    let challenge = this.challengesTable.first();
+    while (challenge != null && deleted < max_delete) {
+      const current = challenge;
+      challenge = this.challengesTable.next(current);
+
+      if (current.status != 0 && current.resolved_at > 0 && current.resolved_at < cutoff) {
+        this.challengesTable.remove(current);
+        deleted++;
+      }
+    }
+
+    print(`Cleaned ${deleted} resolved challenges`);
   }
 
   // ============== HELPERS ==============

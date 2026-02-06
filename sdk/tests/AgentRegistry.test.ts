@@ -424,6 +424,60 @@ describe('AgentRegistry read operations', () => {
   });
 });
 
+// ============== Fee + New Methods ==============
+
+describe('AgentRegistry fee methods', () => {
+  describe('registerWithFee()', () => {
+    it('sends 2-action tx: transfer + register', async () => {
+      const session = mockSession();
+      const registry = new AgentRegistry(mockRpc(), session);
+
+      await registry.registerWithFee({
+        name: 'My Agent',
+        description: 'Does things',
+        endpoint: 'https://api.example.com',
+        protocol: 'https',
+        capabilities: ['compute'],
+      }, '5.0000 XPR');
+
+      const call = (session.link.transact as jest.Mock).mock.calls[0][0];
+      expect(call.actions).toHaveLength(2);
+
+      // First action: token transfer with regfee memo
+      const transfer = call.actions[0];
+      expect(transfer.account).toBe('eosio.token');
+      expect(transfer.name).toBe('transfer');
+      expect(transfer.data.from).toBe('testuser');
+      expect(transfer.data.to).toBe('agentcore');
+      expect(transfer.data.quantity).toBe('5.0000 XPR');
+      expect(transfer.data.memo).toBe('regfee:testuser');
+
+      // Second action: register
+      const register = call.actions[1];
+      expect(register.account).toBe('agentcore');
+      expect(register.name).toBe('register');
+      expect(register.data).toEqual({
+        account: 'testuser',
+        name: 'My Agent',
+        description: 'Does things',
+        endpoint: 'https://api.example.com',
+        protocol: 'https',
+        capabilities: '["compute"]',
+      });
+    });
+
+    it('throws on missing session', async () => {
+      const registry = new AgentRegistry(mockRpc());
+      await expect(
+        registry.registerWithFee({
+          name: 'Test', description: 'Test',
+          endpoint: 'https://example.com', protocol: 'https', capabilities: [],
+        }, '1.0000 XPR')
+      ).rejects.toThrow('Session required');
+    });
+  });
+});
+
 // ============== Error Handling ==============
 
 describe('AgentRegistry error handling', () => {

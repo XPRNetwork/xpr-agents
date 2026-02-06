@@ -10,7 +10,12 @@ import {
   isAccount,
   print,
   EMPTY_NAME,
-  Singleton
+  Singleton,
+  Asset,
+  Symbol,
+  InlineAction,
+  ActionData,
+  PermissionLevel
 } from "proton-tsc";
 
 // ============== TABLES ==============
@@ -294,7 +299,8 @@ export class Config extends Table {
     public dispute_window: u64 = 604800, // 7 days
     public decay_period: u64 = 2592000,  // 30 days - feedback loses weight over time
     public decay_floor: u64 = 50,        // Minimum weight floor (50 = 50%)
-    public paused: boolean = false
+    public paused: boolean = false,
+    public feedback_fee: u64 = 0
   ) {
     super();
   }
@@ -350,6 +356,21 @@ export class RecalcState extends Table {
   @primary
   get primary(): u64 {
     return this.agent.N;
+  }
+}
+
+@table("deposits")
+export class Deposit extends Table {
+  constructor(
+    public account: Name = EMPTY_NAME,
+    public amount: u64 = 0
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.account.N;
   }
 }
 
@@ -422,6 +443,9 @@ export class AgentFeedContract extends Contract {
   private recalcStateTable: TableStore<RecalcState> = new TableStore<RecalcState>(this.receiver);
   private feedbackRateLimitTable: TableStore<FeedbackRateLimit> = new TableStore<FeedbackRateLimit>(this.receiver);
   private configSingleton: Singleton<Config> = new Singleton<Config>(this.receiver);
+  private depositsTable: TableStore<Deposit> = new TableStore<Deposit>(this.receiver);
+  private readonly TOKEN_CONTRACT: Name = Name.fromString("eosio.token");
+  private readonly XPR_SYMBOL: Symbol = new Symbol("XPR", 4);
 
   // M3 FIX: Rate limit constant - 24 hours between feedback submissions per reviewer-agent pair
   private readonly FEEDBACK_COOLDOWN: u64 = 86400;
@@ -509,7 +533,7 @@ export class AgentFeedContract extends Contract {
   init(owner: Name, core_contract: Name): void {
     requireAuth(this.receiver);
 
-    // Config: owner, core_contract, min_score, max_score, dispute_window, decay_period, decay_floor, paused
+    // Config: owner, core_contract, min_score, max_score, dispute_window, decay_period, decay_floor, paused, feedback_fee
     const config = new Config(
       owner,
       core_contract,
@@ -518,7 +542,8 @@ export class AgentFeedContract extends Contract {
       604800,   // dispute_window (7 days)
       2592000,  // decay_period (30 days)
       50,       // decay_floor (50%)
-      false     // paused
+      false,    // paused
+      0         // feedback_fee
     );
     this.configSingleton.set(config, this.receiver);
   }
@@ -531,7 +556,8 @@ export class AgentFeedContract extends Contract {
     dispute_window: u64,
     decay_period: u64,
     decay_floor: u64,
-    paused: boolean
+    paused: boolean,
+    feedback_fee: u64
   ): void {
     const config = this.configSingleton.get();
     requireAuth(config.owner);
@@ -553,6 +579,7 @@ export class AgentFeedContract extends Contract {
     config.decay_period = decay_period;
     config.decay_floor = decay_floor;
     config.paused = paused;
+    config.feedback_fee = feedback_fee;
 
     this.configSingleton.set(config, this.receiver);
   }
@@ -564,6 +591,38 @@ export class AgentFeedContract extends Contract {
     check(isAccount(new_owner), "New owner account does not exist");
     config.owner = new_owner;
     this.configSingleton.set(config, this.receiver);
+  }
+
+  @action("transfer", notify)
+  onTransfer(from: Name, to: Name, quantity: Asset, memo: string): void {
+    check(this.firstReceiver == this.TOKEN_CONTRACT, "Only eosio.token transfers accepted");
+    if (to != this.receiver) return;
+    if (from == this.receiver) return;
+    check(quantity.symbol == this.XPR_SYMBOL, "Only XPR accepted");
+
+    if (memo.startsWith("feedfee:")) {
+      const accountName = memo.slice(8);
+      check(accountName.length > 0 && accountName.length <= 12, "Invalid account name in memo");
+      const depositAccount = Name.fromString(accountName);
+      check(from == depositAccount, "Payer must match account in memo");
+      check(quantity.amount > 0, "Transfer amount must be positive");
+
+      const existingDeposit = this.depositsTable.get(depositAccount.N);
+      const transferAmount: u64 = <u64>quantity.amount;
+      if (existingDeposit != null) {
+        check(existingDeposit.amount <= U64.MAX_VALUE - transferAmount, "Deposit would overflow");
+        existingDeposit.amount += transferAmount;
+        this.depositsTable.update(existingDeposit, this.receiver);
+      } else {
+        const deposit = new Deposit(depositAccount, transferAmount);
+        this.depositsTable.store(deposit, this.receiver);
+      }
+
+      print(`Feedback fee deposit received: ${quantity.toString()} from ${from.toString()}`);
+      return;
+    }
+
+    check(false, "Invalid memo. Use 'feedfee:accountname' for feedback fee deposits");
   }
 
   // ============== FEEDBACK SUBMISSION ==============
@@ -582,6 +641,17 @@ export class AgentFeedContract extends Contract {
 
     const config = this.configSingleton.get();
     check(!config.paused, "Contract is paused");
+    if (config.feedback_fee > 0) {
+      const deposit = this.depositsTable.get(reviewer.N);
+      check(deposit != null, "Feedback fee not paid. Send XPR with memo 'feedfee:" + reviewer.toString() + "'");
+      check(deposit!.amount >= config.feedback_fee,
+        "Insufficient feedback fee. Required: " + (config.feedback_fee / 10000).toString() + " XPR");
+      const excess = deposit!.amount - config.feedback_fee;
+      if (excess > 0) {
+        this.sendTokens(reviewer, new Asset(<i64>excess, this.XPR_SYMBOL), "Feedback fee excess refund");
+      }
+      this.depositsTable.remove(deposit!);
+    }
     check(reviewer != agent, "Cannot review yourself");
     check(score >= config.min_score && score <= config.max_score, "Score out of range");
     check(tags.length <= 256, "Tags too long");
@@ -1032,6 +1102,53 @@ export class AgentFeedContract extends Contract {
     print(`Cleaned ${cleaned} expired recalculation states`);
   }
 
+  // ============== FEEDBACK CLEANUP ==============
+
+  @action("cleanfback")
+  cleanFeedback(agent: Name, max_age: u64, max_delete: u64): void {
+    check(max_age >= 7776000, "Max age must be at least 90 days (7776000 seconds)");
+    check(max_delete >= 1 && max_delete <= 100, "Max delete must be 1-100");
+
+    const cutoff = currentTimeSec() - max_age;
+    let deleted: u64 = 0;
+
+    let fb = this.feedbackTable.getBySecondaryU64(agent.N, 0);
+    while (fb != null && deleted < max_delete) {
+      const current = fb;
+      fb = this.feedbackTable.nextBySecondaryU64(current, 0);
+      if (fb != null && fb.agent != agent) fb = null;
+
+      if (current.timestamp < cutoff && (!current.disputed || current.resolved)) {
+        this.feedbackTable.remove(current);
+        deleted++;
+      }
+    }
+
+    print(`Cleaned ${deleted} old feedback entries for ${agent.toString()}`);
+  }
+
+  @action("cleandisps")
+  cleanDisputes(max_age: u64, max_delete: u64): void {
+    check(max_age >= 7776000, "Max age must be at least 90 days (7776000 seconds)");
+    check(max_delete >= 1 && max_delete <= 100, "Max delete must be 1-100");
+
+    const cutoff = currentTimeSec() - max_age;
+    let deleted: u64 = 0;
+
+    let dispute = this.disputesTable.first();
+    while (dispute != null && deleted < max_delete) {
+      const current = dispute;
+      dispute = this.disputesTable.next(current);
+
+      if (current.status != 0 && current.resolved_at > 0 && current.resolved_at < cutoff) {
+        this.disputesTable.remove(current);
+        deleted++;
+      }
+    }
+
+    print(`Cleaned ${deleted} resolved disputes`);
+  }
+
   // ============== CONTEXT-SPECIFIC FEEDBACK ==============
   // Addresses ERC-8004 concern about single-metric reputation
 
@@ -1050,6 +1167,17 @@ export class AgentFeedContract extends Contract {
 
     const config = this.configSingleton.get();
     check(!config.paused, "Contract is paused");
+    if (config.feedback_fee > 0) {
+      const deposit = this.depositsTable.get(reviewer.N);
+      check(deposit != null, "Feedback fee not paid. Send XPR with memo 'feedfee:" + reviewer.toString() + "'");
+      check(deposit!.amount >= config.feedback_fee,
+        "Insufficient feedback fee. Required: " + (config.feedback_fee / 10000).toString() + " XPR");
+      const excess = deposit!.amount - config.feedback_fee;
+      if (excess > 0) {
+        this.sendTokens(reviewer, new Asset(<i64>excess, this.XPR_SYMBOL), "Feedback fee excess refund");
+      }
+      this.depositsTable.remove(deposit!);
+    }
     check(reviewer != agent, "Cannot review yourself");
     check(score >= config.min_score && score <= config.max_score, "Score out of range");
     check(context.length > 0 && context.length <= 32, "Context must be 1-32 characters");
@@ -1276,6 +1404,17 @@ export class AgentFeedContract extends Contract {
 
     const config = this.configSingleton.get();
     check(!config.paused, "Contract is paused");
+    if (config.feedback_fee > 0) {
+      const deposit = this.depositsTable.get(reviewer.N);
+      check(deposit != null, "Feedback fee not paid. Send XPR with memo 'feedfee:" + reviewer.toString() + "'");
+      check(deposit!.amount >= config.feedback_fee,
+        "Insufficient feedback fee. Required: " + (config.feedback_fee / 10000).toString() + " XPR");
+      const excess = deposit!.amount - config.feedback_fee;
+      if (excess > 0) {
+        this.sendTokens(reviewer, new Asset(<i64>excess, this.XPR_SYMBOL), "Feedback fee excess refund");
+      }
+      this.depositsTable.remove(deposit!);
+    }
     check(reviewer != agent, "Cannot review yourself");
     check(score >= config.min_score && score <= config.max_score, "Score out of range");
     check(payment_tx_id.length > 0 && payment_tx_id.length <= 64, "Invalid transaction ID");
@@ -1560,6 +1699,13 @@ export class AgentFeedContract extends Contract {
     return maxLevel > 3 ? 3 : maxLevel;
   }
 
+  private sendTokens(to: Name, quantity: Asset, memo: string): void {
+    const TRANSFER = new InlineAction<Transfer>("transfer");
+    const action = TRANSFER.act(this.TOKEN_CONTRACT, new PermissionLevel(this.receiver));
+    const actionParams = new Transfer(this.receiver, to, quantity, memo);
+    action.send(actionParams);
+  }
+
   private updateAgentScore(agent: Name, score: u8, kycLevel: u8, add: boolean): void {
     let agentScore = this.agentScoresTable.get(agent.N);
 
@@ -1624,5 +1770,17 @@ export class AgentFeedContract extends Contract {
     } else {
       this.agentScoresTable.update(agentScore, this.receiver);
     }
+  }
+}
+
+@packer
+class Transfer extends ActionData {
+  constructor(
+    public from: Name = EMPTY_NAME,
+    public to: Name = EMPTY_NAME,
+    public quantity: Asset = new Asset(),
+    public memo: string = ""
+  ) {
+    super();
   }
 }

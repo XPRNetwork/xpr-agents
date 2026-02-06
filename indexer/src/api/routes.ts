@@ -343,5 +343,15 @@ export function createRoutes(db: Database.Database): Router {
     return res.json({ agents });
   });
 
+  // ============== ADMIN ==============
+
+  // KYC sync stub
+  router.post('/admin/sync-kyc', (req: Request, res: Response) => {
+    // TODO: Implement actual KYC sync from eosio.proton::usersinfo table
+    // This would query the chain for current KYC levels and update
+    // feedback scores that were indexed without proper KYC weight
+    res.json({ status: 'not_implemented' });
+  });
+
   return router;
 }

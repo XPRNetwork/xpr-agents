@@ -269,6 +269,15 @@ export function initDatabase(dbPath: string): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_plugin_results_agent ON plugin_results(agent);
     CREATE INDEX IF NOT EXISTS idx_plugin_results_plugin ON plugin_results(plugin_id);
+
+    -- Stream cursor tracking for resume capability
+    CREATE TABLE IF NOT EXISTS stream_cursor (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      last_block_num INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+    );
+
+    INSERT OR IGNORE INTO stream_cursor (id, last_block_num) VALUES (1, 0);
   `);
 
   // Migrations: Add columns that may not exist in older databases.
@@ -304,4 +313,13 @@ export function updateStats(db: Database.Database): void {
     UPDATE stats SET value = (SELECT COUNT(*) FROM jobs), updated_at = strftime('%s', 'now') WHERE key = 'total_jobs_escrow';
     UPDATE stats SET value = (SELECT COUNT(*) FROM arbitrators), updated_at = strftime('%s', 'now') WHERE key = 'total_arbitrators';
   `);
+}
+
+export function getLastCursor(db: Database.Database): number {
+  const row = db.prepare('SELECT last_block_num FROM stream_cursor WHERE id = 1').get() as { last_block_num: number } | undefined;
+  return row?.last_block_num || 0;
+}
+
+export function updateCursor(db: Database.Database, blockNum: number): void {
+  db.prepare("UPDATE stream_cursor SET last_block_num = ?, updated_at = strftime('%s', 'now') WHERE id = 1").run(blockNum);
 }

@@ -518,6 +518,46 @@ describe('EscrowRegistry read operations', () => {
   });
 });
 
+// ============== Cleanup Methods ==============
+
+describe('EscrowRegistry cleanup methods', () => {
+  describe('cleanJobs()', () => {
+    it('sends "cleanjobs" action with max_age, max_delete', async () => {
+      const session = mockSession();
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.cleanJobs(7776000, 50);
+
+      const call = (session.link.transact as jest.Mock).mock.calls[0][0];
+      const action = call.actions[0];
+      expect(action.account).toBe('agentescrow');
+      expect(action.name).toBe('cleanjobs');
+      expect(action.data).toEqual({
+        max_age: 7776000,
+        max_delete: 50,
+      });
+    });
+  });
+
+  describe('cleanDisputes()', () => {
+    it('sends "cleandisps" action with max_age, max_delete', async () => {
+      const session = mockSession();
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.cleanDisputes(7776000, 100);
+
+      const call = (session.link.transact as jest.Mock).mock.calls[0][0];
+      const action = call.actions[0];
+      expect(action.account).toBe('agentescrow');
+      expect(action.name).toBe('cleandisps');
+      expect(action.data).toEqual({
+        max_age: 7776000,
+        max_delete: 100,
+      });
+    });
+  });
+});
+
 // ============== Error Handling ==============
 
 describe('EscrowRegistry error handling', () => {

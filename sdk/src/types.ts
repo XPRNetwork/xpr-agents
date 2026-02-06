@@ -93,6 +93,32 @@ export interface AgentCoreConfig {
   paused: boolean;
 }
 
+export interface FeedbackConfig {
+  owner: string;
+  core_contract: string;
+  min_score: number;
+  max_score: number;
+  dispute_window: number;
+  decay_period: number;
+  decay_floor: number;
+  paused: boolean;
+  feedback_fee: number;
+}
+
+export interface ValidationConfig {
+  owner: string;
+  core_contract: string;
+  min_stake: number;
+  challenge_stake: number;
+  unstake_delay: number;
+  challenge_window: number;
+  slash_percent: number;
+  dispute_period: number;
+  funded_challenge_timeout: number;
+  paused: boolean;
+  validation_fee: number;
+}
+
 export type PluginCategory = 'compute' | 'storage' | 'oracle' | 'payment' | 'messaging' | 'ai';
 
 // ============== Feedback Types ==============

@@ -1,6 +1,7 @@
 import {
   Feedback,
   FeedbackRaw,
+  FeedbackConfig,
   AgentScore,
   AgentScoreRaw,
   Dispute,
@@ -336,6 +337,139 @@ export class FeedbackRegistry {
         },
       ],
     });
+  }
+
+  /**
+   * Submit feedback with fee in one transaction.
+   *
+   * @param data - Feedback data
+   * @param amount - The feedback fee (e.g., "1.0000 XPR")
+   */
+  async submitWithFee(data: SubmitFeedbackData, amount: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    const actor = this.session!.auth.actor;
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: 'eosio.token',
+          name: 'transfer',
+          authorization: [{
+            actor,
+            permission: this.session!.auth.permission,
+          }],
+          data: {
+            from: actor,
+            to: this.contract,
+            quantity: amount,
+            memo: `feedfee:${actor}`,
+          },
+        },
+        {
+          account: this.contract,
+          name: 'submit',
+          authorization: [{
+            actor,
+            permission: this.session!.auth.permission,
+          }],
+          data: {
+            reviewer: actor,
+            agent: data.agent,
+            score: data.score,
+            tags: (data.tags || []).join(','),
+            job_hash: data.job_hash || '',
+            evidence_uri: data.evidence_uri || '',
+            amount_paid: data.amount_paid || 0,
+          },
+        },
+      ],
+    });
+  }
+
+  /**
+   * Clean up old feedback entries (permissionless)
+   */
+  async cleanFeedback(agent: string, maxAge: number, maxDelete: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'cleanfback',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          agent,
+          max_age: maxAge,
+          max_delete: maxDelete,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Clean up resolved disputes (permissionless)
+   */
+  async cleanDisputes(maxAge: number, maxDelete: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'cleandisps',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          max_age: maxAge,
+          max_delete: maxDelete,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Get feedback contract configuration
+   */
+  async getConfig(): Promise<FeedbackConfig> {
+    const result = await this.rpc.get_table_rows<{
+      owner: string;
+      core_contract: string;
+      min_score: number;
+      max_score: number;
+      dispute_window: string;
+      decay_period: string;
+      decay_floor: string;
+      paused: number;
+      feedback_fee: string;
+    }>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'config',
+      limit: 1,
+    });
+
+    if (result.rows.length === 0) {
+      throw new Error('Contract not initialized');
+    }
+
+    const row = result.rows[0];
+    return {
+      owner: row.owner,
+      core_contract: row.core_contract,
+      min_score: row.min_score,
+      max_score: row.max_score,
+      dispute_window: parseInt(row.dispute_window),
+      decay_period: parseInt(row.decay_period),
+      decay_floor: parseInt(row.decay_floor),
+      paused: row.paused === 1,
+      feedback_fee: parseInt(row.feedback_fee || '0'),
+    };
   }
 
   // ============== HELPERS ==============
