@@ -29,6 +29,13 @@ export function handleFeedbackAction(db: Database.Database, action: StreamAction
       break;
     case 'resolve':
       handleResolve(db, data);
+      dispatcher?.dispatch(
+        'feedback.resolved',
+        [data.resolver],
+        data,
+        `Feedback dispute #${data.dispute_id} resolved (${data.upheld ? 'upheld - feedback removed' : 'rejected - feedback stands'})`,
+        action.block_num
+      );
       break;
     case 'recalc':
       handleRecalc(db, data);
@@ -43,6 +50,16 @@ export function handleFeedbackAction(db: Database.Database, action: StreamAction
       break;
     case 'reinstate':
       handleReinstate(db, data);
+      if (dispatcher) {
+        const fb = db.prepare('SELECT agent FROM feedback WHERE id = ?').get(data.feedback_id) as { agent: string } | undefined;
+        dispatcher.dispatch(
+          'feedback.reinstated',
+          fb ? [fb.agent] : [],
+          data,
+          `Feedback #${data.feedback_id} reinstated`,
+          action.block_num
+        );
+      }
       break;
     case 'settrust':
       // Directional trust update - logged in events table

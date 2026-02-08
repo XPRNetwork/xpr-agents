@@ -819,4 +819,60 @@ describe('agentcore', () => {
       expect(agent.claim_deposit).to.equal(200000); // capped at claim_fee
     });
   });
+
+  /* ==================== Optional Endpoint ==================== */
+
+  describe('optional endpoint', () => {
+    beforeEach(async () => {
+      await agentcore.actions.init(['owner', 0, 100000, '', '', '']).send('agentcore@active');
+    });
+
+    it('should register agent with empty endpoint and protocol', async () => {
+      await agentcore.actions.register([
+        'alice', 'No Endpoint Agent', 'An agent without endpoint', '', '', '["chat"]'
+      ]).send('alice@active');
+
+      const agent = getAgent('alice');
+      expect(agent).to.not.be.undefined;
+      expect(agent.name).to.equal('No Endpoint Agent');
+      expect(agent.endpoint).to.equal('');
+      expect(agent.protocol).to.equal('');
+      expect(agent.active).to.equal(true);
+    });
+
+    it('should update agent to empty endpoint', async () => {
+      // Register with a valid endpoint first
+      await agentcore.actions.register(validReg('alice')).send('alice@active');
+      let agent = getAgent('alice');
+      expect(agent.endpoint).to.equal('https://api.test.com');
+      expect(agent.protocol).to.equal('https');
+
+      // Update to empty endpoint
+      await agentcore.actions.update([
+        'alice', 'Updated Agent', 'Updated desc', '', '', '["chat"]'
+      ]).send('alice@active');
+
+      agent = getAgent('alice');
+      expect(agent.endpoint).to.equal('');
+      expect(agent.protocol).to.equal('');
+    });
+
+    it('should still reject invalid URL when endpoint is provided', async () => {
+      await expectToThrow(
+        agentcore.actions.register([
+          'alice', 'Test Agent', 'A test agent', 'ftp://bad.url', 'https', '["chat"]'
+        ]).send('alice@active'),
+        protonAssert('Endpoint must start with http://, https://, grpc://, or wss://')
+      );
+    });
+
+    it('should still reject invalid protocol when endpoint is provided', async () => {
+      await expectToThrow(
+        agentcore.actions.register([
+          'alice', 'Test Agent', 'A test agent', 'https://api.test.com', 'ftp', '["chat"]'
+        ]).send('alice@active'),
+        protonAssert('Protocol must be: http, https, grpc, websocket, mqtt, or wss')
+      );
+    });
+  });
 });

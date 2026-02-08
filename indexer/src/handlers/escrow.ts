@@ -22,6 +22,16 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
       break;
     case 'acceptjob':
       handleAcceptJob(db, data);
+      if (dispatcher) {
+        const acceptJob = db.prepare('SELECT client, agent FROM jobs WHERE id = ?').get(data.job_id) as { client: string; agent: string } | undefined;
+        dispatcher.dispatch(
+          'job.accepted',
+          acceptJob ? [acceptJob.client, acceptJob.agent] : [],
+          data,
+          `Job #${data.job_id} accepted by ${acceptJob?.agent || 'agent'}`,
+          action.block_num
+        );
+      }
       break;
     case 'startjob':
       handleStartJob(db, data);
@@ -96,10 +106,30 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
       break;
     case 'cancel':
       handleCancel(db, data);
+      if (dispatcher) {
+        const cancelJob = db.prepare('SELECT client, agent FROM jobs WHERE id = ?').get(data.job_id) as { client: string; agent: string } | undefined;
+        dispatcher.dispatch(
+          'job.cancelled',
+          cancelJob ? [cancelJob.client, cancelJob.agent].filter(Boolean) : [],
+          data,
+          `Job #${data.job_id} cancelled`,
+          action.block_num
+        );
+      }
       break;
     case 'timeout':
     case 'accpttimeout':
       handleTimeout(db, data);
+      if (dispatcher) {
+        const tmJob = db.prepare('SELECT client, agent, state FROM jobs WHERE id = ?').get(data.job_id) as { client: string; agent: string; state: number } | undefined;
+        dispatcher.dispatch(
+          'job.timeout',
+          tmJob ? [tmJob.client, tmJob.agent].filter(Boolean) : [],
+          data,
+          `Job #${data.job_id} timeout resolved → ${tmJob?.state === 6 ? 'completed' : 'refunded'}`,
+          action.block_num
+        );
+      }
       break;
     case 'regarb':
       handleRegisterArbitrator(db, data);

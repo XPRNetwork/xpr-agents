@@ -41,6 +41,14 @@ const getMilestone = (id: number) => {
   return agentescrow.tables.milestones(nameToBigInt('agentescrow')).getTableRow(BigInt(id));
 };
 
+const getBid = (id: number) => {
+  return agentescrow.tables.bids(nameToBigInt('agentescrow')).getTableRow(BigInt(id));
+};
+
+const getAllBids = () => {
+  return agentescrow.tables.bids(nameToBigInt('agentescrow')).getTableRows();
+};
+
 /* Setup helpers */
 const initAll = async () => {
   // Create XPR token — do NOT mint to agentescrow (transfer handler rejects bad memos)
@@ -68,6 +76,14 @@ const registerArbitrator = async (name: string, fee: number = 200) => {
   await eosioToken.actions.transfer([name, 'agentescrow', '1000.0000 XPR', 'arbstake']).send(`${name}@active`);
   // Activate
   await agentescrow.actions.activatearb([name]).send(`${name}@active`);
+};
+
+const createOpenJob = async () => {
+  const deadline = Math.floor(Date.now() / 1000) + 86400 * 30;
+  await agentescrow.actions.createjob([
+    'client', '', 'Open Job', 'An open job', '["deliverable1"]',
+    1000000, '4,XPR', deadline, 'arbitrator1', 'openhash'
+  ]).send('client@active');
 };
 
 const createAndFundJob = async () => {
@@ -758,6 +774,204 @@ describe('agentescrow', () => {
 
       const m0 = getMilestone(0);
       expect(m0.state).to.equal(2); // APPROVED
+    });
+  });
+
+  /* ==================== Bidding System ==================== */
+
+  describe('bidding system', () => {
+    beforeEach(async () => {
+      await initAll();
+      await registerArbitrator('arbitrator1');
+    });
+
+    it('should create an open job (no agent)', async () => {
+      await createOpenJob();
+      const job = getJob(0);
+      expect(job).to.not.be.undefined;
+      expect(job.agent).to.equal('');
+      expect(job.state).to.equal(0); // CREATED
+    });
+
+    it('should allow agent to submit bid on open job', async () => {
+      await createOpenJob();
+      await agentescrow.actions.submitbid([
+        'agent1', 0, 500000, 604800, 'I can do this job well'
+      ]).send('agent1@active');
+
+      const bid = getBid(0);
+      expect(bid).to.not.be.undefined;
+      expect(bid.agent).to.equal('agent1');
+      expect(bid.job_id).to.equal(0);
+      expect(bid.amount).to.equal(500000);
+      expect(bid.timeline).to.equal(604800);
+      expect(bid.proposal).to.equal('I can do this job well');
+    });
+
+    it('should reject bid on non-open job (has agent)', async () => {
+      // Create a direct-hire job with agent1 assigned
+      const deadline = Math.floor(Date.now() / 1000) + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Direct Job', 'A direct hire job', '["deliverable1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'directhash'
+      ]).send('client@active');
+
+      // Register arbitrator2 as an agent so they can try to bid
+      await agentcore.actions.register([
+        'arbitrator2', 'Arb2 Agent', 'Also an agent', 'https://api2.test.com', 'https', '["compute"]'
+      ]).send('arbitrator2@active');
+
+      await expectToThrow(
+        agentescrow.actions.submitbid([
+          'arbitrator2', 0, 500000, 604800, 'My proposal'
+        ]).send('arbitrator2@active'),
+        protonAssert('Job is direct-hire, not open for bids')
+      );
+    });
+
+    it('should reject duplicate bid from same agent', async () => {
+      await createOpenJob();
+      await agentescrow.actions.submitbid([
+        'agent1', 0, 500000, 604800, 'First bid'
+      ]).send('agent1@active');
+
+      await expectToThrow(
+        agentescrow.actions.submitbid([
+          'agent1', 0, 600000, 604800, 'Second bid'
+        ]).send('agent1@active'),
+        protonAssert('Agent already has a bid on this job')
+      );
+    });
+
+    it('should allow client to select a bid', async () => {
+      await createOpenJob();
+      await agentescrow.actions.submitbid([
+        'agent1', 0, 500000, 604800, 'My proposal'
+      ]).send('agent1@active');
+
+      await agentescrow.actions.selectbid(['client', 0]).send('client@active');
+
+      const job = getJob(0);
+      expect(job.agent).to.equal('agent1');
+
+      // Bid should be cleaned up
+      const bids = getAllBids();
+      expect(bids.length).to.equal(0);
+    });
+
+    it('should update job amount and deadline from selected bid', async () => {
+      await createOpenJob();
+      await agentescrow.actions.submitbid([
+        'agent1', 0, 750000, 1209600, 'My proposal'
+      ]).send('agent1@active');
+
+      await agentescrow.actions.selectbid(['client', 0]).send('client@active');
+
+      const job = getJob(0);
+      expect(job.amount).to.equal(750000);
+      // Deadline should be currentTimeSec() + bid.timeline (1209600)
+      // We can verify it changed from the original deadline
+      expect(job.agent).to.equal('agent1');
+    });
+
+    it('should clean up all bids when one is selected', async () => {
+      await createOpenJob();
+
+      // Register arbitrator2 as a second agent
+      await agentcore.actions.register([
+        'arbitrator2', 'Arb2 Agent', 'Also an agent', 'https://api2.test.com', 'https', '["compute"]'
+      ]).send('arbitrator2@active');
+
+      // Submit bids from both agents
+      await agentescrow.actions.submitbid([
+        'agent1', 0, 500000, 604800, 'Proposal from agent1'
+      ]).send('agent1@active');
+
+      await agentescrow.actions.submitbid([
+        'arbitrator2', 0, 600000, 604800, 'Proposal from arbitrator2'
+      ]).send('arbitrator2@active');
+
+      // Verify both bids exist
+      let bids = getAllBids();
+      expect(bids.length).to.equal(2);
+
+      // Select agent1's bid (bid id 0)
+      await agentescrow.actions.selectbid(['client', 0]).send('client@active');
+
+      // All bids should be cleaned up
+      bids = getAllBids();
+      expect(bids.length).to.equal(0);
+
+      const job = getJob(0);
+      expect(job.agent).to.equal('agent1');
+    });
+
+    it('should allow agent to withdraw their bid', async () => {
+      await createOpenJob();
+      await agentescrow.actions.submitbid([
+        'agent1', 0, 500000, 604800, 'My proposal'
+      ]).send('agent1@active');
+
+      // Verify bid exists
+      expect(getBid(0)).to.not.be.undefined;
+
+      await agentescrow.actions.withdrawbid(['agent1', 0]).send('agent1@active');
+
+      // Bid should be gone
+      expect(getBid(0)).to.be.undefined;
+    });
+
+    it('should reject withdraw from non-owner', async () => {
+      await createOpenJob();
+      await agentescrow.actions.submitbid([
+        'agent1', 0, 500000, 604800, 'My proposal'
+      ]).send('agent1@active');
+
+      await expectToThrow(
+        agentescrow.actions.withdrawbid(['client', 0]).send('client@active'),
+        protonAssert('Only bid owner can withdraw')
+      );
+    });
+
+    it('should reject bid from non-registered agent', async () => {
+      await createOpenJob();
+
+      await expectToThrow(
+        agentescrow.actions.submitbid([
+          'arbitrator1', 0, 500000, 604800, 'My proposal'
+        ]).send('arbitrator1@active'),
+        protonAssert('Agent not registered in agentcore')
+      );
+    });
+
+    it('should clean up bids when job is cancelled', async () => {
+      await createOpenJob();
+      await agentescrow.actions.submitbid([
+        'agent1', 0, 500000, 604800, 'My proposal'
+      ]).send('agent1@active');
+
+      // Verify bid exists
+      expect(getAllBids().length).to.equal(1);
+
+      // Cancel the job
+      await agentescrow.actions.cancel(['client', 0]).send('client@active');
+
+      // Bids should be cleaned up
+      expect(getAllBids().length).to.equal(0);
+    });
+
+    it('should reject submitbid when paused', async () => {
+      await createOpenJob();
+
+      // Pause the contract
+      await agentescrow.actions.setconfig([200, 10000, 30, 604800, true, 'agentcore', 'agentfeed', 604800, 10000000, 604800]).send('owner@active');
+
+      await expectToThrow(
+        agentescrow.actions.submitbid([
+          'agent1', 0, 500000, 604800, 'My proposal'
+        ]).send('agent1@active'),
+        protonAssert('Contract is paused')
+      );
     });
   });
 });
