@@ -298,7 +298,7 @@ export class Job extends Table {
 // 0 = CREATED     - Job created, awaiting funding
 // 1 = FUNDED      - Funds deposited
 // 2 = ACCEPTED    - Agent accepted
-// 3 = ACTIVE      - Work in progress
+// 3 = INPROGRESS  - Work in progress
 // 4 = DELIVERED   - Agent submitted deliverables
 // 5 = DISPUTED    - Under dispute
 // 6 = COMPLETED   - Approved, agent paid
