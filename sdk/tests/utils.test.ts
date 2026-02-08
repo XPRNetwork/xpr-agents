@@ -10,6 +10,7 @@ import {
   parseTags,
   formatXpr,
   parseXpr,
+  safeParseInt,
   formatTimestamp,
   calculateWeightedAverage,
   isValidAccountName,
@@ -353,6 +354,71 @@ describe('parseXpr', () => {
 
   it('round-trips with formatXpr', () => {
     expect(parseXpr(formatXpr(12345))).toBe(12345);
+  });
+
+  it('handles fractional XPR correctly (integer math precision)', () => {
+    // This was the floating-point bug: 0.7 * 10000 = 6999.999...
+    expect(parseXpr('0.7000 XPR')).toBe(7000);
+    expect(parseXpr('0.0001 XPR')).toBe(1);
+    expect(parseXpr('0.9999 XPR')).toBe(9999);
+  });
+
+  it('handles large amounts', () => {
+    expect(parseXpr('1000000.0000 XPR')).toBe(10000000000);
+    expect(parseXpr('999999.9999 XPR')).toBe(9999999999);
+  });
+
+  it('handles fewer than 4 decimal places', () => {
+    expect(parseXpr('1.5 XPR')).toBe(15000);
+    expect(parseXpr('2.50 XPR')).toBe(25000);
+    expect(parseXpr('3.125 XPR')).toBe(31250);
+  });
+
+  it('handles no decimal point', () => {
+    expect(parseXpr('50 XPR')).toBe(500000);
+  });
+
+  it('returns 0 for empty string', () => {
+    expect(parseXpr('')).toBe(0);
+  });
+});
+
+// ============== safeParseInt ==============
+
+describe('safeParseInt', () => {
+  it('parses valid integer strings', () => {
+    expect(safeParseInt('42')).toBe(42);
+    expect(safeParseInt('0')).toBe(0);
+    expect(safeParseInt('-5')).toBe(-5);
+  });
+
+  it('returns fallback for undefined/null/empty', () => {
+    expect(safeParseInt(undefined)).toBe(0);
+    expect(safeParseInt(null)).toBe(0);
+    expect(safeParseInt('')).toBe(0);
+  });
+
+  it('returns custom fallback', () => {
+    expect(safeParseInt(undefined, 99)).toBe(99);
+    expect(safeParseInt(null, -1)).toBe(-1);
+    expect(safeParseInt('', 42)).toBe(42);
+  });
+
+  it('returns fallback for NaN-producing strings', () => {
+    expect(safeParseInt('abc')).toBe(0);
+    expect(safeParseInt('abc', 10)).toBe(10);
+    expect(safeParseInt('not-a-number')).toBe(0);
+  });
+
+  it('parses leading digits from mixed strings', () => {
+    // parseInt behavior: parses leading digits
+    expect(safeParseInt('123abc')).toBe(123);
+    expect(safeParseInt('100.5000 XPR')).toBe(100);
+  });
+
+  it('handles string "0" correctly (not falsy)', () => {
+    expect(safeParseInt('0')).toBe(0);
+    expect(safeParseInt('0', 99)).toBe(0);
   });
 });
 

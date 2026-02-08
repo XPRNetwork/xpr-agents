@@ -259,6 +259,100 @@ describe('Confirmation Gate', () => {
   });
 });
 
+describe('maxTransferAmount Enforcement', () => {
+  let api: ReturnType<typeof createMockApi>;
+
+  // Config with low maxTransferAmount: 10 XPR = 100000 smallest units
+  const lowMaxConfig = () => createConfig({ maxTransferAmount: 100000 });
+
+  beforeEach(() => {
+    api = createMockApi();
+  });
+
+  it('rejects xpr_register_agent fee exceeding maxTransferAmount', async () => {
+    registerAgentTools(api, lowMaxConfig());
+    const tool = api.tools.get('xpr_register_agent')!;
+    await expect(
+      tool.handler({
+        name: 'Test',
+        description: 'test',
+        endpoint: 'https://example.com',
+        protocol: 'https',
+        capabilities: ['test'],
+        fee_amount: 20, // 20 XPR > 10 XPR max
+        confirmed: true,
+      })
+    ).rejects.toThrow('exceeds maximum');
+  });
+
+  it('rejects xpr_submit_feedback fee exceeding maxTransferAmount', async () => {
+    registerFeedbackTools(api, lowMaxConfig());
+    const tool = api.tools.get('xpr_submit_feedback')!;
+    await expect(
+      tool.handler({
+        agent: 'alice',
+        score: 4,
+        fee_amount: 20, // 20 XPR > 10 XPR max
+      })
+    ).rejects.toThrow('exceeds maximum');
+  });
+
+  it('rejects xpr_stake_validator exceeding maxTransferAmount', async () => {
+    registerValidationTools(api, lowMaxConfig());
+    const tool = api.tools.get('xpr_stake_validator')!;
+    await expect(
+      tool.handler({
+        amount: 20, // 20 XPR > 10 XPR max
+        confirmed: true,
+      })
+    ).rejects.toThrow('exceeds maximum');
+  });
+
+  it('rejects xpr_create_job amount exceeding maxTransferAmount', async () => {
+    registerEscrowTools(api, lowMaxConfig());
+    const tool = api.tools.get('xpr_create_job')!;
+    await expect(
+      tool.handler({
+        agent: 'alice',
+        title: 'Test Job',
+        description: 'A test job',
+        deliverables: 'deliverables',
+        amount: 20, // 20 XPR > 10 XPR max
+        confirmed: true,
+      })
+    ).rejects.toThrow('exceeds maximum');
+  });
+
+  it('rejects xpr_fund_job amount exceeding maxTransferAmount', async () => {
+    registerEscrowTools(api, lowMaxConfig());
+    const tool = api.tools.get('xpr_fund_job')!;
+    await expect(
+      tool.handler({
+        job_id: 1,
+        amount: 20, // 20 XPR > 10 XPR max
+        confirmed: true,
+      })
+    ).rejects.toThrow('exceeds maximum');
+  });
+
+  it('allows amounts within maxTransferAmount', async () => {
+    registerAgentTools(api, lowMaxConfig());
+    const tool = api.tools.get('xpr_register_agent')!;
+    // 5 XPR is within the 10 XPR max
+    const result = await tool.handler({
+      name: 'Test',
+      description: 'test',
+      endpoint: 'https://example.com',
+      protocol: 'https',
+      capabilities: ['test'],
+      fee_amount: 5,
+      confirmed: true,
+    });
+    // Should not throw, should return transaction result
+    expect(result).not.toHaveProperty('needs_confirmation');
+  });
+});
+
 describe('Tool Descriptions', () => {
   it('all tools have non-empty descriptions', () => {
     const api = createMockApi();

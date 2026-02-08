@@ -1,5 +1,15 @@
 # Testnet Go-Live Checklist (Operator + Bot)
 
+## Unit Tests (456 total - all passing)
+
+- [x] SDK: 183 tests (`cd sdk && npm test`)
+- [x] agentcore: 67 tests (`cd contracts/agentcore && npm test`)
+- [x] agentfeed: 44 tests (`cd contracts/agentfeed && npm test`)
+- [x] agentvalid: 37 tests (`cd contracts/agentvalid && npm test`)
+- [x] agentescrow: 45 tests (`cd contracts/agentescrow && npm test`)
+- [x] OpenClaw: 52 tests (`cd openclaw && npx vitest run`)
+- [x] Indexer: 28 tests (`cd indexer && npm test`)
+
 ## Chain + Contracts
 
 - [ ] `deploy-testnet.sh` completes with no failed action

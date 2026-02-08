@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import { Blockchain, protonAssert, expectToThrow, mintTokens, nameToBigInt } from '@proton/vert';
+import { TimePointSec } from '@greymass/eosio';
 
 /* ------------------------------------------------------------------ */
 /*  Bootstrap                                                          */
@@ -389,6 +390,186 @@ describe('agentvalid', () => {
     it('should reject from non-owner', async () => {
       await expectToThrow(
         agentvalid.actions.setowner(['bob']).send('alice@active'),
+        'missing required authority owner'
+      );
+    });
+  });
+
+  /* ==================== Challenge Resolution & Slashing ==================== */
+
+  describe('challenge resolution and slashing', () => {
+    beforeEach(async () => {
+      await initAll();
+      // Set blockchain time to a non-zero value so currentTimeSec() > 0
+      blockchain.setTime(TimePointSec.from(1700000000));
+      await registerAndStakeValidator('validator1');
+      await agentvalid.actions.validate([
+        'validator1', 'alice', 'jobhash123', 1, 95, 'ipfs://evidence'
+      ]).send('validator1@active');
+      // Create and fund challenge
+      await agentvalid.actions.challenge([
+        'challenger1', 0, 'Invalid validation', 'ipfs://challenge-evidence'
+      ]).send('challenger1@active');
+      await eosioToken.actions.transfer([
+        'challenger1', 'agentvalid', '5.0000 XPR', 'challenge:0'
+      ]).send('challenger1@active');
+      // Advance time past dispute_period (172800 seconds = 2 days)
+      blockchain.addTime(TimePointSec.from(173000));
+    });
+
+    it('should slash validator when challenge is upheld', async () => {
+      const valBefore = getValidator('validator1');
+      const stakeBefore = valBefore.stake;
+
+      await agentvalid.actions.resolve([
+        'owner', 0, true, 'Validation was incorrect'
+      ]).send('owner@active');
+
+      const valAfter = getValidator('validator1');
+      // slash_percent = 1000 (10%), stake was 100000
+      // slashAmount = 100000 * 1000 / 10000 = 10000
+      expect(valAfter.stake).to.equal(stakeBefore - 10000);
+      expect(valAfter.incorrect_validations).to.equal(1);
+    });
+
+    it('should reset challenged flag after resolution', async () => {
+      await agentvalid.actions.resolve([
+        'owner', 0, true, 'Validation was incorrect'
+      ]).send('owner@active');
+
+      const validation = getValidation(0);
+      expect(validation.challenged).to.equal(false);
+    });
+
+    it('should decrement pending_challenges on resolution', async () => {
+      let val = getValidator('validator1');
+      expect(val.pending_challenges).to.equal(1);
+
+      await agentvalid.actions.resolve([
+        'owner', 0, true, 'Validation was incorrect'
+      ]).send('owner@active');
+
+      val = getValidator('validator1');
+      expect(val.pending_challenges).to.equal(0);
+    });
+
+    it('should forfeit challenger stake to validator when rejected', async () => {
+      const valBefore = getValidator('validator1');
+      const stakeBefore = valBefore.stake;
+      const challengeStake = getChallenge(0).stake;
+
+      await agentvalid.actions.resolve([
+        'owner', 0, false, 'Validation was correct'
+      ]).send('owner@active');
+
+      const valAfter = getValidator('validator1');
+      // Validator gets challenger's stake
+      expect(valAfter.stake).to.equal(stakeBefore + challengeStake);
+      expect(valAfter.incorrect_validations).to.equal(0);
+    });
+
+    it('should keep accuracy at 100% when under MIN_VALIDATIONS (5)', async () => {
+      // validator1 has 1 validation, below MIN_VALIDATIONS_FOR_ACCURACY = 5
+      await agentvalid.actions.resolve([
+        'owner', 0, true, 'Incorrect validation'
+      ]).send('owner@active');
+
+      const val = getValidator('validator1');
+      // accuracy_score should remain at 10000 (100%) despite incorrect validation
+      expect(val.accuracy_score).to.equal(10000);
+      expect(val.incorrect_validations).to.equal(1);
+    });
+
+    it('should update accuracy after MIN_VALIDATIONS reached', async () => {
+      // Resolve first challenge upheld
+      await agentvalid.actions.resolve([
+        'owner', 0, true, 'Incorrect'
+      ]).send('owner@active');
+
+      // Submit 4 more validations to reach MIN_VALIDATIONS = 5
+      for (let i = 0; i < 4; i++) {
+        await agentvalid.actions.validate([
+          'validator1', 'alice', `jobhash${i + 2}`, 1, 90, 'ipfs://ev'
+        ]).send('validator1@active');
+      }
+
+      // Now create and fund a second challenge on validation 1
+      await agentvalid.actions.challenge([
+        'challenger1', 1, 'Also invalid', 'ipfs://ev2'
+      ]).send('challenger1@active');
+      await eosioToken.actions.transfer([
+        'challenger1', 'agentvalid', '5.0000 XPR', 'challenge:1'
+      ]).send('challenger1@active');
+
+      blockchain.addTime(TimePointSec.from(173000));
+
+      await agentvalid.actions.resolve([
+        'owner', 1, true, 'Also incorrect'
+      ]).send('owner@active');
+
+      const val = getValidator('validator1');
+      // total_validations = 5, incorrect = 2
+      // accuracy = (5 - 2) * 10000 / 5 = 6000
+      expect(val.total_validations).to.equal(5);
+      expect(val.incorrect_validations).to.equal(2);
+      expect(val.accuracy_score).to.equal(6000);
+    });
+
+    it('should reject resolve before dispute period elapsed', async () => {
+      // Reset and recreate without time advance
+      blockchain.resetTables();
+      await initAll();
+      blockchain.setTime(TimePointSec.from(1700000000));
+      await registerAndStakeValidator('validator1');
+      await agentvalid.actions.validate([
+        'validator1', 'alice', 'hash1', 1, 95, 'ipfs://ev'
+      ]).send('validator1@active');
+      await agentvalid.actions.challenge([
+        'challenger1', 0, 'Invalid', 'ipfs://ev'
+      ]).send('challenger1@active');
+      await eosioToken.actions.transfer([
+        'challenger1', 'agentvalid', '5.0000 XPR', 'challenge:0'
+      ]).send('challenger1@active');
+
+      // Try to resolve immediately (dispute_period = 172800)
+      try {
+        await agentvalid.actions.resolve([
+          'owner', 0, true, 'Too soon'
+        ]).send('owner@active');
+        expect.fail('Should have thrown');
+      } catch (e: any) {
+        expect(e.message).to.include('Dispute period not elapsed');
+      }
+    });
+
+    it('should reject resolve on unfunded challenge', async () => {
+      // Reset and create unfunded challenge
+      blockchain.resetTables();
+      await initAll();
+      blockchain.setTime(TimePointSec.from(1700000000));
+      await registerAndStakeValidator('validator1');
+      await agentvalid.actions.validate([
+        'validator1', 'alice', 'hash1', 1, 95, 'ipfs://ev'
+      ]).send('validator1@active');
+      await agentvalid.actions.challenge([
+        'challenger1', 0, 'Invalid', 'ipfs://ev'
+      ]).send('challenger1@active');
+
+      blockchain.addTime(TimePointSec.from(173000));
+
+      await expectToThrow(
+        agentvalid.actions.resolve([
+          'owner', 0, true, 'Not funded'
+        ]).send('owner@active'),
+        protonAssert("Challenge must be funded. Send XPR with memo 'challenge:ID'")
+      );
+    });
+
+    it('should require owner auth for resolve', async () => {
+      await expectToThrow(
+        agentvalid.actions.resolve([
+          'bob', 0, true, 'Not authorized'
+        ]).send('bob@active'),
         'missing required authority owner'
       );
     });

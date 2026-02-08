@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import { Blockchain, protonAssert, expectToThrow, mintTokens, nameToBigInt } from '@proton/vert';
+import { TimePointSec } from '@greymass/eosio';
 
 /* ------------------------------------------------------------------ */
 /*  Bootstrap                                                          */
@@ -567,6 +568,196 @@ describe('agentescrow', () => {
       await agentescrow.actions.deactarb(['arbitrator1']).send('arbitrator1@active');
       const arb = getArbitrator('arbitrator1');
       expect(arb.active).to.equal(false);
+    });
+  });
+
+  /* ==================== Job Timeouts ==================== */
+
+  describe('job timeouts', () => {
+    beforeEach(async () => {
+      await initAll();
+      await registerArbitrator('arbitrator1');
+      blockchain.setTime(TimePointSec.from(1700000000));
+    });
+
+    it('should refund client on acceptance timeout', async () => {
+      // Create and fund a job - agent does not accept
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Test Job', 'Test', '["del1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'jobhash'
+      ]).send('client@active');
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '100.0000 XPR', 'fund:0'
+      ]).send('client@active');
+
+      let job = getJob(0);
+      expect(job.state).to.equal(1); // FUNDED
+
+      // Advance past acceptance_timeout (604800 seconds = 7 days)
+      blockchain.addTime(TimePointSec.from(605000));
+
+      // Client claims timeout
+      await agentescrow.actions.accpttimeout(['client', 0]).send('client@active');
+
+      job = getJob(0);
+      expect(job.state).to.equal(7); // REFUNDED
+    });
+
+    it('should reject acceptance timeout before deadline', async () => {
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Test Job', 'Test', '["del1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'jobhash'
+      ]).send('client@active');
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '100.0000 XPR', 'fund:0'
+      ]).send('client@active');
+
+      // Try immediately
+      await expectToThrow(
+        agentescrow.actions.accpttimeout(['client', 0]).send('client@active'),
+        protonAssert('Acceptance timeout not reached')
+      );
+    });
+
+    it('should auto-complete delivered job after deadline timeout', async () => {
+      // Short deadline for testing
+      const deadline = 1700000000 + 3600;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Test', 'Test', '["del1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'hash'
+      ]).send('client@active');
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '100.0000 XPR', 'fund:0'
+      ]).send('client@active');
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://ev']).send('agent1@active');
+
+      // Advance past deadline
+      blockchain.addTime(TimePointSec.from(4000));
+
+      // Agent claims timeout - should auto-approve (delivered)
+      await agentescrow.actions.timeout(['agent1', 0]).send('agent1@active');
+
+      const job = getJob(0);
+      expect(job.state).to.equal(6); // COMPLETED
+    });
+
+    it('should refund client on undelivered job timeout', async () => {
+      const deadline = 1700000000 + 3600;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Test', 'Test', '["del1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'hash'
+      ]).send('client@active');
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '100.0000 XPR', 'fund:0'
+      ]).send('client@active');
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      // Agent does NOT deliver
+
+      blockchain.addTime(TimePointSec.from(4000));
+
+      // Client claims timeout - should refund (not delivered)
+      await agentescrow.actions.timeout(['client', 0]).send('client@active');
+
+      const job = getJob(0);
+      expect(job.state).to.equal(7); // REFUNDED
+    });
+
+    it('should reject timeout before deadline', async () => {
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Test', 'Test', '["del1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'hash'
+      ]).send('client@active');
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '100.0000 XPR', 'fund:0'
+      ]).send('client@active');
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+
+      await expectToThrow(
+        agentescrow.actions.timeout(['client', 0]).send('client@active'),
+        protonAssert('Deadline not reached')
+      );
+    });
+  });
+
+  /* ==================== Arbitrator-less Fallback ==================== */
+
+  describe('arbitrator-less fallback', () => {
+    beforeEach(async () => {
+      await initAll();
+      blockchain.setTime(TimePointSec.from(1700000000));
+    });
+
+    it('should allow owner to arbitrate job with no arbitrator', async () => {
+      // Create job WITHOUT an arbitrator (empty string)
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'No Arb Job', 'Test', '["del1"]',
+        1000000, '4,XPR', deadline, '', 'hash'
+      ]).send('client@active');
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '100.0000 XPR', 'fund:0'
+      ]).send('client@active');
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://ev']).send('agent1@active');
+      await agentescrow.actions.dispute(['client', 0, 'Bad work', 'ipfs://ev']).send('client@active');
+
+      // Owner (as fallback) arbitrates
+      await agentescrow.actions.arbitrate([
+        'owner', 0, 50, 'Fallback resolution'
+      ]).send('owner@active');
+
+      const job = getJob(0);
+      expect(job.state).to.equal(8); // ARBITRATED
+    });
+  });
+
+  /* ==================== Milestone Approval ==================== */
+
+  describe('milestone approval and partial release', () => {
+    beforeEach(async () => {
+      await initAll();
+      await registerArbitrator('arbitrator1');
+      blockchain.setTime(TimePointSec.from(1700000000));
+    });
+
+    it('should release partial funds on milestone approval', async () => {
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Milestone Job', 'Test', '["del1","del2"]',
+        2000000, '4,XPR', deadline, 'arbitrator1', 'hash'
+      ]).send('client@active');
+
+      // Add milestones BEFORE funding (required by contract)
+      await agentescrow.actions.addmilestone([
+        'client', 0, 'Phase 1', 'First phase', 1000000, 0
+      ]).send('client@active');
+      await agentescrow.actions.addmilestone([
+        'client', 0, 'Phase 2', 'Second phase', 1000000, 1
+      ]).send('client@active');
+
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '200.0000 XPR', 'fund:0'
+      ]).send('client@active');
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+
+      // Submit and approve first milestone
+      await agentescrow.actions.submitmile(['agent1', 0, 'ipfs://ev1']).send('agent1@active');
+      await agentescrow.actions.approvemile(['client', 0]).send('client@active');
+
+      const job = getJob(0);
+      expect(job.released_amount).to.equal(1000000); // 100.0000 XPR released
+      expect(job.state).to.equal(3); // Still ACTIVE
+
+      const m0 = getMilestone(0);
+      expect(m0.state).to.equal(2); // APPROVED
     });
   });
 });

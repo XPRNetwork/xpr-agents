@@ -637,4 +637,186 @@ describe('agentcore', () => {
       );
     });
   });
+
+  /* ==================== Token Transfer Handler (onTransfer) ==================== */
+
+  describe('onTransfer (claim deposit)', () => {
+    beforeEach(async () => {
+      await agentcore.actions.init(['owner', 0, 100000, '', '', '']).send('agentcore@active');
+      await mintTokens(eosioToken, 'XPR', 4, 1000000000, 100000, [owner, alice, bob, carol]);
+      await agentcore.actions.register(validReg('alice')).send('alice@active');
+    });
+
+    it('should accept valid claim deposit with correct memo format', async () => {
+      setKyc('bob', 2);
+      await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+
+      await eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active');
+
+      const agent = getAgent('alice');
+      expect(agent.claim_deposit).to.equal(100000);
+      expect(agent.deposit_payer).to.equal('bob');
+    });
+
+    it('should reject memo with missing parts (only "claim:")', async () => {
+      setKyc('bob', 2);
+      await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+
+      await expectToThrow(
+        eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:']).send('bob@active'),
+        protonAssert('Invalid memo format. Use: claim:agentname:ownername')
+      );
+    });
+
+    it('should reject memo with too many parts', async () => {
+      setKyc('bob', 2);
+      await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+
+      await expectToThrow(
+        eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob:extra']).send('bob@active'),
+        protonAssert('Invalid memo format. Use: claim:agentname:ownername')
+      );
+    });
+
+    it('should reject transfer with unrecognized memo', async () => {
+      await expectToThrow(
+        eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'something']).send('bob@active'),
+        protonAssert("Invalid memo. Use 'regfee:accountname' or 'claim:agentname:ownername'")
+      );
+    });
+
+    it('should reject claim deposit if agent has not approved a claimant', async () => {
+      await expectToThrow(
+        eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active'),
+        protonAssert('Agent has not approved any claimant yet. Agent must call approveclaim first.')
+      );
+    });
+
+    it('should reject claim deposit if payer does not match intended owner in memo', async () => {
+      setKyc('bob', 2);
+      await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+
+      // carol tries to pay deposit for bob
+      await expectToThrow(
+        eosioToken.actions.transfer(['carol', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('carol@active'),
+        protonAssert('Payer must match intended owner in memo. You cannot pay deposit for someone else.')
+      );
+    });
+
+    it('should reject claim deposit if agent approved a different claimant', async () => {
+      setKyc('bob', 2);
+      setKyc('carol', 2);
+      await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+
+      // carol tries to send a deposit specifying herself as owner
+      await expectToThrow(
+        eosioToken.actions.transfer(['carol', 'agentcore', '10.0000 XPR', 'claim:alice:carol']).send('carol@active'),
+        'eosio_assert: Agent approved a different claimant. Deposit must be from approved account: bob'
+      );
+    });
+
+    it('should reject claim deposit for non-existent agent', async () => {
+      await expectToThrow(
+        eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:nonexist:bob']).send('bob@active'),
+        protonAssert('Agent not found: nonexist')
+      );
+    });
+
+    it('should reject claim deposit if agent already has an owner', async () => {
+      setKyc('bob', 2);
+      await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+      await eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active');
+      await agentcore.actions.claim(['alice']).send('bob@active');
+
+      // Now alice is owned by bob, try another deposit
+      await expectToThrow(
+        eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active'),
+        protonAssert('Agent already has an owner')
+      );
+    });
+
+    it('should cap deposit at claim_fee and refund excess', async () => {
+      setKyc('bob', 2);
+      await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+
+      // Send more than required (claim_fee is 10.0000 XPR = 100000)
+      await eosioToken.actions.transfer(['bob', 'agentcore', '20.0000 XPR', 'claim:alice:bob']).send('bob@active');
+
+      const agent = getAgent('alice');
+      // Deposit should be capped at claim_fee
+      expect(agent.claim_deposit).to.equal(100000);
+    });
+
+    it('should accept regfee memo for registration fee deposit', async () => {
+      // Set a registration fee
+      await agentcore.actions.setconfig([0, 50000, 100000, '', '', '', false]).send('owner@active');
+
+      await eosioToken.actions.transfer(['bob', 'agentcore', '5.0000 XPR', 'regfee:bob']).send('bob@active');
+
+      // Check deposits table
+      const deposits = agentcore.tables.deposits(nameToBigInt('agentcore')).getTableRows();
+      expect(deposits.length).to.equal(1);
+      expect(deposits[0].account).to.equal('bob');
+      expect(deposits[0].amount).to.equal(50000);
+    });
+
+    it('should reject regfee memo if payer does not match account', async () => {
+      await expectToThrow(
+        eosioToken.actions.transfer(['carol', 'agentcore', '5.0000 XPR', 'regfee:bob']).send('carol@active'),
+        protonAssert('Payer must match account in memo')
+      );
+    });
+
+    it('should verify claim deposit is refunded on release', async () => {
+      setKyc('bob', 2);
+      await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+      await eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active');
+      await agentcore.actions.claim(['alice']).send('bob@active');
+
+      // Verify deposit was stored
+      let agent = getAgent('alice');
+      expect(agent.claim_deposit).to.equal(100000);
+      expect(agent.deposit_payer).to.equal('bob');
+
+      // Release triggers refund (inline transfer)
+      await agentcore.actions.release(['alice']).send('bob@active');
+
+      agent = getAgent('alice');
+      expect(agent.claim_deposit).to.equal(0);
+      expect(agent.deposit_payer).to.equal('');
+      expect(agent.owner).to.equal('');
+    });
+
+    it('should verify claim deposit is refunded on cancelclaim', async () => {
+      setKyc('bob', 2);
+      await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+      await eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active');
+
+      // Cancel the claim - should refund the deposit
+      await agentcore.actions.cancelclaim(['alice']).send('alice@active');
+
+      const agent = getAgent('alice');
+      expect(agent.pending_owner).to.equal('');
+      expect(agent.claim_deposit).to.equal(0);
+      expect(agent.deposit_payer).to.equal('');
+    });
+
+    it('should accumulate deposits from same payer', async () => {
+      // Set a lower claim_fee to test accumulation
+      await agentcore.actions.setconfig([0, 0, 200000, '', '', '', false]).send('owner@active');
+
+      setKyc('bob', 2);
+      await agentcore.actions.approveclaim(['alice', 'bob']).send('alice@active');
+
+      // Send first partial deposit
+      await eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active');
+      let agent = getAgent('alice');
+      expect(agent.claim_deposit).to.equal(100000);
+
+      // Send second partial deposit
+      await eosioToken.actions.transfer(['bob', 'agentcore', '10.0000 XPR', 'claim:alice:bob']).send('bob@active');
+      agent = getAgent('alice');
+      expect(agent.claim_deposit).to.equal(200000); // capped at claim_fee
+    });
+  });
 });
