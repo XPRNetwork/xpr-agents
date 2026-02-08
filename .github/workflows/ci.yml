@@ -24,24 +24,55 @@ jobs:
         working-directory: sdk
 
   # ── Contracts ──────────────────────────────
+  # All contract tests run in a single job because they have
+  # cross-contract WASM dependencies (agentfeed/valid/escrow
+  # load agentcore's WASM, agentescrow loads agentfeed's WASM).
   contracts:
-    name: Contracts (${{ matrix.contract }})
+    name: Contracts (all)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        contract: [agentcore, agentfeed, agentvalid, agentescrow]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      # Install all contracts
       - run: npm install
-        working-directory: contracts/${{ matrix.contract }}
-      - run: npm run build
-        working-directory: contracts/${{ matrix.contract }}
-      - run: npm test
-        working-directory: contracts/${{ matrix.contract }}
+        working-directory: contracts/agentcore
+      - run: npm install
+        working-directory: contracts/agentfeed
+      - run: npm install
+        working-directory: contracts/agentvalid
+      - run: npm install
+        working-directory: contracts/agentescrow
+
+      # Build in dependency order: core → feed → valid/escrow
+      - name: Build agentcore
+        run: npm run build
+        working-directory: contracts/agentcore
+      - name: Build agentfeed
+        run: npm run build
+        working-directory: contracts/agentfeed
+      - name: Build agentvalid
+        run: npm run build
+        working-directory: contracts/agentvalid
+      - name: Build agentescrow
+        run: npm run build
+        working-directory: contracts/agentescrow
+
+      # Test in dependency order
+      - name: Test agentcore (71 tests)
+        run: npm test
+        working-directory: contracts/agentcore
+      - name: Test agentfeed (16 tests)
+        run: npm test
+        working-directory: contracts/agentfeed
+      - name: Test agentvalid (15 tests)
+        run: npm test
+        working-directory: contracts/agentvalid
+      - name: Test agentescrow (23 tests)
+        run: npm test
+        working-directory: contracts/agentescrow
 
   # ── OpenClaw Plugin ────────────────────────
   openclaw:
@@ -53,9 +84,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      # Build SDK first (openclaw depends on it)
       - run: npm install && npm run build
         working-directory: sdk
-      - run: npm install
+      # Override SDK dep to use local build
+      - name: Link local SDK
+        run: |
+          npm install
+          npm rm @xpr-agents/sdk 2>/dev/null || true
+          npm install ../sdk
         working-directory: openclaw
       - run: npm run build
         working-directory: openclaw
@@ -104,7 +141,12 @@ jobs:
           node-version: 20
       - run: npm install && npm run build
         working-directory: sdk
-      - run: npm install && npm run build
+      - name: Build openclaw with local SDK
+        run: |
+          npm install
+          npm rm @xpr-agents/sdk 2>/dev/null || true
+          npm install ../sdk
+          npm run build
         working-directory: openclaw
       - run: npm install && npm run build
         working-directory: openclaw/starter/agent
