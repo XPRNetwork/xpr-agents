@@ -81,7 +81,7 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
       }
       break;
     case 'resolvetmout':
-      handleResolveTimeout(db, data);
+      handleResolveTimeout(db, data, action.act.authorization?.[0]?.actor);
       if (dispatcher) {
         const tmoutDispute = db.prepare('SELECT job_id FROM escrow_disputes WHERE id = ?').get(data.dispute_id) as { job_id: number } | undefined;
         const tmoutJob = tmoutDispute ? db.prepare('SELECT client, agent FROM jobs WHERE id = ?').get(tmoutDispute.job_id) as { client: string; agent: string } | undefined : undefined;
@@ -285,7 +285,7 @@ function handleArbitrate(db: Database.Database, data: any): void {
   console.log(`Dispute ${data.dispute_id} arbitrated${dispute ? ` (job ${dispute.job_id})` : ''}`);
 }
 
-function handleResolveTimeout(db: Database.Database, data: any): void {
+function handleResolveTimeout(db: Database.Database, data: any, resolver?: string): void {
   // Look up dispute to get job_id
   const dispute = db.prepare('SELECT job_id FROM escrow_disputes WHERE id = ?').get(data.dispute_id) as { job_id: number } | undefined;
 
@@ -311,7 +311,7 @@ function handleResolveTimeout(db: Database.Database, data: any): void {
   const resolution = data.client_percent === 100 ? 1 : (data.client_percent === 0 ? 2 : 3);
   disputeStmt.run(
     resolution,
-    data.resolver || 'owner',
+    resolver || 'owner',
     data.resolution_notes || '',
     data.dispute_id
   );

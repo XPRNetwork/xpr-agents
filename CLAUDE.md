@@ -170,6 +170,7 @@ export class AgentScore extends Table {
     public total_score: u64 = 0,            // Sum of weighted scores
     public total_weight: u64 = 0,           // Sum of weights
     public feedback_count: u64 = 0,         // Number of feedbacks
+    public avg_score: u64 = 0,              // Weighted average (0-10000 = 0-100.00%)
     public last_updated: u64 = 0            // Last calculation time
   ) { super(); }
 
@@ -210,6 +211,7 @@ export class Validator extends Table {
     public total_validations: u64 = 0,      // Validation count
     public incorrect_validations: u64 = 0,  // Failed validations (for accuracy)
     public accuracy_score: u64 = 10000,     // Accuracy (0-10000 = 0-100.00%)
+    public pending_challenges: u64 = 0,    // Active funded challenges (blocks unstaking)
     public registered_at: u64 = 0,          // Registration time
     public active: boolean = true           // Active status
   ) { super(); }
@@ -279,7 +281,7 @@ export class Job extends Table {
     public description: string = "",        // Job description
     public deliverables: string = "",       // JSON array of deliverables
     public amount: u64 = 0,                 // Total job amount
-    public symbol: Symbol = new Symbol(),   // Token symbol (e.g., XPR)
+    public symbol: string = "XPR",          // Token symbol string
     public funded_amount: u64 = 0,          // Amount funded so far
     public released_amount: u64 = 0,        // Amount released to agent
     public state: u8 = 0,                   // Job state (see below)
@@ -313,7 +315,7 @@ export class Milestone extends Table {
     public title: string = "",              // Milestone title
     public description: string = "",        // Milestone description
     public amount: u64 = 0,                 // Payment for this milestone
-    public milestone_order: u8 = 0,         // Sequence order
+    public order: u8 = 0,                   // Sequence order
     public state: u8 = 0,                   // 0=pending, 1=submitted, 2=approved
     public evidence_uri: string = "",       // Submission evidence
     public submitted_at: u64 = 0,
