@@ -42,15 +42,26 @@ const pluginFn = require('@xpr-agents/openclaw').default;
 pluginFn(mockApi);
 
 // Load agent-operator skill as system prompt
-const skillPath = path.resolve(__dirname, '../../../skills/xpr-agent-operator/SKILL.md');
+// Try multiple paths for SKILL.md (Docker layout differs from local)
+const skillCandidates = [
+  path.resolve(__dirname, '../../openclaw/skills/xpr-agent-operator/SKILL.md'),  // Docker: /app/agent/dist
+  path.resolve(__dirname, '../../../../skills/xpr-agent-operator/SKILL.md'),      // Local: openclaw/starter/agent/dist
+  path.resolve(__dirname, '../../../skills/xpr-agent-operator/SKILL.md'),          // Fallback
+];
 let systemPrompt = 'You are an autonomous AI agent on XPR Network.';
-try {
-  const raw = fs.readFileSync(skillPath, 'utf-8');
-  // Strip YAML frontmatter
-  const match = raw.match(/^---[\s\S]*?---\s*([\s\S]*)$/);
-  systemPrompt = match ? match[1].trim() : raw;
-} catch {
-  console.warn('[agent] Could not load SKILL.md, using default system prompt');
+for (const candidate of skillCandidates) {
+  try {
+    const raw = fs.readFileSync(candidate, 'utf-8');
+    const match = raw.match(/^---[\s\S]*?---\s*([\s\S]*)$/);
+    systemPrompt = match ? match[1].trim() : raw;
+    console.log(`[agent] Loaded skill from ${candidate}`);
+    break;
+  } catch {
+    // Try next candidate
+  }
+}
+if (systemPrompt === 'You are an autonomous AI agent on XPR Network.') {
+  console.warn('[agent] Could not load SKILL.md from any path, using default system prompt');
 }
 
 // Add account context to system prompt
