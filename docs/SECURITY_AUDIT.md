@@ -130,7 +130,7 @@ The codebase demonstrates strong fundamentals: parameterized SQL queries, proper
 
 | ID | Issue | Location |
 |----|-------|----------|
-| IDX-H01 | No SSRF protection on webhook URLs - can target internal services, cloud metadata | `routes.ts:375-403`, `dispatcher.ts:110` |
+| IDX-H01 | ~~No SSRF protection on webhook URLs~~ **FIXED** - `isValidWebhookUrl()` validates at registration (blocks private IPs, localhost, metadata endpoints, non-HTTPS schemes) | `routes.ts:395-433` |
 | IDX-H02 | SQL sort column interpolation pattern - safe by accident, fragile to future changes | `routes.ts:28-29` |
 
 ### MEDIUM
@@ -148,7 +148,7 @@ The codebase demonstrates strong fundamentals: parameterized SQL queries, proper
 | ID | Issue |
 |----|-------|
 | IDX-L01 | CORS fully open (`Access-Control-Allow-Origin: *`) |
-| IDX-L02 | Unauthenticated `POST /admin/sync-kyc` stub endpoint |
+| IDX-L02 | ~~Unauthenticated `POST /admin/sync-kyc`~~ **FIXED** - `requireAdminAuth` guard added |
 | IDX-L03 | Webhook tokens stored in plaintext in SQLite |
 | IDX-L04 | No validation of Hyperion stream data schema |
 | IDX-L05 | Docker container runs as root |
@@ -188,7 +188,7 @@ The codebase demonstrates strong fundamentals: parameterized SQL queries, proper
 | OC-M04 | Default `maxTransferAmount` is 10,000 XPR - very generous for autonomous agent | `index.ts:53` |
 | OC-M05 | `validateUrl` function exists but is never called on any URI/endpoint field | `agent.ts`, `feedback.ts`, `validation.ts`, `escrow.ts` |
 | OC-M06 | No session null guard on 18+ write tools - cryptic errors in read-only mode | All write tool files |
-| OC-M07 | Docker ports bound to `0.0.0.0` (all interfaces) | `docker-compose.yml:16,39` |
+| OC-M07 | ~~Docker ports bound to `0.0.0.0`~~ **FIXED** - Bound to `127.0.0.1` | `docker-compose.yml:16,39` |
 
 ### LOW
 
@@ -257,7 +257,7 @@ The codebase demonstrates strong fundamentals: parameterized SQL queries, proper
 
 | Action | Contract | Impact |
 |--------|----------|--------|
-| `expirefunded` | agentvalid | Funded challenge expiry permanently corrupts indexer (challenge stays pending, validation stays challenged) |
+| `expirefunded` | agentvalid | ~~Funded challenge expiry permanently corrupts indexer~~ **FIXED** - Handler exists at `validation.ts:321-349` |
 
 ### Missing Indexer Handlers (LOW - cleanup actions)
 
@@ -288,7 +288,7 @@ The codebase demonstrates strong fundamentals: parameterized SQL queries, proper
 | ID | Issue | Location |
 |----|-------|----------|
 | INF-H01 | Wildcard CORS on indexer (`Access-Control-Allow-Origin: *`) | `index.ts:36` |
-| INF-H02 | Unauthenticated `POST /admin/sync-kyc` endpoint | `routes.ts:350` |
+| INF-H02 | ~~Unauthenticated `POST /admin/sync-kyc`~~ **FIXED** - `requireAdminAuth` guard added | `routes.ts:365-366` |
 | INF-H03 | No rate limiting on any API endpoint | `index.ts` |
 
 ### MEDIUM
@@ -296,7 +296,7 @@ The codebase demonstrates strong fundamentals: parameterized SQL queries, proper
 | ID | Issue | Location |
 |----|-------|----------|
 | INF-M01 | Deploy script has no mainnet guard / chain verification | `deploy-testnet.sh:13` |
-| INF-M02 | Docker ports exposed to all interfaces | `docker-compose.yml:15-16,38-39` |
+| INF-M02 | ~~Docker ports exposed to all interfaces~~ **FIXED** - Bound to `127.0.0.1` in both docker-compose files | `docker-compose.yml` |
 | INF-M03 | Docker container runs as root | `indexer/Dockerfile` |
 | INF-M04 | `setup.sh` token duplication on re-run | `setup.sh:52-61` |
 | INF-M05 | Webhook tokens stored in plaintext in SQLite | `schema.ts:286` |
@@ -362,28 +362,28 @@ All CRITICAL and HIGH test gaps from the original audit have been resolved:
 
 ## 9. Recommended Fix Priority
 
-### Phase 1 - Blockers (fix before any testnet deployment)
+### Phase 1 - Blockers (fix before any testnet deployment) - ALL DONE
 
-| # | Fix | Effort |
-|---|-----|--------|
-| 1 | Add re-init guards to `agentfeed.init()` and `agentescrow.init()` | 2 lines |
-| 2 | Fix SDK schema: add `pending_challenges`, `funded_at`, `active_disputes` | ~30 lines |
-| 3 | Add `expirefunded` handler to indexer | ~20 lines |
-| 4 | Fix OpenClaw protocol description | 1 line |
+| # | Fix | Effort | Status |
+|---|-----|--------|--------|
+| 1 | Add re-init guards to `agentfeed.init()` and `agentescrow.init()` | 2 lines | **Done** |
+| 2 | Fix SDK schema: add `pending_challenges`, `funded_at`, `active_disputes` | ~30 lines | **Done** |
+| 3 | Add `expirefunded` handler to indexer | ~20 lines | **Done** (already existed) |
+| 4 | Fix OpenClaw protocol description | 1 line | **Done** |
 
 ### Phase 2 - Security hardening (fix before public testnet)
 
-| # | Fix | Effort |
-|---|-----|--------|
-| 5 | Add CORS allowlist to indexer | 5 lines |
-| 6 | Add auth to `/admin/sync-kyc` or remove it | 3 lines |
-| 7 | Add SSRF protection for webhook URLs | 20 lines |
-| 8 | Bind Docker ports to `127.0.0.1` | 2 lines |
-| 9 | Add missing params to `agentescrow.setConfig()` | 15 lines |
-| 10 | Add dispute timeout mechanism to agentescrow | 50 lines |
-| 11 | Add missing indexer columns (`pending_challenges`, `active_disputes`, `funded_at`) | 10 lines |
-| 12 | Add session null guard to OpenClaw write tools | 20 lines |
-| 13 | Wire `validateUrl` to URI/endpoint fields | 10 lines |
+| # | Fix | Effort | Status |
+|---|-----|--------|--------|
+| 5 | Add CORS allowlist to indexer | 5 lines | |
+| 6 | Add auth to `/admin/sync-kyc` or remove it | 3 lines | **Done** - `requireAdminAuth` guard |
+| 7 | Add SSRF protection for webhook URLs | 20 lines | **Done** - `isValidWebhookUrl()` |
+| 8 | Bind Docker ports to `127.0.0.1` | 2 lines | **Done** - both compose files |
+| 9 | Add missing params to `agentescrow.setConfig()` | 15 lines | |
+| 10 | Add dispute timeout mechanism to agentescrow | 50 lines | |
+| 11 | Add missing indexer columns (`pending_challenges`, `active_disputes`, `funded_at`) | 10 lines | |
+| 12 | Add session null guard to OpenClaw write tools | 20 lines | |
+| 13 | Wire `validateUrl` to URI/endpoint fields | 10 lines | |
 
 ### Phase 3 - Before mainnet
 
