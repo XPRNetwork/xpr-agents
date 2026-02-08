@@ -17,6 +17,7 @@ import {
   validateValidationResult,
   validateAmount,
   validateUrl,
+  xprToSmallestUnits,
 } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
 
@@ -191,7 +192,7 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
       validateConfidence(params.confidence);
       if (params.evidence_uri) validateUrl(params.evidence_uri, 'evidence_uri');
       if (params.fee_amount) {
-        validateAmount(Math.floor(params.fee_amount * 10000), config.maxTransferAmount);
+        validateAmount(xprToSmallestUnits(params.fee_amount), config.maxTransferAmount);
       }
 
       const registry = new ValidationRegistry(config.rpc, config.session, contracts.agentvalid);
@@ -251,7 +252,7 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
     handler: async ({ amount, confirmed }: { amount: number; confirmed?: boolean }) => {
       if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       if (amount <= 0) throw new Error('amount must be positive');
-      validateAmount(Math.floor(amount * 10000), config.maxTransferAmount);
+      validateAmount(xprToSmallestUnits(amount), config.maxTransferAmount);
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,

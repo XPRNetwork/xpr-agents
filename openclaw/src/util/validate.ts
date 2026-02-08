@@ -79,3 +79,14 @@ export function validateClientPercent(percent: number): void {
     throw new Error('client_percent must be between 0 and 100');
   }
 }
+
+/**
+ * Convert a human-readable XPR amount to smallest units using integer math.
+ * Avoids floating-point precision issues (e.g., 0.7 * 10000 = 6999).
+ */
+export function xprToSmallestUnits(amount: number): number {
+  const str = amount.toFixed(4);
+  const [whole, frac = ''] = str.split('.');
+  const paddedFrac = frac.padEnd(4, '0').slice(0, 4);
+  return parseInt(whole, 10) * 10000 + parseInt(paddedFrac, 10);
+}

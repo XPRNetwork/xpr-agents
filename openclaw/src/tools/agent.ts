@@ -9,7 +9,7 @@
 import { AgentRegistry } from '@xpr-agents/sdk';
 import type { PluginCategory } from '@xpr-agents/sdk';
 import type { PluginApi, PluginConfig } from '../types';
-import { validateAccountName, validateRequired, validateAmount, validateUrl } from '../util/validate';
+import { validateAccountName, validateRequired, validateAmount, validateUrl, xprToSmallestUnits } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
 
 export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
@@ -162,7 +162,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
       validateRequired(params.endpoint, 'endpoint');
       validateUrl(params.endpoint, 'endpoint');
       if (params.fee_amount) {
-        validateAmount(Math.floor(params.fee_amount * 10000), config.maxTransferAmount);
+        validateAmount(xprToSmallestUnits(params.fee_amount), config.maxTransferAmount);
       }
 
       const confirmation = needsConfirmation(

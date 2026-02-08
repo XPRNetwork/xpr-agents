@@ -735,6 +735,38 @@ export class EscrowRegistry {
   }
 
   /**
+   * Resolve a dispute after timeout (owner-only fallback).
+   * Can only be called after 14 days since dispute creation.
+   *
+   * @param disputeId - The dispute to resolve
+   * @param clientPercent - Percentage of remaining funds to give to client (0-100)
+   * @param resolutionNotes - Explanation of the resolution
+   */
+  async resolveTimeout(
+    disputeId: number,
+    clientPercent: number,
+    resolutionNotes: string
+  ): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'resolvetmout',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          dispute_id: disputeId,
+          client_percent: clientPercent,
+          resolution_notes: resolutionNotes,
+        },
+      }],
+    });
+  }
+
+  /**
    * Activate arbitrator (must have sufficient stake)
    */
   async activateArbitrator(): Promise<TransactionResult> {

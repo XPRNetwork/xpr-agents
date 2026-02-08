@@ -80,6 +80,20 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
         );
       }
       break;
+    case 'resolvetmout':
+      handleResolveTimeout(db, data);
+      if (dispatcher) {
+        const tmoutDispute = db.prepare('SELECT job_id FROM escrow_disputes WHERE id = ?').get(data.dispute_id) as { job_id: number } | undefined;
+        const tmoutJob = tmoutDispute ? db.prepare('SELECT client, agent FROM jobs WHERE id = ?').get(tmoutDispute.job_id) as { client: string; agent: string } | undefined : undefined;
+        dispatcher.dispatch(
+          'dispute.resolved',
+          tmoutJob ? [tmoutJob.client, tmoutJob.agent] : [],
+          data,
+          `Dispute #${data.dispute_id} resolved by timeout (owner fallback)`,
+          action.block_num
+        );
+      }
+      break;
     case 'cancel':
       handleCancel(db, data);
       break;
@@ -271,6 +285,48 @@ function handleArbitrate(db: Database.Database, data: any): void {
   console.log(`Dispute ${data.dispute_id} arbitrated${dispute ? ` (job ${dispute.job_id})` : ''}`);
 }
 
+function handleResolveTimeout(db: Database.Database, data: any): void {
+  // Look up dispute to get job_id
+  const dispute = db.prepare('SELECT job_id FROM escrow_disputes WHERE id = ?').get(data.dispute_id) as { job_id: number } | undefined;
+
+  if (dispute) {
+    // ARBITRATED: All funds leave escrow (owner resolved with 0% fee)
+    const jobStmt = db.prepare(`
+      UPDATE jobs
+      SET state = 8,
+          released_amount = funded_amount,
+          updated_at = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+    jobStmt.run(dispute.job_id);
+  }
+
+  // Update dispute resolution
+  const disputeStmt = db.prepare(`
+    UPDATE escrow_disputes
+    SET resolution = ?, resolver = ?, resolution_notes = ?, resolved_at = strftime('%s', 'now')
+    WHERE id = ?
+  `);
+
+  const resolution = data.client_percent === 100 ? 1 : (data.client_percent === 0 ? 2 : 3);
+  disputeStmt.run(
+    resolution,
+    data.resolver || 'owner',
+    data.resolution_notes || '',
+    data.dispute_id
+  );
+
+  // Decrement active_disputes on the designated arbitrator (if any)
+  if (dispute) {
+    const job = db.prepare('SELECT arbitrator FROM jobs WHERE id = ?').get(dispute.job_id) as { arbitrator: string } | undefined;
+    if (job && job.arbitrator) {
+      db.prepare('UPDATE arbitrators SET active_disputes = MAX(0, active_disputes - 1) WHERE account = ?').run(job.arbitrator);
+    }
+  }
+
+  console.log(`Dispute ${data.dispute_id} resolved by timeout${dispute ? ` (job ${dispute.job_id})` : ''}`);
+}
+
 function handleCancel(db: Database.Database, data: any): void {
   // REFUNDED: All funds leave escrow (back to client)
   // Contract sets released_amount = funded_amount
@@ -452,7 +508,8 @@ export function handleEscrowTransfer(db: Database.Database, action: StreamAction
 
   // Parse quantity (e.g., "100.0000 XPR")
   const [amountStr] = quantity.split(' ');
-  const amount = Math.floor(parseFloat(amountStr) * 10000);
+  const [whole = '0', frac = ''] = amountStr.split('.');
+  const amount = parseInt(whole, 10) * 10000 + parseInt(frac.padEnd(4, '0').slice(0, 4), 10);
 
   if (to === escrowContract) {
     // Incoming transfer to escrow

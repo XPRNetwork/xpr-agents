@@ -391,7 +391,8 @@ export function handleAgentCoreTransfer(db: Database.Database, action: StreamAct
 
   // Parse amount (format: "1.0000 XPR")
   const amountStr = quantity.split(' ')[0];
-  let depositAmount = Math.round(parseFloat(amountStr) * 10000); // Convert to smallest units
+  const [whole = '0', frac = ''] = amountStr.split('.');
+  let depositAmount = parseInt(whole, 10) * 10000 + parseInt(frac.padEnd(4, '0').slice(0, 4), 10);
 
   // P2 FIX: Check for inline refund transfers (contract refunds excess above claim_fee)
   // Subtract any refund from the deposit amount to keep DB in sync
@@ -406,7 +407,8 @@ export function handleAgentCoreTransfer(db: Database.Database, action: StreamAct
       ) {
         const refundStr = trace.act.data.quantity?.split(' ')[0];
         if (refundStr) {
-          const refundAmount = Math.round(parseFloat(refundStr) * 10000);
+          const [rWhole = '0', rFrac = ''] = refundStr.split('.');
+          const refundAmount = parseInt(rWhole, 10) * 10000 + parseInt(rFrac.padEnd(4, '0').slice(0, 4), 10);
           depositAmount -= refundAmount;
           console.log(`Claim deposit refund detected: ${refundStr} XPR returned to ${from}`);
         }

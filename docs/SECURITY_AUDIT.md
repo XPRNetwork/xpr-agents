@@ -48,7 +48,7 @@ The codebase demonstrates strong fundamentals: parameterized SQL queries, proper
 |----|----------|-------|----------|
 | SC-H01 | agentfeed | FeedbackRateLimit secondary index uses XOR (`reviewer.N ^ agent.N`) - guaranteed collisions can cause CPU exhaustion DoS | `agentfeed.contract.ts:329-331` |
 | SC-H02 | agentfeed/agentvalid/agentescrow | Permissionless cleanup actions can delete live data, desync scores when followed by `recalculate()` | `agentfeed.contract.ts:1107-1128`, `agentvalid.contract.ts:994-1015`, `agentescrow.contract.ts:1058-1088` |
-| SC-H03 | agentescrow | No dispute timeout mechanism - funds permanently locked if arbitrator refuses to act but is technically active | `agentescrow.contract.ts:682-694` |
+| SC-H03 | agentescrow | ~~No dispute timeout mechanism~~ **FIXED** - `resolvetmout` action allows owner to resolve disputes after 14 days | `agentescrow.contract.ts:830+` |
 | SC-H04 | agentfeed | `calcaggtrust` overwrites native `avg_score` in `agentscores` table - next `submit()` overwrites it back, causing score oscillation | `agentfeed.contract.ts:1517-1573` |
 
 ### MEDIUM
@@ -73,7 +73,7 @@ The codebase demonstrates strong fundamentals: parameterized SQL queries, proper
 | SC-L03 | agentescrow | Milestone order not validated for uniqueness |
 | SC-L04 | agentescrow | No maximum deadline enforcement on `createJob()` |
 | SC-L05 | agentvalid | `resolve()` resets `challenged = false`, enabling cumulative slashing |
-| SC-L06 | agentescrow | `arb_unstake_delay` not configurable via `init()` or `setConfig()` |
+| SC-L06 | agentescrow | ~~`arb_unstake_delay` not configurable via `init()`~~ **FIXED** - positional arg now passes 604800 (7 days) |
 
 ### INFO
 
@@ -196,7 +196,7 @@ The codebase demonstrates strong fundamentals: parameterized SQL queries, proper
 |----|-------|
 | OC-L01 | `accept_job`, `deliver_job`, `submit_milestone` missing confirmation gate |
 | OC-L02 | Falsy `fee_amount` (0) skips validation guard |
-| OC-L03 | Floating-point precision in amount conversion (`Math.floor(0.7 * 10000) = 6999`) |
+| OC-L03 | ~~Floating-point precision in amount conversion~~ **FIXED** - `xprToSmallestUnits()` uses string-split integer math |
 | OC-L04 | No string length limits on any field |
 | OC-L05 | Account name regex allows leading/trailing dots |
 | OC-L06 | Private key in memory with no zeroization (inherent JS limitation) |
@@ -253,11 +253,12 @@ The codebase demonstrates strong fundamentals: parameterized SQL queries, proper
 | Challenge | `funded_at` | Missing critical timestamp for dispute period | Column missing |
 | Arbitrator | `active_disputes` | `active` filter permanently broken | Column missing |
 
-### Missing Indexer Handlers (HIGH)
+### Missing Indexer Handlers (HIGH) - ALL FIXED
 
 | Action | Contract | Impact |
 |--------|----------|--------|
 | `expirefunded` | agentvalid | ~~Funded challenge expiry permanently corrupts indexer~~ **FIXED** - Handler exists at `validation.ts:321-349` |
+| `resolvetmout` | agentescrow | ~~Timeout resolution not indexed~~ **FIXED** - Handler added to `escrow.ts` |
 
 ### Missing Indexer Handlers (LOW - cleanup actions)
 
@@ -371,34 +372,34 @@ All CRITICAL and HIGH test gaps from the original audit have been resolved:
 | 3 | Add `expirefunded` handler to indexer | ~20 lines | **Done** (already existed) |
 | 4 | Fix OpenClaw protocol description | 1 line | **Done** |
 
-### Phase 2 - Security hardening (fix before public testnet)
+### Phase 2 - Security hardening (fix before public testnet) - ALL DONE
 
 | # | Fix | Effort | Status |
 |---|-----|--------|--------|
-| 5 | Add CORS allowlist to indexer | 5 lines | |
+| 5 | Add CORS allowlist to indexer | 5 lines | **Done** |
 | 6 | Add auth to `/admin/sync-kyc` or remove it | 3 lines | **Done** - `requireAdminAuth` guard |
 | 7 | Add SSRF protection for webhook URLs | 20 lines | **Done** - `isValidWebhookUrl()` |
 | 8 | Bind Docker ports to `127.0.0.1` | 2 lines | **Done** - both compose files |
-| 9 | Add missing params to `agentescrow.setConfig()` | 15 lines | |
-| 10 | Add dispute timeout mechanism to agentescrow | 50 lines | |
-| 11 | Add missing indexer columns (`pending_challenges`, `active_disputes`, `funded_at`) | 10 lines | |
-| 12 | Add session null guard to OpenClaw write tools | 20 lines | |
-| 13 | Wire `validateUrl` to URI/endpoint fields | 10 lines | |
+| 9 | Add missing params to `agentescrow.setConfig()` | 15 lines | **Done** - `setconfig` updated |
+| 10 | Add dispute timeout mechanism to agentescrow | 50 lines | **Done** - `resolvetmout` action |
+| 11 | Add missing indexer columns (`pending_challenges`, `active_disputes`, `funded_at`) | 10 lines | **Done** |
+| 12 | Add session null guard to OpenClaw write tools | 20 lines | **Done** |
+| 13 | Wire `validateUrl` to URI/endpoint fields | 10 lines | **Done** |
 
 ### Phase 3 - Before mainnet
 
-| # | Fix | Effort |
-|---|-----|--------|
-| 14 | Add rate limiting to indexer API (`express-rate-limit`) | 15 lines |
-| 15 | Add security headers to frontend (CSP, X-Frame-Options) | 20 lines |
-| 16 | Run Docker as non-root user | 5 lines |
-| 17 | Add `JSON.parse` try-catch in frontend `registry.ts` | 10 lines |
-| 18 | Fix `parseXpr` floating-point precision | 10 lines |
-| 19 | Add `parseInt` NaN guards throughout SDK | 30 lines |
-| 20 | Pin Docker images and commit lockfiles | 5 lines |
-| 21 | Add pause checks to remaining agentescrow actions | 10 lines |
-| 22 | Block arbitrator deactivation with active disputes | 2 lines |
-| 23 | Lower default `maxTransferAmount` to 100 XPR | 1 line |
+| # | Fix | Effort | Status |
+|---|-----|--------|--------|
+| 14 | Add rate limiting to indexer API (`express-rate-limit`) | 15 lines | **Done** |
+| 15 | Add security headers to frontend (CSP, X-Frame-Options) | 20 lines | |
+| 16 | Run Docker as non-root user | 5 lines | **Done** |
+| 17 | Add `JSON.parse` try-catch in frontend `registry.ts` | 10 lines | |
+| 18 | Fix `parseXpr` floating-point precision | 10 lines | **Done** - `xprToSmallestUnits()` integer math |
+| 19 | Add `parseInt` NaN guards throughout SDK | 30 lines | **Done** - `safeParseInt()` |
+| 20 | Pin Docker images and commit lockfiles | 5 lines | |
+| 21 | Add pause checks to remaining agentescrow actions | 10 lines | |
+| 22 | Block arbitrator deactivation with active disputes | 2 lines | |
+| 23 | Lower default `maxTransferAmount` to 100 XPR | 1 line | |
 
 ### Phase 4 - Test coverage (COMPLETED 2026-02-08)
 
@@ -411,6 +412,23 @@ All CRITICAL and HIGH test gaps from the original audit have been resolved:
 | 28 | Paginated recalculation tests | HIGH | Done (10 tests) |
 | 29 | KYC-weighted scoring tests | HIGH | Done (5 tests) |
 | 30 | OpenClaw `maxTransferAmount` enforcement tests | HIGH | Done (6 tests) |
+
+### Phase 5 - E2E audit swarm fixes (COMPLETED 2026-02-08)
+
+| # | Fix | Severity | Status |
+|---|-----|----------|--------|
+| 31 | Add `platform_fee <= 1000` upper bound to `agentescrow.init()` | CRITICAL | **Done** |
+| 32 | Fix `agentescrow.init()` positional arg coercion (`false` → `0` for `arb_unstake_delay`) | HIGH | **Done** |
+| 33 | Add `resolvetmout` indexer handler (job state 8, dispute resolution, active_disputes decrement) | HIGH | **Done** |
+| 34 | Add `resolveTimeout()` SDK method on `EscrowRegistry` | HIGH | **Done** |
+| 35 | Add `xpr_resolve_timeout` OpenClaw tool with confirmation gate | HIGH | **Done** |
+| 36 | Add confirmation gate to `xpr_accept_job` | HIGH | **Done** |
+| 37 | Fix floating-point amount conversion across all indexer handlers (integer math) | MEDIUM | **Done** |
+| 38 | Fix floating-point amount conversion in all OpenClaw tools (`xprToSmallestUnits()`) | MEDIUM | **Done** |
+| 39 | Fix job state 3 description: `ACTIVE` → `INPROGRESS` in OpenClaw | MEDIUM | **Done** |
+| 40 | Fix `xpr_dispute_feedback` description (reviewer can also dispute) | MEDIUM | **Done** |
+| 41 | Fix validator stake memo matching (`stake` or `stake:*` prefix) | MEDIUM | **Done** |
+| 42 | Update OpenClaw test counts (43→44 tools, 13→14 escrow) | TEST | **Done** |
 
 ---
 

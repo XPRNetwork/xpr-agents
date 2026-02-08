@@ -391,7 +391,8 @@ export function handleValidationTransfer(db: Database.Database, action: StreamAc
 
   // Parse quantity (e.g., "100.0000 XPR")
   const [amountStr] = quantity.split(' ');
-  const amount = Math.floor(parseFloat(amountStr) * 10000);
+  const [whole = '0', frac = ''] = amountStr.split('.');
+  const amount = parseInt(whole, 10) * 10000 + parseInt(frac.padEnd(4, '0').slice(0, 4), 10);
 
   // Determine if this is incoming or outgoing using the passed contract name
   const isOutgoing = from === validContract;
@@ -424,7 +425,7 @@ export function handleValidationTransfer(db: Database.Database, action: StreamAc
   }
 
   // Incoming transfers to agentvalid
-  if (memo === 'stake') {
+  if (memo === 'stake' || memo.startsWith('stake:')) {
     // Validator staking
     const stmt = db.prepare(`
       UPDATE validators

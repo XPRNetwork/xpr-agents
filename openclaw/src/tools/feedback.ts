@@ -6,7 +6,7 @@
 
 import { FeedbackRegistry } from '@xpr-agents/sdk';
 import type { PluginApi, PluginConfig } from '../types';
-import { validateAccountName, validateScore, validateRequired, validatePositiveInt, validateAmount, validateUrl } from '../util/validate';
+import { validateAccountName, validateScore, validateRequired, validatePositiveInt, validateAmount, validateUrl, xprToSmallestUnits } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
 
 export function registerFeedbackTools(api: PluginApi, config: PluginConfig): void {
@@ -132,7 +132,7 @@ export function registerFeedbackTools(api: PluginApi, config: PluginConfig): voi
       validateScore(params.score);
       if (params.evidence_uri) validateUrl(params.evidence_uri, 'evidence_uri');
       if (params.fee_amount) {
-        validateAmount(Math.floor(params.fee_amount * 10000), config.maxTransferAmount);
+        validateAmount(xprToSmallestUnits(params.fee_amount), config.maxTransferAmount);
       }
 
       const confirmation = needsConfirmation(
@@ -162,7 +162,7 @@ export function registerFeedbackTools(api: PluginApi, config: PluginConfig): voi
 
   api.registerTool({
     name: 'xpr_dispute_feedback',
-    description: 'Dispute a feedback entry. Only the agent who received the feedback can dispute.',
+    description: 'Dispute a feedback entry. The agent who received the feedback or the reviewer can dispute.',
     parameters: {
       type: 'object',
       required: ['feedback_id', 'reason'],

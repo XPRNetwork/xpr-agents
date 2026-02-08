@@ -267,9 +267,10 @@ export class AgentEscrowContract extends Contract {
 
     const existingConfig = this.configSingleton.get();
     check(existingConfig.owner == EMPTY_NAME, "Contract already initialized.");
+    check(platform_fee <= 1000, "Platform fee cannot exceed 10%");
 
     // EscrowConfig: owner, core_contract, feed_contract, platform_fee, min_job_amount,
-    //               default_deadline_days, dispute_window, acceptance_timeout, min_arbitrator_stake, paused
+    //               default_deadline_days, dispute_window, acceptance_timeout, min_arbitrator_stake, arb_unstake_delay, paused
     const config = new EscrowConfig(
       owner,
       core_contract,
@@ -280,6 +281,7 @@ export class AgentEscrowContract extends Contract {
       259200,      // dispute_window (3 days)
       604800,      // acceptance_timeout (7 days)
       10000000,    // min_arbitrator_stake (1000.0000 XPR)
+      604800,      // arb_unstake_delay (7 days)
       false        // paused
     );
     this.configSingleton.set(config, this.receiver);

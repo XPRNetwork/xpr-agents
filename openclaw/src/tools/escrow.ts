@@ -1,10 +1,10 @@
 /**
- * Escrow tools (13 tools)
+ * Escrow tools (14 tools)
  * Reads: xpr_get_job, xpr_list_jobs, xpr_get_milestones,
  *        xpr_get_job_dispute, xpr_list_arbitrators
  * Writes: xpr_create_job, xpr_fund_job, xpr_accept_job,
  *         xpr_deliver_job, xpr_approve_delivery, xpr_raise_dispute,
- *         xpr_submit_milestone, xpr_arbitrate
+ *         xpr_submit_milestone, xpr_arbitrate, xpr_resolve_timeout
  */
 
 import { EscrowRegistry } from '@xpr-agents/sdk';
@@ -16,6 +16,7 @@ import {
   validateClientPercent,
   validateAmount,
   validateUrl,
+  xprToSmallestUnits,
 } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
 
@@ -26,7 +27,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
   api.registerTool({
     name: 'xpr_get_job',
-    description: 'Get detailed information about an escrow job including state, funding, and deadlines. States: 0=CREATED, 1=FUNDED, 2=ACCEPTED, 3=ACTIVE, 4=DELIVERED, 5=DISPUTED, 6=COMPLETED, 7=REFUNDED, 8=ARBITRATED.',
+    description: 'Get detailed information about an escrow job including state, funding, and deadlines. States: 0=CREATED, 1=FUNDED, 2=ACCEPTED, 3=INPROGRESS, 4=DELIVERED, 5=DISPUTED, 6=COMPLETED, 7=REFUNDED, 8=ARBITRATED.',
     parameters: {
       type: 'object',
       required: ['id'],
@@ -184,7 +185,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       validateAccountName(params.agent, 'agent');
       validateRequired(params.title, 'title');
       if (params.amount <= 0) throw new Error('amount must be positive');
-      validateAmount(Math.floor(params.amount * 10000), config.maxTransferAmount);
+      validateAmount(xprToSmallestUnits(params.amount), config.maxTransferAmount);
       if (params.arbitrator) validateAccountName(params.arbitrator, 'arbitrator');
 
       const confirmation = needsConfirmation(
@@ -207,7 +208,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
         title: params.title,
         description: params.description,
         deliverables: params.deliverables,
-        amount: Math.floor(params.amount * 10000),
+        amount: xprToSmallestUnits(params.amount),
         deadline: params.deadline || 0,
         arbitrator: params.arbitrator || '',
       });
@@ -230,7 +231,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(job_id, 'job_id');
       if (amount <= 0) throw new Error('amount must be positive');
-      validateAmount(Math.floor(amount * 10000), config.maxTransferAmount);
+      validateAmount(xprToSmallestUnits(amount), config.maxTransferAmount);
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
@@ -254,11 +255,22 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       required: ['job_id'],
       properties: {
         job_id: { type: 'number', description: 'Job ID to accept' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
       },
     },
-    handler: async ({ job_id }: { job_id: number }) => {
+    handler: async ({ job_id, confirmed }: { job_id: number; confirmed?: boolean }) => {
       if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(job_id, 'job_id');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Accept Job',
+        { job_id },
+        `Accept job #${job_id} — you will be responsible for completing the deliverables`
+      );
+      if (confirmation) return confirmation;
+
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.acceptJob(job_id);
     },
@@ -407,6 +419,44 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.arbitrate(dispute_id, client_percent, resolution_notes);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_resolve_timeout',
+    description: 'Resolve a dispute after the 14-day timeout period (contract owner only). Splits remaining funds between client and agent with 0% arbitrator fee.',
+    parameters: {
+      type: 'object',
+      required: ['dispute_id', 'client_percent', 'resolution_notes'],
+      properties: {
+        dispute_id: { type: 'number', description: 'Dispute ID to resolve' },
+        client_percent: { type: 'number', description: 'Percentage of funds to client (0-100, remainder to agent)' },
+        resolution_notes: { type: 'string', description: 'Explanation of the resolution decision (1-1024 chars)' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ dispute_id, client_percent, resolution_notes, confirmed }: {
+      dispute_id: number;
+      client_percent: number;
+      resolution_notes: string;
+      confirmed?: boolean;
+    }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      validatePositiveInt(dispute_id, 'dispute_id');
+      validateClientPercent(client_percent);
+      validateRequired(resolution_notes, 'resolution_notes');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Resolve Dispute Timeout',
+        { dispute_id, client_percent, agent_percent: 100 - client_percent },
+        `Resolve timed-out dispute #${dispute_id}: ${client_percent}% to client, ${100 - client_percent}% to agent`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.resolveTimeout(dispute_id, client_percent, resolution_notes);
     },
   });
 }
