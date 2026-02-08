@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { initDatabase, updateStats, getLastCursor, updateCursor } from './db/schema';
 import { HyperionStream, StreamAction } from './stream';
 import { handleAgentAction, handleAgentCoreTransfer } from './handlers/agent';
@@ -49,6 +50,16 @@ app.use(cors({
   },
 }));
 app.use(express.json());
+
+// Rate limiting: 100 requests per minute per IP
+const limiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_RPM || '100'),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+});
+app.use('/api', limiter);
 
 // Initialize webhook dispatcher
 const dispatcher = new WebhookDispatcher(db);

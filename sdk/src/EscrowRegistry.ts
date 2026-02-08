@@ -4,6 +4,7 @@ import {
   TransactionResult,
   PaginatedResult,
 } from './types';
+import { safeParseInt } from './utils';
 
 // ============== Escrow Types ==============
 
@@ -261,7 +262,7 @@ export class EscrowRegistry {
     });
 
     return result.rows
-      .filter(row => parseInt(row.job_id) === jobId)
+      .filter(row => safeParseInt(row.job_id) === jobId)
       .map(row => this.parseMilestone(row))
       .sort((a, b) => a.order - b.order);
   }
@@ -293,22 +294,22 @@ export class EscrowRegistry {
       limit: 100,
     });
 
-    const dispute = result.rows.find(row => parseInt(row.job_id) === jobId);
+    const dispute = result.rows.find(row => safeParseInt(row.job_id) === jobId);
     if (!dispute) return null;
 
     return {
-      id: parseInt(dispute.id),
-      job_id: parseInt(dispute.job_id),
+      id: safeParseInt(dispute.id),
+      job_id: safeParseInt(dispute.job_id),
       raised_by: dispute.raised_by,
       reason: dispute.reason,
       evidence_uri: dispute.evidence_uri,
-      client_amount: parseInt(dispute.client_amount),
-      agent_amount: parseInt(dispute.agent_amount),
+      client_amount: safeParseInt(dispute.client_amount),
+      agent_amount: safeParseInt(dispute.agent_amount),
       resolution: DISPUTE_RESOLUTIONS[dispute.resolution],
       resolver: dispute.resolver,
       resolution_notes: dispute.resolution_notes,
-      created_at: parseInt(dispute.created_at),
-      resolved_at: parseInt(dispute.resolved_at),
+      created_at: safeParseInt(dispute.created_at),
+      resolved_at: safeParseInt(dispute.resolved_at),
     };
   }
 
@@ -336,11 +337,11 @@ export class EscrowRegistry {
       .filter(row => row.active === 1)
       .map(row => ({
         account: row.account,
-        stake: parseInt(row.stake),
-        fee_percent: parseInt(row.fee_percent),
-        total_cases: parseInt(row.total_cases),
-        successful_cases: parseInt(row.successful_cases),
-        active_disputes: parseInt(row.active_disputes || '0'),
+        stake: safeParseInt(row.stake),
+        fee_percent: safeParseInt(row.fee_percent),
+        total_cases: safeParseInt(row.total_cases),
+        successful_cases: safeParseInt(row.successful_cases),
+        active_disputes: safeParseInt(row.active_disputes),
         active: true,
       }));
   }
@@ -903,37 +904,37 @@ export class EscrowRegistry {
     }
 
     return {
-      id: parseInt(raw.id),
+      id: safeParseInt(raw.id),
       client: raw.client,
       agent: raw.agent,
       title: raw.title,
       description: raw.description,
       deliverables,
-      amount: parseInt(raw.amount),
+      amount: safeParseInt(raw.amount),
       symbol: raw.symbol,
-      funded_amount: parseInt(raw.funded_amount),
-      released_amount: parseInt(raw.released_amount),
+      funded_amount: safeParseInt(raw.funded_amount),
+      released_amount: safeParseInt(raw.released_amount),
       state: JOB_STATES[raw.state] || 'created',
-      deadline: parseInt(raw.deadline),
+      deadline: safeParseInt(raw.deadline),
       arbitrator: raw.arbitrator,
       job_hash: raw.job_hash,
-      created_at: parseInt(raw.created_at),
-      updated_at: parseInt(raw.updated_at),
+      created_at: safeParseInt(raw.created_at),
+      updated_at: safeParseInt(raw.updated_at),
     };
   }
 
   private parseMilestone(raw: MilestoneRaw): Milestone {
     return {
-      id: parseInt(raw.id),
-      job_id: parseInt(raw.job_id),
+      id: safeParseInt(raw.id),
+      job_id: safeParseInt(raw.job_id),
       title: raw.title,
       description: raw.description,
-      amount: parseInt(raw.amount),
+      amount: safeParseInt(raw.amount),
       order: raw.order,
       state: MILESTONE_STATES[raw.state] || 'pending',
       evidence_uri: raw.evidence_uri,
-      submitted_at: parseInt(raw.submitted_at),
-      approved_at: parseInt(raw.approved_at),
+      submitted_at: safeParseInt(raw.submitted_at),
+      approved_at: safeParseInt(raw.approved_at),
     };
   }
 }

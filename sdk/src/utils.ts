@@ -166,12 +166,25 @@ export function formatXpr(amount: number): string {
 }
 
 /**
- * Parse XPR amount to smallest unit
+ * Parse XPR amount string to smallest unit (integer math to avoid float precision issues)
+ * "100.5000 XPR" → 1005000, "0.7000 XPR" → 7000
  */
 export function parseXpr(amount: string): number {
-  const match = amount.match(/^(\d+(?:\.\d+)?)/);
+  const match = amount.match(/^(\d+)(?:\.(\d{1,4}))?/);
   if (!match) return 0;
-  return Math.floor(parseFloat(match[1]) * 10000);
+  const whole = parseInt(match[1], 10) || 0;
+  const fracStr = (match[2] || '').padEnd(4, '0').slice(0, 4);
+  const frac = parseInt(fracStr, 10) || 0;
+  return whole * 10000 + frac;
+}
+
+/**
+ * Safe parseInt with fallback - returns fallback on NaN
+ */
+export function safeParseInt(value: string | undefined | null, fallback: number = 0): number {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = parseInt(value, 10);
+  return isNaN(parsed) ? fallback : parsed;
 }
 
 /**

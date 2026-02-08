@@ -17,6 +17,7 @@ import {
   validationResultFromNumber,
   validationResultToNumber,
   disputeStatusFromNumber,
+  safeParseInt,
 } from './utils';
 
 const DEFAULT_CONTRACT = 'agentvalid';
@@ -711,15 +712,15 @@ export class ValidationRegistry {
     return {
       owner: row.owner,
       core_contract: row.core_contract,
-      min_stake: parseInt(row.min_stake),
-      challenge_stake: parseInt(row.challenge_stake),
-      unstake_delay: parseInt(row.unstake_delay),
-      challenge_window: parseInt(row.challenge_window),
-      slash_percent: parseInt(row.slash_percent),
-      dispute_period: parseInt(row.dispute_period),
-      funded_challenge_timeout: parseInt(row.funded_challenge_timeout),
+      min_stake: safeParseInt(row.min_stake),
+      challenge_stake: safeParseInt(row.challenge_stake),
+      unstake_delay: safeParseInt(row.unstake_delay),
+      challenge_window: safeParseInt(row.challenge_window),
+      slash_percent: safeParseInt(row.slash_percent),
+      dispute_period: safeParseInt(row.dispute_period),
+      funded_challenge_timeout: safeParseInt(row.funded_challenge_timeout),
       paused: row.paused === 1,
-      validation_fee: parseInt(row.validation_fee || '0'),
+      validation_fee: safeParseInt(row.validation_fee),
     };
   }
 
@@ -734,21 +735,21 @@ export class ValidationRegistry {
   private parseValidator(raw: ValidatorRaw): Validator {
     return {
       account: raw.account,
-      stake: parseInt(raw.stake),
+      stake: safeParseInt(raw.stake),
       method: raw.method,
       specializations: parseSpecializations(raw.specializations),
-      total_validations: parseInt(raw.total_validations),
-      incorrect_validations: parseInt(raw.incorrect_validations),
-      accuracy_score: parseInt(raw.accuracy_score),
-      pending_challenges: parseInt(raw.pending_challenges || '0'),
-      registered_at: parseInt(raw.registered_at),
+      total_validations: safeParseInt(raw.total_validations),
+      incorrect_validations: safeParseInt(raw.incorrect_validations),
+      accuracy_score: safeParseInt(raw.accuracy_score),
+      pending_challenges: safeParseInt(raw.pending_challenges),
+      registered_at: safeParseInt(raw.registered_at),
       active: raw.active === 1,
     };
   }
 
   private parseValidation(raw: ValidationRaw): Validation {
     return {
-      id: parseInt(raw.id),
+      id: safeParseInt(raw.id),
       validator: raw.validator,
       agent: raw.agent,
       job_hash: raw.job_hash,
@@ -756,7 +757,7 @@ export class ValidationRegistry {
       confidence: raw.confidence,
       evidence_uri: raw.evidence_uri,
       challenged: raw.challenged === 1,
-      timestamp: parseInt(raw.timestamp),
+      timestamp: safeParseInt(raw.timestamp),
     };
   }
 
@@ -776,19 +777,19 @@ export class ValidationRegistry {
     funded_at: string;
   }): Challenge {
     return {
-      id: parseInt(raw.id),
-      validation_id: parseInt(raw.validation_id),
+      id: safeParseInt(raw.id),
+      validation_id: safeParseInt(raw.validation_id),
       challenger: raw.challenger,
       reason: raw.reason,
       evidence_uri: raw.evidence_uri,
-      stake: parseInt(raw.stake),
+      stake: safeParseInt(raw.stake),
       status: disputeStatusFromNumber(raw.status),
       resolver: raw.resolver,
       resolution_notes: raw.resolution_notes,
-      created_at: parseInt(raw.created_at),
-      resolved_at: parseInt(raw.resolved_at),
-      funding_deadline: parseInt(raw.funding_deadline),
-      funded_at: parseInt(raw.funded_at || '0'),
+      created_at: safeParseInt(raw.created_at),
+      resolved_at: safeParseInt(raw.resolved_at),
+      funding_deadline: safeParseInt(raw.funding_deadline),
+      funded_at: safeParseInt(raw.funded_at),
     };
   }
 }

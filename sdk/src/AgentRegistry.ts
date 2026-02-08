@@ -17,7 +17,7 @@ import {
   TrustScore,
   AgentScore,
 } from './types';
-import { parseCapabilities, safeJsonParse, formatXpr, calculateTrustScore } from './utils';
+import { parseCapabilities, safeJsonParse, formatXpr, calculateTrustScore, safeParseInt } from './utils';
 
 const DEFAULT_CONTRACT = 'agentcore';
 
@@ -281,11 +281,11 @@ export class AgentRegistry {
     const agentScore: AgentScore | null = scoreResult.rows.length > 0
       ? {
           agent: scoreResult.rows[0].agent,
-          total_score: parseInt(scoreResult.rows[0].total_score),
-          total_weight: parseInt(scoreResult.rows[0].total_weight),
-          feedback_count: parseInt(scoreResult.rows[0].feedback_count),
-          avg_score: parseInt(scoreResult.rows[0].avg_score || '0'),
-          last_updated: parseInt(scoreResult.rows[0].last_updated),
+          total_score: safeParseInt(scoreResult.rows[0].total_score),
+          total_weight: safeParseInt(scoreResult.rows[0].total_weight),
+          feedback_count: safeParseInt(scoreResult.rows[0].feedback_count),
+          avg_score: safeParseInt(scoreResult.rows[0].avg_score),
+          last_updated: safeParseInt(scoreResult.rows[0].last_updated),
         }
       : null;
 
@@ -359,7 +359,7 @@ export class AgentRegistry {
 
     let stakeAmount = 0;
     if (votersResult.rows.length > 0 && votersResult.rows[0].staked) {
-      stakeAmount = parseInt(votersResult.rows[0].staked);
+      stakeAmount = safeParseInt(votersResult.rows[0].staked);
     }
 
     return calculateTrustScore(agent, agentScore, kycLevel, stakeAmount);
@@ -393,9 +393,9 @@ export class AgentRegistry {
     const row = result.rows[0];
     return {
       owner: row.owner,
-      min_stake: parseInt(row.min_stake),
-      registration_fee: parseInt(row.registration_fee),
-      claim_fee: parseInt(row.claim_fee || '0'),
+      min_stake: safeParseInt(row.min_stake),
+      registration_fee: safeParseInt(row.registration_fee),
+      claim_fee: safeParseInt(row.claim_fee),
       feed_contract: row.feed_contract,
       valid_contract: row.valid_contract,
       escrow_contract: row.escrow_contract,
@@ -1004,10 +1004,10 @@ export class AgentRegistry {
       endpoint: raw.endpoint,
       protocol: raw.protocol,
       capabilities: parseCapabilities(raw.capabilities),
-      total_jobs: parseInt(raw.total_jobs),
-      registered_at: parseInt(raw.registered_at),
+      total_jobs: safeParseInt(raw.total_jobs),
+      registered_at: safeParseInt(raw.registered_at),
       active: raw.active === 1,
-      claim_deposit: parseInt(raw.claim_deposit || '0'),
+      claim_deposit: safeParseInt(raw.claim_deposit),
       deposit_payer: raw.deposit_payer || null,
       // Note: stake is queried from system staking (eosio::voters), not stored here
     };
@@ -1015,7 +1015,7 @@ export class AgentRegistry {
 
   private parsePlugin(raw: PluginRaw): Plugin {
     return {
-      id: parseInt(raw.id),
+      id: safeParseInt(raw.id),
       name: raw.name,
       version: raw.version,
       contract: raw.contract,
@@ -1029,9 +1029,9 @@ export class AgentRegistry {
 
   private parseAgentPlugin(raw: AgentPluginRaw): AgentPlugin {
     return {
-      id: parseInt(raw.id),
+      id: safeParseInt(raw.id),
       agent: raw.agent,
-      plugin_id: parseInt(raw.plugin_id),
+      plugin_id: safeParseInt(raw.plugin_id),
       config: safeJsonParse(raw.config, {}),
       enabled: raw.enabled === 1,
     };

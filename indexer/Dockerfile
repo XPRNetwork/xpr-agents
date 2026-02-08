@@ -31,8 +31,11 @@ RUN npm ci --omit=dev
 # Copy compiled output from builder
 COPY --from=builder /app/dist ./dist
 
-# Create data directory
-RUN mkdir -p /data
+# Create data directory and set ownership for non-root user
+RUN mkdir -p /data && chown node:node /data
+
+# Run as non-root user
+USER node
 
 # Expose port
 EXPOSE 3001

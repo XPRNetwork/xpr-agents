@@ -11,7 +11,7 @@ import {
   JsonRpc,
   ProtonSession,
 } from './types';
-import { parseTags, disputeStatusFromNumber } from './utils';
+import { parseTags, disputeStatusFromNumber, safeParseInt } from './utils';
 
 const DEFAULT_CONTRACT = 'agentfeed';
 
@@ -464,11 +464,11 @@ export class FeedbackRegistry {
       core_contract: row.core_contract,
       min_score: row.min_score,
       max_score: row.max_score,
-      dispute_window: parseInt(row.dispute_window),
-      decay_period: parseInt(row.decay_period),
-      decay_floor: parseInt(row.decay_floor),
+      dispute_window: safeParseInt(row.dispute_window),
+      decay_period: safeParseInt(row.decay_period),
+      decay_floor: safeParseInt(row.decay_floor),
       paused: row.paused === 1,
-      feedback_fee: parseInt(row.feedback_fee || '0'),
+      feedback_fee: safeParseInt(row.feedback_fee),
     };
   }
 
@@ -482,7 +482,7 @@ export class FeedbackRegistry {
 
   private parseFeedback(raw: FeedbackRaw): Feedback {
     return {
-      id: parseInt(raw.id),
+      id: safeParseInt(raw.id),
       agent: raw.agent,
       reviewer: raw.reviewer,
       reviewer_kyc_level: raw.reviewer_kyc_level,
@@ -490,8 +490,8 @@ export class FeedbackRegistry {
       tags: parseTags(raw.tags),
       job_hash: raw.job_hash,
       evidence_uri: raw.evidence_uri,
-      amount_paid: parseInt(raw.amount_paid),
-      timestamp: parseInt(raw.timestamp),
+      amount_paid: safeParseInt(raw.amount_paid),
+      timestamp: safeParseInt(raw.timestamp),
       disputed: raw.disputed === 1,
       resolved: raw.resolved === 1,
     };
@@ -500,11 +500,11 @@ export class FeedbackRegistry {
   private parseAgentScore(raw: AgentScoreRaw): AgentScore {
     return {
       agent: raw.agent,
-      total_score: parseInt(raw.total_score),
-      total_weight: parseInt(raw.total_weight),
-      feedback_count: parseInt(raw.feedback_count),
-      avg_score: parseInt(raw.avg_score),
-      last_updated: parseInt(raw.last_updated),
+      total_score: safeParseInt(raw.total_score),
+      total_weight: safeParseInt(raw.total_weight),
+      feedback_count: safeParseInt(raw.feedback_count),
+      avg_score: safeParseInt(raw.avg_score),
+      last_updated: safeParseInt(raw.last_updated),
     };
   }
 
@@ -521,16 +521,16 @@ export class FeedbackRegistry {
     resolved_at: string;
   }): Dispute {
     return {
-      id: parseInt(raw.id),
-      feedback_id: parseInt(raw.feedback_id),
+      id: safeParseInt(raw.id),
+      feedback_id: safeParseInt(raw.feedback_id),
       disputer: raw.disputer,
       reason: raw.reason,
       evidence_uri: raw.evidence_uri,
       status: disputeStatusFromNumber(raw.status),
       resolver: raw.resolver,
       resolution_notes: raw.resolution_notes,
-      created_at: parseInt(raw.created_at),
-      resolved_at: parseInt(raw.resolved_at),
+      created_at: safeParseInt(raw.created_at),
+      resolved_at: safeParseInt(raw.resolved_at),
     };
   }
 }
