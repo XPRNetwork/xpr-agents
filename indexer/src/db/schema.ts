@@ -223,9 +223,25 @@ export function initDatabase(dbPath: string): Database.Database {
 
     -- Initialize additional stats
     INSERT OR IGNORE INTO stats (key, value) VALUES ('total_jobs_escrow', 0);
+    INSERT OR IGNORE INTO stats (key, value) VALUES ('total_open_jobs', 0);
+    INSERT OR IGNORE INTO stats (key, value) VALUES ('total_bids', 0);
     INSERT OR IGNORE INTO stats (key, value) VALUES ('total_arbitrators', 0);
 
+    -- Bids table (open job board)
+    CREATE TABLE IF NOT EXISTS bids (
+      id INTEGER PRIMARY KEY,
+      job_id INTEGER NOT NULL,
+      agent TEXT NOT NULL,
+      amount INTEGER DEFAULT 0,
+      timeline INTEGER DEFAULT 0,
+      proposal TEXT,
+      created_at INTEGER,
+      FOREIGN KEY (job_id) REFERENCES jobs(id)
+    );
+
     -- Indexes
+    CREATE INDEX IF NOT EXISTS idx_bids_job ON bids(job_id);
+    CREATE INDEX IF NOT EXISTS idx_bids_agent ON bids(agent);
     CREATE INDEX IF NOT EXISTS idx_feedback_agent ON feedback(agent);
     CREATE INDEX IF NOT EXISTS idx_feedback_reviewer ON feedback(reviewer);
     CREATE INDEX IF NOT EXISTS idx_validations_agent ON validations(agent);
@@ -337,6 +353,8 @@ export function updateStats(db: Database.Database): void {
     UPDATE stats SET value = (SELECT COUNT(*) FROM validations), updated_at = strftime('%s', 'now') WHERE key = 'total_validations';
     UPDATE stats SET value = (SELECT COALESCE(SUM(total_jobs), 0) FROM agents), updated_at = strftime('%s', 'now') WHERE key = 'total_jobs';
     UPDATE stats SET value = (SELECT COUNT(*) FROM jobs), updated_at = strftime('%s', 'now') WHERE key = 'total_jobs_escrow';
+    UPDATE stats SET value = (SELECT COUNT(*) FROM jobs WHERE agent = '' OR agent IS NULL), updated_at = strftime('%s', 'now') WHERE key = 'total_open_jobs';
+    UPDATE stats SET value = (SELECT COUNT(*) FROM bids), updated_at = strftime('%s', 'now') WHERE key = 'total_bids';
     UPDATE stats SET value = (SELECT COUNT(*) FROM arbitrators), updated_at = strftime('%s', 'now') WHERE key = 'total_arbitrators';
   `);
 }

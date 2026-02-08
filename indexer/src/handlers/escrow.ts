@@ -128,6 +128,35 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
     case 'cancelunstk':
       handleCancelUnstake(db, data);
       break;
+    case 'submitbid':
+      handleSubmitBid(db, data, action.timestamp);
+      if (dispatcher) {
+        const bidJob = db.prepare('SELECT client, title, amount FROM jobs WHERE id = ?').get(data.job_id) as { client: string; title: string; amount: number } | undefined;
+        dispatcher.dispatch(
+          'bid.submitted',
+          bidJob ? [bidJob.client, data.agent] : [data.agent],
+          data,
+          `New bid on job #${data.job_id}${bidJob ? ` ("${bidJob.title}")` : ''} by ${data.agent} for ${(data.amount || 0) / 10000} XPR`,
+          action.block_num
+        );
+      }
+      break;
+    case 'selectbid':
+      handleSelectBid(db, data);
+      if (dispatcher) {
+        const selectedBid = db.prepare('SELECT agent, job_id FROM bids WHERE id = ?').get(data.bid_id) as { agent: string; job_id: number } | undefined;
+        dispatcher.dispatch(
+          'bid.selected',
+          selectedBid ? [data.client, selectedBid.agent] : [data.client],
+          { ...data, agent: selectedBid?.agent, job_id: selectedBid?.job_id },
+          `Bid #${data.bid_id} selected for job #${selectedBid?.job_id || '?'} — agent ${selectedBid?.agent || '?'} assigned`,
+          action.block_num
+        );
+      }
+      break;
+    case 'withdrawbid':
+      handleWithdrawBid(db, data);
+      break;
     default:
       console.log(`Unknown agentescrow action: ${name}`);
   }
@@ -472,6 +501,56 @@ function handleCancelUnstake(db: Database.Database, data: any): void {
   `);
   stmt.run(data.account);
   console.log(`Arbitrator ${data.account} cancelled unstake, stake restored`);
+}
+
+function handleSubmitBid(db: Database.Database, data: any, timestamp: string): void {
+  const createdAt = Math.floor(new Date(timestamp).getTime() / 1000);
+  const countStmt = db.prepare('SELECT MAX(id) as max_id FROM bids');
+  const result = countStmt.get() as { max_id: number | null };
+  const id = (result.max_id || 0) + 1;
+
+  const stmt = db.prepare(`
+    INSERT INTO bids (id, job_id, agent, amount, timeline, proposal, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    id,
+    data.job_id,
+    data.agent,
+    data.amount || 0,
+    data.timeline || 0,
+    data.proposal || '',
+    createdAt
+  );
+  console.log(`Bid ${id} submitted on job ${data.job_id} by ${data.agent}`);
+}
+
+function handleSelectBid(db: Database.Database, data: any): void {
+  // Look up the bid to get agent + job_id
+  const bid = db.prepare('SELECT agent, job_id, amount, timeline FROM bids WHERE id = ?').get(data.bid_id) as { agent: string; job_id: number; amount: number; timeline: number } | undefined;
+
+  if (bid) {
+    // Assign agent to job, update amount and deadline
+    const now = Math.floor(Date.now() / 1000);
+    const stmt = db.prepare(`
+      UPDATE jobs
+      SET agent = ?, amount = ?, deadline = ?, updated_at = ?
+      WHERE id = ?
+    `);
+    stmt.run(bid.agent, bid.amount, now + bid.timeline, now, bid.job_id);
+
+    // Delete all bids for this job (contract cleans them up)
+    db.prepare('DELETE FROM bids WHERE job_id = ?').run(bid.job_id);
+
+    console.log(`Bid ${data.bid_id} selected: agent ${bid.agent} assigned to job ${bid.job_id}`);
+  } else {
+    console.log(`Bid ${data.bid_id} selected but bid not found in indexer`);
+  }
+}
+
+function handleWithdrawBid(db: Database.Database, data: any): void {
+  db.prepare('DELETE FROM bids WHERE id = ?').run(data.bid_id);
+  console.log(`Bid ${data.bid_id} withdrawn by ${data.agent}`);
 }
 
 function logEvent(db: Database.Database, action: StreamAction): void {

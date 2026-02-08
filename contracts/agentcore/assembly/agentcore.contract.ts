@@ -437,25 +437,28 @@ export class AgentCoreContract extends Contract {
     check(name.length > 0 && name.length <= 64, "Name must be 1-64 characters");
     // L16 FIX: Require description to be non-empty
     check(description.length > 0 && description.length <= 256, "Description must be 1-256 characters");
-    check(endpoint.length > 0 && endpoint.length <= 256, "Endpoint must be 1-256 characters");
+    check(endpoint.length <= 256, "Endpoint must be <= 256 characters");
 
-    // M10 FIX: Basic URL format validation - must start with valid scheme
-    check(
-      endpoint.startsWith("http://") || endpoint.startsWith("https://") ||
-      endpoint.startsWith("grpc://") || endpoint.startsWith("wss://"),
-      "Endpoint must start with http://, https://, grpc://, or wss://"
-    );
+    // Only validate URL format and protocol when endpoint is provided
+    if (endpoint.length > 0) {
+      // M10 FIX: Basic URL format validation - must start with valid scheme
+      check(
+        endpoint.startsWith("http://") || endpoint.startsWith("https://") ||
+        endpoint.startsWith("grpc://") || endpoint.startsWith("wss://"),
+        "Endpoint must start with http://, https://, grpc://, or wss://"
+      );
 
-    // M11 FIX: Protocol must be from valid list
-    check(protocol.length > 0 && protocol.length <= 32, "Protocol must be 1-32 characters");
-    let validProtocol = false;
-    for (let i = 0; i < VALID_PROTOCOLS.length; i++) {
-      if (VALID_PROTOCOLS[i] == protocol) {
-        validProtocol = true;
-        break;
+      // M11 FIX: Protocol must be from valid list
+      check(protocol.length > 0 && protocol.length <= 32, "Protocol must be 1-32 characters");
+      let validProtocol = false;
+      for (let i = 0; i < VALID_PROTOCOLS.length; i++) {
+        if (VALID_PROTOCOLS[i] == protocol) {
+          validProtocol = true;
+          break;
+        }
       }
+      check(validProtocol, "Protocol must be: http, https, grpc, websocket, mqtt, or wss");
     }
-    check(validProtocol, "Protocol must be: http, https, grpc, websocket, mqtt, or wss");
 
     // C1 FIX: Validate capabilities field to prevent unbounded storage
     check(capabilities.length <= 2048, "Capabilities must be <= 2048 characters");
@@ -524,25 +527,28 @@ export class AgentCoreContract extends Contract {
     check(name.length > 0 && name.length <= 64, "Name must be 1-64 characters");
     // L16 FIX: Require description to be non-empty
     check(description.length > 0 && description.length <= 256, "Description must be 1-256 characters");
-    check(endpoint.length > 0 && endpoint.length <= 256, "Endpoint must be 1-256 characters");
+    check(endpoint.length <= 256, "Endpoint must be <= 256 characters");
 
-    // M10 FIX: Basic URL format validation
-    check(
-      endpoint.startsWith("http://") || endpoint.startsWith("https://") ||
-      endpoint.startsWith("grpc://") || endpoint.startsWith("wss://"),
-      "Endpoint must start with http://, https://, grpc://, or wss://"
-    );
+    // Only validate URL format and protocol when endpoint is provided
+    if (endpoint.length > 0) {
+      // M10 FIX: Basic URL format validation
+      check(
+        endpoint.startsWith("http://") || endpoint.startsWith("https://") ||
+        endpoint.startsWith("grpc://") || endpoint.startsWith("wss://"),
+        "Endpoint must start with http://, https://, grpc://, or wss://"
+      );
 
-    // M11 FIX: Protocol must be from valid list
-    check(protocol.length > 0 && protocol.length <= 32, "Protocol must be 1-32 characters");
-    let validProtocol = false;
-    for (let i = 0; i < VALID_PROTOCOLS.length; i++) {
-      if (VALID_PROTOCOLS[i] == protocol) {
-        validProtocol = true;
-        break;
+      // M11 FIX: Protocol must be from valid list
+      check(protocol.length > 0 && protocol.length <= 32, "Protocol must be 1-32 characters");
+      let validProtocol = false;
+      for (let i = 0; i < VALID_PROTOCOLS.length; i++) {
+        if (VALID_PROTOCOLS[i] == protocol) {
+          validProtocol = true;
+          break;
+        }
       }
+      check(validProtocol, "Protocol must be: http, https, grpc, websocket, mqtt, or wss");
     }
-    check(validProtocol, "Protocol must be: http, https, grpc, websocket, mqtt, or wss");
 
     // C1 FIX: Validate capabilities field to prevent unbounded storage
     check(capabilities.length <= 2048, "Capabilities must be <= 2048 characters");

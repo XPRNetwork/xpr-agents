@@ -186,6 +186,46 @@ export class EscrowConfig extends Table {
   }
 }
 
+// ============== BIDS (Open Job Board) ==============
+
+@table("bids")
+export class Bid extends Table {
+  constructor(
+    public id: u64 = 0,
+    public job_id: u64 = 0,                 // Job being bid on
+    public agent: Name = EMPTY_NAME,        // Agent submitting the bid
+    public amount: u64 = 0,                 // Proposed amount (can differ from job.amount)
+    public timeline: u64 = 0,               // Proposed completion time (seconds from acceptance)
+    public proposal: string = "",           // Agent's proposal text
+    public created_at: u64 = 0
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.id;
+  }
+
+  @secondary
+  get byJob(): u64 {
+    return this.job_id;
+  }
+
+  set byJob(value: u64) {
+    this.job_id = value;
+  }
+
+  @secondary
+  get byAgent(): u64 {
+    return this.agent.N;
+  }
+
+  set byAgent(value: u64) {
+    this.agent = Name.fromU64(value);
+  }
+}
+
 // CRITICAL FIX: Track arbitrator unstaking requests
 @table("arbunstakes")
 export class ArbUnstake extends Table {
@@ -241,6 +281,7 @@ export class AgentEscrowContract extends Contract {
   private disputesTable: TableStore<EscrowDispute> = new TableStore<EscrowDispute>(this.receiver);
   private arbitratorsTable: TableStore<Arbitrator> = new TableStore<Arbitrator>(this.receiver);
   private arbUnstakesTable: TableStore<ArbUnstake> = new TableStore<ArbUnstake>(this.receiver);
+  private bidsTable: TableStore<Bid> = new TableStore<Bid>(this.receiver);
   private configSingleton: Singleton<EscrowConfig> = new Singleton<EscrowConfig>(this.receiver);
 
   // Helper to get agent from configured core contract
@@ -362,18 +403,20 @@ export class AgentEscrowContract extends Contract {
 
     const config = this.configSingleton.get();
     check(!config.paused, "Contract is paused");
-    check(isAccount(agent), "Agent account does not exist");
-    check(client != agent, "Client and agent must be different");
     check(title.length > 0 && title.length <= 128, "Title must be 1-128 characters");
-    // Add validation for description and deliverables
     check(description.length > 0 && description.length <= 2048, "Description must be 1-2048 characters");
     check(deliverables.length > 0 && deliverables.length <= 2048, "Deliverables must be 1-2048 characters");
     check(job_hash.length <= 128, "Job hash must be <= 128 characters");
     check(amount >= config.min_job_amount, "Amount below minimum");
 
-    // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
-    const agentRef = this.requireAgentRef(agent);
-    check(agentRef.active, "Agent is not active");
+    // Open job (agent=EMPTY_NAME) allows any agent to bid
+    // Direct-hire (agent specified) requires agent to exist and be active
+    if (agent != EMPTY_NAME) {
+      check(isAccount(agent), "Agent account does not exist");
+      check(client != agent, "Client and agent must be different");
+      const agentRef = this.requireAgentRef(agent);
+      check(agentRef.active, "Agent is not active");
+    }
 
     // Set deadline
     let jobDeadline = deadline;
@@ -465,6 +508,118 @@ export class AgentEscrowContract extends Contract {
 
     this.milestonesTable.store(milestone, this.receiver);
   }
+
+  // ============== BIDDING (Open Job Board) ==============
+
+  @action("submitbid")
+  submitBid(
+    agent: Name,
+    job_id: u64,
+    amount: u64,
+    timeline: u64,
+    proposal: string
+  ): void {
+    requireAuth(agent);
+
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
+    const job = this.jobsTable.requireGet(job_id, "Job not found");
+    check(job.agent == EMPTY_NAME, "Job is direct-hire, not open for bids");
+    check(job.state == 0 || job.state == 1, "Job must be in CREATED or FUNDED state to bid");
+    check(agent != job.client, "Client cannot bid on own job");
+
+    // Validate bid
+    check(amount > 0, "Bid amount must be positive");
+    check(timeline > 0, "Timeline must be positive");
+    check(proposal.length > 0 && proposal.length <= 2048, "Proposal must be 1-2048 characters");
+
+    // Verify agent exists and is active
+    const agentRef = this.requireAgentRef(agent);
+    check(agentRef.active, "Agent is not active");
+
+    // Check for duplicate bids from same agent on same job
+    let existingBid = this.bidsTable.getBySecondaryU64(job_id, 0);
+    while (existingBid != null) {
+      const bid = existingBid!;
+      if (bid.job_id != job_id) break;
+      check(bid.agent != agent, "Agent already has a bid on this job");
+      existingBid = this.bidsTable.nextBySecondaryU64(bid, 0);
+      if (existingBid != null && existingBid!.job_id != job_id) { existingBid = null; }
+    }
+
+    const bid = new Bid(
+      this.bidsTable.availablePrimaryKey,
+      job_id,
+      agent,
+      amount,
+      timeline,
+      proposal,
+      currentTimeSec()
+    );
+
+    this.bidsTable.store(bid, this.receiver);
+
+    print(`Bid ${bid.id} submitted on job ${job_id} by ${agent.toString()}`);
+  }
+
+  @action("selectbid")
+  selectBid(client: Name, bid_id: u64): void {
+    requireAuth(client);
+
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
+    const bid = this.bidsTable.requireGet(bid_id, "Bid not found");
+    const job = this.jobsTable.requireGet(bid.job_id, "Job not found");
+
+    check(job.client == client, "Only client can select a bid");
+    check(job.agent == EMPTY_NAME, "Job already has an assigned agent");
+    check(job.state == 0 || job.state == 1, "Job must be in CREATED or FUNDED state");
+
+    // Verify bid agent is still active
+    const agentRef = this.requireAgentRef(bid.agent);
+    check(agentRef.active, "Bid agent is no longer active");
+
+    // Assign the agent and update job amount to bid amount
+    job.agent = bid.agent;
+    job.amount = bid.amount;
+
+    // Set deadline based on bid timeline
+    job.deadline = currentTimeSec() + bid.timeline;
+
+    job.updated_at = currentTimeSec();
+    this.jobsTable.update(job, this.receiver);
+
+    // Clean up all bids for this job
+    this.cleanBidsForJob(bid.job_id);
+
+    print(`Bid ${bid_id} selected for job ${bid.job_id}: agent ${bid.agent.toString()}`);
+  }
+
+  @action("withdrawbid")
+  withdrawBid(agent: Name, bid_id: u64): void {
+    requireAuth(agent);
+
+    const bid = this.bidsTable.requireGet(bid_id, "Bid not found");
+    check(bid.agent == agent, "Only bid owner can withdraw");
+
+    this.bidsTable.remove(bid);
+
+    print(`Bid ${bid_id} withdrawn by ${agent.toString()}`);
+  }
+
+  private cleanBidsForJob(job_id: u64): void {
+    let bid = this.bidsTable.getBySecondaryU64(job_id, 0);
+    while (bid != null && bid.job_id == job_id) {
+      const current = bid;
+      bid = this.bidsTable.nextBySecondaryU64(current, 0);
+      if (bid != null && bid!.job_id != job_id) { bid = null; }
+      this.bidsTable.remove(current);
+    }
+  }
+
+  // ============== JOB ACCEPTANCE ==============
 
   @action("acceptjob")
   acceptJob(agent: Name, job_id: u64): void {
@@ -927,6 +1082,9 @@ export class AgentEscrowContract extends Contract {
       // Get next milestone (after removal, need to re-query)
       milestoneToDelete = this.milestonesTable.getBySecondaryU64(job_id, 0);
     }
+
+    // Clean up any remaining bids
+    this.cleanBidsForJob(job_id);
 
     // Update job state BEFORE token transfer
     job.state = 7; // REFUNDED

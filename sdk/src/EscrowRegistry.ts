@@ -112,8 +112,28 @@ export interface Arbitrator {
   active: boolean;
 }
 
-export interface CreateJobData {
+export interface Bid {
+  id: number;
+  job_id: number;
   agent: string;
+  amount: number;
+  timeline: number;
+  proposal: string;
+  created_at: number;
+}
+
+export interface BidRaw {
+  id: string;
+  job_id: string;
+  agent: string;
+  amount: string;
+  timeline: string;
+  proposal: string;
+  created_at: string;
+}
+
+export interface CreateJobData {
+  agent?: string;
   title: string;
   description: string;
   deliverables: string[];
@@ -122,6 +142,13 @@ export interface CreateJobData {
   deadline?: number;
   arbitrator?: string;
   job_hash?: string;
+}
+
+export interface SubmitBidData {
+  job_id: number;
+  amount: number;
+  timeline: number;
+  proposal: string;
 }
 
 export interface AddMilestoneData {
@@ -364,7 +391,7 @@ export class EscrowRegistry {
         }],
         data: {
           client: this.session!.auth.actor,
-          agent: data.agent,
+          agent: data.agent || '',
           title: data.title,
           description: data.description,
           deliverables: JSON.stringify(data.deliverables),
@@ -647,6 +674,148 @@ export class EscrowRegistry {
         data: {
           client: this.session!.auth.actor,
           job_id: jobId,
+        },
+      }],
+    });
+  }
+
+  // ============== BIDDING ==============
+
+  /**
+   * List open jobs (agent not assigned)
+   */
+  async listOpenJobs(options: JobListOptions = {}): Promise<PaginatedResult<Job>> {
+    const { limit = 100, cursor } = options;
+
+    const result = await this.rpc.get_table_rows<JobRaw>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'jobs',
+      lower_bound: cursor,
+      limit: limit + 1,
+    });
+
+    const hasMore = result.rows.length > limit;
+    const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
+    // Open jobs have empty agent name
+    let jobs = rows
+      .filter(row => row.agent === '' || row.agent === '.............')
+      .map(row => this.parseJob(row));
+
+    if (options.state) {
+      jobs = jobs.filter(j => j.state === options.state);
+    }
+
+    return {
+      items: jobs,
+      hasMore,
+      nextCursor: hasMore && rows.length > 0 ? rows[rows.length - 1].id : undefined,
+    };
+  }
+
+  /**
+   * List bids for a job
+   */
+  async listBidsForJob(jobId: number): Promise<Bid[]> {
+    const result = await this.rpc.get_table_rows<BidRaw>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'bids',
+      index_position: 2, // byJob index
+      key_type: 'i64',
+      lower_bound: String(jobId),
+      limit: 100,
+    });
+
+    return result.rows
+      .filter(row => safeParseInt(row.job_id) === jobId)
+      .map(row => this.parseBid(row));
+  }
+
+  /**
+   * Get a specific bid
+   */
+  async getBid(id: number): Promise<Bid | null> {
+    const result = await this.rpc.get_table_rows<BidRaw>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'bids',
+      lower_bound: String(id),
+      upper_bound: String(id),
+      limit: 1,
+    });
+
+    if (result.rows.length === 0) return null;
+    return this.parseBid(result.rows[0]);
+  }
+
+  /**
+   * Submit a bid on an open job (as agent)
+   */
+  async submitBid(data: SubmitBidData): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'submitbid',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          agent: this.session!.auth.actor,
+          job_id: data.job_id,
+          amount: data.amount,
+          timeline: data.timeline,
+          proposal: data.proposal,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Select a bid (as client) — assigns the agent to the job
+   */
+  async selectBid(bidId: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'selectbid',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          client: this.session!.auth.actor,
+          bid_id: bidId,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Withdraw a bid (as agent)
+   */
+  async withdrawBid(bidId: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'withdrawbid',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          agent: this.session!.auth.actor,
+          bid_id: bidId,
         },
       }],
     });
@@ -967,6 +1136,18 @@ export class EscrowRegistry {
       evidence_uri: raw.evidence_uri,
       submitted_at: safeParseInt(raw.submitted_at),
       approved_at: safeParseInt(raw.approved_at),
+    };
+  }
+
+  private parseBid(raw: BidRaw): Bid {
+    return {
+      id: safeParseInt(raw.id),
+      job_id: safeParseInt(raw.job_id),
+      agent: raw.agent,
+      amount: safeParseInt(raw.amount),
+      timeline: safeParseInt(raw.timeline),
+      proposal: raw.proposal,
+      created_at: safeParseInt(raw.created_at),
     };
   }
 }

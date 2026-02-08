@@ -11,7 +11,7 @@ const COMMON_TAGS = ['helpful', 'fast', 'accurate', 'reliable', 'professional', 
 
 export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
   const { session } = useProton();
-  const { submitFeedback, submitting, error } = useFeedback();
+  const { submitFeedback, submitting, error, feedbackFee } = useFeedback();
 
   const [score, setScore] = useState(5);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -141,7 +141,11 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
         disabled={submitting || !session}
         className="w-full py-2 bg-proton-purple text-white rounded-lg hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
       >
-        {submitting ? 'Submitting...' : 'Submit Feedback'}
+        {submitting
+          ? 'Submitting...'
+          : feedbackFee > 0
+            ? `Submit Feedback (${(feedbackFee / 10000).toFixed(4)} XPR fee)`
+            : 'Submit Feedback'}
       </button>
 
       {!session && (

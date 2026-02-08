@@ -1,10 +1,11 @@
 /**
- * Escrow tools (14 tools)
- * Reads: xpr_get_job, xpr_list_jobs, xpr_get_milestones,
- *        xpr_get_job_dispute, xpr_list_arbitrators
+ * Escrow tools (19 tools)
+ * Reads: xpr_get_job, xpr_list_jobs, xpr_list_open_jobs, xpr_get_milestones,
+ *        xpr_get_job_dispute, xpr_list_arbitrators, xpr_list_bids
  * Writes: xpr_create_job, xpr_fund_job, xpr_accept_job,
  *         xpr_deliver_job, xpr_approve_delivery, xpr_raise_dispute,
- *         xpr_submit_milestone, xpr_arbitrate, xpr_resolve_timeout
+ *         xpr_submit_milestone, xpr_arbitrate, xpr_resolve_timeout,
+ *         xpr_submit_bid, xpr_select_bid, xpr_withdraw_bid
  */
 
 import { EscrowRegistry } from '@xpr-agents/sdk';
@@ -152,12 +153,12 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
   api.registerTool({
     name: 'xpr_create_job',
-    description: 'Create a new escrow job. After creation, fund it with xpr_fund_job.',
+    description: 'Create a new escrow job. Omit agent to create an open job that any agent can bid on. After creation, fund it with xpr_fund_job.',
     parameters: {
       type: 'object',
-      required: ['agent', 'title', 'description', 'deliverables', 'amount'],
+      required: ['title', 'description', 'deliverables', 'amount'],
       properties: {
-        agent: { type: 'string', description: 'Agent account to assign the job to' },
+        agent: { type: 'string', description: 'Agent account (omit or empty for open job board)' },
         title: { type: 'string', description: 'Job title' },
         description: { type: 'string', description: 'Detailed job description' },
         deliverables: {
@@ -172,7 +173,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       },
     },
     handler: async (params: {
-      agent: string;
+      agent?: string;
       title: string;
       description: string;
       deliverables: string[];
@@ -182,29 +183,33 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       confirmed?: boolean;
     }) => {
       if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
-      validateAccountName(params.agent, 'agent');
+      if (params.agent) validateAccountName(params.agent, 'agent');
       validateRequired(params.title, 'title');
       if (params.amount <= 0) throw new Error('amount must be positive');
       validateAmount(xprToSmallestUnits(params.amount), config.maxTransferAmount);
       if (params.arbitrator) validateAccountName(params.arbitrator, 'arbitrator');
 
+      const isOpen = !params.agent;
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
         params.confirmed,
         'Create Job',
         {
-          agent: params.agent,
+          type: isOpen ? 'OPEN (any agent can bid)' : 'DIRECT-HIRE',
+          agent: params.agent || '(open for bids)',
           title: params.title,
           amount: `${params.amount} XPR`,
           arbitrator: params.arbitrator || '(contract owner fallback)',
         },
-        `Create job "${params.title}" for agent ${params.agent} worth ${params.amount} XPR`
+        isOpen
+          ? `Create open job "${params.title}" worth ${params.amount} XPR (agents will bid)`
+          : `Create job "${params.title}" for agent ${params.agent} worth ${params.amount} XPR`
       );
       if (confirmation) return confirmation;
 
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.createJob({
-        agent: params.agent,
+        agent: params.agent || '',
         title: params.title,
         description: params.description,
         deliverables: params.deliverables,
@@ -457,6 +462,138 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.resolveTimeout(dispute_id, client_percent, resolution_notes);
+    },
+  });
+
+  // ---- BIDDING TOOLS ----
+
+  api.registerTool({
+    name: 'xpr_list_open_jobs',
+    description: 'List open jobs available for bidding (no agent assigned yet). These are jobs posted to the open job board.',
+    parameters: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: 'Max results (default 20, max 100)' },
+      },
+    },
+    handler: async ({ limit = 20 }: { limit?: number }) => {
+      const registry = new EscrowRegistry(config.rpc, undefined, contracts.agentescrow);
+      return registry.listOpenJobs({ limit: Math.min(limit, 100) });
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_list_bids',
+    description: 'List all bids submitted for a specific job.',
+    parameters: {
+      type: 'object',
+      required: ['job_id'],
+      properties: {
+        job_id: { type: 'number', description: 'Job ID to list bids for' },
+      },
+    },
+    handler: async ({ job_id }: { job_id: number }) => {
+      validatePositiveInt(job_id, 'job_id');
+      const registry = new EscrowRegistry(config.rpc, undefined, contracts.agentescrow);
+      const bids = await registry.listBidsForJob(job_id);
+      return { bids, count: bids.length };
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_submit_bid',
+    description: 'Submit a bid on an open job. The agent proposes an amount, timeline, and proposal describing how they will complete the work.',
+    parameters: {
+      type: 'object',
+      required: ['job_id', 'amount', 'timeline', 'proposal'],
+      properties: {
+        job_id: { type: 'number', description: 'Job ID to bid on' },
+        amount: { type: 'number', description: 'Proposed amount in XPR (e.g., 5000.0)' },
+        timeline: { type: 'number', description: 'Proposed completion time in seconds from acceptance (e.g., 604800 = 7 days)' },
+        proposal: { type: 'string', description: 'Detailed proposal explaining approach and qualifications' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ job_id, amount, timeline, proposal, confirmed }: {
+      job_id: number;
+      amount: number;
+      timeline: number;
+      proposal: string;
+      confirmed?: boolean;
+    }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      validatePositiveInt(job_id, 'job_id');
+      if (amount <= 0) throw new Error('amount must be positive');
+      validatePositiveInt(timeline, 'timeline');
+      validateRequired(proposal, 'proposal');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Submit Bid',
+        {
+          job_id,
+          amount: `${amount} XPR`,
+          timeline: `${Math.round(timeline / 86400)} days`,
+        },
+        `Bid ${amount} XPR on job #${job_id} with ${Math.round(timeline / 86400)}-day timeline`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.submitBid({
+        job_id,
+        amount: xprToSmallestUnits(amount),
+        timeline,
+        proposal,
+      });
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_select_bid',
+    description: 'Select a winning bid for an open job. Assigns the bidding agent to the job and updates amount/deadline.',
+    parameters: {
+      type: 'object',
+      required: ['bid_id'],
+      properties: {
+        bid_id: { type: 'number', description: 'Bid ID to select' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ bid_id, confirmed }: { bid_id: number; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      validatePositiveInt(bid_id, 'bid_id');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Select Bid',
+        { bid_id },
+        `Select bid #${bid_id} — this assigns the agent and clears all other bids`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.selectBid(bid_id);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_withdraw_bid',
+    description: 'Withdraw your bid from a job.',
+    parameters: {
+      type: 'object',
+      required: ['bid_id'],
+      properties: {
+        bid_id: { type: 'number', description: 'Bid ID to withdraw' },
+      },
+    },
+    handler: async ({ bid_id }: { bid_id: number }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      validatePositiveInt(bid_id, 'bid_id');
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.withdrawBid(bid_id);
     },
   });
 }

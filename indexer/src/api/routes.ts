@@ -208,6 +208,23 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
     res.json({ jobs });
   });
 
+  // List open jobs (no agent assigned, available for bidding)
+  router.get('/jobs/open', (req: Request, res: Response) => {
+    const { limit = '100', offset = '0' } = req.query;
+
+    const limitNum = Math.min(parseInt(limit as string) || 100, 500);
+    const offsetNum = parseInt(offset as string) || 0;
+
+    const jobs = db.prepare(`
+      SELECT * FROM jobs
+      WHERE (agent = '' OR agent IS NULL) AND state IN (0, 1)
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+    `).all(limitNum, offsetNum);
+
+    res.json({ jobs });
+  });
+
   // Get single job
   router.get('/jobs/:id', (req: Request, res: Response) => {
     const { id } = req.params;
@@ -241,6 +258,34 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
     ).all(parseInt(id));
 
     res.json({ disputes });
+  });
+
+  // ============== BIDS ==============
+
+  // List bids for a job
+  router.get('/jobs/:id/bids', (req: Request, res: Response) => {
+    const { id } = req.params;
+
+    const bids = db.prepare(
+      'SELECT * FROM bids WHERE job_id = ? ORDER BY amount ASC, created_at ASC'
+    ).all(parseInt(id));
+
+    res.json({ bids });
+  });
+
+  // List bids by an agent
+  router.get('/agents/:account/bids', (req: Request, res: Response) => {
+    const { account } = req.params;
+
+    const bids = db.prepare(`
+      SELECT b.*, j.title as job_title, j.description as job_description, j.amount as job_amount, j.state as job_state
+      FROM bids b
+      JOIN jobs j ON b.job_id = j.id
+      WHERE b.agent = ?
+      ORDER BY b.created_at DESC
+    `).all(account);
+
+    res.json({ bids });
   });
 
   // ============== ARBITRATORS ==============

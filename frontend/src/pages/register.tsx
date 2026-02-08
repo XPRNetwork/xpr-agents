@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { WalletButton } from '@/components/WalletButton';
 import { useProton } from '@/hooks/useProton';
-import { CONTRACTS } from '@/lib/registry';
+import { CONTRACTS, rpc } from '@/lib/registry';
 
 const CAPABILITY_OPTIONS = [
   'compute',
@@ -21,7 +21,7 @@ const CAPABILITY_OPTIONS = [
   'translation',
 ];
 
-const PROTOCOL_OPTIONS = ['http', 'https', 'websocket', 'grpc'];
+const PROTOCOL_OPTIONS = ['https', 'http', 'grpc', 'websocket', 'wss', 'mqtt'];
 
 export default function Register() {
   const router = useRouter();
@@ -34,6 +34,21 @@ export default function Register() {
   const [capabilities, setCapabilities] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [registrationFee, setRegistrationFee] = useState(0);
+
+  useEffect(() => {
+    rpc.get_table_rows({
+      json: true,
+      code: CONTRACTS.AGENT_CORE,
+      scope: CONTRACTS.AGENT_CORE,
+      table: 'config',
+      limit: 1,
+    }).then((result) => {
+      if (result.rows.length > 0) {
+        setRegistrationFee(parseInt(result.rows[0].registration_fee) || 0);
+      }
+    }).catch(() => {});
+  }, []);
 
   const handleCapabilityToggle = (cap: string) => {
     setCapabilities((prev) =>
@@ -55,11 +70,6 @@ export default function Register() {
       return;
     }
 
-    if (!endpoint.trim()) {
-      setError('Endpoint is required');
-      return;
-    }
-
     if (capabilities.length === 0) {
       setError('Select at least one capability');
       return;
@@ -68,20 +78,36 @@ export default function Register() {
     setSubmitting(true);
 
     try {
-      await transact([
-        {
-          account: CONTRACTS.AGENT_CORE,
-          name: 'register',
+      const actions: any[] = [];
+
+      // Include fee transfer if registration fee is set
+      if (registrationFee > 0) {
+        actions.push({
+          account: 'eosio.token',
+          name: 'transfer',
           data: {
-            account: session.auth.actor,
-            name: name.trim(),
-            description: description.trim(),
-            endpoint: endpoint.trim(),
-            protocol,
-            capabilities: JSON.stringify(capabilities),
+            from: session.auth.actor,
+            to: CONTRACTS.AGENT_CORE,
+            quantity: `${(registrationFee / 10000).toFixed(4)} XPR`,
+            memo: `regfee:${session.auth.actor}`,
           },
+        });
+      }
+
+      actions.push({
+        account: CONTRACTS.AGENT_CORE,
+        name: 'register',
+        data: {
+          account: session.auth.actor,
+          name: name.trim(),
+          description: description.trim(),
+          endpoint: endpoint.trim(),
+          protocol: endpoint.trim() ? protocol : '',
+          capabilities: JSON.stringify(capabilities),
         },
-      ]);
+      });
+
+      await transact(actions);
 
       router.push(`/agent/${session.auth.actor}`);
     } catch (e: any) {
@@ -112,7 +138,8 @@ export default function Register() {
         <main className="max-w-2xl mx-auto px-4 py-12">
           <h1 className="text-3xl font-bold mb-2">Register Your Agent</h1>
           <p className="text-gray-500 mb-8">
-            Join the trustless agent registry on XPR Network
+            Register your AI agent on XPR Network so others can discover, validate, and hire it.
+            Your agent needs an API endpoint — a URL where it accepts requests.
           </p>
 
           {error && (
@@ -154,29 +181,36 @@ export default function Register() {
             {/* Endpoint */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                API Endpoint *
+                API Endpoint
               </label>
-              <div className="flex gap-2">
-                <select
-                  value={protocol}
-                  onChange={(e) => setProtocol(e.target.value)}
-                  className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
-                >
-                  {PROTOCOL_OPTIONS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  value={endpoint}
-                  onChange={(e) => setEndpoint(e.target.value)}
-                  placeholder="api.myagent.com/v1"
-                  maxLength={256}
-                  className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
-                />
-              </div>
+              <p className="text-xs text-gray-400 mb-2">
+                Optional. The URL where your agent can be reached. Leave blank if your agent runs locally (e.g. via OpenClaw MCP).
+                You can add or update this later.
+              </p>
+              <input
+                type="text"
+                value={endpoint}
+                onChange={(e) => setEndpoint(e.target.value)}
+                placeholder="https://my-agent.example.com/api/v1"
+                maxLength={256}
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
+              />
+              {endpoint.trim() && (
+                <div className="mt-2">
+                  <label className="block text-xs text-gray-500 mb-1">Protocol</label>
+                  <select
+                    value={protocol}
+                    onChange={(e) => setProtocol(e.target.value)}
+                    className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
+                  >
+                    {PROTOCOL_OPTIONS.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Capabilities */}
@@ -215,7 +249,11 @@ export default function Register() {
               disabled={submitting || !session}
               className="w-full py-3 bg-proton-purple text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
-              {submitting ? 'Registering...' : 'Register Agent'}
+              {submitting
+                ? 'Registering...'
+                : registrationFee > 0
+                  ? `Register Agent (${(registrationFee / 10000).toFixed(4)} XPR fee)`
+                  : 'Register Agent'}
             </button>
 
             {!session && (
@@ -225,14 +263,25 @@ export default function Register() {
             )}
           </form>
 
-          <div className="mt-8 text-sm text-gray-500">
-            <h3 className="font-medium text-gray-700 mb-2">After Registration</h3>
-            <ul className="list-disc list-inside space-y-1">
-              <li>Stake XPR to increase your trust score</li>
-              <li>Complete KYC verification for additional trust</li>
-              <li>Add plugins to extend capabilities</li>
-              <li>Receive feedback from users to build reputation</li>
-            </ul>
+          <div className="mt-8 text-sm text-gray-500 space-y-6">
+            <div>
+              <h3 className="font-medium text-gray-700 mb-2">What is an API Endpoint?</h3>
+              <p className="mb-2">
+                Your agent&apos;s endpoint is the URL where it listens for requests. When a client hires your agent through the escrow system, they send work requests to this URL.
+              </p>
+              <p>
+                If you&apos;re building an agent with OpenAI, LangChain, or similar frameworks, deploy it as a web service (e.g. on Railway, Vercel, AWS) and use that URL as your endpoint.
+              </p>
+            </div>
+            <div>
+              <h3 className="font-medium text-gray-700 mb-2">After Registration</h3>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Stake XPR to increase your trust score</li>
+                <li>Complete KYC verification for additional trust</li>
+                <li>Add plugins to extend capabilities</li>
+                <li>Receive feedback from users to build reputation</li>
+              </ul>
+            </div>
           </div>
         </main>
       </div>

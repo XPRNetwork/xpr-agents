@@ -276,7 +276,7 @@ export class Job extends Table {
   constructor(
     public id: u64 = 0,                     // Primary key
     public client: Name = new Name(),       // Job creator/payer
-    public agent: Name = new Name(),        // Assigned agent
+    public agent: Name = new Name(),        // Assigned agent (EMPTY_NAME = open for bids)
     public title: string = "",              // Job title
     public description: string = "",        // Job description
     public deliverables: string = "",       // JSON array of deliverables
@@ -306,6 +306,37 @@ export class Job extends Table {
 // 6 = COMPLETED   - Approved, agent paid
 // 7 = REFUNDED    - Cancelled, client refunded
 // 8 = ARBITRATED  - Resolved by arbitrator
+
+// Job Types:
+// - Direct-hire: agent is set at creation → client funds → agent accepts
+// - Open job board: agent=EMPTY_NAME → agents submit bids → client selects bid → agent is assigned
+
+@table("bids")
+export class Bid extends Table {
+  constructor(
+    public id: u64 = 0,                     // Primary key
+    public job_id: u64 = 0,                 // Job being bid on
+    public agent: Name = new Name(),        // Agent submitting the bid
+    public amount: u64 = 0,                 // Proposed amount
+    public timeline: u64 = 0,               // Proposed completion time (seconds)
+    public proposal: string = "",           // Agent's proposal text
+    public created_at: u64 = 0
+  ) { super(); }
+
+  @primary
+  get primary(): u64 { return this.id; }
+
+  @secondary
+  get byJob(): u64 { return this.job_id; }
+
+  @secondary
+  get byAgent(): u64 { return this.agent.N; }
+}
+
+// Bidding Actions:
+// submitbid  - Agent submits a bid on an open job
+// selectbid  - Client selects a winning bid (assigns agent, updates amount/deadline)
+// withdrawbid - Agent withdraws their bid
 
 @table("milestones")
 export class Milestone extends Table {
@@ -550,7 +581,7 @@ All phases are complete:
 - Documentation (MODEL.md, analysis reports)
 
 ### Phase 6: OpenClaw Plugin ✓
-- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 43 MCP tools (24 read, 19 write)
+- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 49 MCP tools (26 read, 23 write)
 - Session factory for server-side signing via `@proton/js`
 - Confirmation gate for high-risk write operations (10 tools require confirmation)
 - `maxTransferAmount` enforcement on all XPR transfer/stake/fee operations

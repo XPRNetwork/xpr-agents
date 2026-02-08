@@ -13,7 +13,9 @@ export type {
   EscrowDispute,
   DisputeResolution,
   Arbitrator,
+  Bid,
   CreateJobData,
+  SubmitBidData,
   AddMilestoneData,
   JobListOptions,
 } from './EscrowRegistry';
