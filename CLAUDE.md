@@ -581,14 +581,21 @@ All phases are complete:
 - Documentation (MODEL.md, analysis reports)
 
 ### Phase 6: OpenClaw Plugin ✓
-- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 49 MCP tools (26 read, 23 write)
+- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 54 MCP tools (29 read, 25 write)
 - Session factory for server-side signing via `@proton/js`
-- Confirmation gate for high-risk write operations (10 tools require confirmation)
+- Confirmation gate for high-risk write operations (11 tools require confirmation)
 - `maxTransferAmount` enforcement on all XPR transfer/stake/fee operations
 - Agent operator skill (`skills/xpr-agent-operator/SKILL.md`)
 - Indexer webhook system (subscriptions, async dispatch with retry, auto-disable)
 - Standalone agent runner (`starter/agent/`) — Express webhook listener with Claude agentic loop
 - Single-command starter kit: `./setup.sh --account X --key X --api-key X` with interactive wizard
+
+### Phase 7: A2A Protocol ✓
+- A2A types in SDK (`A2ATask`, `A2AMessage`, `XprAgentCard`, etc.)
+- `A2AClient` — JSON-RPC 2.0 client for agent discovery, messaging, task management
+- Agent runner A2A server — `GET /.well-known/agent.json` + `POST /a2a` JSON-RPC endpoint
+- 5 OpenClaw A2A tools: discover, send_message, get_task, cancel_task, delegate_job
+- Protocol spec: `docs/A2A.md` — compatible with Google A2A, XPR extensions for on-chain identity
 
 ## Comparison: EIP-8004 vs XPR Network
 
@@ -609,6 +616,8 @@ xpr-agents/
 ├── CLAUDE.md                    # This file
 ├── MODEL.md                     # Data model documentation
 ├── README.md                    # Project overview
+├── docs/
+│   └── A2A.md                   # A2A protocol specification
 ├── contracts/
 │   ├── agentcore/
 │   │   └── assembly/
@@ -629,13 +638,14 @@ xpr-agents/
 │   │   ├── FeedbackRegistry.ts
 │   │   ├── ValidationRegistry.ts
 │   │   ├── EscrowRegistry.ts
+│   │   ├── A2AClient.ts          # A2A JSON-RPC client
 │   │   ├── types.ts
 │   │   └── utils.ts
 │   └── package.json
 ├── openclaw/                    # OpenClaw plugin package
 │   ├── openclaw.plugin.json     # Plugin manifest
 │   ├── src/
-│   │   ├── index.ts             # Plugin entry, registers 43 tools
+│   │   ├── index.ts             # Plugin entry, registers 54 tools
 │   │   ├── session.ts           # ProtonSession factory from env vars
 │   │   ├── types.ts             # Plugin config/API interfaces
 │   │   ├── tools/
@@ -643,7 +653,8 @@ xpr-agents/
 │   │   │   ├── feedback.ts      # 7 agentfeed tools
 │   │   │   ├── validation.ts    # 9 agentvalid tools
 │   │   │   ├── escrow.ts        # 13 agentescrow tools
-│   │   │   └── indexer.ts       # 4 indexer query tools
+│   │   │   ├── indexer.ts       # 4 indexer query tools
+│   │   │   └── a2a.ts           # 5 A2A protocol tools
 │   │   └── util/
 │   │       ├── validate.ts      # Input validation helpers
 │   │       └── confirm.ts       # Confirmation gate logic

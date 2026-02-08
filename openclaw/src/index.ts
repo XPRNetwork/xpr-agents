@@ -1,12 +1,13 @@
 /**
  * XPR Agents OpenClaw Plugin
  *
- * Registers 49 tools for interacting with the XPR Network Trustless Agent Registry:
+ * Registers 54 tools for interacting with the XPR Network Trustless Agent Registry:
  * - 10 Agent Core tools (registration, profile, plugins, trust scores)
  * - 7 Feedback tools (ratings, disputes, scores)
  * - 9 Validation tools (validators, validations, challenges)
  * - 19 Escrow tools (jobs, milestones, disputes, arbitration, bidding)
  * - 4 Indexer tools (search, events, stats, health)
+ * - 5 A2A tools (discover, message, task status, cancel, delegate)
  */
 
 import { createSession, createReadOnlyRpc } from './session';
@@ -15,6 +16,7 @@ import { registerFeedbackTools } from './tools/feedback';
 import { registerValidationTools } from './tools/validation';
 import { registerEscrowTools } from './tools/escrow';
 import { registerIndexerTools } from './tools/indexer';
+import { registerA2ATools } from './tools/a2a';
 import type { PluginApi, PluginConfig } from './types';
 
 export default function xprAgentsPlugin(api: PluginApi): void {
@@ -59,6 +61,7 @@ export default function xprAgentsPlugin(api: PluginApi): void {
   registerValidationTools(api, config);
   registerEscrowTools(api, config);
   registerIndexerTools(api, config);
+  registerA2ATools(api, config);
 
   if (!hasCredentials) {
     console.log('[xpr-agents] Read-only mode: XPR_PRIVATE_KEY and XPR_ACCOUNT not set. Write tools will fail.');

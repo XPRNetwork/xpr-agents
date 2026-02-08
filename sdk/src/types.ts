@@ -407,3 +407,70 @@ export interface GetTableRowsResult<T> {
   more: boolean;
   next_key?: string;
 }
+
+// ============== A2A Protocol Types ==============
+
+export type A2ATaskState = 'submitted' | 'working' | 'input-required' | 'completed' | 'failed' | 'canceled';
+
+export interface A2AMessage {
+  role: 'user' | 'agent';
+  parts: A2APart[];
+  metadata?: Record<string, unknown>;
+}
+
+export type A2APart =
+  | { type: 'text'; text: string }
+  | { type: 'file'; file: { name?: string; mimeType: string; uri?: string; bytes?: string } }
+  | { type: 'data'; data: Record<string, unknown> };
+
+export interface A2ATask {
+  id: string;
+  contextId?: string;
+  status: { state: A2ATaskState; message?: A2AMessage; timestamp: string };
+  artifacts?: A2AArtifact[];
+  history?: A2AMessage[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface A2AArtifact {
+  name?: string;
+  description?: string;
+  parts: A2APart[];
+  index: number;
+  lastChunk?: boolean;
+}
+
+export interface XprAgentCard {
+  name: string;
+  description: string;
+  url: string;
+  version: string;
+  capabilities: {
+    streaming: boolean;
+    pushNotifications: boolean;
+    stateTransitionHistory: boolean;
+  };
+  defaultInputModes: string[];
+  defaultOutputModes: string[];
+  skills: { id: string; name: string; description: string; tags: string[] }[];
+  'xpr:account': string;
+  'xpr:protocol': string;
+  'xpr:trustScore'?: number;
+  'xpr:kycLevel'?: number;
+  'xpr:registeredAt': number;
+  'xpr:owner'?: string;
+}
+
+export interface A2AJsonRpcRequest {
+  jsonrpc: '2.0';
+  id: string | number;
+  method: string;
+  params?: Record<string, unknown>;
+}
+
+export interface A2AJsonRpcResponse<T = unknown> {
+  jsonrpc: '2.0';
+  id: string | number;
+  result?: T;
+  error?: { code: number; message: string; data?: unknown };
+}

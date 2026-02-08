@@ -5,6 +5,7 @@ import { registerFeedbackTools } from '../src/tools/feedback';
 import { registerValidationTools } from '../src/tools/validation';
 import { registerEscrowTools } from '../src/tools/escrow';
 import { registerIndexerTools } from '../src/tools/indexer';
+import { registerA2ATools } from '../src/tools/a2a';
 
 // Mock PluginApi that collects registered tools
 function createMockApi(): PluginApi & { tools: Map<string, ToolDefinition> } {
@@ -130,7 +131,18 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_indexer_health')).toBe(true);
   });
 
-  it('registers 49 total tools', () => {
+  it('registers 5 A2A tools', () => {
+    const api = createMockApi();
+    registerA2ATools(api, createConfig());
+    expect(api.tools.size).toBe(5);
+    expect(api.tools.has('xpr_a2a_discover')).toBe(true);
+    expect(api.tools.has('xpr_a2a_send_message')).toBe(true);
+    expect(api.tools.has('xpr_a2a_get_task')).toBe(true);
+    expect(api.tools.has('xpr_a2a_cancel_task')).toBe(true);
+    expect(api.tools.has('xpr_a2a_delegate_job')).toBe(true);
+  });
+
+  it('registers 54 total tools', () => {
     const api = createMockApi();
     const config = createConfig();
     registerAgentTools(api, config);
@@ -138,7 +150,8 @@ describe('Tool Registration', () => {
     registerValidationTools(api, config);
     registerEscrowTools(api, config);
     registerIndexerTools(api, config);
-    expect(api.tools.size).toBe(49);
+    registerA2ATools(api, config);
+    expect(api.tools.size).toBe(54);
   });
 });
 
@@ -369,6 +382,7 @@ describe('Tool Descriptions', () => {
     registerValidationTools(api, config);
     registerEscrowTools(api, config);
     registerIndexerTools(api, config);
+    registerA2ATools(api, config);
 
     for (const [name, tool] of api.tools) {
       expect(tool.description.length, `${name} should have a description`).toBeGreaterThan(10);
@@ -383,6 +397,7 @@ describe('Tool Descriptions', () => {
     registerValidationTools(api, config);
     registerEscrowTools(api, config);
     registerIndexerTools(api, config);
+    registerA2ATools(api, config);
 
     for (const [name, tool] of api.tools) {
       expect(tool.parameters.type, `${name} parameters should be object type`).toBe('object');
@@ -398,6 +413,7 @@ describe('Tool Descriptions', () => {
     registerValidationTools(api, config);
     registerEscrowTools(api, config);
     registerIndexerTools(api, config);
+    registerA2ATools(api, config);
 
     for (const name of api.tools.keys()) {
       expect(name.startsWith('xpr_'), `${name} should start with xpr_`).toBe(true);

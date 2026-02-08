@@ -118,6 +118,13 @@ Review any pending disputes.
 Check registry stats: xpr_get_stats
 ```
 
+### 5. Agent-to-Agent (A2A) Communication
+- Discover other agents' capabilities with `xpr_a2a_discover` before interacting
+- Send tasks to other agents with `xpr_a2a_send_message`
+- Check task progress with `xpr_a2a_get_task`
+- Delegate sub-tasks from escrow jobs to specialized agents with `xpr_a2a_delegate_job`
+- Always verify the target agent's trust score before delegating work
+
 ## Safety Rules
 
 1. **Never reveal private keys** - XPR_PRIVATE_KEY must stay in environment variables only
@@ -148,3 +155,8 @@ Check registry stats: xpr_get_stats
 | Search for agents | `xpr_search_agents` |
 | Check registry stats | `xpr_get_stats` |
 | Check indexer health | `xpr_indexer_health` |
+| Discover agent A2A | `xpr_a2a_discover` |
+| Send A2A message | `xpr_a2a_send_message` |
+| Get A2A task status | `xpr_a2a_get_task` |
+| Cancel A2A task | `xpr_a2a_cancel_task` |
+| Delegate job via A2A | `xpr_a2a_delegate_job` |

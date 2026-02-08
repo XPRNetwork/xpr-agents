@@ -36,7 +36,7 @@ const mockApi = {
   },
 };
 
-// Load plugin (registers all 49 tools)
+// Load plugin (registers all 54 tools)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pluginFn = require('@xpr-agents/openclaw').default;
 pluginFn(mockApi);
@@ -77,6 +77,21 @@ const anthropicTools: Anthropic.Tool[] = tools.map(t => ({
 const anthropic = new Anthropic();
 const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '10');
 const MODEL = process.env.AGENT_MODEL || 'claude-sonnet-4-20250514';
+
+// A2A task store (in-memory)
+interface A2ATaskRecord {
+  id: string;
+  contextId?: string;
+  status: { state: string; message?: unknown; timestamp: string };
+  artifacts?: Array<{ parts: Array<{ type: string; text: string }>; index: number }>;
+  history?: unknown[];
+  metadata?: Record<string, unknown>;
+}
+const a2aTasks = new Map<string, A2ATaskRecord>();
+let a2aTaskCounter = 0;
+
+// Agent card cache (60s TTL)
+let agentCardCache: { card: unknown; expiresAt: number } | null = null;
 
 // Track active runs to prevent duplicate processing
 const activeRuns = new Set<string>();
@@ -210,6 +225,190 @@ app.post('/run', async (req, res) => {
     res.json({ ok: true, result });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// A2A Agent Card discovery
+app.get('/.well-known/agent.json', async (_req, res) => {
+  // Return cached card if still valid
+  if (agentCardCache && Date.now() < agentCardCache.expiresAt) {
+    return res.json(agentCardCache.card);
+  }
+
+  try {
+    // Fetch own on-chain data using loaded tools
+    const getAgent = tools.find(t => t.name === 'xpr_get_agent');
+    const getTrust = tools.find(t => t.name === 'xpr_get_trust_score');
+    const account = process.env.XPR_ACCOUNT || '';
+
+    let agentData: any = {};
+    let trustData: any = {};
+
+    if (getAgent) {
+      try { agentData = await getAgent.handler({ account }); } catch { /* use defaults */ }
+    }
+    if (getTrust) {
+      try { trustData = await getTrust.handler({ account }); } catch { /* use defaults */ }
+    }
+
+    // Parse capabilities from on-chain data
+    let capabilities: string[] = [];
+    if (Array.isArray(agentData.capabilities)) {
+      capabilities = agentData.capabilities;
+    }
+
+    const card = {
+      name: agentData.name || account,
+      description: agentData.description || '',
+      url: agentData.endpoint || `http://localhost:${port}`,
+      version: '1.0.0',
+      capabilities: {
+        streaming: false,
+        pushNotifications: false,
+        stateTransitionHistory: false,
+      },
+      defaultInputModes: ['text'],
+      defaultOutputModes: ['text'],
+      skills: capabilities.map((cap: string) => ({
+        id: cap,
+        name: cap,
+        description: `${cap} capability`,
+        tags: [cap],
+      })),
+      'xpr:account': account,
+      'xpr:protocol': agentData.protocol || 'https',
+      'xpr:trustScore': trustData.total ?? undefined,
+      'xpr:kycLevel': trustData.breakdown?.kyc != null ? Math.floor(trustData.breakdown.kyc / 10) : undefined,
+      'xpr:registeredAt': agentData.registered_at || 0,
+      'xpr:owner': agentData.owner || undefined,
+    };
+
+    agentCardCache = { card, expiresAt: Date.now() + 60_000 };
+    res.json(card);
+  } catch (err: any) {
+    res.status(500).json({ error: `Failed to build agent card: ${err.message}` });
+  }
+});
+
+// A2A JSON-RPC endpoint
+app.post('/a2a', async (req, res) => {
+  const { jsonrpc, id, method, params } = req.body;
+
+  if (jsonrpc !== '2.0' || !method) {
+    return res.json({
+      jsonrpc: '2.0',
+      id: id ?? null,
+      error: { code: -32600, message: 'Invalid request: must be JSON-RPC 2.0 with a method' },
+    });
+  }
+
+  try {
+    let result: unknown;
+
+    switch (method) {
+      case 'message/send': {
+        const message = params?.message;
+        if (!message || !message.parts) {
+          return res.json({
+            jsonrpc: '2.0', id,
+            error: { code: -32602, message: 'Invalid params: message with parts is required' },
+          });
+        }
+
+        // Extract text from message parts
+        const textParts = message.parts
+          .filter((p: any) => p.type === 'text')
+          .map((p: any) => p.text);
+        const text = textParts.join('\n') || 'No text content';
+
+        // Build context info
+        const callerAccount = params?.['xpr:callerAccount'] || 'unknown';
+        const jobId = params?.metadata?.['xpr:jobId'];
+        const prompt = jobId
+          ? `[A2A from ${callerAccount}, job #${jobId}] ${text}`
+          : `[A2A from ${callerAccount}] ${text}`;
+
+        // Create or reuse task
+        const taskId = params?.id || `task-${++a2aTaskCounter}`;
+        const contextId = params?.contextId;
+
+        const taskRecord: A2ATaskRecord = {
+          id: taskId,
+          contextId,
+          status: { state: 'working', timestamp: new Date().toISOString() },
+          metadata: params?.metadata,
+        };
+        a2aTasks.set(taskId, taskRecord);
+
+        // Run through the agentic loop
+        const agentResult = await runAgent('a2a:message/send', { callerAccount, jobId, text }, prompt);
+
+        // Update task with result
+        taskRecord.status = { state: 'completed', timestamp: new Date().toISOString() };
+        taskRecord.artifacts = [{ parts: [{ type: 'text', text: agentResult }], index: 0 }];
+
+        result = taskRecord;
+        break;
+      }
+
+      case 'tasks/get': {
+        const taskId = params?.id;
+        if (!taskId) {
+          return res.json({
+            jsonrpc: '2.0', id,
+            error: { code: -32602, message: 'Invalid params: id is required' },
+          });
+        }
+        const task = a2aTasks.get(taskId);
+        if (!task) {
+          return res.json({
+            jsonrpc: '2.0', id,
+            error: { code: -32001, message: `Task not found: ${taskId}` },
+          });
+        }
+        result = task;
+        break;
+      }
+
+      case 'tasks/cancel': {
+        const taskId = params?.id;
+        if (!taskId) {
+          return res.json({
+            jsonrpc: '2.0', id,
+            error: { code: -32602, message: 'Invalid params: id is required' },
+          });
+        }
+        const task = a2aTasks.get(taskId);
+        if (!task) {
+          return res.json({
+            jsonrpc: '2.0', id,
+            error: { code: -32001, message: `Task not found: ${taskId}` },
+          });
+        }
+        if (task.status.state === 'completed' || task.status.state === 'failed') {
+          return res.json({
+            jsonrpc: '2.0', id,
+            error: { code: -32002, message: `Task already ${task.status.state}` },
+          });
+        }
+        task.status = { state: 'canceled', timestamp: new Date().toISOString() };
+        result = task;
+        break;
+      }
+
+      default:
+        return res.json({
+          jsonrpc: '2.0', id,
+          error: { code: -32601, message: `Method not found: ${method}` },
+        });
+    }
+
+    res.json({ jsonrpc: '2.0', id, result });
+  } catch (err: any) {
+    res.json({
+      jsonrpc: '2.0', id,
+      error: { code: -32603, message: err.message || 'Internal error' },
+    });
   }
 });
 

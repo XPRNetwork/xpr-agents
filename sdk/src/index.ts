@@ -3,6 +3,7 @@ export { AgentRegistry } from './AgentRegistry';
 export { FeedbackRegistry } from './FeedbackRegistry';
 export { ValidationRegistry } from './ValidationRegistry';
 export { EscrowRegistry } from './EscrowRegistry';
+export { A2AClient, A2AError } from './A2AClient';
 
 // Escrow types (exported separately since they're defined in the registry file)
 export type {
