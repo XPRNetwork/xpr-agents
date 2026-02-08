@@ -9,7 +9,7 @@
 import { AgentRegistry } from '@xpr-agents/sdk';
 import type { PluginCategory } from '@xpr-agents/sdk';
 import type { PluginApi, PluginConfig } from '../types';
-import { validateAccountName, validateRequired, validateAmount } from '../util/validate';
+import { validateAccountName, validateRequired, validateAmount, validateUrl } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
 
 export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
@@ -157,8 +157,10 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
       fee_amount?: number;
       confirmed?: boolean;
     }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validateRequired(params.name, 'name');
       validateRequired(params.endpoint, 'endpoint');
+      validateUrl(params.endpoint, 'endpoint');
       if (params.fee_amount) {
         validateAmount(Math.floor(params.fee_amount * 10000), config.maxTransferAmount);
       }
@@ -212,6 +214,8 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
       protocol?: string;
       capabilities?: string[];
     }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      if (params.endpoint) validateUrl(params.endpoint, 'endpoint');
       const registry = new AgentRegistry(config.rpc, config.session, contracts.agentcore);
       return registry.update(params);
     },
@@ -228,6 +232,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
       },
     },
     handler: async ({ active }: { active: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       const registry = new AgentRegistry(config.rpc, config.session, contracts.agentcore);
       return registry.setStatus(active);
     },
@@ -258,6 +263,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
       config?: object;
       enabled?: boolean;
     }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       const registry = new AgentRegistry(config.rpc, config.session, contracts.agentcore);
 
       switch (params.action) {
@@ -270,15 +276,13 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
         case 'toggle': {
           validateRequired(params.agentplugin_id, 'agentplugin_id');
           // Toggle requires knowing current state; SDK toggleplug sets enabled directly
-          const session = config.session;
-          if (!session) throw new Error('Session required for write operations');
-          return session.link.transact({
+          return config.session!.link.transact({
             actions: [{
               account: contracts.agentcore,
               name: 'toggleplug',
-              authorization: [{ actor: session.auth.actor, permission: session.auth.permission }],
+              authorization: [{ actor: config.session!.auth.actor, permission: config.session!.auth.permission }],
               data: {
-                agent: session.auth.actor,
+                agent: config.session!.auth.actor,
                 agentplugin_id: params.agentplugin_id,
                 enabled: params.enabled ?? true,
               },

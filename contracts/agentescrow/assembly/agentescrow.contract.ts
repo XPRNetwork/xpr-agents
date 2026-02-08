@@ -291,7 +291,12 @@ export class AgentEscrowContract extends Contract {
     min_job_amount: u64,
     default_deadline_days: u64,
     dispute_window: u64,
-    paused: boolean
+    paused: boolean,
+    core_contract: Name,
+    feed_contract: Name,
+    acceptance_timeout: u64,
+    min_arbitrator_stake: u64,
+    arb_unstake_delay: u64
   ): void {
     const config = this.configSingleton.get();
     requireAuth(config.owner);
@@ -304,11 +309,25 @@ export class AgentEscrowContract extends Contract {
     check(dispute_window >= 86400, "Dispute window must be at least 1 day (86400 seconds)");
     check(dispute_window <= 2592000, "Dispute window cannot exceed 30 days (2592000 seconds)");
 
+    // Validate contract account names
+    check(isAccount(core_contract), "core_contract account does not exist");
+    check(isAccount(feed_contract), "feed_contract account does not exist");
+
+    // Validate timeout and stake parameters
+    check(acceptance_timeout >= 86400, "Acceptance timeout must be at least 1 day");
+    check(min_arbitrator_stake > 0, "Minimum arbitrator stake must be positive");
+    check(arb_unstake_delay >= 86400, "Arbitrator unstake delay must be at least 1 day");
+
     config.platform_fee = platform_fee;
     config.min_job_amount = min_job_amount;
     config.default_deadline_days = default_deadline_days;
     config.dispute_window = dispute_window;
     config.paused = paused;
+    config.core_contract = core_contract;
+    config.feed_contract = feed_contract;
+    config.acceptance_timeout = acceptance_timeout;
+    config.min_arbitrator_stake = min_arbitrator_stake;
+    config.arb_unstake_delay = arb_unstake_delay;
 
     this.configSingleton.set(config, this.receiver);
   }
@@ -402,6 +421,9 @@ export class AgentEscrowContract extends Contract {
   ): void {
     requireAuth(client);
 
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
     // NEW FIX: Validate milestone title and description
     check(title.length > 0 && title.length <= 128, "Title must be 1-128 characters");
     check(description.length > 0 && description.length <= 2048, "Description must be 1-2048 characters");
@@ -446,6 +468,9 @@ export class AgentEscrowContract extends Contract {
   acceptJob(agent: Name, job_id: u64): void {
     requireAuth(agent);
 
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
     const job = this.jobsTable.requireGet(job_id, "Job not found");
     check(job.agent == agent, "Only assigned agent can accept");
     check(job.state == 1, "Job must be funded to accept");
@@ -462,6 +487,9 @@ export class AgentEscrowContract extends Contract {
   startJob(agent: Name, job_id: u64): void {
     requireAuth(agent);
 
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
     const job = this.jobsTable.requireGet(job_id, "Job not found");
     check(job.agent == agent, "Only assigned agent can start");
     check(job.state == 2, "Job must be accepted to start");
@@ -475,6 +503,9 @@ export class AgentEscrowContract extends Contract {
   @action("submitmile")
   submitMilestone(agent: Name, milestone_id: u64, evidence_uri: string): void {
     requireAuth(agent);
+
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
 
     // NEW FIX: Validate evidence URI
     check(evidence_uri.length > 0 && evidence_uri.length <= 2048, "Evidence URI must be 1-2048 characters");
@@ -526,6 +557,9 @@ export class AgentEscrowContract extends Contract {
   @action("deliver")
   deliverJob(agent: Name, job_id: u64, evidence_uri: string): void {
     requireAuth(agent);
+
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
 
     // MEDIUM FIX: Validate evidence_uri for consistency with other actions
     check(evidence_uri.length <= 2048, "Evidence URI must be <= 2048 characters");
@@ -589,6 +623,7 @@ export class AgentEscrowContract extends Contract {
     requireAuth(raised_by);
 
     const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
     const job = this.jobsTable.requireGet(job_id, "Job not found");
 
     check(
@@ -787,6 +822,84 @@ export class AgentEscrowContract extends Contract {
     print(`Dispute ${dispute_id} resolved: ${client_percent}% to client, ${arbFee} arbitration fee`);
   }
 
+  // ============== DISPUTE TIMEOUT ==============
+
+  // 14 days in seconds for dispute resolution timeout
+  private readonly DISPUTE_RESOLUTION_TIMEOUT: u64 = 1209600;
+
+  @action("resolvetmout")
+  resolveTimeout(
+    dispute_id: u64,
+    client_percent: u64,
+    resolution_notes: string
+  ): void {
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+
+    const dispute = this.disputesTable.requireGet(dispute_id, "Dispute not found");
+    check(dispute.resolution == 0, "Dispute already resolved");
+
+    check(client_percent <= 100, "Invalid percentage");
+    check(
+      resolution_notes.length > 0 && resolution_notes.length <= 1024,
+      "Resolution notes must be 1-1024 characters with clear reasoning"
+    );
+
+    // Check sufficient time has elapsed since dispute creation
+    check(
+      currentTimeSec() >= dispute.created_at + this.DISPUTE_RESOLUTION_TIMEOUT,
+      "Dispute resolution timeout not reached (14 days)"
+    );
+
+    const job = this.jobsTable.requireGet(dispute.job_id, "Job not found");
+    check(job.state == 5, "Job must be in DISPUTED state");
+
+    // Verify state consistency
+    check(job.funded_amount >= job.released_amount, "Invalid job state");
+    const remainingAmount = job.funded_amount - job.released_amount;
+
+    // Owner resolves with 0% fee (no arbitrator fee deducted)
+    const clientAmount = (remainingAmount * client_percent) / 100;
+    const agentAmount = remainingAmount - clientAmount;
+
+    // CEI PATTERN: Update ALL state BEFORE any external calls
+
+    // Update dispute
+    dispute.client_amount = clientAmount;
+    dispute.agent_amount = agentAmount;
+    dispute.resolution = client_percent == 100 ? 1 : (client_percent == 0 ? 2 : 3);
+    dispute.resolver = config.owner;
+    dispute.resolution_notes = resolution_notes;
+    dispute.resolved_at = currentTimeSec();
+    this.disputesTable.update(dispute, this.receiver);
+
+    // Update job state
+    job.state = 8; // ARBITRATED
+    job.released_amount = job.funded_amount;
+    job.updated_at = currentTimeSec();
+    this.jobsTable.update(job, this.receiver);
+
+    // Decrement active_disputes on the designated arbitrator (if any)
+    if (job.arbitrator != EMPTY_NAME) {
+      const designatedArb = this.arbitratorsTable.get(job.arbitrator.N);
+      if (designatedArb != null && designatedArb.active_disputes > 0) {
+        designatedArb.active_disputes -= 1;
+        this.arbitratorsTable.update(designatedArb, this.receiver);
+      }
+    }
+
+    // Now safe to make external calls after all state is finalized
+    if (clientAmount > 0) {
+      this.sendTokens(job.client, new Asset(clientAmount, this.XPR_SYMBOL), "Dispute timeout refund");
+    }
+    if (agentAmount > 0) {
+      this.sendTokens(job.agent, new Asset(agentAmount, this.XPR_SYMBOL), "Dispute timeout payment");
+      this.incrementAgentJobs(job.agent);
+    }
+
+    print(`Dispute ${dispute_id} resolved by owner timeout: ${client_percent}% to client`);
+  }
+
   // ============== CANCELLATION & REFUND ==============
 
   @action("cancel")
@@ -942,6 +1055,7 @@ export class AgentEscrowContract extends Contract {
     requireAuth(account);
 
     const arb = this.arbitratorsTable.requireGet(account.N, "Arbitrator not found");
+    check(arb.active_disputes == 0, "Cannot deactivate with pending disputes");
     arb.active = false;
     this.arbitratorsTable.update(arb, this.receiver);
   }

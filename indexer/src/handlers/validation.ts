@@ -210,7 +210,11 @@ function handleResolve(db: Database.Database, data: any): void {
   `);
   resetChallengedStmt.run(challenge.validation_id);
 
+  // Decrement pending_challenges on the validator
   const validation = db.prepare('SELECT validator FROM validations WHERE id = ?').get(challenge.validation_id) as { validator: string } | undefined;
+  if (validation) {
+    db.prepare('UPDATE validators SET pending_challenges = MAX(0, pending_challenges - 1) WHERE account = ?').run(validation.validator);
+  }
 
   if (data.upheld) {
     // Challenge upheld - validator was wrong
@@ -258,8 +262,8 @@ function handleSlash(db: Database.Database, data: any): void {
 }
 
 function handleCancelChallenge(db: Database.Database, data: any): void {
-  // Look up challenge to get validation_id
-  const challenge = db.prepare('SELECT validation_id FROM validation_challenges WHERE id = ?').get(data.challenge_id) as { validation_id: number } | undefined;
+  // Look up challenge to get validation_id and funded_at
+  const challenge = db.prepare('SELECT validation_id, funded_at FROM validation_challenges WHERE id = ?').get(data.challenge_id) as { validation_id: number; funded_at: number } | undefined;
 
   // Update challenge status to cancelled (3)
   const challengeStmt = db.prepare(`
@@ -269,7 +273,7 @@ function handleCancelChallenge(db: Database.Database, data: any): void {
   `);
   challengeStmt.run(data.challenge_id);
 
-  // Reset validation's challenged flag
+  // Reset validation's challenged flag and decrement pending_challenges if funded
   if (challenge) {
     const validationStmt = db.prepare(`
       UPDATE validations
@@ -277,6 +281,13 @@ function handleCancelChallenge(db: Database.Database, data: any): void {
       WHERE id = ?
     `);
     validationStmt.run(challenge.validation_id);
+
+    if (challenge.funded_at > 0) {
+      const validation = db.prepare('SELECT validator FROM validations WHERE id = ?').get(challenge.validation_id) as { validator: string } | undefined;
+      if (validation) {
+        db.prepare('UPDATE validators SET pending_challenges = MAX(0, pending_challenges - 1) WHERE account = ?').run(validation.validator);
+      }
+    }
   }
 
   console.log(`Challenge ${data.challenge_id} cancelled${challenge ? ` (validation ${challenge.validation_id})` : ''}`);
@@ -294,7 +305,7 @@ function handleExpireUnfunded(db: Database.Database, data: any): void {
   `);
   challengeStmt.run(data.challenge_id);
 
-  // Reset validation's challenged flag
+  // Reset validation's challenged flag (unfunded challenges don't affect pending_challenges)
   if (challenge) {
     const validationStmt = db.prepare(`
       UPDATE validations
@@ -319,7 +330,7 @@ function handleExpireFunded(db: Database.Database, data: any): void {
   `);
   challengeStmt.run(data.challenge_id);
 
-  // Reset validation's challenged flag
+  // Reset validation's challenged flag and decrement pending_challenges (was funded)
   if (challenge) {
     const validationStmt = db.prepare(`
       UPDATE validations
@@ -327,6 +338,11 @@ function handleExpireFunded(db: Database.Database, data: any): void {
       WHERE id = ?
     `);
     validationStmt.run(challenge.validation_id);
+
+    const validation = db.prepare('SELECT validator FROM validations WHERE id = ?').get(challenge.validation_id) as { validator: string } | undefined;
+    if (validation) {
+      db.prepare('UPDATE validators SET pending_challenges = MAX(0, pending_challenges - 1) WHERE account = ?').run(validation.validator);
+    }
   }
 
   console.log(`Challenge ${data.challenge_id} expired (funded, not resolved)${challenge ? ` (validation ${challenge.validation_id})` : ''}`);
@@ -431,6 +447,14 @@ export function handleValidationTransfer(db: Database.Database, action: StreamAc
       `);
       stmt.run(amount, challengeId);
 
+      // Set funded_at timestamp
+      const fundedAtStmt = db.prepare(`
+        UPDATE validation_challenges
+        SET funded_at = strftime('%s', 'now')
+        WHERE id = ?
+      `);
+      fundedAtStmt.run(challengeId);
+
       // Now mark the validation as challenged (matches on-chain griefing fix:
       // validation.challenged is only set when the challenge is funded)
       const challenge = db.prepare('SELECT validation_id FROM validation_challenges WHERE id = ?').get(challengeId) as { validation_id: number } | undefined;
@@ -441,6 +465,12 @@ export function handleValidationTransfer(db: Database.Database, action: StreamAc
           WHERE id = ?
         `);
         valStmt.run(challenge.validation_id);
+
+        // Increment pending_challenges on the validator
+        const validation = db.prepare('SELECT validator FROM validations WHERE id = ?').get(challenge.validation_id) as { validator: string } | undefined;
+        if (validation) {
+          db.prepare('UPDATE validators SET pending_challenges = pending_challenges + 1 WHERE account = ?').run(validation.validator);
+        }
       }
 
       console.log(`Challenge ${challengeId} funded with ${amountStr}`);

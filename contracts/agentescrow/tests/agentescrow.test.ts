@@ -102,12 +102,12 @@ describe('agentescrow', () => {
       expect(cfg.platform_fee).to.equal(200);
     });
 
-    it('should allow re-initialization (overwrites config)', async () => {
+    it('should reject re-initialization', async () => {
       await agentescrow.actions.init(['owner', 'agentcore', 'agentfeed', 200]).send('agentescrow@active');
-      await agentescrow.actions.init(['client', 'agentcore', 'agentfeed', 500]).send('agentescrow@active');
-      const cfg = getConfig();
-      expect(cfg.owner).to.equal('client');
-      expect(cfg.platform_fee).to.equal(500);
+      await expectToThrow(
+        agentescrow.actions.init(['client', 'agentcore', 'agentfeed', 500]).send('agentescrow@active'),
+        protonAssert('Contract already initialized.')
+      );
     });
 
     it('should require contract auth', async () => {
@@ -405,12 +405,14 @@ describe('agentescrow', () => {
 
     it('should reject unstake with active disputes', async () => {
       await createAndFundJob();
+      // Deactivate arbitrator BEFORE dispute (since deactivation is now blocked with active disputes)
+      await agentescrow.actions.deactarb(['arbitrator1']).send('arbitrator1@active');
+      // Progress job to disputed state - this increments active_disputes on the arbitrator
       await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
       await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
       await agentescrow.actions.deliver(['agent1', 0, 'ipfs://deliverables']).send('agent1@active');
       await agentescrow.actions.dispute(['client', 0, 'Bad work', 'ipfs://ev']).send('client@active');
 
-      await agentescrow.actions.deactarb(['arbitrator1']).send('arbitrator1@active');
       await expectToThrow(
         agentescrow.actions.unstakearb(['arbitrator1', 500000]).send('arbitrator1@active'),
         protonAssert('Cannot unstake while assigned to pending disputes')
@@ -447,24 +449,124 @@ describe('agentescrow', () => {
     });
 
     it('should update config', async () => {
-      // platform_fee, min_job_amount, default_deadline_days, dispute_window, paused
-      await agentescrow.actions.setconfig([500, 10000, 30, 604800, false]).send('owner@active');
+      // platform_fee, min_job_amount, default_deadline_days, dispute_window, paused,
+      // core_contract, feed_contract, acceptance_timeout, min_arbitrator_stake, arb_unstake_delay
+      await agentescrow.actions.setconfig([500, 10000, 30, 604800, false, 'agentcore', 'agentfeed', 604800, 10000000, 604800]).send('owner@active');
       const cfg = getConfig();
       expect(cfg.platform_fee).to.equal(500);
       expect(cfg.min_job_amount).to.equal(10000);
     });
 
     it('should pause the contract', async () => {
-      await agentescrow.actions.setconfig([200, 10000, 30, 604800, true]).send('owner@active');
+      await agentescrow.actions.setconfig([200, 10000, 30, 604800, true, 'agentcore', 'agentfeed', 604800, 10000000, 604800]).send('owner@active');
       const cfg = getConfig();
       expect(cfg.paused).to.equal(true);
     });
 
     it('should reject zero min_job_amount', async () => {
       await expectToThrow(
-        agentescrow.actions.setconfig([200, 0, 30, 604800, false]).send('owner@active'),
+        agentescrow.actions.setconfig([200, 0, 30, 604800, false, 'agentcore', 'agentfeed', 604800, 10000000, 604800]).send('owner@active'),
         protonAssert('Minimum job amount must be positive')
       );
+    });
+
+    it('should update core_contract and feed_contract', async () => {
+      await agentescrow.actions.setconfig([200, 10000, 30, 604800, false, 'agentfeed', 'agentcore', 604800, 10000000, 604800]).send('owner@active');
+      const cfg = getConfig();
+      expect(cfg.core_contract).to.equal('agentfeed');
+      expect(cfg.feed_contract).to.equal('agentcore');
+    });
+
+    it('should update acceptance_timeout, min_arbitrator_stake, arb_unstake_delay', async () => {
+      await agentescrow.actions.setconfig([200, 10000, 30, 604800, false, 'agentcore', 'agentfeed', 172800, 20000000, 259200]).send('owner@active');
+      const cfg = getConfig();
+      expect(cfg.acceptance_timeout).to.equal(172800);
+      expect(cfg.min_arbitrator_stake).to.equal(20000000);
+      expect(cfg.arb_unstake_delay).to.equal(259200);
+    });
+
+    it('should reject invalid core_contract account', async () => {
+      await expectToThrow(
+        agentescrow.actions.setconfig([200, 10000, 30, 604800, false, 'nonexistent', 'agentfeed', 604800, 10000000, 604800]).send('owner@active'),
+        protonAssert('core_contract account does not exist')
+      );
+    });
+
+    it('should reject invalid feed_contract account', async () => {
+      await expectToThrow(
+        agentescrow.actions.setconfig([200, 10000, 30, 604800, false, 'agentcore', 'nonexistent', 604800, 10000000, 604800]).send('owner@active'),
+        protonAssert('feed_contract account does not exist')
+      );
+    });
+  });
+
+  /* ==================== Pause Guards ==================== */
+
+  describe('pause guards', () => {
+    beforeEach(async () => {
+      await initAll();
+      await registerArbitrator('arbitrator1');
+    });
+
+    it('should reject createjob when paused', async () => {
+      // Pause the contract
+      await agentescrow.actions.setconfig([200, 10000, 30, 604800, true, 'agentcore', 'agentfeed', 604800, 10000000, 604800]).send('owner@active');
+
+      const deadline = Math.floor(Date.now() / 1000) + 86400 * 30;
+      await expectToThrow(
+        agentescrow.actions.createjob([
+          'client', 'agent1', 'Test Job', 'Test description', '["deliverable1"]',
+          1000000, '4,XPR', deadline, 'arbitrator1', 'jobhash123'
+        ]).send('client@active'),
+        protonAssert('Contract is paused')
+      );
+    });
+  });
+
+  /* ==================== Arbitrator Deactivation Guard ==================== */
+
+  describe('arbitrator deactivation with active disputes', () => {
+    beforeEach(async () => {
+      await initAll();
+      await registerArbitrator('arbitrator1');
+    });
+
+    it('should reject deactivation with active disputes', async () => {
+      // Create and progress a job to disputed state
+      await createAndFundJob();
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://deliverables']).send('agent1@active');
+      await agentescrow.actions.dispute(['client', 0, 'Bad work', 'ipfs://ev']).send('client@active');
+
+      // Verify active_disputes is 1
+      const arbBefore = getArbitrator('arbitrator1');
+      expect(arbBefore.active_disputes).to.equal(1);
+
+      // Should reject deactivation
+      await expectToThrow(
+        agentescrow.actions.deactarb(['arbitrator1']).send('arbitrator1@active'),
+        protonAssert('Cannot deactivate with pending disputes')
+      );
+    });
+
+    it('should allow deactivation after dispute is resolved', async () => {
+      // Create and progress a job to disputed state
+      await createAndFundJob();
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://deliverables']).send('agent1@active');
+      await agentescrow.actions.dispute(['client', 0, 'Bad work', 'ipfs://ev']).send('client@active');
+
+      // Resolve the dispute
+      await agentescrow.actions.arbitrate([
+        'arbitrator1', 0, 50, 'Split decision'
+      ]).send('arbitrator1@active');
+
+      // Now deactivation should succeed
+      await agentescrow.actions.deactarb(['arbitrator1']).send('arbitrator1@active');
+      const arb = getArbitrator('arbitrator1');
+      expect(arb.active).to.equal(false);
     });
   });
 });

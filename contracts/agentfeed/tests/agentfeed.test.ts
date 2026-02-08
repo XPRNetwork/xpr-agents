@@ -62,11 +62,12 @@ describe('agentfeed', () => {
       expect(cfg.max_score).to.equal(5);
     });
 
-    it('should allow re-initialization (overwrites config)', async () => {
+    it('should reject re-initialization', async () => {
       await agentfeed.actions.init(['owner', 'agentcore']).send('agentfeed@active');
-      await agentfeed.actions.init(['bob', 'agentcore']).send('agentfeed@active');
-      const cfg = getConfig();
-      expect(cfg.owner).to.equal('bob');
+      await expectToThrow(
+        agentfeed.actions.init(['bob', 'agentcore']).send('agentfeed@active'),
+        'eosio_assert: Contract already initialized.'
+      );
     });
 
     it('should require contract auth', async () => {

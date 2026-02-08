@@ -16,6 +16,7 @@ import {
   validatePositiveInt,
   validateValidationResult,
   validateAmount,
+  validateUrl,
 } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
 
@@ -153,6 +154,7 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
       },
     },
     handler: async ({ method, specializations }: { method: string; specializations: string[] }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validateRequired(method, 'method');
       const registry = new ValidationRegistry(config.rpc, config.session, contracts.agentvalid);
       return registry.registerValidator(method, specializations);
@@ -182,10 +184,12 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
       evidence_uri?: string;
       fee_amount?: number;
     }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validateAccountName(params.agent, 'agent');
       validateRequired(params.job_hash, 'job_hash');
       validateValidationResult(params.result);
       validateConfidence(params.confidence);
+      if (params.evidence_uri) validateUrl(params.evidence_uri, 'evidence_uri');
       if (params.fee_amount) {
         validateAmount(Math.floor(params.fee_amount * 10000), config.maxTransferAmount);
       }
@@ -223,8 +227,10 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
       reason: string;
       evidence_uri?: string;
     }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(validation_id, 'validation_id');
       validateRequired(reason, 'reason');
+      if (evidence_uri) validateUrl(evidence_uri, 'evidence_uri');
 
       const registry = new ValidationRegistry(config.rpc, config.session, contracts.agentvalid);
       return registry.challenge(validation_id, reason, evidence_uri);
@@ -243,6 +249,7 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
       },
     },
     handler: async ({ amount, confirmed }: { amount: number; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       if (amount <= 0) throw new Error('amount must be positive');
       validateAmount(Math.floor(amount * 10000), config.maxTransferAmount);
 

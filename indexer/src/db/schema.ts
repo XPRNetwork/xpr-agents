@@ -311,6 +311,10 @@ export function initDatabase(dbPath: string): Database.Database {
     'ALTER TABLE agents ADD COLUMN pending_owner TEXT',
     'ALTER TABLE agents ADD COLUMN claim_deposit INTEGER DEFAULT 0',
     'ALTER TABLE agents ADD COLUMN deposit_payer TEXT',
+    // Phase 2 audit fixes: add missing columns from contract tables
+    'ALTER TABLE validators ADD COLUMN pending_challenges INTEGER DEFAULT 0',
+    'ALTER TABLE arbitrators ADD COLUMN active_disputes INTEGER DEFAULT 0',
+    'ALTER TABLE validation_challenges ADD COLUMN funded_at INTEGER DEFAULT 0',
   ];
 
   for (const migration of migrations) {

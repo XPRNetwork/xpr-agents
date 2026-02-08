@@ -346,8 +346,25 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
 
   // ============== ADMIN ==============
 
+  const adminToken = process.env.ADMIN_API_TOKEN;
+
+  function requireAdminAuth(req: Request, res: Response): boolean {
+    if (!adminToken) {
+      res.status(503).json({ error: 'Admin API not configured (ADMIN_API_TOKEN not set)' });
+      return false;
+    }
+    const auth = req.headers.authorization;
+    if (!auth || auth !== `Bearer ${adminToken}`) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return false;
+    }
+    return true;
+  }
+
   // KYC sync stub
   router.post('/admin/sync-kyc', (req: Request, res: Response) => {
+    if (!requireAdminAuth(req, res)) return;
+
     // TODO: Implement actual KYC sync from eosio.proton::usersinfo table
     // This would query the chain for current KYC levels and update
     // feedback scores that were indexed without proper KYC weight
@@ -371,6 +388,50 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
     return true;
   }
 
+  /**
+   * Validate webhook URL to prevent SSRF attacks.
+   * Blocks private IPs, localhost, metadata endpoints, and non-HTTPS schemes.
+   */
+  function isValidWebhookUrl(urlStr: string): { valid: boolean; error?: string } {
+    let parsed: URL;
+    try {
+      parsed = new URL(urlStr);
+    } catch {
+      return { valid: false, error: 'Invalid URL format' };
+    }
+
+    // Only allow http and https
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { valid: false, error: 'Only http and https URLs are allowed' };
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block localhost
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '0.0.0.0') {
+      return { valid: false, error: 'Localhost URLs are not allowed' };
+    }
+
+    // Block private IP ranges
+    const privatePatterns = [
+      /^10\./,                    // 10.0.0.0/8
+      /^172\.(1[6-9]|2\d|3[01])\./, // 172.16.0.0/12
+      /^192\.168\./,             // 192.168.0.0/16
+      /^169\.254\./,             // Link-local
+    ];
+    if (privatePatterns.some(p => p.test(hostname))) {
+      return { valid: false, error: 'Private IP addresses are not allowed' };
+    }
+
+    // Block cloud metadata endpoints
+    const metadataHosts = ['metadata.google.internal', 'metadata.google.com'];
+    if (metadataHosts.includes(hostname)) {
+      return { valid: false, error: 'Cloud metadata endpoints are not allowed' };
+    }
+
+    return { valid: true };
+  }
+
   // Register webhook subscription
   router.post('/webhooks', (req: Request, res: Response) => {
     if (!requireWebhookAuth(req, res)) return;
@@ -383,6 +444,12 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
 
     if (!Array.isArray(event_filter) || event_filter.length === 0) {
       return res.status(400).json({ error: 'event_filter must be a non-empty array of event types' });
+    }
+
+    // SSRF protection: validate webhook URL
+    const urlCheck = isValidWebhookUrl(url);
+    if (!urlCheck.valid) {
+      return res.status(400).json({ error: `Invalid webhook URL: ${urlCheck.error}` });
     }
 
     const stmt = db.prepare(`

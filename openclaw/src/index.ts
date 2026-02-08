@@ -50,7 +50,7 @@ export default function xprAgentsPlugin(api: PluginApi): void {
       agentescrow: contractsRaw.agentescrow || 'agentescrow',
     },
     confirmHighRisk: rawConfig.confirmHighRisk !== false,
-    maxTransferAmount: (rawConfig.maxTransferAmount as number) || 100000000,
+    maxTransferAmount: (rawConfig.maxTransferAmount as number) || 1000000,
   };
 
   // Register all tool groups

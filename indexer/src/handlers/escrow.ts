@@ -218,6 +218,12 @@ function handleDispute(db: Database.Database, data: any, timestamp: string): voi
     createdAt
   );
 
+  // Increment active_disputes on the arbitrator
+  const job = db.prepare('SELECT arbitrator FROM jobs WHERE id = ?').get(data.job_id) as { arbitrator: string } | undefined;
+  if (job && job.arbitrator) {
+    db.prepare('UPDATE arbitrators SET active_disputes = active_disputes + 1 WHERE account = ?').run(job.arbitrator);
+  }
+
   console.log(`Dispute raised for job ${data.job_id}`);
 }
 
@@ -252,6 +258,15 @@ function handleArbitrate(db: Database.Database, data: any): void {
     data.resolution_notes || '',
     data.dispute_id
   );
+
+  // Decrement active_disputes on the arbitrator
+  if (data.arbitrator) {
+    db.prepare('UPDATE arbitrators SET active_disputes = MAX(0, active_disputes - 1) WHERE account = ?').run(data.arbitrator);
+  }
+
+  // Increment successful_cases for the arbitrator
+  const updateArb = db.prepare('UPDATE arbitrators SET total_cases = total_cases + 1, successful_cases = successful_cases + 1 WHERE account = ?');
+  updateArb.run(data.arbitrator);
 
   console.log(`Dispute ${data.dispute_id} arbitrated${dispute ? ` (job ${dispute.job_id})` : ''}`);
 }

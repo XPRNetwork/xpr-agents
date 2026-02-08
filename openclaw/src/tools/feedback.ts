@@ -6,7 +6,7 @@
 
 import { FeedbackRegistry } from '@xpr-agents/sdk';
 import type { PluginApi, PluginConfig } from '../types';
-import { validateAccountName, validateScore, validateRequired, validatePositiveInt, validateAmount } from '../util/validate';
+import { validateAccountName, validateScore, validateRequired, validatePositiveInt, validateAmount, validateUrl } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
 
 export function registerFeedbackTools(api: PluginApi, config: PluginConfig): void {
@@ -127,8 +127,10 @@ export function registerFeedbackTools(api: PluginApi, config: PluginConfig): voi
       fee_amount?: number;
       confirmed?: boolean;
     }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validateAccountName(params.agent, 'agent');
       validateScore(params.score);
+      if (params.evidence_uri) validateUrl(params.evidence_uri, 'evidence_uri');
       if (params.fee_amount) {
         validateAmount(Math.floor(params.fee_amount * 10000), config.maxTransferAmount);
       }
@@ -175,6 +177,7 @@ export function registerFeedbackTools(api: PluginApi, config: PluginConfig): voi
       reason: string;
       evidence_uri?: string;
     }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(feedback_id, 'feedback_id');
       validateRequired(reason, 'reason');
 
@@ -194,6 +197,7 @@ export function registerFeedbackTools(api: PluginApi, config: PluginConfig): voi
       },
     },
     handler: async ({ agent }: { agent: string }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validateAccountName(agent);
       const registry = new FeedbackRegistry(config.rpc, config.session, contracts.agentfeed);
       return registry.recalculate(agent);

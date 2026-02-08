@@ -15,6 +15,7 @@ import {
   validatePositiveInt,
   validateClientPercent,
   validateAmount,
+  validateUrl,
 } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
 
@@ -179,6 +180,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       arbitrator?: string;
       confirmed?: boolean;
     }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validateAccountName(params.agent, 'agent');
       validateRequired(params.title, 'title');
       if (params.amount <= 0) throw new Error('amount must be positive');
@@ -225,6 +227,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       },
     },
     handler: async ({ job_id, amount, confirmed }: { job_id: number; amount: number; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(job_id, 'job_id');
       if (amount <= 0) throw new Error('amount must be positive');
       validateAmount(Math.floor(amount * 10000), config.maxTransferAmount);
@@ -254,6 +257,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       },
     },
     handler: async ({ job_id }: { job_id: number }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(job_id, 'job_id');
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.acceptJob(job_id);
@@ -272,8 +276,10 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       },
     },
     handler: async ({ job_id, evidence_uri }: { job_id: number; evidence_uri: string }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(job_id, 'job_id');
       validateRequired(evidence_uri, 'evidence_uri');
+      validateUrl(evidence_uri, 'evidence_uri');
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.deliverJob(job_id, evidence_uri);
     },
@@ -291,6 +297,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       },
     },
     handler: async ({ job_id, confirmed }: { job_id: number; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(job_id, 'job_id');
 
       const confirmation = needsConfirmation(
@@ -326,6 +333,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       evidence_uri?: string;
       confirmed?: boolean;
     }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(job_id, 'job_id');
       validateRequired(reason, 'reason');
 
@@ -355,8 +363,10 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       },
     },
     handler: async ({ milestone_id, evidence_uri }: { milestone_id: number; evidence_uri: string }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(milestone_id, 'milestone_id');
       validateRequired(evidence_uri, 'evidence_uri');
+      validateUrl(evidence_uri, 'evidence_uri');
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.submitMilestone(milestone_id, evidence_uri);
     },
@@ -381,6 +391,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       resolution_notes: string;
       confirmed?: boolean;
     }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(dispute_id, 'dispute_id');
       validateClientPercent(client_percent);
       validateRequired(resolution_notes, 'resolution_notes');

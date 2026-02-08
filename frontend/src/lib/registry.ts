@@ -75,18 +75,22 @@ export async function getAgents(limit = 100): Promise<Agent[]> {
     limit,
   });
 
-  return result.rows.map((row: any) => ({
-    account: row.account,
-    name: row.name,
-    description: row.description,
-    endpoint: row.endpoint,
-    protocol: row.protocol,
-    capabilities: JSON.parse(row.capabilities || '[]'),
-    stake: parseInt(row.stake),
-    total_jobs: parseInt(row.total_jobs),
-    registered_at: parseInt(row.registered_at),
-    active: row.active === 1,
-  }));
+  return result.rows.map((row: any) => {
+    let capabilities: string[] = [];
+    try { capabilities = JSON.parse(row.capabilities || '[]'); } catch { /* malformed */ }
+    return {
+      account: row.account,
+      name: row.name,
+      description: row.description,
+      endpoint: row.endpoint,
+      protocol: row.protocol,
+      capabilities,
+      stake: parseInt(row.stake),
+      total_jobs: parseInt(row.total_jobs),
+      registered_at: parseInt(row.registered_at),
+      active: row.active === 1,
+    };
+  });
 }
 
 export async function getAgent(account: string): Promise<Agent | null> {
@@ -103,13 +107,15 @@ export async function getAgent(account: string): Promise<Agent | null> {
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
+  let capabilities: string[] = [];
+  try { capabilities = JSON.parse(row.capabilities || '[]'); } catch { /* malformed */ }
   return {
     account: row.account,
     name: row.name,
     description: row.description,
     endpoint: row.endpoint,
     protocol: row.protocol,
-    capabilities: JSON.parse(row.capabilities || '[]'),
+    capabilities,
     stake: parseInt(row.stake),
     total_jobs: parseInt(row.total_jobs),
     registered_at: parseInt(row.registered_at),

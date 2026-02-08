@@ -33,7 +33,21 @@ updateStats(db);
 
 // Create Express app
 const app = express();
-app.use(cors());
+
+// CORS: use allowlist from env, default to localhost origins for development
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001')
+  .split(',')
+  .map(o => o.trim())
+  .filter(o => o.length > 0);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (server-to-server, curl, health checks)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error('Not allowed by CORS'));
+  },
+}));
 app.use(express.json());
 
 // Initialize webhook dispatcher
