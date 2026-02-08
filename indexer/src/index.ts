@@ -3,6 +3,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { initDatabase, updateStats, getLastCursor, updateCursor } from './db/schema';
 import { HyperionStream, StreamAction } from './stream';
+import { HyperionPoller } from './poller';
 import { handleAgentAction, handleAgentCoreTransfer } from './handlers/agent';
 import { handleFeedbackAction } from './handlers/feedback';
 import { handleValidationAction, handleValidationTransfer } from './handlers/validation';
@@ -88,26 +89,8 @@ if (lastBlock > 0) {
   console.log(`Resuming from block ${lastBlock}`);
 }
 
-// Initialize Hyperion stream with multi-endpoint support
-const stream = new HyperionStream({
-  endpoints: config.hyperionEndpoints,
-  contracts: Object.values(config.contracts),
-  irreversibleOnly: true,
-  ...(lastBlock > 0 && { startBlock: lastBlock }),
-});
-
-// Handle stream events
-stream.on('connected', () => {
-  console.log('Connected to Hyperion stream');
-  streamConnected = true;
-});
-
-stream.on('disconnected', () => {
-  console.log('Disconnected from Hyperion stream');
-  streamConnected = false;
-});
-
-stream.on('action', (action: StreamAction) => {
+// Action handler shared by both stream and poller
+function handleAction(action: StreamAction): void {
   const contract = action.act.account;
 
   try {
@@ -137,19 +120,77 @@ stream.on('action', (action: StreamAction) => {
   } catch (error) {
     console.error(`Error handling action ${action.act.name}:`, error);
   }
-});
+}
 
-stream.on('error', (error) => {
-  console.error('Stream error:', error);
-});
+// Auto-detect streaming support and choose stream vs poller
+const usePolling = process.env.USE_POLLING === 'true';
 
-// Connect to stream
-stream.connect();
+async function checkStreamingSupport(endpoint: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${endpoint}/v2/health`);
+    if (!res.ok) return false;
+    const data = await res.json() as any;
+    return data?.features?.streaming?.enable === true;
+  } catch {
+    return false;
+  }
+}
+
+let source: HyperionStream | HyperionPoller;
+
+async function startIngestion(): Promise<void> {
+  const endpoint = config.hyperionEndpoints[0];
+  const streamingAvailable = !usePolling && await checkStreamingSupport(endpoint);
+
+  if (streamingAvailable) {
+    console.log('Streaming supported — using WebSocket mode');
+    const stream = new HyperionStream({
+      endpoints: config.hyperionEndpoints,
+      contracts: Object.values(config.contracts),
+      irreversibleOnly: true,
+      ...(lastBlock > 0 && { startBlock: lastBlock }),
+    });
+    source = stream;
+  } else {
+    console.log('Streaming not available — using polling mode');
+    const poller = new HyperionPoller({
+      endpoint,
+      contracts: Object.values(config.contracts),
+      pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '5000'),
+      ...(lastBlock > 0 && { startBlock: lastBlock }),
+    });
+    source = poller;
+  }
+
+  source.on('connected', () => {
+    console.log('Ingestion connected');
+    streamConnected = true;
+  });
+
+  source.on('disconnected', () => {
+    console.log('Ingestion disconnected');
+    streamConnected = false;
+  });
+
+  source.on('action', handleAction);
+
+  source.on('error', (error) => {
+    console.error('Ingestion error:', error);
+  });
+
+  if (source instanceof HyperionStream) {
+    source.connect();
+  } else {
+    source.start();
+  }
+}
+
+startIngestion();
 
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\nShutting down...');
-  stream.disconnect();
+  if (source) source.disconnect();
   server.close();
   db.close();
   process.exit(0);
@@ -157,7 +198,7 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', () => {
   console.log('\nShutting down...');
-  stream.disconnect();
+  if (source) source.disconnect();
   server.close();
   db.close();
   process.exit(0);
