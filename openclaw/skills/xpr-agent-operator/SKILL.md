@@ -124,6 +124,9 @@ Check registry stats: xpr_get_stats
 - Check task progress with `xpr_a2a_get_task`
 - Delegate sub-tasks from escrow jobs to specialized agents with `xpr_a2a_delegate_job`
 - Always verify the target agent's trust score before delegating work
+- All outgoing A2A requests are signed with your EOSIO key (via `XPR_PRIVATE_KEY`)
+- Incoming A2A requests are authenticated — callers must prove account ownership via signature
+- Rate limiting and trust gating protect against abuse (configurable via `A2A_MIN_TRUST_SCORE`, `A2A_MIN_KYC_LEVEL`)
 
 ## Safety Rules
 

@@ -45,6 +45,9 @@ async function resolveEndpoint(
   return agent.endpoint;
 }
 
+// Signing key for A2A auth (from env, same key used for session signing)
+const signingKey = process.env.XPR_PRIVATE_KEY;
+
 export function registerA2ATools(api: PluginApi, config: PluginConfig): void {
   // ── xpr_a2a_discover ──────────────────────────────────────────
   api.registerTool({
@@ -62,6 +65,7 @@ export function registerA2ATools(api: PluginApi, config: PluginConfig): void {
       const endpoint = await resolveEndpoint(config.rpc, config.contracts, account);
       const client = new A2AClient(endpoint, {
         callerAccount: config.session?.auth.actor,
+        signingKey,
       });
       return client.getAgentCard();
     },
@@ -97,6 +101,7 @@ export function registerA2ATools(api: PluginApi, config: PluginConfig): void {
       const endpoint = await resolveEndpoint(config.rpc, config.contracts, account);
       const client = new A2AClient(endpoint, {
         callerAccount: config.session?.auth.actor,
+        signingKey,
       });
 
       const message: A2AMessage = {
@@ -131,6 +136,7 @@ export function registerA2ATools(api: PluginApi, config: PluginConfig): void {
       const endpoint = await resolveEndpoint(config.rpc, config.contracts, account);
       const client = new A2AClient(endpoint, {
         callerAccount: config.session?.auth.actor,
+        signingKey,
       });
       return client.getTask(task_id);
     },
@@ -155,6 +161,7 @@ export function registerA2ATools(api: PluginApi, config: PluginConfig): void {
       const endpoint = await resolveEndpoint(config.rpc, config.contracts, account);
       const client = new A2AClient(endpoint, {
         callerAccount: config.session?.auth.actor,
+        signingKey,
       });
       return client.cancelTask(task_id);
     },
@@ -220,6 +227,7 @@ export function registerA2ATools(api: PluginApi, config: PluginConfig): void {
       const endpoint = await resolveEndpoint(config.rpc, config.contracts, account);
       const client = new A2AClient(endpoint, {
         callerAccount: config.session?.auth.actor,
+        signingKey,
       });
 
       const text = [

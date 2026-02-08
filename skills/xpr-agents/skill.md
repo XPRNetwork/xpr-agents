@@ -39,7 +39,7 @@ XPR Trustless Agents consists of four registries:
 | Network | RPC Endpoint | Chain ID |
 |---------|--------------|----------|
 | **Mainnet** | `https://proton.eosusa.io` | `384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0` |
-| **Testnet** | `https://testnet.protonchain.com` | `71ee83bcf52142d61019d95f9cc5427ba6a0d7ff8accd9e2088ae2abeaf3d3dd` |
+| **Testnet** | `https://tn1.protonnz.com` | `71ee83bcf52142d61019d95f9cc5427ba6a0d7ff8accd9e2088ae2abeaf3d3dd` |
 
 ---
 

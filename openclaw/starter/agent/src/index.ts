@@ -11,6 +11,8 @@ import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
+import { verifyA2ARequest, A2AAuthError } from './a2a-auth';
+import type { A2AAuthConfig } from './a2a-auth';
 
 // Tool collection types (matches openclaw PluginApi)
 interface ToolDef {
@@ -78,6 +80,26 @@ const anthropic = new Anthropic();
 const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '10');
 const MODEL = process.env.AGENT_MODEL || 'claude-sonnet-4-20250514';
 
+// A2A authentication config
+const a2aAuthConfig: A2AAuthConfig = {
+  rpcEndpoint: process.env.XPR_RPC_ENDPOINT || 'https://tn1.protonnz.com',
+  authRequired: process.env.A2A_AUTH_REQUIRED !== 'false',
+  minTrustScore: parseInt(process.env.A2A_MIN_TRUST_SCORE || '0'),
+  minKycLevel: parseInt(process.env.A2A_MIN_KYC_LEVEL || '0'),
+  rateLimit: parseInt(process.env.A2A_RATE_LIMIT || '20'),
+  timestampWindow: 300,
+  agentcoreContract: 'agentcore',
+};
+
+// A2A tool sandboxing
+const a2aToolMode = (process.env.A2A_TOOL_MODE || 'full') as 'full' | 'readonly';
+const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health');
+const readonlyAnthropicTools: Anthropic.Tool[] = readonlyTools.map(t => ({
+  name: t.name,
+  description: t.description,
+  input_schema: t.parameters as Anthropic.Tool.InputSchema,
+}));
+
 // A2A task store (in-memory)
 interface A2ATaskRecord {
   id: string;
@@ -96,12 +118,20 @@ let agentCardCache: { card: unknown; expiresAt: number } | null = null;
 // Track active runs to prevent duplicate processing
 const activeRuns = new Set<string>();
 
-async function runAgent(eventType: string, data: any, message: string): Promise<string> {
+interface RunAgentOptions {
+  toolSet?: 'full' | 'readonly';
+}
+
+async function runAgent(eventType: string, data: any, message: string, options?: RunAgentOptions): Promise<string> {
   const runKey = `${eventType}:${JSON.stringify(data).slice(0, 100)}`;
   if (activeRuns.has(runKey)) {
     return 'Already processing this event';
   }
   activeRuns.add(runKey);
+
+  const useReadonly = options?.toolSet === 'readonly';
+  const activeTools = useReadonly ? readonlyTools : tools;
+  const activeAnthropicTools = useReadonly ? readonlyAnthropicTools : anthropicTools;
 
   try {
     const userMessage = [
@@ -124,7 +154,7 @@ async function runAgent(eventType: string, data: any, message: string): Promise<
         model: MODEL,
         max_tokens: 4096,
         system: systemPrompt,
-        tools: anthropicTools,
+        tools: activeAnthropicTools,
         messages,
       });
 
@@ -145,7 +175,7 @@ async function runAgent(eventType: string, data: any, message: string): Promise<
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const block of response.content) {
         if (block.type === 'tool_use') {
-          const tool = tools.find(t => t.name === block.name);
+          const tool = activeTools.find(t => t.name === block.name);
           if (!tool) {
             toolResults.push({
               type: 'tool_result',
@@ -291,14 +321,49 @@ app.get('/.well-known/agent.json', async (_req, res) => {
 });
 
 // A2A JSON-RPC endpoint
-app.post('/a2a', async (req, res) => {
-  const { jsonrpc, id, method, params } = req.body;
+app.post('/a2a', express.text({ type: 'application/json' }), async (req, res) => {
+  // Parse body (received as raw text for signature verification)
+  const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+  let parsed: any;
+  try {
+    parsed = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+  } catch {
+    return res.json({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32700, message: 'Parse error: invalid JSON' },
+    });
+  }
+
+  const { jsonrpc, id, method, params } = parsed;
 
   if (jsonrpc !== '2.0' || !method) {
     return res.json({
       jsonrpc: '2.0',
       id: id ?? null,
       error: { code: -32600, message: 'Invalid request: must be JSON-RPC 2.0 with a method' },
+    });
+  }
+
+  // Authenticate the request
+  let authAccount = 'unknown';
+  try {
+    const authResult = await verifyA2ARequest(
+      req.headers as Record<string, string | undefined>,
+      rawBody,
+      a2aAuthConfig,
+    );
+    authAccount = authResult.account;
+  } catch (err) {
+    if (err instanceof A2AAuthError) {
+      return res.json({
+        jsonrpc: '2.0', id,
+        error: { code: err.code, message: err.message },
+      });
+    }
+    return res.json({
+      jsonrpc: '2.0', id,
+      error: { code: -32000, message: `Authentication error: ${(err as Error).message}` },
     });
   }
 
@@ -321,8 +386,8 @@ app.post('/a2a', async (req, res) => {
           .map((p: any) => p.text);
         const text = textParts.join('\n') || 'No text content';
 
-        // Build context info
-        const callerAccount = params?.['xpr:callerAccount'] || 'unknown';
+        // Build context info — use authenticated account, fall back to claimed account
+        const callerAccount = authAccount !== 'anonymous' ? authAccount : (params?.['xpr:callerAccount'] || 'unknown');
         const jobId = params?.metadata?.['xpr:jobId'];
         const prompt = jobId
           ? `[A2A from ${callerAccount}, job #${jobId}] ${text}`
@@ -341,7 +406,12 @@ app.post('/a2a', async (req, res) => {
         a2aTasks.set(taskId, taskRecord);
 
         // Run through the agentic loop
-        const agentResult = await runAgent('a2a:message/send', { callerAccount, jobId, text }, prompt);
+        const agentResult = await runAgent(
+          'a2a:message/send',
+          { callerAccount, jobId, text },
+          prompt,
+          { toolSet: a2aToolMode },
+        );
 
         // Update task with result
         taskRecord.status = { state: 'completed', timestamp: new Date().toISOString() };
@@ -425,10 +495,45 @@ app.get('/health', (_req, res) => {
 });
 
 const port = parseInt(process.env.PORT || '8080');
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`[agent-runner] Listening on port ${port}`);
-  console.log(`[agent-runner] ${tools.length} tools loaded`);
+  console.log(`[agent-runner] ${tools.length} tools loaded (A2A mode: ${a2aToolMode}, ${a2aToolMode === 'readonly' ? readonlyTools.length : tools.length} tools for A2A)`);
   console.log(`[agent-runner] Account: ${process.env.XPR_ACCOUNT}`);
   console.log(`[agent-runner] Model: ${MODEL}`);
   console.log(`[agent-runner] Network: ${process.env.XPR_NETWORK || 'testnet'}`);
+  console.log(`[agent-runner] A2A auth: ${a2aAuthConfig.authRequired ? 'required' : 'optional'}, rate limit: ${a2aAuthConfig.rateLimit}/min`);
+  if (a2aAuthConfig.minTrustScore > 0) console.log(`[agent-runner] A2A min trust score: ${a2aAuthConfig.minTrustScore}`);
+  if (a2aAuthConfig.minKycLevel > 0) console.log(`[agent-runner] A2A min KYC level: ${a2aAuthConfig.minKycLevel}`);
 });
+
+// Graceful shutdown
+let shuttingDown = false;
+
+function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[agent-runner] ${signal} received, shutting down gracefully...`);
+
+  // Stop accepting new connections
+  server.close(() => {
+    console.log('[agent-runner] HTTP server closed');
+  });
+
+  // Wait for active runs to finish (max 30s)
+  const deadline = Date.now() + 30_000;
+  const check = setInterval(() => {
+    if (activeRuns.size === 0 || Date.now() > deadline) {
+      clearInterval(check);
+      if (activeRuns.size > 0) {
+        console.warn(`[agent-runner] Forcing exit with ${activeRuns.size} active run(s)`);
+      } else {
+        console.log('[agent-runner] All runs completed, exiting');
+      }
+      process.exit(0);
+    }
+    console.log(`[agent-runner] Waiting for ${activeRuns.size} active run(s) to complete...`);
+  }, 1000);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

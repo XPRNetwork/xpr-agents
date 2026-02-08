@@ -1,6 +1,6 @@
 {
   "name": "@xpr-agents/openclaw",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenClaw plugin for XPR Network Trustless Agent Registry - autonomous agent operation, escrow jobs, feedback, and validation",
   "author": "XPR Network",
   "repository": {
@@ -40,7 +40,7 @@
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
-    "@xpr-agents/sdk": "^0.1.0",
+    "@xpr-agents/sdk": "^0.2.0",
     "@proton/js": "^28.1.2"
   },
   "devDependencies": {

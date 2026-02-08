@@ -264,7 +264,7 @@ cd contracts/agentcore && npm install && npm run build
 | Network | RPC Endpoint | Chain ID |
 |---------|--------------|----------|
 | Mainnet | `https://proton.eosusa.io` | `384da888...` |
-| Testnet | `https://testnet.protonchain.com` | `71ee83bc...` |
+| Testnet | `https://tn1.protonnz.com` | `71ee83bc...` |
 
 ---
 

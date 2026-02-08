@@ -22,8 +22,12 @@ COPY openclaw/skills /app/openclaw/skills
 
 # Copy agent runner
 COPY openclaw/starter/agent/package.json openclaw/starter/agent/tsconfig.json /app/agent/
+COPY openclaw/starter/agent/src /app/agent/src
 WORKDIR /app/agent
 RUN npm install && npm run build
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD wget --spider -q http://localhost:8080/health || exit 1
 
 USER node
 

@@ -19,9 +19,10 @@ npm install @xpr-agents/sdk @proton/js @proton/web-sdk
 
 ```typescript
 import { JsonRpc } from '@proton/js';
-import { AgentRegistry, FeedbackRegistry, ValidationRegistry, EscrowRegistry } from '@xpr-agents/sdk';
+import { AgentRegistry, FeedbackRegistry, ValidationRegistry, EscrowRegistry, NETWORKS } from '@xpr-agents/sdk';
 
-const rpc = new JsonRpc('https://proton.eosusa.io');
+// Use NETWORKS.TESTNET for testnet, NETWORKS.MAINNET for mainnet
+const rpc = new JsonRpc(NETWORKS.TESTNET.rpc);
 
 // Initialize registries
 const agents = new AgentRegistry(rpc);
@@ -49,13 +50,14 @@ const clientJobs = await escrow.listJobsByClient('clientacc');
 
 ```typescript
 import ProtonWebSDK from '@proton/web-sdk';
-import { AgentRegistry, FeedbackRegistry } from '@xpr-agents/sdk';
+import { AgentRegistry, FeedbackRegistry, NETWORKS } from '@xpr-agents/sdk';
 
-// Connect wallet
+// Connect wallet (use NETWORKS.MAINNET for production)
+const net = NETWORKS.TESTNET;
 const { link, session } = await ProtonWebSDK({
   linkOptions: {
-    chainId: '384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0',
-    endpoints: ['https://proton.eosusa.io'],
+    chainId: net.chainId,
+    endpoints: [net.rpc],
   },
   selectorOptions: { appName: 'My App' },
 });
@@ -141,7 +143,7 @@ await feedback.submit({
 | Network | Chain ID | Endpoints |
 |---------|----------|-----------|
 | Mainnet | `384da888...` | `https://proton.eosusa.io` |
-| Testnet | `71ee83bc...` | `https://testnet.protonchain.com` |
+| Testnet | `71ee83bc...` | `https://tn1.protonnz.com` |
 
 ## Types
 

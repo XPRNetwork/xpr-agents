@@ -596,6 +596,7 @@ All phases are complete:
 - Agent runner A2A server — `GET /.well-known/agent.json` + `POST /a2a` JSON-RPC endpoint
 - 5 OpenClaw A2A tools: discover, send_message, get_task, cancel_task, delegate_job
 - Protocol spec: `docs/A2A.md` — compatible with Google A2A, XPR extensions for on-chain identity
+- **A2A Authentication** — EOSIO signature auth (`sdk/src/eosio-auth.ts`), trust gating, per-account rate limiting, tool sandboxing (`A2A_TOOL_MODE=readonly`)
 
 ## Comparison: EIP-8004 vs XPR Network
 

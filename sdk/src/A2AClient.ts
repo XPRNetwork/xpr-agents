@@ -11,6 +11,7 @@ import type {
   A2AJsonRpcResponse,
   XprAgentCard,
 } from './types';
+import { signA2ARequest, hashBody } from './eosio-auth';
 
 export class A2AError extends Error {
   constructor(
@@ -30,6 +31,8 @@ export class A2AError extends Error {
 export interface A2AClientOptions {
   /** XPR account name of the caller, injected as xpr:callerAccount in requests */
   callerAccount?: string;
+  /** WIF private key for signing A2A requests (e.g. "5K...") */
+  signingKey?: string;
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
 }
@@ -50,11 +53,13 @@ let rpcIdCounter = 0;
 export class A2AClient {
   private endpoint: string;
   private callerAccount?: string;
+  private signingKey?: string;
   private timeout: number;
 
   constructor(endpoint: string, options: A2AClientOptions = {}) {
     this.endpoint = endpoint.replace(/\/$/, '');
     this.callerAccount = options.callerAccount;
+    this.signingKey = options.signingKey;
     this.timeout = options.timeout ?? 30000;
   }
 
@@ -108,10 +113,22 @@ export class A2AClient {
       },
     };
 
+    const bodyStr = JSON.stringify(body);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+    if (this.signingKey && this.callerAccount) {
+      const timestamp = Math.floor(Date.now() / 1000);
+      const bodyDigest = hashBody(bodyStr);
+      const signature = signA2ARequest(this.signingKey, this.callerAccount, timestamp, bodyDigest);
+      headers['X-XPR-Account'] = this.callerAccount;
+      headers['X-XPR-Timestamp'] = String(timestamp);
+      headers['X-XPR-Signature'] = signature;
+    }
+
     const response = await this.fetchWithTimeout(`${this.endpoint}/a2a`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      headers,
+      body: bodyStr,
     });
 
     if (!response.ok) {

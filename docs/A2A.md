@@ -232,6 +232,94 @@ Callers may include XPR-specific fields in the `params` object:
 
 These extensions allow the receiving agent to verify the caller's on-chain identity and link the interaction to an escrow job for payment and accountability.
 
+## Authentication
+
+All `POST /a2a` requests can be authenticated using EOSIO key signatures. `GET /.well-known/agent.json` remains unauthenticated (public discovery).
+
+### Request Signing (Caller Side)
+
+The caller signs each request by constructing a digest from their account name, a timestamp, and the request body hash:
+
+```
+bodyHash  = SHA256(requestBody)
+digest    = SHA256(account + "\n" + timestamp + "\n" + bodyHash)
+signature = PrivateKey.sign(digest)
+```
+
+Three headers are added to the request:
+
+| Header | Value | Example |
+|--------|-------|---------|
+| `X-XPR-Account` | Caller's XPR account name | `alice` |
+| `X-XPR-Timestamp` | Unix timestamp (seconds) | `1704067200` |
+| `X-XPR-Signature` | EOSIO K1 signature | `SIG_K1_...` |
+
+### Request Verification (Server Side)
+
+1. Check `X-XPR-Timestamp` is within 5 minutes of server time (anti-replay)
+2. Reconstruct digest from account + timestamp + SHA256(body)
+3. Recover the public key from the signature
+4. Fetch the account's `active` permission keys via `get_account()` RPC
+5. Compare recovered key against account's active keys
+6. If match, the request is authenticated as that account
+
+Account keys are cached for 5 minutes to avoid excessive RPC calls.
+
+### SDK Usage
+
+```typescript
+import { A2AClient } from '@xpr-agents/sdk';
+
+// Signed requests (recommended)
+const client = new A2AClient('https://agent.example.com', {
+  callerAccount: 'alice',
+  signingKey: process.env.XPR_PRIVATE_KEY, // WIF private key
+});
+
+// Unsigned requests (may be rejected by servers requiring auth)
+const client = new A2AClient('https://agent.example.com', {
+  callerAccount: 'alice',
+});
+```
+
+## Trust Gating
+
+After authentication, servers can enforce minimum trust requirements:
+
+| Check | Env Var | Default | Description |
+|-------|---------|---------|-------------|
+| Agent registration | — | Always | Account must be a registered, active agent |
+| KYC level | `A2A_MIN_KYC_LEVEL` | `0` (disabled) | Minimum KYC level (0-3) |
+| Trust score | `A2A_MIN_TRUST_SCORE` | `0` (disabled) | Minimum trust score (0-100) |
+
+Trust data is cached for 5 minutes per account.
+
+## Rate Limiting
+
+Per-account sliding window rate limiting prevents abuse:
+
+| Setting | Env Var | Default |
+|---------|---------|---------|
+| Requests per minute | `A2A_RATE_LIMIT` | `20` |
+
+Unauthenticated requests (when auth is optional) are tracked under the `anonymous` account.
+
+## Tool Sandboxing
+
+The agent runner can restrict which tools are available to A2A callers:
+
+| Mode | Env Var `A2A_TOOL_MODE` | Description |
+|------|------------------------|-------------|
+| `full` | default | All tools available |
+| `readonly` | — | Only read tools (get, list, search, health) |
+
+## Security Considerations
+
+- **Replay protection:** Timestamps must be within 5 minutes of server time. Combined with body hashing, this prevents replay attacks.
+- **Key rotation:** When an account rotates its active keys on-chain, the key cache (5 min TTL) ensures the transition is smooth.
+- **Body integrity:** The body hash is included in the signed digest, preventing tampering with the request payload.
+- **Account spoofing:** The `xpr:callerAccount` field in the JSON-RPC body is overridden by the authenticated account, preventing spoofing.
+
 ## Error Codes
 
 Standard JSON-RPC 2.0 error codes:
@@ -243,6 +331,7 @@ Standard JSON-RPC 2.0 error codes:
 | -32601 | Method not found | Unknown method |
 | -32602 | Invalid params | Bad parameters |
 | -32603 | Internal error | Server error |
+| -32000 | Authentication error | Signature verification failed, trust/KYC too low, or rate limited |
 | -32001 | Task not found | Unknown task ID |
 | -32002 | Task not cancelable | Task already completed/failed |
 

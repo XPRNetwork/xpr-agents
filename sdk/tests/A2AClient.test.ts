@@ -218,6 +218,67 @@ describe('A2AClient', () => {
     });
   });
 
+  describe('signed requests', () => {
+    const message: A2AMessage = {
+      role: 'user',
+      parts: [{ type: 'text', text: 'Hello' }],
+    };
+
+    it('includes auth headers when signingKey is set', async () => {
+      mockFetch.mockResolvedValueOnce(rpcResponse(task));
+
+      const client = new A2AClient('https://agent.example.com', {
+        callerAccount: 'alice',
+        signingKey: '5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3',
+      });
+      await client.sendMessage(message);
+
+      const headers = mockFetch.mock.calls[0][1].headers;
+      expect(headers['X-XPR-Account']).toBe('alice');
+      expect(headers['X-XPR-Timestamp']).toMatch(/^\d+$/);
+      expect(headers['X-XPR-Signature']).toMatch(/^SIG_K1_/);
+    });
+
+    it('does not include auth headers without signingKey', async () => {
+      mockFetch.mockResolvedValueOnce(rpcResponse(task));
+
+      const client = new A2AClient('https://agent.example.com', {
+        callerAccount: 'alice',
+      });
+      await client.sendMessage(message);
+
+      const headers = mockFetch.mock.calls[0][1].headers;
+      expect(headers['X-XPR-Account']).toBeUndefined();
+      expect(headers['X-XPR-Signature']).toBeUndefined();
+    });
+
+    it('does not include auth headers without callerAccount', async () => {
+      mockFetch.mockResolvedValueOnce(rpcResponse(task));
+
+      const client = new A2AClient('https://agent.example.com', {
+        signingKey: '5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3',
+      });
+      await client.sendMessage(message);
+
+      const headers = mockFetch.mock.calls[0][1].headers;
+      expect(headers['X-XPR-Account']).toBeUndefined();
+    });
+
+    it('agent card GET is unsigned even with signingKey', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(agentCard));
+
+      const client = new A2AClient('https://agent.example.com', {
+        callerAccount: 'alice',
+        signingKey: '5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3',
+      });
+      await client.getAgentCard();
+
+      // getAgentCard uses fetchWithTimeout directly, no body/headers with auth
+      const call = mockFetch.mock.calls[0];
+      expect(call[1]?.headers?.['X-XPR-Signature']).toBeUndefined();
+    });
+  });
+
   describe('A2AError', () => {
     it('fromRpcError creates error with code and data', () => {
       const err = A2AError.fromRpcError({ code: -32601, message: 'Method not found', data: { method: 'foo' } });
