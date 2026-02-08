@@ -9,7 +9,7 @@ RUN apk add --no-cache python3 make g++
 COPY package*.json ./
 
 # Install ALL dependencies (including devDeps for tsc)
-RUN npm ci
+RUN npm install
 
 # Copy source
 COPY . .
@@ -26,7 +26,7 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Copy compiled output from builder
 COPY --from=builder /app/dist ./dist
@@ -36,6 +36,10 @@ RUN mkdir -p /data && chown node:node /data
 
 # Run as non-root user
 USER node
+
+# Default env vars for containerized deployment
+ENV DB_PATH=/data/agents.db
+ENV PORT=3001
 
 # Expose port
 EXPOSE 3001
