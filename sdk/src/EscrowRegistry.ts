@@ -107,6 +107,7 @@ export interface Arbitrator {
   fee_percent: number;
   total_cases: number;
   successful_cases: number;
+  active_disputes: number;
   active: boolean;
 }
 
@@ -321,6 +322,7 @@ export class EscrowRegistry {
       fee_percent: string;
       total_cases: string;
       successful_cases: string;
+      active_disputes: string;
       active: number;
     }>({
       json: true,
@@ -338,6 +340,7 @@ export class EscrowRegistry {
         fee_percent: parseInt(row.fee_percent),
         total_cases: parseInt(row.total_cases),
         successful_cases: parseInt(row.successful_cases),
+        active_disputes: parseInt(row.active_disputes || '0'),
         active: true,
       }));
   }

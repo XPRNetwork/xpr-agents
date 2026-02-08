@@ -159,12 +159,13 @@ export class ValidationRegistry {
       reason: string;
       evidence_uri: string;
       stake: string;
-      funding_deadline: string;
       status: number;
       resolver: string;
       resolution_notes: string;
       created_at: string;
       resolved_at: string;
+      funding_deadline: string;
+      funded_at: string;
     }>({
       json: true,
       code: this.contract,
@@ -190,12 +191,13 @@ export class ValidationRegistry {
       reason: string;
       evidence_uri: string;
       stake: string;
-      funding_deadline: string;
       status: number;
       resolver: string;
       resolution_notes: string;
       created_at: string;
       resolved_at: string;
+      funding_deadline: string;
+      funded_at: string;
     }>({
       json: true,
       code: this.contract,
@@ -738,6 +740,7 @@ export class ValidationRegistry {
       total_validations: parseInt(raw.total_validations),
       incorrect_validations: parseInt(raw.incorrect_validations),
       accuracy_score: parseInt(raw.accuracy_score),
+      pending_challenges: parseInt(raw.pending_challenges || '0'),
       registered_at: parseInt(raw.registered_at),
       active: raw.active === 1,
     };
@@ -764,12 +767,13 @@ export class ValidationRegistry {
     reason: string;
     evidence_uri: string;
     stake: string;
-    funding_deadline: string;
     status: number;
     resolver: string;
     resolution_notes: string;
     created_at: string;
     resolved_at: string;
+    funding_deadline: string;
+    funded_at: string;
   }): Challenge {
     return {
       id: parseInt(raw.id),
@@ -778,12 +782,13 @@ export class ValidationRegistry {
       reason: raw.reason,
       evidence_uri: raw.evidence_uri,
       stake: parseInt(raw.stake),
-      funding_deadline: parseInt(raw.funding_deadline),
       status: disputeStatusFromNumber(raw.status),
       resolver: raw.resolver,
       resolution_notes: raw.resolution_notes,
       created_at: parseInt(raw.created_at),
       resolved_at: parseInt(raw.resolved_at),
+      funding_deadline: parseInt(raw.funding_deadline),
+      funded_at: parseInt(raw.funded_at || '0'),
     };
   }
 }

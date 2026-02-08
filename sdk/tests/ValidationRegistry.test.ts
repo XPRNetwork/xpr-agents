@@ -279,6 +279,7 @@ describe('ValidationRegistry read operations', () => {
           total_validations: '50',
           incorrect_validations: '2',
           accuracy_score: '9600',
+          pending_challenges: '0',
           registered_at: '1704067200',
           active: 1,
         }],
@@ -295,6 +296,7 @@ describe('ValidationRegistry read operations', () => {
         total_validations: 50,
         incorrect_validations: 2,
         accuracy_score: 9600,
+        pending_challenges: 0,
         registered_at: 1704067200,
         active: true,
       });

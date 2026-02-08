@@ -196,6 +196,7 @@ export interface Validator {
   total_validations: number;
   incorrect_validations: number;
   accuracy_score: number;
+  pending_challenges: number;
   registered_at: number;
   active: boolean;
 }
@@ -208,6 +209,7 @@ export interface ValidatorRaw {
   total_validations: string;
   incorrect_validations: string;
   accuracy_score: string;
+  pending_challenges: string;
   registered_at: string;
   active: number;
 }
@@ -245,12 +247,13 @@ export interface Challenge {
   reason: string;
   evidence_uri: string;
   stake: number;
-  funding_deadline: number;
   status: DisputeStatus;
   resolver: string;
   resolution_notes: string;
   created_at: number;
   resolved_at: number;
+  funding_deadline: number;
+  funded_at: number;
 }
 
 // ============== Trust Score Types ==============

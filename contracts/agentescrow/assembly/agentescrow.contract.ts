@@ -265,6 +265,9 @@ export class AgentEscrowContract extends Contract {
   init(owner: Name, core_contract: Name, feed_contract: Name, platform_fee: u64): void {
     requireAuth(this.receiver);
 
+    const existingConfig = this.configSingleton.get();
+    check(existingConfig.owner == EMPTY_NAME, "Contract already initialized.");
+
     // EscrowConfig: owner, core_contract, feed_contract, platform_fee, min_job_amount,
     //               default_deadline_days, dispute_window, acceptance_timeout, min_arbitrator_stake, paused
     const config = new EscrowConfig(

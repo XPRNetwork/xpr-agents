@@ -503,8 +503,8 @@ describe('EscrowRegistry read operations', () => {
       const rpc = mockRpc();
       (rpc.get_table_rows as jest.Mock).mockResolvedValue({
         rows: [
-          { account: 'arb1', stake: '100000', fee_percent: '200', total_cases: '10', successful_cases: '9', active: 1 },
-          { account: 'arb2', stake: '50000', fee_percent: '300', total_cases: '5', successful_cases: '5', active: 0 },
+          { account: 'arb1', stake: '100000', fee_percent: '200', total_cases: '10', successful_cases: '9', active_disputes: '0', active: 1 },
+          { account: 'arb2', stake: '50000', fee_percent: '300', total_cases: '5', successful_cases: '5', active_disputes: '1', active: 0 },
         ],
         more: false,
       });

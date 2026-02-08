@@ -533,6 +533,9 @@ export class AgentFeedContract extends Contract {
   init(owner: Name, core_contract: Name): void {
     requireAuth(this.receiver);
 
+    const existingConfig = this.configSingleton.get();
+    check(existingConfig.owner == EMPTY_NAME, "Contract already initialized.");
+
     // Config: owner, core_contract, min_score, max_score, dispute_window, decay_period, decay_floor, paused, feedback_fee
     const config = new Config(
       owner,

@@ -138,7 +138,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
         name: { type: 'string', description: 'Display name for the agent' },
         description: { type: 'string', description: 'Agent description' },
         endpoint: { type: 'string', description: 'API endpoint URL' },
-        protocol: { type: 'string', description: 'Communication protocol (e.g., a2a, mcp, rest)' },
+        protocol: { type: 'string', description: 'Communication protocol. Must be one of: http, https, grpc, websocket, mqtt, wss' },
         capabilities: {
           type: 'array',
           items: { type: 'string' },

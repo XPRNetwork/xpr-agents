@@ -48,6 +48,9 @@ export function handleValidationAction(db: Database.Database, action: StreamActi
     case 'expireunfund':
       handleExpireUnfunded(db, data);
       break;
+    case 'expirefunded':
+      handleExpireFunded(db, data);
+      break;
     case 'unstake':
       handleUnstake(db, data);
       break;
@@ -302,6 +305,31 @@ function handleExpireUnfunded(db: Database.Database, data: any): void {
   }
 
   console.log(`Challenge ${data.challenge_id} expired (unfunded)${challenge ? ` (validation ${challenge.validation_id})` : ''}`);
+}
+
+function handleExpireFunded(db: Database.Database, data: any): void {
+  // Funded challenge expired without resolution - treated as cancelled
+  const challenge = db.prepare('SELECT validation_id FROM validation_challenges WHERE id = ?').get(data.challenge_id) as { validation_id: number } | undefined;
+
+  // Update challenge status to cancelled (3)
+  const challengeStmt = db.prepare(`
+    UPDATE validation_challenges
+    SET status = 3, resolved_at = strftime('%s', 'now')
+    WHERE id = ?
+  `);
+  challengeStmt.run(data.challenge_id);
+
+  // Reset validation's challenged flag
+  if (challenge) {
+    const validationStmt = db.prepare(`
+      UPDATE validations
+      SET challenged = 0
+      WHERE id = ?
+    `);
+    validationStmt.run(challenge.validation_id);
+  }
+
+  console.log(`Challenge ${data.challenge_id} expired (funded, not resolved)${challenge ? ` (validation ${challenge.validation_id})` : ''}`);
 }
 
 function handleUnstake(db: Database.Database, data: any): void {
