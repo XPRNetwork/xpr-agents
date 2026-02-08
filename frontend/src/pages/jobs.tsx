@@ -27,6 +27,10 @@ export default function Jobs() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Create job form
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newJob, setNewJob] = useState({ title: '', description: '', amount: '', deadline: '', deliverables: '', arbitrator: '' });
+
   // Bid form state
   const [bidAmount, setBidAmount] = useState('');
   const [bidTimeline, setBidTimeline] = useState('');
@@ -138,6 +142,49 @@ export default function Jobs() {
     }
   }
 
+  async function handleCreateJob(e: React.FormEvent) {
+    e.preventDefault();
+    if (!session) return;
+
+    setProcessing(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const amount = Math.floor(parseFloat(newJob.amount) * 10000);
+      const deadlineSeconds = Math.floor(Date.now() / 1000) + parseInt(newJob.deadline) * 86400;
+      const deliverables = JSON.stringify(
+        newJob.deliverables.split('\n').map(d => d.trim()).filter(Boolean)
+      );
+
+      await transact([
+        {
+          account: CONTRACTS.AGENT_ESCROW,
+          name: 'createjob',
+          data: {
+            client: session.auth.actor,
+            agent: '', // open job
+            title: newJob.title,
+            description: newJob.description,
+            deliverables,
+            amount,
+            deadline: deadlineSeconds,
+            arbitrator: newJob.arbitrator || '',
+          },
+        },
+      ]);
+
+      setSuccess('Job posted! Agents can now submit bids.');
+      setShowCreateForm(false);
+      setNewJob({ title: '', description: '', amount: '', deadline: '', deliverables: '', arbitrator: '' });
+      await loadJobs();
+    } catch (e: any) {
+      setError(e.message || 'Failed to create job');
+    } finally {
+      setProcessing(false);
+    }
+  }
+
   async function handleWithdrawBid(bidId: number) {
     if (!session) return;
 
@@ -203,13 +250,117 @@ export default function Jobs() {
         <main className="max-w-6xl mx-auto px-4 py-8">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-2xl font-bold">Open Job Board</h1>
-            <button
-              onClick={loadJobs}
-              className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-sm"
-            >
-              Refresh
-            </button>
+            <div className="flex gap-2">
+              {session && (
+                <button
+                  onClick={() => setShowCreateForm(true)}
+                  className="px-4 py-2 bg-proton-purple text-white rounded-lg text-sm hover:bg-purple-700"
+                >
+                  Post Job
+                </button>
+              )}
+              <button
+                onClick={loadJobs}
+                className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-sm"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
+
+          {/* Create Job Form */}
+          {showCreateForm && session && (
+            <div className="mb-6 bg-white border border-gray-200 rounded-lg p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-semibold">Post a New Job</h2>
+                <button
+                  onClick={() => setShowCreateForm(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  Cancel
+                </button>
+              </div>
+              <form onSubmit={handleCreateJob} className="space-y-4">
+                <div>
+                  <label className="block text-sm text-gray-500 mb-1">Title</label>
+                  <input
+                    type="text"
+                    value={newJob.title}
+                    onChange={(e) => setNewJob({ ...newJob, title: e.target.value })}
+                    placeholder="e.g. Data analysis report"
+                    required
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-500 mb-1">Description</label>
+                  <textarea
+                    value={newJob.description}
+                    onChange={(e) => setNewJob({ ...newJob, description: e.target.value })}
+                    placeholder="Describe the job requirements..."
+                    rows={3}
+                    required
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-500 mb-1">Budget (XPR)</label>
+                    <input
+                      type="number"
+                      value={newJob.amount}
+                      onChange={(e) => setNewJob({ ...newJob, amount: e.target.value })}
+                      placeholder="e.g. 1000"
+                      min="0"
+                      step="0.0001"
+                      required
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-500 mb-1">Deadline (days from now)</label>
+                    <input
+                      type="number"
+                      value={newJob.deadline}
+                      onChange={(e) => setNewJob({ ...newJob, deadline: e.target.value })}
+                      placeholder="e.g. 14"
+                      min="1"
+                      required
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-500 mb-1">Deliverables (one per line)</label>
+                  <textarea
+                    value={newJob.deliverables}
+                    onChange={(e) => setNewJob({ ...newJob, deliverables: e.target.value })}
+                    placeholder={"Final report PDF\nSource code repository\nDocumentation"}
+                    rows={3}
+                    required
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-500 mb-1">Arbitrator (optional)</label>
+                  <input
+                    type="text"
+                    value={newJob.arbitrator}
+                    onChange={(e) => setNewJob({ ...newJob, arbitrator: e.target.value })}
+                    placeholder="Account name (leave empty for none)"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={processing}
+                  className="px-6 py-2 bg-proton-purple text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300"
+                >
+                  {processing ? 'Creating...' : 'Create Open Job'}
+                </button>
+              </form>
+            </div>
+          )}
 
           {error && (
             <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>

@@ -1,9 +1,17 @@
+import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { WalletButton } from '@/components/WalletButton';
 import { AgentList } from '@/components/AgentList';
+import { getRegistryStats, type RegistryStats } from '@/lib/registry';
 
 export default function Home() {
+  const [stats, setStats] = useState<RegistryStats>({ activeAgents: 0, totalJobs: 0, validators: 0, feedbacks: 0 });
+
+  useEffect(() => {
+    getRegistryStats().then(setStats).catch(() => {});
+  }, []);
+
   return (
     <>
       <Head>
@@ -66,19 +74,19 @@ export default function Home() {
           <div className="max-w-6xl mx-auto px-4">
             <div className="grid grid-cols-4 gap-8 text-center">
               <div>
-                <div className="text-3xl font-bold text-proton-purple">0</div>
+                <div className="text-3xl font-bold text-proton-purple">{stats.activeAgents}</div>
                 <div className="text-gray-500">Active Agents</div>
               </div>
               <div>
-                <div className="text-3xl font-bold text-proton-purple">0</div>
+                <div className="text-3xl font-bold text-proton-purple">{stats.totalJobs}</div>
                 <div className="text-gray-500">Total Jobs</div>
               </div>
               <div>
-                <div className="text-3xl font-bold text-proton-purple">0</div>
+                <div className="text-3xl font-bold text-proton-purple">{stats.validators}</div>
                 <div className="text-gray-500">Validators</div>
               </div>
               <div>
-                <div className="text-3xl font-bold text-proton-purple">0</div>
+                <div className="text-3xl font-bold text-proton-purple">{stats.feedbacks}</div>
                 <div className="text-gray-500">Feedbacks</div>
               </div>
             </div>

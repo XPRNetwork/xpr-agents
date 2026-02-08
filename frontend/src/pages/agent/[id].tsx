@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
@@ -5,7 +6,11 @@ import { WalletButton } from '@/components/WalletButton';
 import { TrustBadge } from '@/components/TrustBadge';
 import { FeedbackForm } from '@/components/FeedbackForm';
 import { useAgent } from '@/hooks/useAgent';
-import { formatXpr, formatDate } from '@/lib/registry';
+import {
+  formatXpr, formatDate, formatTimeline, getJobStateLabel,
+  getJobsByAgent, getBidsByAgent,
+  type Job, type Bid,
+} from '@/lib/registry';
 
 export default function AgentDetail() {
   const router = useRouter();
@@ -13,6 +18,15 @@ export default function AgentDetail() {
   const { agent, score, trustScore, feedback, kycLevel, loading, error, refresh } = useAgent(
     id as string | undefined
   );
+  const [agentJobs, setAgentJobs] = useState<Job[]>([]);
+  const [agentBids, setAgentBids] = useState<Bid[]>([]);
+
+  useEffect(() => {
+    if (id && typeof id === 'string') {
+      getJobsByAgent(id).then(setAgentJobs).catch(() => {});
+      getBidsByAgent(id).then(setAgentBids).catch(() => {});
+    }
+  }, [id]);
 
   if (loading) {
     return (
@@ -125,6 +139,56 @@ export default function AgentDetail() {
               </div>
             </div>
           </div>
+
+          {/* Jobs */}
+          {agentJobs.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
+              <h2 className="text-xl font-bold mb-4">Jobs ({agentJobs.length})</h2>
+              <div className="space-y-3">
+                {agentJobs.map((job) => (
+                  <div key={job.id} className="flex justify-between items-center p-3 border border-gray-100 rounded-lg">
+                    <div>
+                      <div className="font-medium">{job.title}</div>
+                      <div className="text-sm text-gray-500">
+                        Client: {job.client} &middot; {formatDate(job.created_at)}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-semibold text-proton-purple">{formatXpr(job.amount)}</div>
+                      <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs ${
+                        job.state === 6 ? 'bg-green-100 text-green-700' :
+                        job.state === 5 ? 'bg-red-100 text-red-700' :
+                        'bg-blue-100 text-blue-700'
+                      }`}>
+                        {getJobStateLabel(job.state)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Active Bids */}
+          {agentBids.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
+              <h2 className="text-xl font-bold mb-4">Active Bids ({agentBids.length})</h2>
+              <div className="space-y-3">
+                {agentBids.map((bid) => (
+                  <div key={bid.id} className="p-3 border border-gray-100 rounded-lg">
+                    <div className="flex justify-between items-start">
+                      <div className="text-sm font-medium">Job #{bid.job_id}</div>
+                      <div className="text-sm text-proton-purple">{formatXpr(bid.amount)}</div>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {formatTimeline(bid.timeline)} timeline
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1 truncate">{bid.proposal}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-3 gap-6">
             {/* Feedback List */}

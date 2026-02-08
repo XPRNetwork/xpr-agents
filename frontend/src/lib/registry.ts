@@ -377,3 +377,42 @@ export function formatXpr(amount: number): string {
 export function formatDate(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleDateString();
 }
+
+// Stats helpers for homepage
+export interface RegistryStats {
+  activeAgents: number;
+  totalJobs: number;
+  validators: number;
+  feedbacks: number;
+}
+
+export async function getRegistryStats(): Promise<RegistryStats> {
+  const [agents, jobs, validators, feedbackRows] = await Promise.all([
+    rpc.get_table_rows({ json: true, code: CONTRACTS.AGENT_CORE, scope: CONTRACTS.AGENT_CORE, table: 'agents', limit: 500 }),
+    rpc.get_table_rows({ json: true, code: CONTRACTS.AGENT_ESCROW, scope: CONTRACTS.AGENT_ESCROW, table: 'jobs', limit: 500 }),
+    rpc.get_table_rows({ json: true, code: CONTRACTS.AGENT_VALID, scope: CONTRACTS.AGENT_VALID, table: 'validators', limit: 500 }),
+    rpc.get_table_rows({ json: true, code: CONTRACTS.AGENT_FEED, scope: CONTRACTS.AGENT_FEED, table: 'feedback', limit: 1, reverse: true }),
+  ]);
+
+  return {
+    activeAgents: agents.rows.filter((r: any) => r.active === 1).length,
+    totalJobs: jobs.rows.length,
+    validators: validators.rows.filter((r: any) => r.active === 1).length,
+    feedbacks: feedbackRows.rows.length > 0 ? parseInt(feedbackRows.rows[0].id) + 1 : 0,
+  };
+}
+
+// Get jobs for a specific agent
+export async function getJobsByAgent(agent: string): Promise<Job[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'jobs',
+    limit: 500,
+  });
+
+  return result.rows
+    .filter((row: any) => row.agent === agent)
+    .map(parseJob);
+}
