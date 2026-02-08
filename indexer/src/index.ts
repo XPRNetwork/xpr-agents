@@ -70,13 +70,11 @@ app.use('/api', createRoutes(db, dispatcher));
 // Track stream connection status
 let streamConnected = false;
 
-// Health check with connection status
+// Health check — always 200 so Railway/Docker health checks pass.
+// Stream status is informational only.
 app.get('/health', (req, res) => {
-  if (streamConnected) {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-  } else {
-    res.status(503).json({ status: 'degraded', timestamp: new Date().toISOString() });
-  }
+  const status = streamConnected ? 'ok' : 'degraded';
+  res.json({ status, stream: streamConnected, timestamp: new Date().toISOString() });
 });
 
 // Start HTTP server
