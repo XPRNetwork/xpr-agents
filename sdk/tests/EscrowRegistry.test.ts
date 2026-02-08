@@ -558,6 +558,237 @@ describe('EscrowRegistry cleanup methods', () => {
   });
 });
 
+// ============== Bidding Write Operations ==============
+
+describe('EscrowRegistry bidding write operations', () => {
+  describe('submitBid()', () => {
+    it('sends "submitbid" action with agent from session', async () => {
+      const session = mockSession('myagent');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.submitBid({
+        job_id: 42,
+        amount: 50000,
+        timeline: 604800,
+        proposal: 'I can deliver this in one week',
+      });
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.account).toBe('agentescrow');
+      expect(action.name).toBe('submitbid');
+      expect(action.data).toEqual({
+        agent: 'myagent',
+        job_id: 42,
+        amount: 50000,
+        timeline: 604800,
+        proposal: 'I can deliver this in one week',
+      });
+    });
+
+    it('throws on missing session', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      await expect(
+        registry.submitBid({ job_id: 1, amount: 100, timeline: 3600, proposal: 'test' })
+      ).rejects.toThrow('Session required');
+    });
+  });
+
+  describe('selectBid()', () => {
+    it('sends "selectbid" action with client from session', async () => {
+      const session = mockSession('clientacc');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.selectBid(7);
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.account).toBe('agentescrow');
+      expect(action.name).toBe('selectbid');
+      expect(action.data).toEqual({
+        client: 'clientacc',
+        bid_id: 7,
+      });
+    });
+
+    it('throws on missing session', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      await expect(registry.selectBid(1)).rejects.toThrow('Session required');
+    });
+  });
+
+  describe('withdrawBid()', () => {
+    it('sends "withdrawbid" action with agent from session', async () => {
+      const session = mockSession('myagent');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.withdrawBid(3);
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.account).toBe('agentescrow');
+      expect(action.name).toBe('withdrawbid');
+      expect(action.data).toEqual({
+        agent: 'myagent',
+        bid_id: 3,
+      });
+    });
+
+    it('throws on missing session', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      await expect(registry.withdrawBid(1)).rejects.toThrow('Session required');
+    });
+  });
+});
+
+// ============== Bidding Read Operations ==============
+
+describe('EscrowRegistry bidding read operations', () => {
+  describe('listOpenJobs()', () => {
+    it('queries jobs table and filters for empty agent', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [
+          { id: '1', client: 'alice', agent: '', title: 'Open Job', description: 'desc', deliverables: '[]', amount: '100000', symbol: 'XPR', funded_amount: '0', released_amount: '0', state: 0, deadline: '0', arbitrator: '', job_hash: '', created_at: '1704067200', updated_at: '1704067200' },
+          { id: '2', client: 'bob', agent: 'aibot', title: 'Assigned Job', description: 'desc', deliverables: '[]', amount: '50000', symbol: 'XPR', funded_amount: '0', released_amount: '0', state: 2, deadline: '0', arbitrator: '', job_hash: '', created_at: '1704067200', updated_at: '1704067200' },
+          { id: '3', client: 'carol', agent: '.............', title: 'Another Open', description: 'desc', deliverables: '[]', amount: '75000', symbol: 'XPR', funded_amount: '0', released_amount: '0', state: 0, deadline: '0', arbitrator: '', job_hash: '', created_at: '1704067200', updated_at: '1704067200' },
+        ],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const result = await registry.listOpenJobs();
+
+      expect(result.items).toHaveLength(2);
+      expect(result.items[0].title).toBe('Open Job');
+      expect(result.items[1].title).toBe('Another Open');
+    });
+
+    it('respects state filter', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [
+          { id: '1', client: 'alice', agent: '', title: 'Created', description: '', deliverables: '[]', amount: '100000', symbol: 'XPR', funded_amount: '0', released_amount: '0', state: 0, deadline: '0', arbitrator: '', job_hash: '', created_at: '0', updated_at: '0' },
+          { id: '2', client: 'bob', agent: '', title: 'Funded', description: '', deliverables: '[]', amount: '100000', symbol: 'XPR', funded_amount: '100000', released_amount: '0', state: 1, deadline: '0', arbitrator: '', job_hash: '', created_at: '0', updated_at: '0' },
+        ],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const result = await registry.listOpenJobs({ state: 'funded' });
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].title).toBe('Funded');
+    });
+
+    it('handles pagination', async () => {
+      const rpc = mockRpc();
+      const registry = new EscrowRegistry(rpc);
+
+      await registry.listOpenJobs({ limit: 10, cursor: '5' });
+
+      expect(rpc.get_table_rows).toHaveBeenCalledWith(
+        expect.objectContaining({
+          table: 'jobs',
+          lower_bound: '5',
+          limit: 11, // limit + 1 for hasMore check
+        })
+      );
+    });
+  });
+
+  describe('listBidsForJob()', () => {
+    it('queries bids table with byJob secondary index', async () => {
+      const rpc = mockRpc();
+      const registry = new EscrowRegistry(rpc);
+
+      await registry.listBidsForJob(42);
+
+      expect(rpc.get_table_rows).toHaveBeenCalledWith({
+        json: true,
+        code: 'agentescrow',
+        scope: 'agentescrow',
+        table: 'bids',
+        index_position: 2,
+        key_type: 'i64',
+        lower_bound: '42',
+        limit: 100,
+      });
+    });
+
+    it('parses bid rows and filters by job_id', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [
+          { id: '1', job_id: '42', agent: 'agent1', amount: '50000', timeline: '604800', proposal: 'My proposal', created_at: '1704067200' },
+          { id: '2', job_id: '42', agent: 'agent2', amount: '75000', timeline: '1209600', proposal: 'Another bid', created_at: '1704070800' },
+          { id: '3', job_id: '43', agent: 'agent3', amount: '30000', timeline: '86400', proposal: 'Wrong job', created_at: '1704074400' },
+        ],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const bids = await registry.listBidsForJob(42);
+
+      expect(bids).toHaveLength(2);
+      expect(bids[0].agent).toBe('agent1');
+      expect(bids[0].amount).toBe(50000);
+      expect(bids[0].timeline).toBe(604800);
+      expect(bids[0].proposal).toBe('My proposal');
+      expect(bids[1].agent).toBe('agent2');
+    });
+
+    it('returns empty array when no bids', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      const bids = await registry.listBidsForJob(99);
+      expect(bids).toEqual([]);
+    });
+  });
+
+  describe('getBid()', () => {
+    it('queries bids table with correct bounds', async () => {
+      const rpc = mockRpc();
+      const registry = new EscrowRegistry(rpc);
+
+      await registry.getBid(5);
+
+      expect(rpc.get_table_rows).toHaveBeenCalledWith({
+        json: true,
+        code: 'agentescrow',
+        scope: 'agentescrow',
+        table: 'bids',
+        lower_bound: '5',
+        upper_bound: '5',
+        limit: 1,
+      });
+    });
+
+    it('parses bid correctly', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [
+          { id: '5', job_id: '42', agent: 'bidder', amount: '60000', timeline: '259200', proposal: 'Three day turnaround', created_at: '1704067200' },
+        ],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const bid = await registry.getBid(5);
+
+      expect(bid).not.toBeNull();
+      expect(bid!.id).toBe(5);
+      expect(bid!.job_id).toBe(42);
+      expect(bid!.agent).toBe('bidder');
+      expect(bid!.amount).toBe(60000);
+      expect(bid!.timeline).toBe(259200);
+      expect(bid!.proposal).toBe('Three day turnaround');
+      expect(bid!.created_at).toBe(1704067200);
+    });
+
+    it('returns null when bid not found', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      expect(await registry.getBid(999)).toBeNull();
+    });
+  });
+});
+
 // ============== Error Handling ==============
 
 describe('EscrowRegistry error handling', () => {

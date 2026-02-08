@@ -11,6 +11,7 @@ export const CONTRACTS = {
   AGENT_CORE: process.env.NEXT_PUBLIC_AGENT_CORE || 'agentcore',
   AGENT_FEED: process.env.NEXT_PUBLIC_AGENT_FEED || 'agentfeed',
   AGENT_VALID: process.env.NEXT_PUBLIC_AGENT_VALID || 'agentvalid',
+  AGENT_ESCROW: process.env.NEXT_PUBLIC_AGENT_ESCROW || 'agentescrow',
 };
 
 // Initialize RPC
@@ -228,6 +229,119 @@ export function calculateTrustScore(
   else if (total >= 20) rating = 'low';
 
   return { total, breakdown, rating };
+}
+
+// Escrow types
+export interface Job {
+  id: number;
+  client: string;
+  agent: string;
+  title: string;
+  description: string;
+  deliverables: string[];
+  amount: number;
+  symbol: string;
+  funded_amount: number;
+  state: number;
+  deadline: number;
+  arbitrator: string;
+  created_at: number;
+}
+
+export interface Bid {
+  id: number;
+  job_id: number;
+  agent: string;
+  amount: number;
+  timeline: number;
+  proposal: string;
+  created_at: number;
+}
+
+const JOB_STATE_LABELS = ['Created', 'Funded', 'Accepted', 'In Progress', 'Delivered', 'Disputed', 'Completed', 'Refunded', 'Arbitrated'];
+
+export function getJobStateLabel(state: number): string {
+  return JOB_STATE_LABELS[state] || 'Unknown';
+}
+
+export async function getOpenJobs(limit = 100): Promise<Job[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'jobs',
+    limit,
+  });
+
+  return result.rows
+    .filter((row: any) => row.agent === '' || row.agent === '.............')
+    .map(parseJob);
+}
+
+export async function getJob(id: number): Promise<Job | null> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'jobs',
+    lower_bound: String(id),
+    upper_bound: String(id),
+    limit: 1,
+  });
+
+  if (result.rows.length === 0) return null;
+  return parseJob(result.rows[0]);
+}
+
+export async function getBidsForJob(jobId: number): Promise<Bid[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'bids',
+    index_position: 2,
+    key_type: 'i64',
+    lower_bound: String(jobId),
+    limit: 100,
+  });
+
+  return result.rows
+    .filter((row: any) => parseInt(row.job_id) === jobId)
+    .map((row: any) => ({
+      id: parseInt(row.id),
+      job_id: parseInt(row.job_id),
+      agent: row.agent,
+      amount: parseInt(row.amount),
+      timeline: parseInt(row.timeline),
+      proposal: row.proposal,
+      created_at: parseInt(row.created_at),
+    }));
+}
+
+function parseJob(row: any): Job {
+  let deliverables: string[] = [];
+  try { deliverables = JSON.parse(row.deliverables || '[]'); } catch { /* malformed */ }
+  return {
+    id: parseInt(row.id),
+    client: row.client,
+    agent: row.agent || '',
+    title: row.title,
+    description: row.description,
+    deliverables,
+    amount: parseInt(row.amount) || 0,
+    symbol: row.symbol || 'XPR',
+    funded_amount: parseInt(row.funded_amount) || 0,
+    state: parseInt(row.state) || 0,
+    deadline: parseInt(row.deadline) || 0,
+    arbitrator: row.arbitrator || '',
+    created_at: parseInt(row.created_at) || 0,
+  };
+}
+
+export function formatTimeline(seconds: number): string {
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}d`;
 }
 
 export function formatXpr(amount: number): string {

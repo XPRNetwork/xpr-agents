@@ -1385,7 +1385,182 @@ expect_fail "Reject overfunding already-funded job" \
 
 
 ########################################################################
-# PART 11: PERMISSIONLESS CLEANUP
+# PART 11: OPEN JOB BOARD & BIDDING
+########################################################################
+
+section "28. Open Job (no agent assigned)"
+
+DEADLINE=$(($(date +%s) + 604800))
+JOB_OPEN=$NEXT_JOB_ID
+NEXT_JOB_ID=$((NEXT_JOB_ID + 1))
+
+# Create an open job (agent = empty)
+proton action $AGENT_ESCROW createjob "{
+  \"client\":\"$TEST_CLIENT\",
+  \"agent\":\"\",
+  \"title\":\"Open Data Analysis Job\",
+  \"description\":\"Looking for an agent to analyze dataset\",
+  \"deliverables\":\"[\\\"Analysis report\\\",\\\"Visualizations\\\"]\",
+  \"amount\":500000,
+  \"symbol\":\"4,XPR\",
+  \"deadline\":$DEADLINE,
+  \"arbitrator\":\"$TEST_ARBITRATOR\",
+  \"job_hash\":\"openjobhash1\"
+}" $TEST_CLIENT > /dev/null
+pass "Open job #$JOB_OPEN created (no agent assigned)"
+delay
+
+
+section "29. Bidding — Submit, Withdraw, Select"
+
+# Agent 1 submits a bid
+proton action $AGENT_ESCROW submitbid "{
+  \"agent\":\"$TEST_AGENT\",
+  \"job_id\":$JOB_OPEN,
+  \"amount\":400000,
+  \"timeline\":604800,
+  \"proposal\":\"I can deliver this analysis in 7 days\"
+}" $TEST_AGENT > /dev/null
+pass "Agent 1 submitted bid on job #$JOB_OPEN"
+delay
+
+# Agent 2 submits a bid
+proton action $AGENT_ESCROW submitbid "{
+  \"agent\":\"$TEST_AGENT2\",
+  \"job_id\":$JOB_OPEN,
+  \"amount\":350000,
+  \"timeline\":432000,
+  \"proposal\":\"I can do it faster and cheaper in 5 days\"
+}" $TEST_AGENT2 > /dev/null
+pass "Agent 2 submitted bid on job #$JOB_OPEN"
+delay
+
+# Verify bids exist
+echo "Bids on job #$JOB_OPEN:"
+proton table $AGENT_ESCROW bids
+delay
+
+# Duplicate bid should fail
+expect_fail "Reject duplicate bid from same agent" \
+  proton action $AGENT_ESCROW submitbid "{
+    \"agent\":\"$TEST_AGENT\",
+    \"job_id\":$JOB_OPEN,
+    \"amount\":300000,
+    \"timeline\":259200,
+    \"proposal\":\"Duplicate bid\"
+  }" $TEST_AGENT
+
+# Client cannot bid on own job
+expect_fail "Reject bid from job client" \
+  proton action $AGENT_ESCROW submitbid "{
+    \"agent\":\"$TEST_CLIENT\",
+    \"job_id\":$JOB_OPEN,
+    \"amount\":100000,
+    \"timeline\":86400,
+    \"proposal\":\"Self bid\"
+  }" $TEST_CLIENT
+
+# Agent 2 withdraws their bid
+proton action $AGENT_ESCROW withdrawbid "{
+  \"agent\":\"$TEST_AGENT2\",
+  \"bid_id\":2
+}" $TEST_AGENT2 > /dev/null
+pass "Agent 2 withdrew bid"
+delay
+
+# Wrong agent tries to withdraw Agent 1's bid
+expect_fail "Reject withdrawal by non-bidder" \
+  proton action $AGENT_ESCROW withdrawbid "{
+    \"agent\":\"$TEST_AGENT2\",
+    \"bid_id\":1
+  }" $TEST_AGENT2
+
+# Client selects Agent 1's bid
+proton action $AGENT_ESCROW selectbid "{
+  \"client\":\"$TEST_CLIENT\",
+  \"bid_id\":1
+}" $TEST_CLIENT > /dev/null
+pass "Client selected bid #1 (Agent 1 assigned to job #$JOB_OPEN)"
+delay
+
+# Verify agent is now assigned
+echo "Job #$JOB_OPEN after bid selection:"
+proton table $AGENT_ESCROW jobs
+
+# Non-client tries to select bid
+DEADLINE=$(($(date +%s) + 604800))
+JOB_OPEN2=$NEXT_JOB_ID
+NEXT_JOB_ID=$((NEXT_JOB_ID + 1))
+
+proton action $AGENT_ESCROW createjob "{
+  \"client\":\"$TEST_CLIENT2\",
+  \"agent\":\"\",
+  \"title\":\"Second Open Job\",
+  \"description\":\"Another open job\",
+  \"deliverables\":\"[\\\"Report\\\"]\",
+  \"amount\":200000,
+  \"symbol\":\"4,XPR\",
+  \"deadline\":$DEADLINE,
+  \"arbitrator\":\"\",
+  \"job_hash\":\"openjob2\"
+}" $TEST_CLIENT2 > /dev/null
+delay
+
+proton action $AGENT_ESCROW submitbid "{
+  \"agent\":\"$TEST_AGENT\",
+  \"job_id\":$JOB_OPEN2,
+  \"amount\":150000,
+  \"timeline\":259200,
+  \"proposal\":\"Quick turnaround\"
+}" $TEST_AGENT > /dev/null
+delay
+
+expect_fail "Reject selectbid by non-client" \
+  proton action $AGENT_ESCROW selectbid "{
+    \"client\":\"$TEST_AGENT\",
+    \"bid_id\":3
+  }" $TEST_AGENT
+
+
+section "30. Open Job Cancellation (cleans bids)"
+
+DEADLINE=$(($(date +%s) + 604800))
+JOB_CANCEL_BIDS=$NEXT_JOB_ID
+NEXT_JOB_ID=$((NEXT_JOB_ID + 1))
+
+proton action $AGENT_ESCROW createjob "{
+  \"client\":\"$TEST_CLIENT\",
+  \"agent\":\"\",
+  \"title\":\"Cancel With Bids\",
+  \"description\":\"Will be cancelled with active bids\",
+  \"deliverables\":\"[\\\"x\\\"]\",
+  \"amount\":100000,
+  \"symbol\":\"4,XPR\",
+  \"deadline\":$DEADLINE,
+  \"arbitrator\":\"\",
+  \"job_hash\":\"cancelbids\"
+}" $TEST_CLIENT > /dev/null
+delay
+
+proton action $AGENT_ESCROW submitbid "{
+  \"agent\":\"$TEST_AGENT\",
+  \"job_id\":$JOB_CANCEL_BIDS,
+  \"amount\":80000,
+  \"timeline\":172800,
+  \"proposal\":\"Will be cancelled\"
+}" $TEST_AGENT > /dev/null
+delay
+
+proton action $AGENT_ESCROW cancel "{
+  \"client\":\"$TEST_CLIENT\",
+  \"job_id\":$JOB_CANCEL_BIDS
+}" $TEST_CLIENT > /dev/null
+pass "Open job #$JOB_CANCEL_BIDS cancelled (bids cleaned)"
+delay
+
+
+########################################################################
+# PART 12: PERMISSIONLESS CLEANUP
 ########################################################################
 
 section "27. Permissionless Cleanup Actions"

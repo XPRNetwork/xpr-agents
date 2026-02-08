@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { initDatabase } from '../src/db/schema';
 import { handleAgentAction, handleAgentCoreTransfer } from '../src/handlers/agent';
@@ -6,6 +6,7 @@ import { handleFeedbackAction } from '../src/handlers/feedback';
 import { handleValidationAction } from '../src/handlers/validation';
 import { handleEscrowAction } from '../src/handlers/escrow';
 import { StreamAction } from '../src/stream';
+import { WebhookDispatcher } from '../src/webhooks/dispatcher';
 
 /* ------------------------------------------------------------------ */
 /*  Test Helpers                                                        */
@@ -537,5 +538,748 @@ describe('Event Logging', () => {
 
     const data = JSON.parse(event.data);
     expect(data.account).toBe('alice');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Webhook Test Helpers                                               */
+/* ------------------------------------------------------------------ */
+
+function insertSubscription(
+  db: Database.Database,
+  opts: {
+    url?: string;
+    token?: string;
+    event_filter: string;
+    account_filter?: string | null;
+    enabled?: number;
+  }
+) {
+  db.prepare(
+    'INSERT INTO webhook_subscriptions (url, token, event_filter, account_filter, enabled) VALUES (?, ?, ?, ?, ?)'
+  ).run(
+    opts.url ?? 'https://example.com/hook',
+    opts.token ?? 'test-token',
+    opts.event_filter,
+    opts.account_filter ?? null,
+    opts.enabled ?? 1
+  );
+}
+
+function createSpyDispatcher(db: Database.Database) {
+  const events: Array<{ type: string; accounts: string[]; data: any; message: string }> = [];
+  const dispatcher = new WebhookDispatcher(db);
+  // Override dispatch to capture calls without making HTTP requests
+  dispatcher.dispatch = (eventType, accounts, data, message, _blockNum) => {
+    events.push({ type: eventType, accounts, data, message });
+  };
+  return { dispatcher, events };
+}
+
+/* ------------------------------------------------------------------ */
+/*  WebhookDispatcher Unit Tests                                       */
+/* ------------------------------------------------------------------ */
+
+describe('WebhookDispatcher', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  it('should deliver to subscription with exact event match', async () => {
+    insertSubscription(db, { event_filter: '["agent.registered"]' });
+
+    const dispatcher = new WebhookDispatcher(db);
+    dispatcher.dispatch('agent.registered', ['alice'], { account: 'alice' }, 'Agent registered');
+
+    // Allow async delivery to run
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    const call = fetchSpy.mock.calls[0];
+    expect(call[0]).toBe('https://example.com/hook');
+    const body = JSON.parse(call[1].body);
+    expect(body.event_type).toBe('agent.registered');
+    expect(body.data.account).toBe('alice');
+  });
+
+  it('should match wildcard "*" to all events', async () => {
+    insertSubscription(db, { event_filter: '["*"]' });
+
+    const dispatcher = new WebhookDispatcher(db);
+    dispatcher.dispatch('job.created', ['bob'], {}, 'Job created');
+
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('should match prefix wildcard "job.*" to job events', async () => {
+    insertSubscription(db, { event_filter: '["job.*"]' });
+
+    const dispatcher = new WebhookDispatcher(db);
+
+    dispatcher.dispatch('job.created', ['bob'], {}, 'Job created');
+    dispatcher.dispatch('job.funded', ['bob'], {}, 'Job funded');
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'Agent registered');
+
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('should not deliver when event does not match filter', async () => {
+    insertSubscription(db, { event_filter: '["feedback.received"]' });
+
+    const dispatcher = new WebhookDispatcher(db);
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'Agent registered');
+
+    // Give time for potential delivery
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('should filter by account_filter when set', async () => {
+    insertSubscription(db, {
+      event_filter: '["agent.registered"]',
+      account_filter: 'alice',
+    });
+
+    const dispatcher = new WebhookDispatcher(db);
+
+    // Should match: alice is in accounts
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'Alice registered');
+
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    fetchSpy.mockClear();
+
+    // Should NOT match: bob is not alice
+    dispatcher.dispatch('agent.registered', ['bob'], {}, 'Bob registered');
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('should deliver to all matching subscriptions', async () => {
+    insertSubscription(db, {
+      url: 'https://hook1.example.com',
+      event_filter: '["agent.registered"]',
+    });
+    insertSubscription(db, {
+      url: 'https://hook2.example.com',
+      event_filter: '["*"]',
+    });
+    insertSubscription(db, {
+      url: 'https://hook3.example.com',
+      event_filter: '["feedback.received"]',
+    });
+
+    const dispatcher = new WebhookDispatcher(db);
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'Agent registered');
+
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
+    const urls = fetchSpy.mock.calls.map((c: any) => c[0]);
+    expect(urls).toContain('https://hook1.example.com');
+    expect(urls).toContain('https://hook2.example.com');
+    expect(urls).not.toContain('https://hook3.example.com');
+  });
+
+  it('should not deliver to disabled subscriptions', async () => {
+    insertSubscription(db, {
+      event_filter: '["agent.registered"]',
+      enabled: 0,
+    });
+
+    const dispatcher = new WebhookDispatcher(db);
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'Agent registered');
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('should include correct headers in delivery', async () => {
+    insertSubscription(db, {
+      token: 'my-secret-token',
+      event_filter: '["agent.registered"]',
+    });
+
+    const dispatcher = new WebhookDispatcher(db);
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'Registered');
+
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    const headers = fetchSpy.mock.calls[0][1].headers;
+    expect(headers['Authorization']).toBe('Bearer my-secret-token');
+    expect(headers['Content-Type']).toBe('application/json');
+    expect(headers['X-Webhook-Event']).toBe('agent.registered');
+  });
+
+  it('should log deliveries to webhook_deliveries table', async () => {
+    insertSubscription(db, { event_filter: '["agent.registered"]' });
+
+    const dispatcher = new WebhookDispatcher(db);
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'Registered');
+
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // Allow delivery logging to complete
+    await new Promise((r) => setTimeout(r, 50));
+
+    const deliveries = db.prepare('SELECT * FROM webhook_deliveries').all() as any[];
+    expect(deliveries.length).toBeGreaterThanOrEqual(1);
+    expect(deliveries[0].event_type).toBe('agent.registered');
+    expect(deliveries[0].status_code).toBe(200);
+  });
+
+  it('should handle malformed event_filter gracefully (no crash)', async () => {
+    // Insert a subscription with invalid JSON in event_filter
+    db.prepare(
+      'INSERT INTO webhook_subscriptions (url, token, event_filter, enabled) VALUES (?, ?, ?, ?)'
+    ).run('https://example.com/hook', 'tok', 'not-json', 1);
+
+    const dispatcher = new WebhookDispatcher(db);
+    // Should not throw
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'Registered');
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('should support multiple event types in a single filter', async () => {
+    insertSubscription(db, {
+      event_filter: '["agent.registered","feedback.received","job.created"]',
+    });
+
+    const dispatcher = new WebhookDispatcher(db);
+
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'msg1');
+    dispatcher.dispatch('feedback.received', ['alice', 'bob'], {}, 'msg2');
+    dispatcher.dispatch('job.created', ['bob', 'alice'], {}, 'msg3');
+    dispatcher.dispatch('validation.submitted', ['val1'], {}, 'msg4');
+
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  it('should reload subscriptions from database', async () => {
+    const dispatcher = new WebhookDispatcher(db);
+
+    // Initially no subscriptions
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'msg');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    // Add subscription and reload
+    insertSubscription(db, { event_filter: '["agent.registered"]' });
+    dispatcher.reload();
+
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'msg');
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Subscription Matching Tests                                        */
+/* ------------------------------------------------------------------ */
+
+describe('Subscription Matching', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  it('should match "feedback.*" to feedback.received but not agent.registered', async () => {
+    insertSubscription(db, { event_filter: '["feedback.*"]' });
+
+    const dispatcher = new WebhookDispatcher(db);
+
+    dispatcher.dispatch('feedback.received', ['alice', 'bob'], {}, 'msg');
+    dispatcher.dispatch('feedback.disputed', ['alice'], {}, 'msg');
+    dispatcher.dispatch('feedback.resolved', ['owner'], {}, 'msg');
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'msg');
+
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  it('should match "validation.*" to all validation events', async () => {
+    insertSubscription(db, { event_filter: '["validation.*"]' });
+
+    const dispatcher = new WebhookDispatcher(db);
+
+    dispatcher.dispatch('validation.submitted', ['val1', 'alice'], {}, 'msg');
+    dispatcher.dispatch('validation.challenged', ['bob'], {}, 'msg');
+    dispatcher.dispatch('validation.challenge_resolved', ['owner'], {}, 'msg');
+    dispatcher.dispatch('job.created', ['bob', 'alice'], {}, 'msg');
+
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  it('should narrow by account_filter with wildcard event', async () => {
+    insertSubscription(db, {
+      event_filter: '["*"]',
+      account_filter: 'alice',
+    });
+
+    const dispatcher = new WebhookDispatcher(db);
+
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'msg');
+    dispatcher.dispatch('job.created', ['bob', 'alice'], {}, 'msg');
+    dispatcher.dispatch('feedback.received', ['carol', 'dave'], {}, 'msg');
+
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('should not match when account_filter is set but account is not in event', async () => {
+    insertSubscription(db, {
+      event_filter: '["job.*"]',
+      account_filter: 'charlie',
+    });
+
+    const dispatcher = new WebhookDispatcher(db);
+
+    dispatcher.dispatch('job.created', ['bob', 'alice'], {}, 'msg');
+    dispatcher.dispatch('job.funded', ['alice'], {}, 'msg');
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('should handle mixed exact and wildcard filters', async () => {
+    insertSubscription(db, {
+      event_filter: '["agent.registered","job.*"]',
+    });
+
+    const dispatcher = new WebhookDispatcher(db);
+
+    dispatcher.dispatch('agent.registered', ['alice'], {}, 'msg');
+    dispatcher.dispatch('agent.released', ['alice'], {}, 'msg');
+    dispatcher.dispatch('job.created', ['bob', 'alice'], {}, 'msg');
+    dispatcher.dispatch('job.funded', ['bob'], {}, 'msg');
+
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Handler Webhook Integration Tests                                  */
+/* ------------------------------------------------------------------ */
+
+describe('Handler Webhook Integration', () => {
+  it('should dispatch agent.registered on register action', () => {
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleAgentAction(
+      db,
+      createAction('agentcore', 'register', {
+        account: 'alice',
+        name: 'Alice Agent',
+        description: 'An AI agent',
+        endpoint: 'https://api.alice.com',
+        protocol: 'https',
+        capabilities: '["chat"]',
+      }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('agent.registered');
+    expect(events[0].accounts).toContain('alice');
+    expect(events[0].data.account).toBe('alice');
+  });
+
+  it('should dispatch agent.status_changed on setstatus action', () => {
+    // Register first
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleAgentAction(
+      db,
+      createAction('agentcore', 'setstatus', { account: 'alice', active: false }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('agent.status_changed');
+    expect(events[0].accounts).toContain('alice');
+  });
+
+  it('should dispatch agent.claimed on claim action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'botaccount', name: 'Bot', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+    handleAgentAction(db, createAction('agentcore', 'approveclaim', {
+      agent: 'botaccount', new_owner: 'alice',
+    }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleAgentAction(
+      db,
+      createAction('agentcore', 'claim', { agent: 'botaccount' }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('agent.claimed');
+    expect(events[0].accounts).toContain('botaccount');
+  });
+
+  it('should dispatch agent.released on release action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'botaccount', name: 'Bot', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+    handleAgentAction(db, createAction('agentcore', 'approveclaim', {
+      agent: 'botaccount', new_owner: 'alice',
+    }));
+    handleAgentAction(db, createAction('agentcore', 'claim', { agent: 'botaccount' }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleAgentAction(
+      db,
+      createAction('agentcore', 'release', { agent: 'botaccount' }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('agent.released');
+    expect(events[0].accounts).toContain('botaccount');
+  });
+
+  it('should dispatch feedback.received on submit action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleFeedbackAction(
+      db,
+      createAction('agentfeed', 'submit', {
+        reviewer: 'bob', agent: 'alice', score: 4, tags: 'quality', job_hash: 'hash1', evidence_uri: '', amount_paid: 0,
+      }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('feedback.received');
+    expect(events[0].accounts).toContain('alice');
+    expect(events[0].accounts).toContain('bob');
+    expect(events[0].data.score).toBe(4);
+  });
+
+  it('should dispatch feedback.disputed on dispute action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+    handleFeedbackAction(db, createAction('agentfeed', 'submit', {
+      reviewer: 'bob', agent: 'alice', score: 4, tags: '', job_hash: '', evidence_uri: '', amount_paid: 0,
+    }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleFeedbackAction(
+      db,
+      createAction('agentfeed', 'dispute', {
+        disputer: 'alice', feedback_id: 1, reason: 'Wrong', evidence_uri: '',
+      }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('feedback.disputed');
+    expect(events[0].accounts).toContain('alice');
+  });
+
+  it('should dispatch feedback.resolved on resolve action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+    handleFeedbackAction(db, createAction('agentfeed', 'submit', {
+      reviewer: 'bob', agent: 'alice', score: 4, tags: '', job_hash: '', evidence_uri: '', amount_paid: 0,
+    }));
+    handleFeedbackAction(db, createAction('agentfeed', 'dispute', {
+      disputer: 'alice', feedback_id: 1, reason: 'Wrong', evidence_uri: '',
+    }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleFeedbackAction(
+      db,
+      createAction('agentfeed', 'resolve', {
+        resolver: 'owner', dispute_id: 1, upheld: true, resolution_notes: 'Verified',
+      }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('feedback.resolved');
+    expect(events[0].accounts).toContain('owner');
+  });
+
+  it('should dispatch feedback.reinstated on reinstate action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+    handleFeedbackAction(db, createAction('agentfeed', 'submit', {
+      reviewer: 'bob', agent: 'alice', score: 4, tags: '', job_hash: '', evidence_uri: '', amount_paid: 0,
+    }));
+    handleFeedbackAction(db, createAction('agentfeed', 'dispute', {
+      disputer: 'alice', feedback_id: 1, reason: 'Wrong', evidence_uri: '',
+    }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleFeedbackAction(
+      db,
+      createAction('agentfeed', 'reinstate', { feedback_id: 1 }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('feedback.reinstated');
+    expect(events[0].accounts).toContain('alice');
+  });
+
+  it('should dispatch job.created on createjob action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleEscrowAction(
+      db,
+      createAction('agentescrow', 'createjob', {
+        client: 'bob', agent: 'alice', title: 'Data Analysis', description: 'Analyze dataset',
+        deliverables: '["report"]', amount: 50000, deadline: 1700100000, arbitrator: '',
+      }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('job.created');
+    expect(events[0].accounts).toContain('bob');
+    expect(events[0].accounts).toContain('alice');
+    expect(events[0].data.title).toBe('Data Analysis');
+  });
+
+  it('should dispatch job.accepted on acceptjob action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+    handleEscrowAction(db, createAction('agentescrow', 'createjob', {
+      client: 'bob', agent: 'alice', title: 'Job', description: '', deliverables: '', amount: 50000, deadline: 0, arbitrator: '',
+    }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleEscrowAction(
+      db,
+      createAction('agentescrow', 'acceptjob', { job_id: 1, agent: 'alice' }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('job.accepted');
+    expect(events[0].accounts).toContain('alice');
+    expect(events[0].accounts).toContain('bob');
+  });
+
+  it('should dispatch job.delivered on deliver action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+    handleEscrowAction(db, createAction('agentescrow', 'createjob', {
+      client: 'bob', agent: 'alice', title: 'Job', description: '', deliverables: '', amount: 50000, deadline: 0, arbitrator: '',
+    }));
+    handleEscrowAction(db, createAction('agentescrow', 'acceptjob', { job_id: 1, agent: 'alice' }));
+    handleEscrowAction(db, createAction('agentescrow', 'startjob', { job_id: 1 }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleEscrowAction(
+      db,
+      createAction('agentescrow', 'deliver', { job_id: 1, evidence_uri: 'ipfs://result' }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('job.delivered');
+    expect(events[0].accounts).toContain('alice');
+    expect(events[0].accounts).toContain('bob');
+  });
+
+  it('should dispatch job.completed on approve action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+    handleEscrowAction(db, createAction('agentescrow', 'createjob', {
+      client: 'bob', agent: 'alice', title: 'Job', description: '', deliverables: '', amount: 50000, deadline: 0, arbitrator: '',
+    }));
+    handleEscrowAction(db, createAction('agentescrow', 'acceptjob', { job_id: 1, agent: 'alice' }));
+    handleEscrowAction(db, createAction('agentescrow', 'startjob', { job_id: 1 }));
+    handleEscrowAction(db, createAction('agentescrow', 'deliver', { job_id: 1, evidence_uri: 'ipfs://result' }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleEscrowAction(
+      db,
+      createAction('agentescrow', 'approve', { job_id: 1 }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('job.completed');
+    expect(events[0].accounts).toContain('alice');
+    expect(events[0].accounts).toContain('bob');
+  });
+
+  it('should dispatch job.disputed on dispute action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+    handleEscrowAction(db, createAction('agentescrow', 'createjob', {
+      client: 'bob', agent: 'alice', title: 'Job', description: '', deliverables: '', amount: 50000, deadline: 0, arbitrator: 'arb1',
+    }));
+    handleEscrowAction(db, createAction('agentescrow', 'acceptjob', { job_id: 1, agent: 'alice' }));
+    handleEscrowAction(db, createAction('agentescrow', 'startjob', { job_id: 1 }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleEscrowAction(
+      db,
+      createAction('agentescrow', 'dispute', {
+        job_id: 1, raised_by: 'bob', reason: 'Not delivered', evidence_uri: '',
+      }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('job.disputed');
+    expect(events[0].accounts).toContain('bob');
+    expect(events[0].accounts).toContain('alice');
+    expect(events[0].accounts).toContain('arb1');
+  });
+
+  it('should dispatch dispute.resolved on arbitrate action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+    handleEscrowAction(db, createAction('agentescrow', 'createjob', {
+      client: 'bob', agent: 'alice', title: 'Job', description: '', deliverables: '', amount: 50000, deadline: 0, arbitrator: 'arb1',
+    }));
+    handleEscrowAction(db, createAction('agentescrow', 'acceptjob', { job_id: 1, agent: 'alice' }));
+    handleEscrowAction(db, createAction('agentescrow', 'startjob', { job_id: 1 }));
+    handleEscrowAction(db, createAction('agentescrow', 'dispute', {
+      job_id: 1, raised_by: 'bob', reason: 'Not delivered', evidence_uri: '',
+    }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleEscrowAction(
+      db,
+      createAction('agentescrow', 'arbitrate', {
+        dispute_id: 1, arbitrator: 'arb1', client_percent: 70, resolution_notes: 'Partial',
+      }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('dispute.resolved');
+    expect(events[0].accounts).toContain('arb1');
+  });
+
+  it('should dispatch validation.submitted on validate action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+    handleValidationAction(db, createAction('agentvalid', 'regval', {
+      account: 'validator1', method: 'auto', specializations: '[]',
+    }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleValidationAction(
+      db,
+      createAction('agentvalid', 'validate', {
+        validator: 'validator1', agent: 'alice', job_hash: 'hash1', result: 1, confidence: 95, evidence_uri: 'ipfs://ev',
+      }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('validation.submitted');
+    expect(events[0].accounts).toContain('alice');
+    expect(events[0].accounts).toContain('validator1');
+  });
+
+  it('should dispatch validation.challenge_resolved on resolve action', () => {
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+    handleValidationAction(db, createAction('agentvalid', 'regval', {
+      account: 'validator1', method: 'auto', specializations: '[]',
+    }));
+    handleValidationAction(db, createAction('agentvalid', 'validate', {
+      validator: 'validator1', agent: 'alice', job_hash: 'hash1', result: 1, confidence: 95, evidence_uri: '',
+    }));
+    handleValidationAction(db, createAction('agentvalid', 'challenge', {
+      challenger: 'bob', validation_id: 1, reason: 'Incorrect', evidence_uri: '',
+    }));
+
+    const { dispatcher, events } = createSpyDispatcher(db);
+
+    handleValidationAction(
+      db,
+      createAction('agentvalid', 'resolve', {
+        resolver: 'owner', challenge_id: 1, upheld: true, resolution_notes: 'Correct',
+      }),
+      dispatcher
+    );
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe('validation.challenge_resolved');
+    expect(events[0].accounts).toContain('owner');
+  });
+
+  it('should not dispatch when no dispatcher is provided', () => {
+    // This is the default for existing tests - just verify no error
+    handleAgentAction(db, createAction('agentcore', 'register', {
+      account: 'alice', name: 'Alice', description: '', endpoint: '', protocol: '', capabilities: '[]',
+    }));
+
+    const agent = db.prepare('SELECT * FROM agents WHERE account = ?').get('alice') as any;
+    expect(agent).toBeTruthy();
+    // No dispatcher passed, no crash
   });
 });

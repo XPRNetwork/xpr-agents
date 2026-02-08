@@ -23,6 +23,9 @@ export default function Home() {
               <Link href="/" className="text-gray-600 hover:text-gray-900">
                 Discover
               </Link>
+              <Link href="/jobs" className="text-gray-600 hover:text-gray-900">
+                Jobs
+              </Link>
               <Link href="/register" className="text-gray-600 hover:text-gray-900">
                 Register
               </Link>
