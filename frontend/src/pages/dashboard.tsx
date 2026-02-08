@@ -6,7 +6,7 @@ import { TrustBadge } from '@/components/TrustBadge';
 import { PluginSelector } from '@/components/PluginSelector';
 import { useProton } from '@/hooks/useProton';
 import { useAgent } from '@/hooks/useAgent';
-import { CONTRACTS, formatXpr } from '@/lib/registry';
+import { CONTRACTS, formatXpr, formatTimeline, getBidsByAgent, type Bid } from '@/lib/registry';
 
 export default function Dashboard() {
   const { session, transact } = useProton();
@@ -19,6 +19,13 @@ export default function Dashboard() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPluginSelector, setShowPluginSelector] = useState(false);
+  const [myBids, setMyBids] = useState<Bid[]>([]);
+
+  useEffect(() => {
+    if (session?.auth.actor) {
+      getBidsByAgent(session.auth.actor).then(setMyBids).catch(() => {});
+    }
+  }, [session?.auth.actor]);
 
   const handleStake = async () => {
     if (!session || !stakeAmount) return;
@@ -376,6 +383,38 @@ export default function Dashboard() {
                       </div>
                       <PluginSelector onSelect={handleAddPlugin} />
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* My Bids */}
+              <div className="bg-white border border-gray-200 rounded-lg p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-semibold">My Bids</h2>
+                  <Link
+                    href="/jobs"
+                    className="text-sm text-proton-purple hover:underline"
+                  >
+                    Browse Jobs
+                  </Link>
+                </div>
+
+                {myBids.length === 0 ? (
+                  <p className="text-gray-500 text-sm">No active bids</p>
+                ) : (
+                  <div className="space-y-3">
+                    {myBids.map((bid) => (
+                      <div key={bid.id} className="p-3 border border-gray-100 rounded-lg">
+                        <div className="flex justify-between items-start">
+                          <div className="text-sm font-medium">Job #{bid.job_id}</div>
+                          <div className="text-sm text-proton-purple">{formatXpr(bid.amount)}</div>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          {formatTimeline(bid.timeline)} timeline
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1 truncate">{bid.proposal}</p>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

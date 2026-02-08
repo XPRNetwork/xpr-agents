@@ -338,6 +338,32 @@ function parseJob(row: any): Job {
   };
 }
 
+export async function getBidsByAgent(agent: string): Promise<Bid[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'bids',
+    index_position: 3, // byAgent index
+    key_type: 'i64',
+    lower_bound: agent,
+    upper_bound: agent,
+    limit: 100,
+  });
+
+  return result.rows
+    .filter((row: any) => row.agent === agent)
+    .map((row: any) => ({
+      id: parseInt(row.id),
+      job_id: parseInt(row.job_id),
+      agent: row.agent,
+      amount: parseInt(row.amount),
+      timeline: parseInt(row.timeline),
+      proposal: row.proposal,
+      created_at: parseInt(row.created_at),
+    }));
+}
+
 export function formatTimeline(seconds: number): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;

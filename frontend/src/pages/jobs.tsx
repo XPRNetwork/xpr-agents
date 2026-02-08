@@ -107,6 +107,37 @@ export default function Jobs() {
     }
   }
 
+  async function handleSelectBid(bidId: number) {
+    if (!session || !selectedJob) return;
+
+    setProcessing(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await transact([
+        {
+          account: CONTRACTS.AGENT_ESCROW,
+          name: 'selectbid',
+          data: {
+            client: session.auth.actor,
+            bid_id: bidId,
+          },
+        },
+      ]);
+
+      setSuccess('Bid selected! Agent assigned to job.');
+      // Reload jobs and bids
+      await loadJobs();
+      const jobBids = await getBidsForJob(selectedJob.id);
+      setBids(jobBids);
+    } catch (e: any) {
+      setError(e.message || 'Failed to select bid');
+    } finally {
+      setProcessing(false);
+    }
+  }
+
   async function handleWithdrawBid(bidId: number) {
     if (!session) return;
 
@@ -355,15 +386,26 @@ export default function Jobs() {
                                     {formatXpr(bid.amount)} &middot; {formatTimeline(bid.timeline)}
                                   </div>
                                 </div>
-                                {session?.auth.actor === bid.agent && (
-                                  <button
-                                    onClick={() => handleWithdrawBid(bid.id)}
-                                    disabled={processing}
-                                    className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
-                                  >
-                                    Withdraw
-                                  </button>
-                                )}
+                                <div className="flex gap-2">
+                                  {session?.auth.actor === selectedJob.client && (
+                                    <button
+                                      onClick={() => handleSelectBid(bid.id)}
+                                      disabled={processing}
+                                      className="text-xs px-2 py-1 bg-proton-purple text-white rounded hover:bg-purple-700 disabled:opacity-50"
+                                    >
+                                      Select
+                                    </button>
+                                  )}
+                                  {session?.auth.actor === bid.agent && (
+                                    <button
+                                      onClick={() => handleWithdrawBid(bid.id)}
+                                      disabled={processing}
+                                      className="text-xs text-red-500 hover:text-red-700 disabled:opacity-50"
+                                    >
+                                      Withdraw
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                               <p className="text-sm text-gray-600 mt-2">{bid.proposal}</p>
                             </div>
