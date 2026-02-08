@@ -11,10 +11,15 @@ echo -e "${GREEN}=== XPR Agents Testnet Deployment ===${NC}"
 
 # Configuration
 NETWORK="proton-test"
+CREATOR="paul123"
+OWNER="protonnz"
 AGENT_CORE="agentcore"
 AGENT_FEED="agentfeed"
 AGENT_VALID="agentvalid"
 AGENT_ESCROW="agentescrow"
+
+# Local proton-cli with account:create-funded support
+PROTON_CLI="/Users/paulgrey/Documents/projects/proton-cli/bin/run"
 
 # Check if proton CLI is installed
 if ! command -v proton &> /dev/null; then
@@ -29,37 +34,40 @@ proton chain:set $NETWORK
 # Step 1: Build contracts
 echo -e "${YELLOW}Building contracts...${NC}"
 
-cd "$(dirname "$0")/../contracts/agentcore"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+cd "$PROJECT_DIR/contracts/agentcore"
 npm install
 npm run build
 echo -e "${GREEN}✓ agentcore built${NC}"
 
-cd "../agentfeed"
+cd "$PROJECT_DIR/contracts/agentfeed"
 npm install
 npm run build
 echo -e "${GREEN}✓ agentfeed built${NC}"
 
-cd "../agentvalid"
+cd "$PROJECT_DIR/contracts/agentvalid"
 npm install
 npm run build
 echo -e "${GREEN}✓ agentvalid built${NC}"
 
-cd "../agentescrow"
+cd "$PROJECT_DIR/contracts/agentescrow"
 npm install
 npm run build
 echo -e "${GREEN}✓ agentescrow built${NC}"
 
-cd "$(dirname "$0")/.."
+cd "$PROJECT_DIR"
 
 # Step 2: Create accounts (if they don't exist)
 echo -e "${YELLOW}Creating contract accounts (if needed)...${NC}"
 
 for acc in $AGENT_CORE $AGENT_FEED $AGENT_VALID $AGENT_ESCROW; do
-    if proton account:get $acc &> /dev/null; then
+    if curl -sf https://tn1.protonnz.com/v1/chain/get_account -d "{\"account_name\":\"$acc\"}" > /dev/null 2>&1; then
         echo -e "${GREEN}✓ Account $acc already exists${NC}"
     else
-        echo -e "${YELLOW}Creating account $acc...${NC}"
-        proton account:create $acc
+        echo -e "${YELLOW}Creating account $acc (creator: $CREATOR, owner: $OWNER)...${NC}"
+        "$PROTON_CLI" account:create-funded "$acc" --creator "$CREATOR" --owner "$OWNER"
         echo -e "${GREEN}✓ Account $acc created${NC}"
     fi
 done
@@ -91,9 +99,10 @@ done
 echo -e "${YELLOW}Initializing contracts...${NC}"
 
 # Initialize agentcore
-# min_stake: 100.0000 XPR = 1000000
+# min_stake: 0 for testnet (getSystemStake returns XPR units, not smallest units)
+# claim_fee: 10.0000 XPR = 100000 (in smallest units)
 # Requires: feed_contract, valid_contract, escrow_contract
-proton action $AGENT_CORE init "{\"owner\":\"$AGENT_CORE\",\"min_stake\":1000000,\"feed_contract\":\"$AGENT_FEED\",\"valid_contract\":\"$AGENT_VALID\",\"escrow_contract\":\"$AGENT_ESCROW\"}" $AGENT_CORE
+proton action $AGENT_CORE init "{\"owner\":\"$AGENT_CORE\",\"min_stake\":0,\"claim_fee\":100000,\"feed_contract\":\"$AGENT_FEED\",\"valid_contract\":\"$AGENT_VALID\",\"escrow_contract\":\"$AGENT_ESCROW\"}" $AGENT_CORE
 echo -e "${GREEN}✓ agentcore initialized${NC}"
 
 # Initialize agentfeed
@@ -118,5 +127,8 @@ echo "  - Agent Core: $AGENT_CORE"
 echo "  - Agent Feed: $AGENT_FEED"
 echo "  - Agent Valid: $AGENT_VALID"
 echo "  - Agent Escrow: $AGENT_ESCROW"
+echo ""
+echo "All accounts owned by: $OWNER (backup recovery)"
+echo "Created by: $CREATOR"
 echo ""
 echo "Run './scripts/test-actions.sh' to test the contracts"
