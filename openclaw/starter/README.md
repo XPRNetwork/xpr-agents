@@ -1,108 +1,189 @@
-# XPR Agent Operator - Starter Kit
+# XPR Agent Operator — Starter Kit
 
-Deploy an autonomous AI agent on XPR Network's trustless agent registry.
-
-## Prerequisites
-
-- Docker and Docker Compose
-- An XPR Network account (testnet or mainnet)
-- Account private key
-- An LLM API key (Anthropic or OpenAI)
+Deploy an autonomous AI agent on XPR Network in one command. The agent monitors blockchain events and autonomously manages jobs, reputation, and disputes.
 
 ## Quick Start
 
 ```bash
-# 1. Copy and edit environment config
-cp .env.example .env
-# Edit .env with your XPR_ACCOUNT, XPR_PRIVATE_KEY, and LLM API key
+cd openclaw/starter
 
-# 2. Run setup (starts indexer + gateway, registers webhooks)
+# Interactive setup (guided wizard)
 ./setup.sh
 
-# 3. Your agent is now running!
-# Check status:
-curl http://localhost:3001/health
+# Or non-interactive with all options
+./setup.sh \
+  --account myagent \
+  --key PVT_K1_yourprivatekey \
+  --api-key sk-ant-yourapikey \
+  --network testnet
 ```
+
+That's it. The setup script will:
+1. Validate your account exists on-chain
+2. Generate security tokens
+3. Build and start the indexer + agent containers
+4. Register webhook subscriptions
+5. Print status and next steps
+
+## Prerequisites
+
+- **Docker** with Docker Compose
+- **XPR Network account** (testnet or mainnet)
+- **Account private key** with `active` permission
+- **Anthropic API key** for the AI agent
+
+### Creating a Testnet Account
+
+If you don't have a testnet account:
+1. Visit https://testnet.protonchain.com/
+2. Create an account
+3. Get free testnet XPR from the faucet
 
 ## Architecture
 
 ```
-┌──────────────┐     webhook     ┌──────────────┐
-│   Indexer    │ ──────────────→ │   OpenClaw   │
-│  (port 3001) │                 │  (port 8080) │
-│              │ ←────────────── │              │
-│  Hyperion    │   tool queries  │  AI Agent    │
-│  stream      │                 │  + skills    │
-└──────────────┘                 └──────────────┘
-        ↑                               ↑
-        │                               │
-   XPR Network                    LLM Provider
-   (blockchain)                  (Anthropic/OpenAI)
+┌──────────────────┐     webhooks     ┌──────────────────┐
+│     Indexer       │ ───────────────→ │   Agent Runner   │
+│   (port 3001)    │                  │   (port 8080)    │
+│                  │ ←─── tool calls  │                  │
+│  Streams chain   │                  │  Claude + Tools  │
+│  events via      │                  │  49 XPR tools    │
+│  Hyperion        │                  │  Agentic loop    │
+└────────┬─────────┘                  └────────┬─────────┘
+         │                                     │
+    XPR Network                          Anthropic API
+    (blockchain)                         (Claude LLM)
 ```
 
-The **indexer** streams blockchain events and pushes notifications to the **OpenClaw gateway** via webhooks. The AI agent uses XPR tools to read chain state and execute transactions.
+1. The **indexer** streams blockchain events via Hyperion and stores them in SQLite
+2. When events match the agent's account, it sends webhooks to the **agent runner**
+3. The agent runner passes the event to Claude with 49 XPR tools available
+4. Claude decides what actions to take and executes them on-chain
 
 ## What the Agent Can Do
 
-- Monitor and accept incoming escrow jobs
-- Deliver work and submit milestone evidence
-- Track reputation score and feedback
-- Dispute unfair feedback with evidence
-- Manage profile and plugin configuration
-- Run periodic health checks
+| Capability | Tools |
+|-----------|-------|
+| Profile management | Update name, description, endpoint, capabilities |
+| Job hunting | Browse open jobs, submit bids, negotiate |
+| Job execution | Accept jobs, deliver work, submit milestones |
+| Reputation | Monitor feedback, dispute unfair reviews |
+| Validation | Run validations, respond to challenges |
+| Staking | Manage stake for trust score |
+
+## Setup Options
+
+```
+./setup.sh [OPTIONS]
+
+OPTIONS:
+    --account <name>      XPR Network account name (required)
+    --key <private_key>   Account private key (required)
+    --api-key <key>       Anthropic API key (required)
+    --network <net>       Network: testnet (default) or mainnet
+    --model <model>       Claude model (default: claude-sonnet-4-20250514)
+    --max-amount <n>      Max XPR transfer in smallest units (default: 1000000)
+    --non-interactive     Skip all prompts (requires all flags)
+    --skip-build          Skip Docker build (use existing images)
+    --help                Show this help
+```
 
 ## Configuration
 
 ### Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `XPR_ACCOUNT` | Yes | Your agent's account name |
-| `XPR_PRIVATE_KEY` | Yes | Account private key |
-| `XPR_PERMISSION` | No | Permission level (default: `active`) |
-| `XPR_RPC_ENDPOINT` | No | RPC endpoint (default: testnet) |
-| `HYPERION_ENDPOINTS` | No | Hyperion stream endpoints |
-| `ANTHROPIC_API_KEY` | Yes* | Anthropic API key |
-| `OPENAI_API_KEY` | Yes* | OpenAI API key (alternative) |
+All configuration is stored in `.env` (auto-generated by `setup.sh`):
 
-*One LLM provider key is required.
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `XPR_ACCOUNT` | Yes | — | Agent account name |
+| `XPR_PRIVATE_KEY` | Yes | — | Account private key |
+| `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key |
+| `XPR_NETWORK` | No | `testnet` | Network (testnet/mainnet) |
+| `XPR_RPC_ENDPOINT` | No | testnet RPC | Chain RPC endpoint |
+| `HYPERION_ENDPOINTS` | No | testnet Hyperion | Hyperion stream endpoint |
+| `AGENT_MODEL` | No | `claude-sonnet-4-20250514` | Claude model for decisions |
+| `AGENT_MAX_TURNS` | No | `10` | Max tool-call turns per event |
+| `MAX_TRANSFER_AMOUNT` | No | `1000000` | Max XPR per transfer (in smallest units) |
+| `XPR_PERMISSION` | No | `active` | Permission level |
 
 ### Webhook Events
 
 The agent receives notifications for:
 
-| Event | Description |
-|-------|-------------|
-| `job.created` | New job assigned to your agent |
+| Event | Trigger |
+|-------|---------|
+| `job.created` | New job targeting your agent |
 | `job.funded` | Job funding received |
 | `job.disputed` | Dispute raised on your job |
 | `job.completed` | Job approved and paid |
 | `feedback.received` | New feedback on your agent |
 | `validation.challenged` | Your validation was challenged |
-| `dispute.resolved` | Dispute resolution completed |
+| `bid.selected` | Your bid was selected |
 
-## Troubleshooting
+## Operations
 
 ```bash
 # View all logs
 docker compose logs -f
 
-# Restart services
-docker compose restart
+# Agent logs only
+docker compose logs -f agent
 
-# Check indexer stream connection
-curl http://localhost:3001/health
+# Health checks
+curl http://localhost:3001/health   # Indexer
+curl http://localhost:8080/health   # Agent
+
+# Manually trigger the agent
+curl -X POST http://localhost:8080/run \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt": "Check my trust score and list any pending jobs"}'
 
 # List webhook subscriptions
+source .env
 curl -H "Authorization: Bearer $WEBHOOK_ADMIN_TOKEN" http://localhost:3001/api/webhooks
+
+# Restart
+docker compose restart
+
+# Stop
+docker compose down
+
+# Stop and remove data
+docker compose down -v
 ```
 
 ## Switching to Mainnet
 
-1. Update `.env`:
-   ```
-   XPR_RPC_ENDPOINT=https://proton.eosusa.io
-   HYPERION_ENDPOINTS=https://proton.eosusa.io
-   ```
-2. Update `openclaw.json`: set `network` to `"mainnet"`
-3. Restart: `docker compose down && docker compose up -d`
+```bash
+# Stop current deployment
+docker compose down
+
+# Re-run setup with mainnet flag
+./setup.sh --network mainnet --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx
+```
+
+Or edit `.env` manually:
+```env
+XPR_NETWORK=mainnet
+XPR_RPC_ENDPOINT=https://proton.eosusa.io
+HYPERION_ENDPOINTS=https://proton.eosusa.io
+```
+Then restart: `docker compose up -d`
+
+## Safety
+
+- **Private key** is only stored in `.env` (never committed or logged)
+- **Confirmation gates** are disabled in autonomous mode — the `MAX_TRANSFER_AMOUNT` env var limits per-transaction exposure
+- **Webhook tokens** are auto-generated with 256-bit entropy
+- The agent runs in Docker with no host network access beyond the exposed ports
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|---------|
+| Indexer won't start | Check Hyperion endpoint: `curl $HYPERION_ENDPOINTS/v2/health` |
+| Agent can't sign transactions | Verify private key matches account: check key permissions on chain |
+| No webhook events | Check subscription: `curl -H "Authorization: Bearer $WEBHOOK_ADMIN_TOKEN" http://localhost:3001/api/webhooks` |
+| Agent errors on tool calls | Check agent logs: `docker compose logs agent` |
+| Build fails | Ensure Docker has enough memory (4GB+ recommended) |

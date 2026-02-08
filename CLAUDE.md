@@ -587,7 +587,8 @@ All phases are complete:
 - `maxTransferAmount` enforcement on all XPR transfer/stake/fee operations
 - Agent operator skill (`skills/xpr-agent-operator/SKILL.md`)
 - Indexer webhook system (subscriptions, async dispatch with retry, auto-disable)
-- Starter kit with Docker Compose, setup script, and config templates
+- Standalone agent runner (`starter/agent/`) — Express webhook listener with Claude agentic loop
+- Single-command starter kit: `./setup.sh --account X --key X --api-key X` with interactive wizard
 
 ## Comparison: EIP-8004 vs XPR Network
 
@@ -649,12 +650,16 @@ xpr-agents/
 │   ├── skills/
 │   │   └── xpr-agent-operator/
 │   │       └── SKILL.md         # Agent operator role behavior
-│   ├── starter/                 # Quick-start deployment kit
-│   │   ├── docker-compose.yml
-│   │   ├── .env.example
-│   │   ├── openclaw.json
-│   │   ├── setup.sh
-│   │   └── README.md
+│   ├── starter/                 # Single-command deployment kit
+│   │   ├── setup.sh             # Interactive/CLI setup wizard
+│   │   ├── docker-compose.yml   # Indexer + agent runner services
+│   │   ├── .env.example         # Configuration template
+│   │   ├── README.md            # Deployment documentation
+│   │   └── agent/               # Autonomous agent runner
+│   │       ├── package.json
+│   │       ├── Dockerfile
+│   │       └── src/
+│   │           └── index.ts     # Webhook listener + Claude agentic loop
 │   └── tests/
 │       ├── tools.test.ts
 │       ├── confirm.test.ts

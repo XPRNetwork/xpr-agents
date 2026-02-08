@@ -1,10 +1,8 @@
-version: '3.8'
-
 services:
   indexer:
     build:
-      context: ../../indexer
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: indexer/Dockerfile
     environment:
       - PORT=3001
       - DB_PATH=/data/agents.db
@@ -22,19 +20,23 @@ services:
       start_period: 15s
     restart: unless-stopped
 
-  openclaw:
-    image: openclaw/gateway:latest
+  agent:
+    build:
+      context: ../..
+      dockerfile: openclaw/starter/agent/Dockerfile
     environment:
+      - PORT=8080
       - XPR_ACCOUNT=${XPR_ACCOUNT}
       - XPR_PRIVATE_KEY=${XPR_PRIVATE_KEY}
       - XPR_PERMISSION=${XPR_PERMISSION:-active}
       - XPR_RPC_ENDPOINT=${XPR_RPC_ENDPOINT:-https://tn1.protonnz.com}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - XPR_NETWORK=${XPR_NETWORK:-testnet}
+      - INDEXER_URL=http://indexer:3001
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - AGENT_MODEL=${AGENT_MODEL:-claude-sonnet-4-20250514}
+      - AGENT_MAX_TURNS=${AGENT_MAX_TURNS:-10}
+      - MAX_TRANSFER_AMOUNT=${MAX_TRANSFER_AMOUNT:-1000000}
       - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN}
-    volumes:
-      - ./openclaw.json:/app/openclaw.json:ro
-      - ../skills:/app/skills:ro
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
