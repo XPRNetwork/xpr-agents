@@ -172,11 +172,13 @@ if [ -f .env ]; then
   log "Found existing setup in $(pwd)"
 
   # Source existing config (only the vars we need)
-  while IFS='=' read -r key value; do
+  # Use parameter expansion to handle values containing '='
+  while IFS= read -r line; do
     # Skip comments and empty lines
-    [[ "$key" =~ ^#.*$ ]] && continue
-    [ -z "$key" ] && continue
-    # Only override if not set via CLI flags
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+    key="${line%%=*}"
+    value="${line#*=}"
     case "$key" in
       XPR_ACCOUNT)        [ -z "$XPR_ACCOUNT" ] && XPR_ACCOUNT="$value" ;;
       XPR_PRIVATE_KEY)    [ -z "$XPR_PRIVATE_KEY" ] && XPR_PRIVATE_KEY="$value" ;;
