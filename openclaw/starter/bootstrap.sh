@@ -652,27 +652,42 @@ if echo "$AGENT_ONCHAIN" | grep -q "\"account\":\"$XPR_ACCOUNT\""; then
   [ -n "$AGENT_NAME" ] && echo -e "    Name: ${CYAN}${AGENT_NAME}${NC}"
 else
   warn "Agent NOT registered on-chain"
-  log "Registering agent on-chain via agent runner..."
 
-  REG_RESP=$(curl -sf -X POST http://localhost:8080/run \
+  # Check balance and registration fee before attempting
+  BALANCE_RAW=$(curl -s -X POST "$RPC_ENDPOINT/v1/chain/get_currency_balance" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENCLAW_HOOK_TOKEN" \
-    --max-time 120 \
-    -d "{\"prompt\": \"Register me as an agent on-chain right now. Use my account name as the display name, set description to 'Autonomous AI agent on XPR Network', protocol to 'https', endpoint to 'http://localhost:8080', and capabilities to ['general', 'jobs', 'bidding']. Use the xpr_register_agent tool with confirmed=true. If there is a registration fee, check xpr_get_core_config first to find the fee amount.\"}" \
-    2>/dev/null || echo '{"error":"registration request failed"}')
+    -d "{\"code\":\"eosio.token\",\"account\":\"$XPR_ACCOUNT\",\"symbol\":\"XPR\"}" 2>/dev/null || echo '[]')
+  BALANCE=$(echo "$BALANCE_RAW" | python3 -c "import json,sys; b=json.load(sys.stdin); print(float(b[0].split()[0]) if b else 0)" 2>/dev/null || echo "0")
 
-  # Check if it worked
-  sleep 3
-  AGENT_RECHECK=$(curl -s -X POST "$RPC_ENDPOINT/v1/chain/get_table_rows" \
+  FEE_RAW=$(curl -s -X POST "$RPC_ENDPOINT/v1/chain/get_table_rows" \
     -H "Content-Type: application/json" \
-    -d "{\"code\":\"agentcore\",\"table\":\"agents\",\"scope\":\"agentcore\",\"lower_bound\":\"$XPR_ACCOUNT\",\"upper_bound\":\"$XPR_ACCOUNT\",\"limit\":1,\"json\":true}" \
-    2>/dev/null || echo '{"rows":[]}')
+    -d "{\"code\":\"agentcore\",\"table\":\"config\",\"scope\":\"agentcore\",\"limit\":1,\"json\":true}" 2>/dev/null || echo '{"rows":[]}')
+  FEE=$(echo "$FEE_RAW" | python3 -c "import json,sys; rows=json.load(sys.stdin).get('rows',[]); print(rows[0].get('registration_fee',0)/10000 if rows else 0)" 2>/dev/null || echo "0")
 
-  if echo "$AGENT_RECHECK" | grep -q "\"account\":\"$XPR_ACCOUNT\""; then
-    success "Agent registered on-chain"
+  if python3 -c "exit(0 if float('$BALANCE') >= float('$FEE') else 1)" 2>/dev/null; then
+    log "Registering agent on-chain (fee: ${FEE} XPR, balance: ${BALANCE} XPR)..."
+
+    REG_RESP=$(curl -sf -X POST http://localhost:8080/run \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $OPENCLAW_HOOK_TOKEN" \
+      --max-time 120 \
+      -d "{\"prompt\": \"Do not ask any questions. Call xpr_register_agent immediately with these exact parameters: name='${XPR_ACCOUNT}', description='Autonomous AI agent on XPR Network', endpoint='http://localhost:8080', protocol='https', capabilities=['general','jobs','bidding'], fee_amount=${FEE}, confirmed=true. Execute the tool call now.\"}" \
+      2>/dev/null || echo '{"error":"registration request failed"}')
+
+    sleep 3
+    AGENT_RECHECK=$(curl -s -X POST "$RPC_ENDPOINT/v1/chain/get_table_rows" \
+      -H "Content-Type: application/json" \
+      -d "{\"code\":\"agentcore\",\"table\":\"agents\",\"scope\":\"agentcore\",\"lower_bound\":\"$XPR_ACCOUNT\",\"upper_bound\":\"$XPR_ACCOUNT\",\"limit\":1,\"json\":true}" \
+      2>/dev/null || echo '{"rows":[]}')
+
+    if echo "$AGENT_RECHECK" | grep -q "\"account\":\"$XPR_ACCOUNT\""; then
+      success "Agent registered on-chain"
+    else
+      warn "Registration failed. Check: $COMPOSE logs agent"
+    fi
   else
-    warn "On-chain registration may have failed. Check: $COMPOSE logs agent"
-    echo -e "    ${CYAN}You can register manually: ./chat \"Register me as an agent\"${NC}"
+    warn "Insufficient balance: ${BALANCE} XPR (need ${FEE} XPR registration fee)"
+    echo -e "    ${CYAN}Send ${FEE} XPR to '${XPR_ACCOUNT}' on ${NETWORK}, then re-run this script.${NC}"
   fi
 fi
 
