@@ -155,6 +155,50 @@ if [ -z "$OPENCLAW_HOOK_TOKEN" ]; then
   log "Generated hook token"
 fi
 
+# ── Auto-detect Telegram bot token ────────────
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+  # Search common locations for existing Telegram bot tokens
+  SEARCH_PATHS=(
+    "$HOME/.clawdbot/.env"
+    "$HOME/.clawdbot/config"
+    "$HOME/.openclaw/.env"
+    "$HOME/openclaw/.env"
+    "$HOME/.env"
+    "$HOME/protonlink-bot/.env"
+    "$HOME/dex-bot/.env"
+  )
+  # Also search any .env files in ~/Documents/projects/
+  if [ -d "$HOME/Documents/projects" ]; then
+    while IFS= read -r f; do
+      SEARCH_PATHS+=("$f")
+    done < <(find "$HOME/Documents/projects" -maxdepth 3 -name ".env" -type f 2>/dev/null)
+  fi
+
+  for envpath in "${SEARCH_PATHS[@]}"; do
+    if [ -f "$envpath" ]; then
+      found_token=$(grep -m1 "^TELEGRAM_BOT_TOKEN=" "$envpath" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
+      if [ -n "$found_token" ]; then
+        TELEGRAM_BOT_TOKEN="$found_token"
+        log "Found Telegram bot token in $envpath"
+        break
+      fi
+    fi
+  done
+
+  # Interactive prompt if still not found
+  if [ -z "$TELEGRAM_BOT_TOKEN" ] && [ -t 0 ]; then
+    echo ""
+    read -rp "Telegram bot token (optional, press Enter to skip): " TELEGRAM_BOT_TOKEN
+  fi
+
+  if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+    log "Telegram bridge enabled"
+  else
+    warn "No Telegram bot token found (bridge disabled)"
+  fi
+fi
+
 # ── Save .env for next time ───────────────────
 if [ ! -f "$ENV_FILE" ]; then
   cat > "$ENV_FILE" <<ENVEOF
@@ -172,6 +216,7 @@ POLL_INTERVAL=${POLL_INTERVAL}
 OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN}
 A2A_AUTH_REQUIRED=true
 A2A_TOOL_MODE=full
+TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
 ENVEOF
   log "Saved config to $ENV_FILE"
 fi
@@ -185,6 +230,7 @@ export AGENT_MAX_TURNS="${AGENT_MAX_TURNS:-10}"
 export MAX_TRANSFER_AMOUNT="${MAX_TRANSFER_AMOUNT:-1000000}"
 export A2A_AUTH_REQUIRED="${A2A_AUTH_REQUIRED:-true}"
 export A2A_TOOL_MODE="${A2A_TOOL_MODE:-full}"
+export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 export PORT="${PORT:-8080}"
 
 # ── Start ─────────────────────────────────────
@@ -193,6 +239,7 @@ echo -e "  Account:  ${BOLD}${XPR_ACCOUNT}${NC}"
 echo -e "  Network:  ${XPR_NETWORK}"
 echo -e "  Model:    ${AGENT_MODEL}"
 echo -e "  Poller:   every ${POLL_INTERVAL}s"
+echo -e "  Telegram: ${TELEGRAM_BOT_TOKEN:+enabled}${TELEGRAM_BOT_TOKEN:-disabled}"
 echo -e "  Port:     ${PORT}"
 echo ""
 
