@@ -39,9 +39,14 @@ async function initSDK(restoreSession: boolean): Promise<{ link: any; session: L
     return { link: sharedLink, session: null };
   }
 
-  if (initPromise) {
+  // If already initializing with restore, wait for it
+  if (initPromise && restoreSession) {
     const result = await initPromise;
-    return { link: sharedLink, session: restoreSession ? result.session : null };
+    return { link: sharedLink, session: result.session || null };
+  }
+  if (initPromise) {
+    await initPromise;
+    return { link: sharedLink, session: null };
   }
 
   const { default: ProtonWebSDK } = await import('@proton/web-sdk');
@@ -51,6 +56,7 @@ async function initSDK(restoreSession: boolean): Promise<{ link: any; session: L
       chainId: CHAIN_ID,
       endpoints: ENDPOINTS,
       restoreSession,
+      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
     },
     transportOptions: {
       requestAccount: APP_NAME,
