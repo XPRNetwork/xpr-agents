@@ -375,12 +375,18 @@ export function updateCursor(db: Database.Database, blockNum: number): void {
   db.prepare("UPDATE stream_cursor SET last_block_num = ?, updated_at = strftime('%s', 'now') WHERE id = 1").run(blockNum);
 }
 
+/**
+ * Ensure all configured contracts have cursor rows.
+ * Missing contracts are seeded from the global stream_cursor (not 0)
+ * so that upgraded nodes don't replay from genesis.
+ */
 export function ensureContractCursors(db: Database.Database, contracts: string[]): void {
+  const globalBlock = getLastCursor(db);
   const stmt = db.prepare(
-    'INSERT OR IGNORE INTO contract_cursors (contract, last_block_num) VALUES (?, 0)'
+    'INSERT OR IGNORE INTO contract_cursors (contract, last_block_num) VALUES (?, ?)'
   );
   for (const contract of contracts) {
-    stmt.run(contract);
+    stmt.run(contract, globalBlock);
   }
 }
 
