@@ -51,5 +51,28 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  telegram:
+    image: ghcr.io/paulgnz/xpr-agent-telegram:latest
+    profiles: ["telegram"]
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - AGENT_URL=http://agent:8080
+      - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN}
+      - WEBHOOK_PORT=3002
+      - DATA_DIR=/data
+    volumes:
+      - telegram-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      agent:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   indexer-data:
+  telegram-data:

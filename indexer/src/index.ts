@@ -10,6 +10,7 @@ import { handleValidationAction, handleValidationTransfer } from './handlers/val
 import { handleEscrowAction, handleEscrowTransfer } from './handlers/escrow';
 import { createRoutes } from './api/routes';
 import { WebhookDispatcher } from './webhooks/dispatcher';
+import { syncFromChain } from './sync';
 
 // Configuration
 const config = {
@@ -245,7 +246,23 @@ async function startIngestion(): Promise<void> {
   }
 }
 
-startIngestion();
+// Sync from chain state on first start (empty DB), then begin ingestion
+(async () => {
+  const agentCount = (db.prepare('SELECT COUNT(*) as c FROM agents').get() as any).c;
+  const jobCount = (db.prepare('SELECT COUNT(*) as c FROM jobs').get() as any).c;
+  if (agentCount === 0 && jobCount === 0) {
+    const rpcEndpoint = config.hyperionEndpoints[0].replace(/\/v2.*$/, '').replace(/\/$/, '');
+    console.log('[sync] Empty database — syncing from chain state...');
+    try {
+      await syncFromChain(db, rpcEndpoint, config.contracts);
+      updateStats(db);
+      console.log('[sync] Chain sync complete');
+    } catch (err) {
+      console.error('[sync] Chain sync failed (will rely on stream):', err);
+    }
+  }
+  startIngestion();
+})();
 
 // Graceful shutdown
 process.on('SIGINT', () => {

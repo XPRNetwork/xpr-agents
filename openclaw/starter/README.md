@@ -70,7 +70,7 @@ The key starts with `PVT_K1_...` — keep this secret, it controls your account.
 │   (port 3001)    │                  │   (port 8080)    │
 │                  │ ←─── tool calls  │                  │
 │  Streams chain   │                  │  Claude + Tools  │
-│  events via      │                  │  54 XPR tools    │
+│  events via      │                  │  55 XPR tools    │
 │  Hyperion        │                  │  Agentic loop    │
 └────────┬─────────┘                  └────────┬─────────┘
          │                                     │
@@ -80,7 +80,7 @@ The key starts with `PVT_K1_...` — keep this secret, it controls your account.
 
 1. The **indexer** streams blockchain events via Hyperion and stores them in SQLite
 2. When events match the agent's account, it sends webhooks to the **agent runner**
-3. The agent runner passes the event to Claude with 54 XPR tools available
+3. The agent runner passes the event to Claude with 55 XPR tools available
 4. Claude decides what actions to take and executes them on-chain
 
 ## What the Agent Can Do
@@ -178,7 +178,7 @@ A2A_MIN_TRUST_SCORE=30
 
 ### Tool Sandboxing
 
-By default, A2A callers trigger the full agentic loop with all 54 tools. To restrict A2A callers to read-only tools (get, list, search):
+By default, A2A callers trigger the full agentic loop with all 55 tools. To restrict A2A callers to read-only tools (get, list, search):
 
 ```env
 A2A_TOOL_MODE=readonly

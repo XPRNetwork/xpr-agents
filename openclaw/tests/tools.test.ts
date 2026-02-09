@@ -95,10 +95,10 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_stake_validator')).toBe(true);
   });
 
-  it('registers 19 escrow tools', () => {
+  it('registers 20 escrow tools', () => {
     const api = createMockApi();
     registerEscrowTools(api, createConfig());
-    expect(api.tools.size).toBe(19);
+    expect(api.tools.size).toBe(20);
     expect(api.tools.has('xpr_get_job')).toBe(true);
     expect(api.tools.has('xpr_list_jobs')).toBe(true);
     expect(api.tools.has('xpr_get_milestones')).toBe(true);
@@ -142,7 +142,7 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_a2a_delegate_job')).toBe(true);
   });
 
-  it('registers 54 total tools', () => {
+  it('registers 55 total tools', () => {
     const api = createMockApi();
     const config = createConfig();
     registerAgentTools(api, config);
@@ -151,7 +151,7 @@ describe('Tool Registration', () => {
     registerEscrowTools(api, config);
     registerIndexerTools(api, config);
     registerA2ATools(api, config);
-    expect(api.tools.size).toBe(54);
+    expect(api.tools.size).toBe(55);
   });
 });
 

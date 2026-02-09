@@ -11,7 +11,7 @@ set -euo pipefail
 # curl -fsSL https://gist.githubusercontent.com/.../bootstrap.sh | bash
 #
 
-VERSION="0.4.0"
+VERSION="0.5.0"
 
 # ── Self-relaunch for interactive mode ───────
 if [ ! -t 0 ] && [ $# -eq 0 ]; then
@@ -24,6 +24,7 @@ fi
 
 INDEXER_IMAGE="ghcr.io/paulgnz/xpr-agents-indexer:latest"
 AGENT_IMAGE="ghcr.io/paulgnz/xpr-agent-runner:latest"
+TELEGRAM_IMAGE="ghcr.io/paulgnz/xpr-agent-telegram:latest"
 
 # Colors
 RED='\033[0;31m'
@@ -166,6 +167,7 @@ cd "$WORK_DIR"
 EXISTING_SETUP=false
 OPENCLAW_HOOK_TOKEN=""
 WEBHOOK_ADMIN_TOKEN=""
+TELEGRAM_BOT_TOKEN=""
 
 if [ -f .env ]; then
   EXISTING_SETUP=true
@@ -188,6 +190,7 @@ if [ -f .env ]; then
       MAX_TRANSFER_AMOUNT) [ -z "$MAX_TRANSFER_AMOUNT" ] && MAX_TRANSFER_AMOUNT="$value" ;;
       OPENCLAW_HOOK_TOKEN) OPENCLAW_HOOK_TOKEN="$value" ;;
       WEBHOOK_ADMIN_TOKEN) WEBHOOK_ADMIN_TOKEN="$value" ;;
+      TELEGRAM_BOT_TOKEN) TELEGRAM_BOT_TOKEN="$value" ;;
     esac
   done < .env
 
@@ -345,6 +348,24 @@ if [ -z "$ANTHROPIC_API_KEY" ]; then
 fi
 success "API key: set"
 
+# Optional: Telegram bot
+if [ -z "$TELEGRAM_BOT_TOKEN" ] && [ "$NON_INTERACTIVE" = false ]; then
+  echo ""
+  echo -e "${BOLD}Telegram Bot (optional)${NC}"
+  echo "  Chat with your agent via Telegram instead of the command line."
+  echo "  Create a bot: message @BotFather on Telegram → /newbot"
+  echo ""
+  echo -n "  Telegram bot token (press Enter to skip): "
+  read -rs TG_INPUT
+  echo ""
+  if [ -n "$TG_INPUT" ]; then
+    TELEGRAM_BOT_TOKEN="$TG_INPUT"
+    success "Telegram bot token: set"
+  else
+    success "Telegram: skipped"
+  fi
+fi
+
 # ── Phase 4: Validate Account & Key ─────────
 
 echo ""
@@ -443,6 +464,7 @@ A2A_MIN_TRUST_SCORE=0
 A2A_MIN_KYC_LEVEL=0
 A2A_RATE_LIMIT=20
 A2A_TOOL_MODE=full
+TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
 ENVEOF
 success ".env written"
 
@@ -501,8 +523,31 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  telegram:
+    image: ghcr.io/paulgnz/xpr-agent-telegram:latest
+    profiles: ["telegram"]
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - AGENT_URL=http://agent:8080
+      - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN}
+      - WEBHOOK_PORT=3002
+      - DATA_DIR=/data
+    volumes:
+      - telegram-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      agent:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   indexer-data:
+  telegram-data:
 DCEOF
 success "docker-compose.yml written"
 
@@ -569,19 +614,25 @@ elif $COMPOSE ps 2>/dev/null | grep -q 'agent.*running' 2>/dev/null; then
   AGENT_RUNNING=true
 fi
 
+# Determine compose profiles
+COMPOSE_PROFILES=""
+if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+  COMPOSE_PROFILES="--profile telegram"
+fi
+
 # Pull latest images
 log "Pulling latest images..."
-$COMPOSE pull 2>&1 | while IFS= read -r line; do echo "    $line"; done
+$COMPOSE $COMPOSE_PROFILES pull 2>&1 | while IFS= read -r line; do echo "    $line"; done
 success "Images up to date"
 
 # Start or restart services
 if [ "$EXISTING_SETUP" = true ]; then
   # Restart to pick up any config changes
   log "Restarting services with updated config..."
-  $COMPOSE up -d --force-recreate 2>&1 | while IFS= read -r line; do echo "    $line"; done
+  $COMPOSE $COMPOSE_PROFILES up -d --force-recreate 2>&1 | while IFS= read -r line; do echo "    $line"; done
 else
   log "Starting services..."
-  $COMPOSE up -d 2>&1 | while IFS= read -r line; do echo "    $line"; done
+  $COMPOSE $COMPOSE_PROFILES up -d 2>&1 | while IFS= read -r line; do echo "    $line"; done
 fi
 
 # Wait for indexer health
@@ -721,6 +772,15 @@ if [ "$AGENT_OK" -gt 0 ]; then
   echo -e "  ${GREEN}Agent:${NC}     healthy (http://localhost:8080) — ${TOOL_COUNT} tools"
 else
   echo -e "  ${RED}Agent:${NC}     NOT healthy"
+fi
+
+if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+  TG_HEALTH=$(curl -sf http://localhost:3002/health 2>/dev/null || echo '{}')
+  if echo "$TG_HEALTH" | grep -q '"ok":true'; then
+    echo -e "  ${GREEN}Telegram:${NC}  connected — message your bot to start chatting"
+  else
+    echo -e "  ${YELLOW}Telegram:${NC}  starting... (check: $COMPOSE logs telegram)"
+  fi
 fi
 
 # Check on-chain status one more time

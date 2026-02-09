@@ -1,8 +1,8 @@
 /**
- * Escrow tools (19 tools)
+ * Escrow tools (20 tools)
  * Reads: xpr_get_job, xpr_list_jobs, xpr_list_open_jobs, xpr_get_milestones,
  *        xpr_get_job_dispute, xpr_list_arbitrators, xpr_list_bids
- * Writes: xpr_create_job, xpr_fund_job, xpr_accept_job,
+ * Writes: xpr_create_job, xpr_fund_job, xpr_accept_job, xpr_start_job,
  *         xpr_deliver_job, xpr_approve_delivery, xpr_raise_dispute,
  *         xpr_submit_milestone, xpr_arbitrate, xpr_resolve_timeout,
  *         xpr_submit_bid, xpr_select_bid, xpr_withdraw_bid
@@ -278,6 +278,24 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.acceptJob(job_id);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_start_job',
+    description: 'Start working on an accepted job. Moves job from ACCEPTED to INPROGRESS state. Only the assigned agent can start.',
+    parameters: {
+      type: 'object',
+      required: ['job_id'],
+      properties: {
+        job_id: { type: 'number', description: 'Job ID to start' },
+      },
+    },
+    handler: async ({ job_id }: { job_id: number }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      validatePositiveInt(job_id, 'job_id');
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.startJob(job_id);
     },
   });
 

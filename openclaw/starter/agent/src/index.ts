@@ -38,7 +38,7 @@ const mockApi = {
   },
 };
 
-// Load plugin (registers all 54 tools)
+// Load plugin (registers all 55 tools)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pluginFn = require('@xpr-agents/openclaw').default;
 pluginFn(mockApi);

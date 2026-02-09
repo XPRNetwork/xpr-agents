@@ -581,7 +581,7 @@ All phases are complete:
 - Documentation (MODEL.md, analysis reports)
 
 ### Phase 6: OpenClaw Plugin ✓
-- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 54 MCP tools (29 read, 25 write)
+- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 55 MCP tools (29 read, 26 write)
 - Session factory for server-side signing via `@proton/js`
 - Confirmation gate for high-risk write operations (11 tools require confirmation)
 - `maxTransferAmount` enforcement on all XPR transfer/stake/fee operations
@@ -650,7 +650,7 @@ xpr-agents/
 ├── openclaw/                    # OpenClaw plugin package
 │   ├── openclaw.plugin.json     # Plugin manifest
 │   ├── src/
-│   │   ├── index.ts             # Plugin entry, registers 54 tools
+│   │   ├── index.ts             # Plugin entry, registers 55 tools
 │   │   ├── session.ts           # ProtonSession factory from env vars
 │   │   ├── types.ts             # Plugin config/API interfaces
 │   │   ├── tools/
