@@ -564,6 +564,48 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
+# ── Create chat script ──────────────────────
+
+cat > chat <<'CHATEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/.env"
+AGENT_URL="${AGENT_URL:-http://localhost:8080}"
+
+if [ $# -gt 0 ]; then
+  PROMPT="$*"
+else
+  echo "Talk to your agent. Type a message and press Enter. Ctrl+C to quit."
+  echo ""
+  while true; do
+    echo -n "> "
+    read -r PROMPT || break
+    [ -z "$PROMPT" ] && continue
+    echo ""
+    RESP=$(curl -sf -X POST "$AGENT_URL/run" \
+      -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer $OPENCLAW_HOOK_TOKEN" \
+      -d "{\"prompt\": $(echo "$PROMPT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')}" 2>&1) || {
+      echo "Error: $RESP"
+      continue
+    }
+    echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('result','(no response)'))" 2>/dev/null || echo "$RESP"
+    echo ""
+  done
+  exit 0
+fi
+
+RESP=$(curl -sf -X POST "$AGENT_URL/run" \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $OPENCLAW_HOOK_TOKEN" \
+  -d "{\"prompt\": $(echo "$PROMPT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')}")
+
+echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('result','(no response)'))" 2>/dev/null || echo "$RESP"
+CHATEOF
+chmod +x chat
+success "Created chat script"
+
 # ── Done ─────────────────────────────────────
 
 echo ""
@@ -577,16 +619,14 @@ echo -e "  ${BOLD}Dir:${NC}      $(pwd)"
 echo -e "  ${BOLD}Indexer:${NC}  http://localhost:3001"
 echo -e "  ${BOLD}Agent:${NC}    http://localhost:8080"
 echo ""
-echo -e "${BOLD}Useful commands (run from $(pwd)):${NC}"
+echo -e "${BOLD}Talk to your agent:${NC}"
+echo "  cd $(pwd)"
+echo "  ./chat                                  # Interactive chat"
+echo "  ./chat \"Check my status\"                # One-shot"
+echo ""
+echo -e "${BOLD}Other commands:${NC}"
 echo "  $COMPOSE logs -f           # Live logs"
 echo "  $COMPOSE logs agent        # Agent only"
 echo "  $COMPOSE restart           # Restart"
 echo "  $COMPOSE down              # Stop"
-echo ""
-echo -e "${BOLD}Test it:${NC}"
-echo "  source .env"
-echo "  curl -X POST http://localhost:8080/run \\"
-echo "    -H 'Content-Type: application/json' \\"
-echo "    -H \"Authorization: Bearer \$OPENCLAW_HOOK_TOKEN\" \\"
-echo "    -d '{\"prompt\": \"Check my trust score and report status\"}'"
 echo ""
