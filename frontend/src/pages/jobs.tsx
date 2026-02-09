@@ -11,6 +11,7 @@ import {
   getAgent,
   getAllJobs,
   getBidsForJob,
+  getJobEvidence,
   getJobStateLabel,
   type Job,
   type Bid,
@@ -80,17 +81,40 @@ export default function Jobs() {
     return true;
   });
 
-  async function fetchDeliverable(agentAccount: string, jobId: number) {
+  async function fetchDeliverable(_agentAccount: string, jobId: number) {
     setDeliverableLoading(true);
     setDeliverableContent(null);
     try {
-      const agent = await getAgent(agentAccount);
-      if (!agent?.endpoint) throw new Error('Agent endpoint not found');
-      const url = `${agent.endpoint}/deliverables/${jobId}`;
-      const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
-      if (!resp.ok) throw new Error('Not found');
-      const data = await resp.json();
-      setDeliverableContent(data.content || 'No content');
+      const evidenceUri = await getJobEvidence(jobId);
+      if (!evidenceUri) {
+        setDeliverableContent('No evidence submitted');
+        return;
+      }
+
+      // Handle data URIs (content embedded directly)
+      if (evidenceUri.startsWith('data:')) {
+        try {
+          const base64 = evidenceUri.split(',')[1];
+          const decoded = JSON.parse(atob(base64));
+          setDeliverableContent(decoded.content || evidenceUri);
+        } catch {
+          setDeliverableContent(evidenceUri);
+        }
+        return;
+      }
+
+      // Handle IPFS/HTTP URLs
+      try {
+        const resp = await fetch(evidenceUri, { signal: AbortSignal.timeout(10000) });
+        if (resp.ok) {
+          const data = await resp.json();
+          setDeliverableContent(data.content || JSON.stringify(data, null, 2));
+        } else {
+          setDeliverableContent(evidenceUri);
+        }
+      } catch {
+        setDeliverableContent(evidenceUri);
+      }
     } catch {
       setDeliverableContent(null);
     } finally {

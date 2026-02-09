@@ -309,6 +309,23 @@ export async function getJob(id: number): Promise<Job | null> {
   return parseJob(result.rows[0]);
 }
 
+export async function getJobEvidence(jobId: number): Promise<string | null> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'jobevidence',
+    lower_bound: String(jobId),
+    upper_bound: String(jobId),
+    limit: 1,
+  });
+
+  if (result.rows.length > 0) {
+    return result.rows[0].evidence_uri || null;
+  }
+  return null;
+}
+
 export async function getBidsForJob(jobId: number): Promise<Bid[]> {
   const result = await rpc.get_table_rows({
     json: true,

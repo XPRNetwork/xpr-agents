@@ -259,6 +259,14 @@ function handleDeliver(db: Database.Database, data: any): void {
     UPDATE jobs SET state = 4, updated_at = strftime('%s', 'now') WHERE id = ?
   `);
   stmt.run(data.job_id);
+
+  // Store evidence in separate table
+  if (data.evidence_uri) {
+    db.prepare(`
+      INSERT OR REPLACE INTO job_evidence (job_id, evidence_uri) VALUES (?, ?)
+    `).run(data.job_id, data.evidence_uri);
+  }
+
   console.log(`Job ${data.job_id} delivered`);
 }
 

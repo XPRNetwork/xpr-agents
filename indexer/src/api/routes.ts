@@ -229,7 +229,9 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
   router.get('/jobs/:id', (req: Request, res: Response) => {
     const { id } = req.params;
 
-    const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(parseInt(id));
+    const job = db.prepare(
+      'SELECT j.*, je.evidence_uri FROM jobs j LEFT JOIN job_evidence je ON j.id = je.job_id WHERE j.id = ?'
+    ).get(parseInt(id));
 
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });

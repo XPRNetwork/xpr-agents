@@ -178,6 +178,12 @@ export function initDatabase(dbPath: string): Database.Database {
       updated_at INTEGER
     );
 
+    -- Job Evidence table (separate from jobs to avoid serialization issues)
+    CREATE TABLE IF NOT EXISTS job_evidence (
+      job_id INTEGER PRIMARY KEY,
+      evidence_uri TEXT
+    );
+
     -- Milestones table
     CREATE TABLE IF NOT EXISTS milestones (
       id INTEGER PRIMARY KEY,

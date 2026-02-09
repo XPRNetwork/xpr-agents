@@ -226,6 +226,22 @@ export class Bid extends Table {
   }
 }
 
+// Separate table for job deliverable evidence (avoids breaking existing Job table serialization)
+@table("jobevidence")
+export class JobEvidence extends Table {
+  constructor(
+    public job_id: u64 = 0,
+    public evidence_uri: string = ""
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.job_id;
+  }
+}
+
 // CRITICAL FIX: Track arbitrator unstaking requests
 @table("arbunstakes")
 export class ArbUnstake extends Table {
@@ -282,6 +298,7 @@ export class AgentEscrowContract extends Contract {
   private arbitratorsTable: TableStore<Arbitrator> = new TableStore<Arbitrator>(this.receiver);
   private arbUnstakesTable: TableStore<ArbUnstake> = new TableStore<ArbUnstake>(this.receiver);
   private bidsTable: TableStore<Bid> = new TableStore<Bid>(this.receiver);
+  private jobEvidenceTable: TableStore<JobEvidence> = new TableStore<JobEvidence>(this.receiver);
   private configSingleton: Singleton<EscrowConfig> = new Singleton<EscrowConfig>(this.receiver);
 
   // Helper to get agent from configured core contract
@@ -729,6 +746,18 @@ export class AgentEscrowContract extends Contract {
     job.updated_at = currentTimeSec();
 
     this.jobsTable.update(job, this.receiver);
+
+    // Store evidence in separate table (avoids breaking existing Job serialization)
+    if (evidence_uri.length > 0) {
+      const existing = this.jobEvidenceTable.get(job_id);
+      if (existing != null) {
+        existing.evidence_uri = evidence_uri;
+        this.jobEvidenceTable.update(existing, this.receiver);
+      } else {
+        const evidence = new JobEvidence(job_id, evidence_uri);
+        this.jobEvidenceTable.store(evidence, this.receiver);
+      }
+    }
 
     print(`Job ${job_id} delivered`);
   }

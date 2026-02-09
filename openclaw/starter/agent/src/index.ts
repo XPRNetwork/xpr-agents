@@ -546,10 +546,37 @@ app.post('/a2a', async (req, res) => {
 // Clients/frontend can fetch via GET /deliverables/:jobId
 const deliverables = new Map<number, { content: string; created_at: string }>();
 
-// Internal tool: store_deliverable (not an on-chain tool, just local storage)
+// Upload to IPFS via Pinata if configured
+async function uploadToIpfs(content: string, jobId: number): Promise<string | null> {
+  const jwt = process.env.PINATA_JWT;
+  if (!jwt) return null;
+  try {
+    const resp = await fetch('https://api.pinata.cloud/pinning/pinJSONToIPFS', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+      body: JSON.stringify({
+        pinataContent: { job_id: jobId, content, created_at: new Date().toISOString() },
+        pinataMetadata: { name: `job-${jobId}-deliverable` },
+      }),
+    });
+    const data = await resp.json() as { IpfsHash?: string };
+    if (data.IpfsHash) {
+      return `https://gateway.pinata.cloud/ipfs/${data.IpfsHash}`;
+    }
+  } catch (e) { console.error('[ipfs] Pinata upload failed:', e); }
+  return null;
+}
+
+// Encode content as a data URI (works without any external service)
+function toDataUri(content: string): string {
+  const json = JSON.stringify({ content, created_at: new Date().toISOString() });
+  return `data:application/json;base64,${Buffer.from(json).toString('base64')}`;
+}
+
+// Internal tool: store_deliverable
 tools.push({
   name: 'store_deliverable',
-  description: 'Store job deliverable content locally before delivering on-chain. The content will be served at GET /deliverables/:jobId on this agent\'s endpoint. Call this BEFORE xpr_deliver_job.',
+  description: 'Store job deliverable content before delivering on-chain. Uploads to IPFS if PINATA_JWT is set, otherwise embeds as data URI. Call this BEFORE xpr_deliver_job.',
   parameters: {
     type: 'object',
     required: ['job_id', 'content'],
@@ -560,8 +587,18 @@ tools.push({
   },
   handler: async ({ job_id, content }: { job_id: number; content: string }) => {
     deliverables.set(job_id, { content, created_at: new Date().toISOString() });
-    const baseUrl = process.env.AGENT_PUBLIC_URL || `http://localhost:${process.env.PORT || '8080'}`;
-    return { stored: true, url: `${baseUrl}/deliverables/${job_id}` };
+
+    // Try IPFS first (Pinata)
+    const ipfsUrl = await uploadToIpfs(content, job_id);
+    if (ipfsUrl) {
+      console.log(`[deliverable] Job ${job_id} pinned to IPFS: ${ipfsUrl}`);
+      return { stored: true, url: ipfsUrl, storage: 'ipfs' };
+    }
+
+    // Default: data URI (content embedded directly, no external service needed)
+    const dataUri = toDataUri(content);
+    console.log(`[deliverable] Job ${job_id} encoded as data URI (${dataUri.length} chars)`);
+    return { stored: true, url: dataUri, storage: 'data_uri' };
   },
 });
 

@@ -715,6 +715,26 @@ export class EscrowRegistry {
   }
 
   /**
+   * Get evidence URI for a delivered job (stored in separate jobevidence table)
+   */
+  async getJobEvidence(jobId: number): Promise<string | null> {
+    const result = await this.rpc.get_table_rows<{ job_id: string; evidence_uri: string }>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'jobevidence',
+      lower_bound: String(jobId),
+      upper_bound: String(jobId),
+      limit: 1,
+    });
+
+    if (result.rows.length > 0) {
+      return result.rows[0].evidence_uri;
+    }
+    return null;
+  }
+
+  /**
    * List bids for a job
    */
   async listBidsForJob(jobId: number): Promise<Bid[]> {
