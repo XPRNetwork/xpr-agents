@@ -223,9 +223,12 @@ export default function Jobs() {
         },
       ]);
 
-      setSuccess('Bid selected! Agent assigned to job.');
+      setSuccess('Bid selected! Agent assigned. Now fund the job to start.');
       await new Promise(r => setTimeout(r, 1500));
-      await loadJobs();
+      const refreshed = await getAllJobs();
+      setJobs(refreshed);
+      const updated = refreshed.find(j => j.id === selectedJob.id);
+      if (updated) setSelectedJob(updated);
       const jobBids = await getBidsForJob(selectedJob.id);
       setBids(jobBids);
     } catch (e: any) {
@@ -250,24 +253,10 @@ export default function Jobs() {
         newJob.deliverables.split('\n').map(d => d.trim()).filter(Boolean)
       );
 
-      // Get next job ID so we can fund it in the same transaction
-      const jobsTable = await fetch(`${process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://tn1.protonnz.com'}/v1/chain/get_table_rows`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: CONTRACTS.AGENT_ESCROW,
-          scope: CONTRACTS.AGENT_ESCROW,
-          table: 'jobs',
-          json: true,
-          reverse: true,
-          limit: 1,
-        }),
-      }).then(r => r.json());
-      const nextJobId = jobsTable.rows.length > 0 ? jobsTable.rows[0].id + 1 : 0;
-
-      const amountStr = `${(amount / 10000).toFixed(4)} XPR`;
-
-      await transact([
+      // Open jobs (no agent) must NOT be funded until a bid is selected
+      // Direct-hire jobs (agent specified) can be funded immediately
+      const isOpenJob = !newJob.arbitrator; // always open for now
+      const actions: any[] = [
         {
           account: CONTRACTS.AGENT_ESCROW,
           name: 'createjob',
@@ -284,19 +273,11 @@ export default function Jobs() {
             job_hash: '',
           },
         },
-        {
-          account: 'eosio.token',
-          name: 'transfer',
-          data: {
-            from: session.auth.actor,
-            to: CONTRACTS.AGENT_ESCROW,
-            quantity: amountStr,
-            memo: `fund:${nextJobId}`,
-          },
-        },
-      ]);
+      ];
 
-      setSuccess('Job posted and funded! Agents can now submit bids.');
+      await transact(actions);
+
+      setSuccess('Job posted! Agents can now submit bids. Fund after selecting a bid.');
       setShowCreateForm(false);
       setNewJob({ title: '', description: '', amount: '', deadline: '', deliverables: '', arbitrator: '' });
       await new Promise(r => setTimeout(r, 1500));
@@ -339,9 +320,10 @@ export default function Jobs() {
   }
 
   const isMyJob = session && selectedJob?.client === session.auth.actor;
-  const canFund = isMyJob && selectedJob && selectedJob.funded_amount < selectedJob.amount && selectedJob.state === 0;
+  // Can fund: client owns job, not fully funded, state is CREATED (0) with agent assigned (bid selected), or state 0 for direct-hire
+  const canFund = isMyJob && selectedJob && selectedJob.funded_amount < selectedJob.amount && selectedJob.state === 0 && selectedJob.agent && selectedJob.agent !== '.............';
   const canApprove = isMyJob && selectedJob?.state === 4; // DELIVERED
-  const canBid = selectedJob && selectedJob.state <= 1 && (!selectedJob.agent || selectedJob.agent === '.............');
+  const canBid = selectedJob && selectedJob.state === 0 && (!selectedJob.agent || selectedJob.agent === '.............');
 
   return (
     <>
@@ -501,7 +483,7 @@ export default function Jobs() {
                   disabled={processing}
                   className="px-6 py-2 bg-proton-purple text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300"
                 >
-                  {processing ? 'Creating & Funding...' : 'Create & Fund Job'}
+                  {processing ? 'Creating...' : 'Post Job'}
                 </button>
               </form>
             </div>
