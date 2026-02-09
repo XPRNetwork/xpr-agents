@@ -261,6 +261,18 @@ export default function Jobs() {
     setRatingSubmitting(true);
     try {
       await transact([
+        // Pay feedback fee (1 XPR) first
+        {
+          account: 'eosio.token',
+          name: 'transfer',
+          data: {
+            from: session.auth.actor,
+            to: CONTRACTS.AGENT_FEED,
+            quantity: '1.0000 XPR',
+            memo: `feedfee:${session.auth.actor}`,
+          },
+        },
+        // Then submit the rating
         {
           account: CONTRACTS.AGENT_FEED,
           name: 'submit',
@@ -280,6 +292,7 @@ export default function Jobs() {
     } catch (e: any) {
       // Don't block — rating is optional
       console.error('Rating failed:', e);
+      setError(e.message || 'Rating failed');
       setShowRating(false);
     } finally {
       setRatingSubmitting(false);
