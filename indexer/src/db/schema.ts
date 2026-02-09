@@ -375,6 +375,15 @@ export function updateCursor(db: Database.Database, blockNum: number): void {
   db.prepare("UPDATE stream_cursor SET last_block_num = ?, updated_at = strftime('%s', 'now') WHERE id = 1").run(blockNum);
 }
 
+export function ensureContractCursors(db: Database.Database, contracts: string[]): void {
+  const stmt = db.prepare(
+    'INSERT OR IGNORE INTO contract_cursors (contract, last_block_num) VALUES (?, 0)'
+  );
+  for (const contract of contracts) {
+    stmt.run(contract);
+  }
+}
+
 export function getContractCursors(db: Database.Database): Map<string, number> {
   const rows = db.prepare('SELECT contract, last_block_num FROM contract_cursors').all() as Array<{ contract: string; last_block_num: number }>;
   const map = new Map<string, number>();

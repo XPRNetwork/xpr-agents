@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { initDatabase, updateStats, getLastCursor, updateCursor, getContractCursors, updateContractCursor } from './db/schema';
+import { initDatabase, updateStats, getLastCursor, updateCursor, ensureContractCursors, getContractCursors, updateContractCursor } from './db/schema';
 import { HyperionStream, StreamAction } from './stream';
 import { HyperionPoller } from './poller';
 import { handleAgentAction, handleAgentCoreTransfer } from './handlers/agent';
@@ -83,15 +83,17 @@ const server = app.listen(config.port, () => {
   console.log(`API server running on port ${config.port}`);
 });
 
-// Read cursors for resume
+// Ensure all configured contracts have cursor rows (seeds missing ones with block 0)
+const allContracts = Object.values(config.contracts);
+ensureContractCursors(db, allContracts);
+
+// Read cursors for resume — per-contract cursors are authoritative
 const lastBlock = getLastCursor(db);
 const contractCursors = getContractCursors(db);
-if (lastBlock > 0) {
-  console.log(`Resuming from global block ${lastBlock}`);
-  if (contractCursors.size > 0) {
-    for (const [c, b] of contractCursors) {
-      console.log(`  ${c}: block ${b}`);
-    }
+if (lastBlock > 0 || [...contractCursors.values()].some(b => b > 0)) {
+  console.log('Resuming per-contract cursors:');
+  for (const [c, b] of contractCursors) {
+    console.log(`  ${c}: block ${b}`);
   }
 }
 
@@ -149,17 +151,15 @@ async function startIngestion(): Promise<void> {
   const endpoint = config.hyperionEndpoints[0];
   const streamingAvailable = !usePolling && await checkStreamingSupport(endpoint);
 
-  // For streaming, use the minimum per-contract cursor as the safe resume point
-  // (streaming doesn't support per-contract start blocks)
-  const safeResumeBlock = contractCursors.size > 0
-    ? Math.min(...contractCursors.values())
-    : lastBlock;
+  // Per-contract cursors are always populated (ensureContractCursors seeds missing ones with 0).
+  // For streaming (single start block), use the minimum across all contracts as safe resume point.
+  const safeResumeBlock = Math.min(...contractCursors.values());
 
   if (streamingAvailable) {
     console.log('Streaming supported — using WebSocket mode');
     const stream = new HyperionStream({
       endpoints: config.hyperionEndpoints,
-      contracts: Object.values(config.contracts),
+      contracts: allContracts,
       irreversibleOnly: true,
       ...(safeResumeBlock > 0 && { startBlock: safeResumeBlock }),
     });
@@ -168,10 +168,9 @@ async function startIngestion(): Promise<void> {
     console.log('Streaming not available — using polling mode');
     const poller = new HyperionPoller({
       endpoint,
-      contracts: Object.values(config.contracts),
+      contracts: allContracts,
       pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '5000'),
-      ...(lastBlock > 0 && { startBlock: lastBlock }),
-      contractStartBlocks: contractCursors.size > 0 ? contractCursors : undefined,
+      contractStartBlocks: contractCursors,
     });
     source = poller;
   }
