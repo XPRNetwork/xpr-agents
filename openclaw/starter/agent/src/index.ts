@@ -2,9 +2,13 @@
  * XPR Agent Runner
  *
  * Autonomous agent that:
- * 1. Receives webhook events from the indexer
- * 2. Runs them through Claude with XPR tools in an agentic loop
- * 3. Executes on-chain actions based on Claude's decisions
+ * 1. Polls on-chain state for changes (jobs, feedback, challenges)
+ * 2. Receives webhook events from the indexer (optional)
+ * 3. Runs events through Claude with XPR tools in an agentic loop
+ * 4. Executes on-chain actions based on Claude's decisions
+ *
+ * The built-in poller makes the indexer optional — the agent can
+ * operate fully autonomously with just RPC access.
  */
 
 import express from 'express';
@@ -540,8 +544,157 @@ app.get('/health', (_req, res) => {
     tools: tools.length,
     model: MODEL,
     active_runs: activeRuns.size,
+    poller: POLL_ENABLED ? { enabled: true, interval_sec: POLL_INTERVAL / 1000, tracked_jobs: knownJobStates.size } : { enabled: false },
   });
 });
+
+// ── On-chain polling loop ────────────────────
+// Polls on-chain state directly via tools — no indexer required.
+// Detects job state changes, new open jobs, new feedback/challenges.
+const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL || '30') * 1000;
+const POLL_ENABLED = process.env.POLL_ENABLED !== 'false';
+
+// Tracked state for change detection
+const knownJobStates = new Map<number, number>();   // job_id → state
+const knownOpenJobIds = new Set<number>();           // open job ids already seen
+const knownFeedbackIds = new Set<number>();          // feedback ids already seen
+const knownChallengeIds = new Set<number>();         // challenge ids already seen
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function pollOnChain(): Promise<void> {
+  if (shuttingDown) return;
+  const account = process.env.XPR_ACCOUNT;
+  if (!account) return;
+
+  const listJobs = tools.find(t => t.name === 'xpr_list_jobs');
+  const listOpenJobs = tools.find(t => t.name === 'xpr_list_open_jobs');
+  const listFeedback = tools.find(t => t.name === 'xpr_list_agent_feedback');
+  const listValidations = tools.find(t => t.name === 'xpr_list_agent_validations');
+
+  try {
+    // 1. Check jobs assigned to this agent for state changes
+    if (listJobs) {
+      const res: any = await listJobs.handler({ agent: account, limit: 50 });
+      const jobs: any[] = res?.items || res || [];
+      for (const job of jobs) {
+        if (!job || job.id == null) continue;
+        const prevState = knownJobStates.get(job.id);
+        knownJobStates.set(job.id, job.state);
+
+        // First poll — just seed state, don't trigger
+        if (prevState === undefined) continue;
+
+        // State changed — notify the agent
+        if (prevState !== job.state) {
+          const stateNames = ['CREATED', 'FUNDED', 'ACCEPTED', 'INPROGRESS', 'DELIVERED', 'DISPUTED', 'COMPLETED', 'REFUNDED', 'ARBITRATED'];
+          const fromName = stateNames[prevState] || String(prevState);
+          const toName = stateNames[job.state] || String(job.state);
+          console.log(`[poller] Job #${job.id} state changed: ${fromName} → ${toName}`);
+
+          runAgent('poll:job_state_change', {
+            job_id: job.id, client: job.client, agent: job.agent,
+            from_state: prevState, to_state: job.state,
+            title: job.title, amount: job.amount,
+          }, `Job #${job.id} "${job.title}" changed from ${fromName} to ${toName}. Review and take appropriate action.`).catch(err => {
+            console.error(`[poller] Failed to process job state change:`, err.message);
+          });
+        }
+      }
+    }
+
+    // 2. Check for new open jobs (bidding opportunities)
+    if (listOpenJobs) {
+      const res: any = await listOpenJobs.handler({ limit: 20 });
+      const jobs: any[] = res?.items || res || [];
+      for (const job of jobs) {
+        if (!job || job.id == null) continue;
+        if (knownOpenJobIds.has(job.id)) continue;
+        knownOpenJobIds.add(job.id);
+
+        // Don't trigger on first poll (seed)
+        if (knownOpenJobIds.size <= jobs.length && knownJobStates.size === 0) continue;
+
+        console.log(`[poller] New open job #${job.id}: "${job.title}" (${job.amount} ${job.symbol || 'XPR'})`);
+        runAgent('poll:new_open_job', {
+          job_id: job.id, client: job.client, title: job.title,
+          description: job.description, amount: job.amount, deadline: job.deadline,
+        }, `New open job #${job.id} "${job.title}" posted for ${job.amount} XPR. Evaluate if you should bid on it.`).catch(err => {
+          console.error(`[poller] Failed to process new open job:`, err.message);
+        });
+      }
+    }
+
+    // 3. Check for new feedback about this agent
+    if (listFeedback) {
+      const res: any = await listFeedback.handler({ agent: account, limit: 20 });
+      const items: any[] = res?.feedback || res?.items || res || [];
+      for (const fb of items) {
+        if (!fb || fb.id == null) continue;
+        if (knownFeedbackIds.has(fb.id)) continue;
+        knownFeedbackIds.add(fb.id);
+
+        // Skip seed
+        if (knownFeedbackIds.size <= items.length && knownJobStates.size === 0) continue;
+
+        console.log(`[poller] New feedback #${fb.id} from ${fb.reviewer}: score ${fb.score}/5`);
+        runAgent('poll:new_feedback', {
+          feedback_id: fb.id, reviewer: fb.reviewer,
+          score: fb.score, tags: fb.tags, job_hash: fb.job_hash,
+        }, `New feedback #${fb.id} from ${fb.reviewer}: ${fb.score}/5 stars. Acknowledge if appropriate.`).catch(err => {
+          console.error(`[poller] Failed to process new feedback:`, err.message);
+        });
+      }
+    }
+
+    // 4. Check for new validation challenges against this agent
+    if (listValidations) {
+      const res: any = await listValidations.handler({ agent: account, limit: 20 });
+      const validations: any[] = res?.validations || res?.items || res || [];
+      for (const v of validations) {
+        if (!v || !v.challenged) continue;
+        // We track challenge by validation ID since we can't list challenges directly by agent
+        if (knownChallengeIds.has(v.id)) continue;
+        knownChallengeIds.add(v.id);
+
+        // Skip seed
+        if (knownChallengeIds.size <= validations.filter((x: any) => x?.challenged).length && knownJobStates.size === 0) continue;
+
+        console.log(`[poller] Validation #${v.id} has been challenged`);
+        runAgent('poll:validation_challenged', {
+          validation_id: v.id, validator: v.validator, job_hash: v.job_hash,
+        }, `Validation #${v.id} has been challenged. Review the challenge and respond.`).catch(err => {
+          console.error(`[poller] Failed to process validation challenge:`, err.message);
+        });
+      }
+    }
+  } catch (err: any) {
+    console.error(`[poller] Poll error:`, err.message);
+  }
+
+  // Schedule next poll
+  if (!shuttingDown) {
+    pollTimer = setTimeout(pollOnChain, POLL_INTERVAL);
+    pollTimer.unref();
+  }
+}
+
+function startPoller(): void {
+  if (!POLL_ENABLED) {
+    console.log('[poller] Polling disabled (POLL_ENABLED=false)');
+    return;
+  }
+  console.log(`[poller] Starting on-chain poller (interval: ${POLL_INTERVAL / 1000}s)`);
+  // Initial delay to let the server start
+  pollTimer = setTimeout(pollOnChain, 5000);
+  pollTimer.unref();
+}
+
+function stopPoller(): void {
+  if (pollTimer) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+}
 
 // ── Auto-registration on startup ──────────────
 async function ensureRegistered(): Promise<void> {
@@ -592,9 +745,10 @@ const server = app.listen(port, () => {
   console.log(`[agent-runner] A2A auth: ${a2aAuthConfig.authRequired ? 'required' : 'optional'}, rate limit: ${a2aAuthConfig.rateLimit}/min`);
   if (a2aAuthConfig.minTrustScore > 0) console.log(`[agent-runner] A2A min trust score: ${a2aAuthConfig.minTrustScore}`);
   if (a2aAuthConfig.minKycLevel > 0) console.log(`[agent-runner] A2A min KYC level: ${a2aAuthConfig.minKycLevel}`);
+  console.log(`[agent-runner] Poller: ${POLL_ENABLED ? `enabled (${POLL_INTERVAL / 1000}s interval)` : 'disabled'}`);
 
-  // Auto-register after server is ready
-  ensureRegistered();
+  // Auto-register after server is ready, then start poller
+  ensureRegistered().then(() => startPoller());
 });
 
 // Graceful shutdown
@@ -604,6 +758,9 @@ function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[agent-runner] ${signal} received, shutting down gracefully...`);
+
+  // Stop the poller
+  stopPoller();
 
   // Stop accepting new connections
   server.close(() => {
