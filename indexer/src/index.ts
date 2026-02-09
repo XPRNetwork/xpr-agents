@@ -103,10 +103,31 @@ const resumeCursors: ReadonlyMap<string, number> = new Map(contractCursors);
 // Prune old dedup entries on startup to bound table size
 pruneProcessedActions(db, 0);
 
+// Compute a dedup key for an action.
+// Prefers global_sequence (unique across the chain), falls back to trx_id:action_ordinal composite.
+function getDedupeKey(action: StreamAction): string {
+  if (action.global_sequence > 0) {
+    return String(action.global_sequence);
+  }
+  if (action.trx_id) {
+    const ordinal = action.action_ordinal || 0;
+    // Include data hash to disambiguate identical inline actions (e.g. two transfers in one trx)
+    let h = 5381;
+    const s = JSON.stringify(action.act.data);
+    for (let i = 0; i < s.length; i++) {
+      h = ((h << 5) + h + s.charCodeAt(i)) & 0xffffffff;
+    }
+    return `${action.trx_id}:${ordinal}:${action.act.account}:${action.act.name}:${h.toString(36)}`;
+  }
+  return '';
+}
+
 // Action handler shared by both stream and poller.
 // Two-layer dedup:
 //   1. Block-level: skip actions in blocks strictly below the contract's persisted cursor (fast bulk skip)
-//   2. Action-level: skip actions by global_sequence if already in processed_actions (exact boundary dedup)
+//   2. Action-level: skip actions by dedup key if already in processed_actions (exact boundary dedup)
+// All handler writes + dedup marker + cursor updates run in a single SQLite transaction
+// so a crash cannot leave partial state.
 function handleAction(action: StreamAction): void {
   const contract = action.act.account;
 
@@ -116,37 +137,42 @@ function handleAction(action: StreamAction): void {
     return;
   }
 
-  // Layer 2: exact dedup via global_sequence — prevents boundary-block duplicates
-  if (hasBeenProcessed(db, action.global_sequence)) {
+  // Layer 2: exact dedup via dedup key — prevents boundary-block duplicates
+  const dedupeKey = getDedupeKey(action);
+  if (dedupeKey && hasBeenProcessed(db, dedupeKey)) {
     return;
   }
 
   try {
-    if (contract === config.contracts.agentcore) {
-      handleAgentAction(db, action, dispatcher);
-    } else if (contract === config.contracts.agentfeed) {
-      handleFeedbackAction(db, action, dispatcher);
-    } else if (contract === config.contracts.agentvalid) {
-      handleValidationAction(db, action, dispatcher);
-    } else if (contract === config.contracts.agentescrow) {
-      handleEscrowAction(db, action, dispatcher);
-    } else if (contract === config.contracts.token && action.act.name === 'transfer') {
-      const { from, to } = action.act.data;
-      if (to === config.contracts.agentescrow || from === config.contracts.agentescrow) {
-        handleEscrowTransfer(db, action, config.contracts.agentescrow, dispatcher);
+    // Atomic: handler writes + dedup marker + cursor updates in one transaction.
+    // If any step fails, the entire transaction rolls back — no partial state.
+    db.transaction(() => {
+      if (contract === config.contracts.agentcore) {
+        handleAgentAction(db, action, dispatcher);
+      } else if (contract === config.contracts.agentfeed) {
+        handleFeedbackAction(db, action, dispatcher);
+      } else if (contract === config.contracts.agentvalid) {
+        handleValidationAction(db, action, dispatcher);
+      } else if (contract === config.contracts.agentescrow) {
+        handleEscrowAction(db, action, dispatcher);
+      } else if (contract === config.contracts.token && action.act.name === 'transfer') {
+        const { from, to } = action.act.data;
+        if (to === config.contracts.agentescrow || from === config.contracts.agentescrow) {
+          handleEscrowTransfer(db, action, config.contracts.agentescrow, dispatcher);
+        }
+        if (to === config.contracts.agentvalid || from === config.contracts.agentvalid) {
+          handleValidationTransfer(db, action, config.contracts.agentvalid, dispatcher);
+        }
+        if (to === config.contracts.agentcore) {
+          handleAgentCoreTransfer(db, action);
+        }
       }
-      if (to === config.contracts.agentvalid || from === config.contracts.agentvalid) {
-        handleValidationTransfer(db, action, config.contracts.agentvalid, dispatcher);
-      }
-      if (to === config.contracts.agentcore) {
-        handleAgentCoreTransfer(db, action);
-      }
-    }
 
-    // Mark processed + update cursors only after handler success
-    markActionProcessed(db, action.global_sequence);
-    updateCursor(db, action.block_num);
-    updateContractCursor(db, contract, action.block_num);
+      // Mark processed + update cursors only after handler success
+      if (dedupeKey) markActionProcessed(db, dedupeKey);
+      updateCursor(db, action.block_num);
+      updateContractCursor(db, contract, action.block_num);
+    })();
   } catch (error) {
     console.error(`Error handling action ${action.act.name}:`, error);
   }

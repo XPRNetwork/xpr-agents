@@ -302,10 +302,11 @@ export function initDatabase(dbPath: string): Database.Database {
       updated_at INTEGER DEFAULT (strftime('%s', 'now'))
     );
 
-    -- Action dedup: tracks processed global_sequence values to prevent
+    -- Action dedup: tracks processed actions by dedup key to prevent
     -- duplicate inserts on boundary-block replay after restart.
+    -- Key is global_sequence (string) when available, or trx_id:action_ordinal composite.
     CREATE TABLE IF NOT EXISTS processed_actions (
-      global_sequence INTEGER PRIMARY KEY
+      dedup_key TEXT PRIMARY KEY
     );
 
     -- Webhook subscriptions for push notifications
@@ -345,6 +346,15 @@ export function initDatabase(dbPath: string): Database.Database {
     'ALTER TABLE arbitrators ADD COLUMN active_disputes INTEGER DEFAULT 0',
     'ALTER TABLE validation_challenges ADD COLUMN funded_at INTEGER DEFAULT 0',
   ];
+
+  // Migrate processed_actions from INTEGER to TEXT key if needed.
+  // This is ephemeral cache data (max 10k entries), safe to recreate.
+  try {
+    db.prepare('SELECT dedup_key FROM processed_actions LIMIT 0').raw().get();
+  } catch {
+    db.exec('DROP TABLE IF EXISTS processed_actions');
+    db.exec('CREATE TABLE processed_actions (dedup_key TEXT PRIMARY KEY)');
+  }
 
   for (const migration of migrations) {
     try {
@@ -414,29 +424,26 @@ export function updateContractCursor(db: Database.Database, contract: string, bl
 }
 
 /** Check-only: returns true if this action was already processed. */
-export function hasBeenProcessed(db: Database.Database, globalSequence: number): boolean {
-  if (globalSequence <= 0) return false; // No sequence available — can't dedup
-  return !!db.prepare('SELECT 1 FROM processed_actions WHERE global_sequence = ?').get(globalSequence);
+export function hasBeenProcessed(db: Database.Database, dedupeKey: string): boolean {
+  if (!dedupeKey) return false;
+  return !!db.prepare('SELECT 1 FROM processed_actions WHERE dedup_key = ?').get(dedupeKey);
 }
 
 /** Insert-only: mark an action as processed. Call after handler success. */
-export function markActionProcessed(db: Database.Database, globalSequence: number): void {
-  if (globalSequence <= 0) return;
-  db.prepare('INSERT OR IGNORE INTO processed_actions (global_sequence) VALUES (?)').run(globalSequence);
+export function markActionProcessed(db: Database.Database, dedupeKey: string): void {
+  if (!dedupeKey) return;
+  db.prepare('INSERT OR IGNORE INTO processed_actions (dedup_key) VALUES (?)').run(dedupeKey);
 }
 
 /**
- * Remove processed_actions entries for blocks older than the minimum
- * per-contract cursor. Only needs the minimum block — actions below it
- * are already filtered by the resume cursor guard.
+ * Prune oldest processed_actions entries to bound table size.
+ * Uses ROWID ordering (insertion order) for deletion priority.
  */
-export function pruneProcessedActions(db: Database.Database, belowBlock: number): void {
-  // We don't store block_num in processed_actions for simplicity.
-  // Instead, prune entries older than a count threshold to bound table size.
+export function pruneProcessedActions(db: Database.Database, _belowBlock: number): void {
   const MAX_DEDUP_ENTRIES = 10000;
   const count = (db.prepare('SELECT COUNT(*) as cnt FROM processed_actions').get() as { cnt: number }).cnt;
   if (count > MAX_DEDUP_ENTRIES) {
     const toDelete = count - MAX_DEDUP_ENTRIES;
-    db.prepare('DELETE FROM processed_actions WHERE global_sequence IN (SELECT global_sequence FROM processed_actions ORDER BY global_sequence ASC LIMIT ?)').run(toDelete);
+    db.prepare('DELETE FROM processed_actions WHERE rowid IN (SELECT rowid FROM processed_actions ORDER BY rowid ASC LIMIT ?)').run(toDelete);
   }
 }

@@ -4,6 +4,7 @@ import { EventEmitter } from 'events';
 export interface StreamAction {
   block_num: number;
   global_sequence: number;
+  action_ordinal: number;
   timestamp: string;
   trx_id: string;
   act: {
@@ -105,6 +106,7 @@ export class HyperionStream extends EventEmitter {
       const action: StreamAction = {
         block_num: message.content.block_num,
         global_sequence: message.content.global_sequence || 0,
+        action_ordinal: message.content.action_ordinal || 0,
         timestamp: message.content['@timestamp'],
         trx_id: message.content.trx_id,
         act: message.content.act,

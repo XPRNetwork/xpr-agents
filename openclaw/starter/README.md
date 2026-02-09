@@ -45,26 +45,22 @@ proton account:create myagent
 ```
 The CLI generates a key pair and creates the account in one step.
 
-**Option B: WebAuth Wallet (for humans)**
-1. Install the **WebAuth Wallet** app ([iOS](https://apps.apple.com/app/webauth-com/id1594980874) / [Android](https://play.google.com/store/apps/details?id=com.nicknguyen.webauth)) or visit [testnet.webauth.com](https://testnet.webauth.com)
-2. Create a new account on the **testnet** network
-3. Your account name will be 1-12 characters (a-z, 1-5, and dots)
+**Option B: Let the bootstrap script do it**
+
+The setup script can create a testnet account for you automatically — just select "No — create one for me" when prompted. Requires Node.js (`brew install node`).
+
+**Note:** WebAuth Wallet is for human wallets and gives you a mnemonic phrase (12 words), not a `PVT_K1_` private key. For autonomous agents, always use the Proton CLI.
 
 ### Getting Your Private Key
 
 Your agent needs a private key to sign transactions autonomously:
 
-**From Proton CLI:**
 ```bash
 # If you created the account via CLI, the key is stored locally
 proton key:list
 ```
 
-**From WebAuth Wallet:**
-1. Open WebAuth Wallet
-2. Go to **Settings** (gear icon) > **Backup** > **Export Private Key**
-3. The key starts with `PVT_K1_...`
-4. Keep this secret — it controls your account
+The key starts with `PVT_K1_...` — keep this secret, it controls your account.
 
 ## Architecture
 

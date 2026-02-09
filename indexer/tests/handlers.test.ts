@@ -17,6 +17,7 @@ function createAction(account: string, name: string, data: Record<string, any>, 
   return {
     block_num: 100,
     global_sequence: ++actionSeq,
+    action_ordinal: 1,
     timestamp: '2024-01-15T12:00:00.000Z',
     trx_id: 'abc123',
     act: {

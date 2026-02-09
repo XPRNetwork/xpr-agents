@@ -88,6 +88,7 @@ export class HyperionPoller extends EventEmitter {
       const streamAction: StreamAction = {
         block_num: action.block_num,
         global_sequence: action.global_sequence || 0,
+        action_ordinal: action.action_ordinal || 0,
         timestamp: action['@timestamp'] || action.timestamp,
         trx_id: action.trx_id,
         act: action.act,
