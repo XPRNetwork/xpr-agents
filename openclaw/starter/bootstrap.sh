@@ -332,17 +332,75 @@ success "Private key: set"
 prompt_value ANTHROPIC_API_KEY "Anthropic API key (from console.anthropic.com)" "" true
 success "API key: set"
 
-# ── Validate Account ─────────────────────────
+# ── Validate Account & Key ───────────────────
 
 echo ""
 log "Validating account on-chain..."
 
-ACCOUNT_CHECK=$(curl -sf -X POST "$RPC_ENDPOINT/v1/chain/get_account" \
+ACCOUNT_CHECK=$(curl -s -X POST "$RPC_ENDPOINT/v1/chain/get_account" \
   -H "Content-Type: application/json" \
   -d "{\"account_name\": \"$XPR_ACCOUNT\"}" 2>/dev/null || echo "FAIL")
 
 if echo "$ACCOUNT_CHECK" | grep -q '"account_name"'; then
   success "Account '$XPR_ACCOUNT' exists on $NETWORK"
+
+  # Validate that the private key matches the account's on-chain active keys
+  if command -v node &>/dev/null; then
+    log "Validating private key matches account..."
+    ONCHAIN_KEYS=$(echo "$ACCOUNT_CHECK" | node -e "
+      const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+      const active = d.permissions?.find(p => p.perm_name === 'active');
+      if (active) active.required_auth.keys.forEach(k => console.log(k.key));
+    " 2>/dev/null || echo "")
+
+    DERIVED_PUB=$(node -e "
+      try {
+        const { PrivateKey } = require('@proton/js');
+        console.log(PrivateKey.fromString(process.argv[1]).getPublicKey().toLegacyString());
+      } catch(e) {
+        try {
+          const { PrivateKey } = require('@proton/js');
+          console.log(PrivateKey.fromString(process.argv[1]).getPublicKey().toString());
+        } catch(e2) { console.error(e2.message); }
+      }
+    " "$XPR_PRIVATE_KEY" 2>/dev/null || echo "")
+
+    if [ -n "$DERIVED_PUB" ] && [ -n "$ONCHAIN_KEYS" ]; then
+      KEY_MATCH=false
+      while IFS= read -r onchain_key; do
+        if [ "$DERIVED_PUB" = "$onchain_key" ]; then
+          KEY_MATCH=true
+          break
+        fi
+      done <<< "$ONCHAIN_KEYS"
+
+      if [ "$KEY_MATCH" = true ]; then
+        success "Private key matches account's active permission"
+      else
+        echo ""
+        echo -e "${RED}  KEY MISMATCH${NC}"
+        echo -e "  Your private key does NOT match '$XPR_ACCOUNT's on-chain active keys."
+        echo -e "  Derived public key: ${CYAN}${DERIVED_PUB}${NC}"
+        echo -e "  On-chain active keys:"
+        while IFS= read -r k; do echo -e "    ${CYAN}${k}${NC}"; done <<< "$ONCHAIN_KEYS"
+        echo ""
+        echo -e "  The agent ${RED}will not be able to sign transactions${NC}."
+        echo -e "  You need the private key that corresponds to one of the on-chain keys."
+        echo ""
+        if [ "$NON_INTERACTIVE" = false ]; then
+          echo -n "Continue anyway? [y/N]: "
+          read -r cont
+          [ "$cont" = "y" ] || [ "$cont" = "Y" ] || exit 1
+        else
+          fail "Key mismatch — provide the correct private key for '$XPR_ACCOUNT'"
+        fi
+      fi
+    else
+      warn "Could not verify key match (missing @proton/js or node issue)"
+    fi
+  else
+    warn "Node.js not found — skipping key validation (install node to enable)"
+  fi
 else
   warn "Could not verify account '$XPR_ACCOUNT' on $NETWORK"
   if [ "$NON_INTERACTIVE" = false ]; then
@@ -432,7 +490,7 @@ services:
       - A2A_RATE_LIMIT=${A2A_RATE_LIMIT:-20}
       - A2A_TOOL_MODE=${A2A_TOOL_MODE:-full}
     ports:
-      - "127.0.0.1:8080:8080"
+      - "8080:8080"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 30s

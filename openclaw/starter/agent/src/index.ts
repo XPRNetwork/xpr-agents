@@ -543,6 +543,45 @@ app.get('/health', (_req, res) => {
   });
 });
 
+// ── Auto-registration on startup ──────────────
+async function ensureRegistered(): Promise<void> {
+  const account = process.env.XPR_ACCOUNT;
+  if (!account) return;
+
+  const getAgent = tools.find(t => t.name === 'xpr_get_agent');
+  const registerAgent = tools.find(t => t.name === 'xpr_register_agent');
+  if (!getAgent || !registerAgent) {
+    console.warn('[agent-runner] Registration tools not found, skipping auto-register');
+    return;
+  }
+
+  try {
+    const agentData: any = await getAgent.handler({ account });
+    if (agentData && agentData.account) {
+      console.log(`[agent-runner] Already registered on-chain as "${agentData.name}"`);
+      return;
+    }
+  } catch {
+    // Agent not found — proceed to register
+  }
+
+  console.log('[agent-runner] Not registered on-chain, registering...');
+  try {
+    await registerAgent.handler({
+      name: account,
+      description: `Autonomous AI agent (${account})`,
+      endpoint: `http://localhost:${process.env.PORT || '8080'}`,
+      protocol: 'https',
+      capabilities: ['general', 'jobs', 'bidding'],
+      confirmed: true,
+    });
+    console.log(`[agent-runner] Registered on-chain as "${account}"`);
+  } catch (err: any) {
+    console.error(`[agent-runner] Auto-registration failed: ${err.message}`);
+    console.error('[agent-runner] The private key may not match this account. Check .env');
+  }
+}
+
 const port = parseInt(process.env.PORT || '8080');
 const server = app.listen(port, () => {
   console.log(`[agent-runner] Listening on port ${port}`);
@@ -553,6 +592,9 @@ const server = app.listen(port, () => {
   console.log(`[agent-runner] A2A auth: ${a2aAuthConfig.authRequired ? 'required' : 'optional'}, rate limit: ${a2aAuthConfig.rateLimit}/min`);
   if (a2aAuthConfig.minTrustScore > 0) console.log(`[agent-runner] A2A min trust score: ${a2aAuthConfig.minTrustScore}`);
   if (a2aAuthConfig.minKycLevel > 0) console.log(`[agent-runner] A2A min KYC level: ${a2aAuthConfig.minKycLevel}`);
+
+  // Auto-register after server is ready
+  ensureRegistered();
 });
 
 // Graceful shutdown
