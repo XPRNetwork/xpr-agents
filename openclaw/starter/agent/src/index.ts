@@ -251,8 +251,13 @@ app.post('/hooks/agent', async (req, res) => {
   }
 });
 
-// Manual trigger — useful for testing
+// Manual trigger — requires authentication
 app.post('/run', async (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token || token !== process.env.OPENCLAW_HOOK_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized: Bearer token required' });
+  }
+
   const { prompt } = req.body;
   if (!prompt) {
     return res.status(400).json({ error: 'Missing prompt' });

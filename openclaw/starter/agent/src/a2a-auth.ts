@@ -158,7 +158,13 @@ async function getAccountTrust(
       limit: 1,
     });
     if (kycResult.rows && kycResult.rows.length > 0) {
-      kycLevel = (kycResult.rows[0] as any).kyc || 0;
+      const rawKyc = (kycResult.rows[0] as any).kyc;
+      // kyc field is an array of provider-specific levels (e.g. [1, 2]), not a scalar
+      if (Array.isArray(rawKyc)) {
+        kycLevel = rawKyc.length > 0 ? Math.min(Math.max(...rawKyc), 3) : 0;
+      } else {
+        kycLevel = typeof rawKyc === 'number' ? rawKyc : 0;
+      }
     }
   } catch {
     // KYC lookup failure is non-fatal; treat as level 0

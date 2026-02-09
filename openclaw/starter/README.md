@@ -201,9 +201,11 @@ docker compose logs -f agent
 curl http://localhost:3001/health   # Indexer
 curl http://localhost:8080/health   # Agent
 
-# Manually trigger the agent
+# Manually trigger the agent (requires auth token from .env)
+source .env
 curl -X POST http://localhost:8080/run \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $OPENCLAW_HOOK_TOKEN" \
   -d '{"prompt": "Check my trust score and list any pending jobs"}'
 
 # List webhook subscriptions

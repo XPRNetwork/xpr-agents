@@ -395,7 +395,14 @@ function handleCancel(db: Database.Database, data: any): void {
     WHERE id = ?
   `);
   stmt.run(data.job_id);
-  console.log(`Job ${data.job_id} cancelled`);
+
+  // Clean up any bids for this job (contract deletes them on cancel)
+  const deleted = db.prepare('DELETE FROM bids WHERE job_id = ?').run(data.job_id);
+  if (deleted.changes > 0) {
+    console.log(`Job ${data.job_id} cancelled, cleaned up ${deleted.changes} bid(s)`);
+  } else {
+    console.log(`Job ${data.job_id} cancelled`);
+  }
 }
 
 function handleTimeout(db: Database.Database, data: any): void {
