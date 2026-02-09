@@ -44,12 +44,20 @@ const pluginFn = require('@xpr-agents/openclaw').default;
 pluginFn(mockApi);
 
 // Load agent-operator skill as system prompt
-// Try multiple paths for SKILL.md (Docker layout differs from local)
-const skillCandidates = [
-  path.resolve(__dirname, '../../openclaw/skills/xpr-agent-operator/SKILL.md'),  // Docker: /app/agent/dist
-  path.resolve(__dirname, '../../../../skills/xpr-agent-operator/SKILL.md'),      // Local: openclaw/starter/agent/dist
-  path.resolve(__dirname, '../../../skills/xpr-agent-operator/SKILL.md'),          // Fallback
-];
+// Resolve from npm package or repo-relative paths for local dev
+function findSkillCandidates(): string[] {
+  const candidates: string[] = [];
+  // npm install: find package root via require.resolve, then locate skill
+  try {
+    const pkgPath = require.resolve('@xpr-agents/openclaw/package.json');
+    candidates.push(path.resolve(path.dirname(pkgPath), 'skills/xpr-agent-operator/SKILL.md'));
+  } catch { /* not installed via npm */ }
+  // Local dev paths (running from openclaw/starter/agent/dist)
+  candidates.push(path.resolve(__dirname, '../../../../skills/xpr-agent-operator/SKILL.md'));
+  candidates.push(path.resolve(__dirname, '../../../skills/xpr-agent-operator/SKILL.md'));
+  return candidates;
+}
+const skillCandidates = findSkillCandidates();
 let systemPrompt = 'You are an autonomous AI agent on XPR Network.';
 for (const candidate of skillCandidates) {
   try {

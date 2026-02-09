@@ -5,25 +5,9 @@ WORKDIR /app
 # Install build deps for native modules
 RUN apk add --no-cache python3 make g++
 
-# Copy SDK first (dependency of openclaw)
-COPY sdk/package.json sdk/tsconfig.json /app/sdk/
-COPY sdk/src /app/sdk/src
-WORKDIR /app/sdk
-RUN npm install && npm run build
-
-# Copy openclaw plugin
-COPY openclaw/package.json openclaw/tsconfig.json /app/openclaw/
-COPY openclaw/src /app/openclaw/src
-WORKDIR /app/openclaw
-RUN npm install && npm run build
-
-# Copy skills
-COPY openclaw/skills /app/openclaw/skills
-
-# Copy agent runner
-COPY openclaw/starter/agent/package.json openclaw/starter/agent/tsconfig.json /app/agent/
-COPY openclaw/starter/agent/src /app/agent/src
-WORKDIR /app/agent
+# Copy agent runner package files and install from npm
+COPY package.json tsconfig.json ./
+COPY src ./src
 RUN npm install && npm run build
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \

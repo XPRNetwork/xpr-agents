@@ -1,0 +1,67 @@
+name: Build & Push Docker Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'indexer/**'
+      - 'openclaw/starter/agent/**'
+      - 'openclaw/src/**'
+      - 'sdk/src/**'
+      - '.github/workflows/docker.yml'
+  workflow_dispatch: # manual trigger
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: xprnetwork
+
+jobs:
+  build-indexer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push indexer
+        uses: docker/build-push-action@v5
+        with:
+          context: ./indexer
+          file: ./indexer/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/xpr-agents-indexer:latest
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/xpr-agents-indexer:${{ github.sha }}
+
+  build-agent:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push agent runner
+        uses: docker/build-push-action@v5
+        with:
+          context: ./openclaw/starter/agent
+          file: ./openclaw/starter/agent/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/xpr-agent-runner:latest
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/xpr-agent-runner:${{ github.sha }}

@@ -1,8 +1,6 @@
 services:
   indexer:
-    build:
-      context: ../..
-      dockerfile: indexer/Dockerfile
+    image: ghcr.io/xprnetwork/xpr-agents-indexer:latest
     environment:
       - PORT=3001
       - DB_PATH=/data/agents.db
@@ -21,9 +19,7 @@ services:
     restart: unless-stopped
 
   agent:
-    build:
-      context: ../..
-      dockerfile: openclaw/starter/agent/Dockerfile
+    image: ghcr.io/xprnetwork/xpr-agent-runner:latest
     environment:
       - PORT=8080
       - XPR_ACCOUNT=${XPR_ACCOUNT}

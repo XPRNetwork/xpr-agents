@@ -250,16 +250,12 @@ set +a
 # ── Build & Start Services ───────────────────
 
 echo ""
-log "Building and starting services..."
+log "Pulling pre-built images..."
 
 if [ "$SKIP_BUILD" = false ]; then
-  echo -e "  ${CYAN}Building indexer...${NC}"
-  $COMPOSE build indexer 2>&1 | while IFS= read -r line; do echo "    $line"; done
-  success "Indexer image built"
-
-  echo -e "  ${CYAN}Building agent...${NC}"
-  $COMPOSE build agent 2>&1 | while IFS= read -r line; do echo "    $line"; done
-  success "Agent image built"
+  echo -e "  ${CYAN}Pulling images from GHCR...${NC}"
+  $COMPOSE pull 2>&1 | while IFS= read -r line; do echo "    $line"; done
+  success "Images pulled"
 fi
 
 echo -e "  ${CYAN}Starting indexer...${NC}"
