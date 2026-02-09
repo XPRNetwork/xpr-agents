@@ -408,8 +408,15 @@ app.post('/a2a', async (req, res) => {
           ? `[A2A from ${callerAccount}, job #${jobId}] ${text}`
           : `[A2A from ${callerAccount}] ${text}`;
 
-        // Create or reuse task
-        const taskId = params?.id || `task-${++a2aTaskCounter}`;
+        // Create or reuse task — reject caller-supplied IDs owned by another account
+        let taskId = params?.id || `task-${++a2aTaskCounter}`;
+        const existingTask = a2aTasks.get(taskId);
+        if (existingTask && existingTask.owner !== authAccount) {
+          return res.json({
+            jsonrpc: '2.0', id,
+            error: { code: -32000, message: `Task ID '${taskId}' is owned by another account` },
+          });
+        }
         const contextId = params?.contextId;
 
         const taskRecord: A2ATaskRecord = {

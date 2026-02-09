@@ -161,7 +161,8 @@ async function getAccountTrust(
       const rawKyc = (kycResult.rows[0] as any).kyc;
       // kyc field is an array of provider-specific levels (e.g. [1, 2]), not a scalar
       if (Array.isArray(rawKyc)) {
-        kycLevel = rawKyc.length > 0 ? Math.min(Math.max(...rawKyc), 3) : 0;
+        const numericLevels = rawKyc.map(Number).filter((n: number) => !isNaN(n) && isFinite(n));
+        kycLevel = numericLevels.length > 0 ? Math.min(Math.max(...numericLevels), 3) : 0;
       } else {
         kycLevel = typeof rawKyc === 'number' ? rawKyc : 0;
       }

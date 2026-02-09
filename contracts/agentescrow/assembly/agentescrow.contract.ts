@@ -526,7 +526,7 @@ export class AgentEscrowContract extends Contract {
 
     const job = this.jobsTable.requireGet(job_id, "Job not found");
     check(job.agent == EMPTY_NAME, "Job is direct-hire, not open for bids");
-    check(job.state == 0 || job.state == 1, "Job must be in CREATED or FUNDED state to bid");
+    check(job.state == 0, "Job must be in CREATED state to bid (fund after selecting a bid)");
     check(agent != job.client, "Client cannot bid on own job");
 
     // Validate bid
