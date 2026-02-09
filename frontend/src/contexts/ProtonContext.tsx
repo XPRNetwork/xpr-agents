@@ -56,7 +56,6 @@ async function initSDK(restoreSession: boolean): Promise<{ link: any; session: L
       chainId: CHAIN_ID,
       endpoints: ENDPOINTS,
       restoreSession,
-      storage: typeof window !== 'undefined' ? window.localStorage as any : undefined,
     },
     transportOptions: {
       requestAccount: APP_NAME,
@@ -89,7 +88,11 @@ export function ProtonProvider({ children }: { children: ReactNode }) {
 
     const restoreSession = async () => {
       try {
-        const { session: restoredSession } = await initSDK(true);
+        // Timeout after 5s — if SDK hangs (e.g. no previous session), don't block UI
+        const timeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Session restore timeout')), 5000)
+        );
+        const { session: restoredSession } = await Promise.race([initSDK(true), timeout]);
 
         if (restoredSession) {
           setSession({
