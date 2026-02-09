@@ -5,28 +5,23 @@ set -euo pipefail
 # XPR Agent Operator — Self-Contained Bootstrap
 # ════════════════════════════════════════════════════════════
 #
-# No repo clone needed. Pulls public Docker images and starts.
+# Idempotent. Run anytime to set up, repair, or verify your agent.
+# Detects existing setup, fixes what's broken, skips what's done.
 #
 # curl -fsSL https://gist.githubusercontent.com/.../bootstrap.sh | bash
 #
 
-VERSION="0.3.0"
+VERSION="0.4.0"
 
 # ── Self-relaunch for interactive mode ───────
-# When piped via `curl | bash`, stdin is consumed by the pipe so interactive
-# prompts can't read input. Detect this, save the script to a temp file,
-# and re-exec so stdin is connected to the terminal.
 if [ ! -t 0 ] && [ $# -eq 0 ]; then
   TMPSCRIPT=$(mktemp /tmp/xpr-bootstrap.XXXXXX.sh)
-  # We're being piped — the script content is on stdin. But bash already
-  # has it buffered, so we can't re-read it. Instead, download it again.
-  GIST_URL="${BASH_SOURCE[0]:-}"
-  # Save ourselves to a temp file by re-downloading
   SELF_URL="https://gist.githubusercontent.com/paulgnz/ee18380f8b8fdaca0319dce7e38046dd/raw/bootstrap.sh"
   curl -fsSL "$SELF_URL" -o "$TMPSCRIPT"
   chmod +x "$TMPSCRIPT"
   exec bash "$TMPSCRIPT" "$@"
 fi
+
 INDEXER_IMAGE="ghcr.io/paulgnz/xpr-agents-indexer:latest"
 AGENT_IMAGE="ghcr.io/paulgnz/xpr-agent-runner:latest"
 
@@ -53,39 +48,22 @@ usage() {
 ${BOLD}XPR Agent Operator Bootstrap v${VERSION}${NC}
 
 Deploy an autonomous AI agent on XPR Network in one command.
-No git clone needed — pulls public Docker images directly.
+Idempotent — run anytime to set up, repair, or verify your agent.
 
 ${BOLD}USAGE:${NC}
     curl -fsSL <url> | bash
     curl -fsSL <url> | bash -s -- [OPTIONS]
 
 ${BOLD}OPTIONS:${NC}
-    --account <name>      XPR Network account name (required)
-    --key <private_key>   Account private key (required)
-    --api-key <key>       Anthropic API key (required)
+    --account <name>      XPR Network account name
+    --key <private_key>   Account private key
+    --api-key <key>       Anthropic API key
     --network <net>       Network: testnet (default) or mainnet
     --model <model>       Claude model (default: claude-sonnet-4-20250514)
     --max-amount <n>      Max XPR transfer in smallest units (default: 1000000)
     --dir <path>          Working directory (default: xpr-agent)
     --non-interactive     Skip all prompts (requires all flags)
     --help                Show this help
-
-${BOLD}WHAT YOU NEED:${NC}
-    1. Docker installed (https://docker.com)
-    2. A XPR Network account (free):
-       npm install -g @proton/cli && proton chain:set proton-test && proton account:create myagent
-    3. Your account's private key (proton key:list)
-    4. An Anthropic API key (https://console.anthropic.com)
-
-${BOLD}EXAMPLES:${NC}
-    # Interactive wizard
-    curl -fsSL <url> | bash
-
-    # One-liner
-    curl -fsSL <url> | bash -s -- --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx
-
-    # Mainnet
-    curl -fsSL <url> | bash -s -- --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx --network mainnet
 
 EOF
   exit 0
@@ -161,7 +139,7 @@ echo -e "${BOLD}  XPR Agent Operator v${VERSION}${NC}"
 echo -e "${BOLD}═══════════════════════════════════════════${NC}"
 echo ""
 
-# ── Prerequisites ────────────────────────────
+# ── Phase 1: Prerequisites ──────────────────
 
 log "Checking prerequisites..."
 
@@ -180,13 +158,39 @@ else
 fi
 success "$COMPOSE"
 
-# ── Gather Configuration ─────────────────────
+# ── Phase 2: Detect Existing Setup ──────────
 
-echo ""
-log "Configuration"
+mkdir -p "$WORK_DIR"
+cd "$WORK_DIR"
 
-prompt_choice NETWORK "Select network:" "testnet" "mainnet"
-success "Network: $NETWORK"
+EXISTING_SETUP=false
+OPENCLAW_HOOK_TOKEN=""
+WEBHOOK_ADMIN_TOKEN=""
+
+if [ -f .env ]; then
+  EXISTING_SETUP=true
+  log "Found existing setup in $(pwd)"
+
+  # Source existing config (only the vars we need)
+  while IFS='=' read -r key value; do
+    # Skip comments and empty lines
+    [[ "$key" =~ ^#.*$ ]] && continue
+    [ -z "$key" ] && continue
+    # Only override if not set via CLI flags
+    case "$key" in
+      XPR_ACCOUNT)        [ -z "$XPR_ACCOUNT" ] && XPR_ACCOUNT="$value" ;;
+      XPR_PRIVATE_KEY)    [ -z "$XPR_PRIVATE_KEY" ] && XPR_PRIVATE_KEY="$value" ;;
+      ANTHROPIC_API_KEY)  [ -z "$ANTHROPIC_API_KEY" ] && ANTHROPIC_API_KEY="$value" ;;
+      XPR_NETWORK)        NETWORK="$value" ;;
+      AGENT_MODEL)        [ -z "$AGENT_MODEL" ] && AGENT_MODEL="$value" ;;
+      MAX_TRANSFER_AMOUNT) [ -z "$MAX_TRANSFER_AMOUNT" ] && MAX_TRANSFER_AMOUNT="$value" ;;
+      OPENCLAW_HOOK_TOKEN) OPENCLAW_HOOK_TOKEN="$value" ;;
+      WEBHOOK_ADMIN_TOKEN) WEBHOOK_ADMIN_TOKEN="$value" ;;
+    esac
+  done < .env
+
+  success "Loaded: account=$XPR_ACCOUNT, network=$NETWORK"
+fi
 
 # Network endpoints
 if [ "$NETWORK" = "mainnet" ]; then
@@ -197,130 +201,135 @@ else
   HYPERION="https://api-xprnetwork-test.saltant.io"
 fi
 
-# ── Account Setup ────────────────────────────
+# ── Phase 3: Gather Missing Configuration ───
 
-# Detect existing Proton CLI accounts
-EXISTING_CLI_ACCOUNT=""
-EXISTING_CLI_KEY=""
-if command -v npx &>/dev/null; then
-  CLI_KEYS=$(npx -y @proton/cli key:list 2>/dev/null || true)
-  EXISTING_CLI_KEY=$(echo "$CLI_KEYS" | grep -oE 'PVT_K1_[A-Za-z0-9]+' | head -1)
-  if [ -n "$EXISTING_CLI_KEY" ]; then
-    EXISTING_CLI_ACCOUNT=$(echo "$CLI_KEYS" | grep -oE '[a-z1-5.]{1,12}' | head -1)
-  fi
-fi
-
-# If account/key not provided via flags, offer options
-if [ -z "$XPR_ACCOUNT" ] && [ "$NON_INTERACTIVE" = false ]; then
+if [ "$EXISTING_SETUP" = false ]; then
   echo ""
-  echo -e "${BOLD}XPR Network Account${NC}"
+  log "New setup — gathering configuration..."
 
-  if [ -n "$EXISTING_CLI_KEY" ] && [ -n "$EXISTING_CLI_ACCOUNT" ]; then
-    echo "  1) Use existing Proton CLI account: ${GREEN}${EXISTING_CLI_ACCOUNT}${NC} (detected)"
-    echo "  2) Enter a different account and key"
-    echo "  3) Create a new account (testnet only, requires Node.js)"
-    echo -n "Choice [1]: "
-    read -r ACCOUNT_CHOICE
-    ACCOUNT_CHOICE="${ACCOUNT_CHOICE:-1}"
-
-    if [ "$ACCOUNT_CHOICE" = "1" ]; then
-      XPR_ACCOUNT="$EXISTING_CLI_ACCOUNT"
-      XPR_PRIVATE_KEY="$EXISTING_CLI_KEY"
-      success "Using existing account: $XPR_ACCOUNT"
-    fi
-    [ "$ACCOUNT_CHOICE" = "3" ] && ACCOUNT_CHOICE="CREATE"
-  else
-    echo "  1) Yes — I have an account and private key"
-    echo "  2) No — create one for me (testnet only, requires Node.js)"
-    echo -n "Choice [1]: "
-    read -r ACCOUNT_CHOICE
-    ACCOUNT_CHOICE="${ACCOUNT_CHOICE:-1}"
-    [ "$ACCOUNT_CHOICE" = "2" ] && ACCOUNT_CHOICE="CREATE"
+  if [ -z "$NETWORK" ] || [ "$NETWORK" = "testnet" ]; then
+    prompt_choice NETWORK "Select network:" "testnet" "mainnet"
   fi
+  success "Network: $NETWORK"
 
-  if [ "$ACCOUNT_CHOICE" = "CREATE" ]; then
-    if [ "$NETWORK" = "mainnet" ]; then
-      fail "Automatic account creation is only available on testnet"
-    fi
-
-    if ! command -v npx &>/dev/null; then
-      echo ""
-      echo -e "${RED}Node.js is required to create an account.${NC}"
-      echo ""
-      echo "Install it:"
-      echo "  Mac:   brew install node"
-      echo "  Linux: curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo bash - && sudo apt install -y nodejs"
-      echo ""
-      echo "Then re-run this script."
-      exit 1
-    fi
-
-    echo ""
-    echo -en "${BOLD}Choose an account name${NC} (1-12 chars, a-z 1-5 and .): "
-    read -r XPR_ACCOUNT
-
-    if ! echo "$XPR_ACCOUNT" | grep -qE '^[a-z1-5.]{1,12}$'; then
-      fail "Invalid account name '$XPR_ACCOUNT'. Use only a-z, 1-5, and dots (max 12 chars)"
-    fi
-
-    # Check if account already exists on-chain BEFORE attempting creation
-    EXISTING_CHECK=$(curl -sf -X POST "$RPC_ENDPOINT/v1/chain/get_account" \
-      -H "Content-Type: application/json" \
-      -d "{\"account_name\": \"$XPR_ACCOUNT\"}" 2>/dev/null || echo "NOT_FOUND")
-
-    if echo "$EXISTING_CHECK" | grep -q '"account_name"'; then
-      echo ""
-      echo -e "${YELLOW}Account '$XPR_ACCOUNT' already exists on $NETWORK.${NC}"
-      echo "  You need the private key that controls this account."
-      echo "  If you don't have it, choose a different name."
-      echo ""
-      echo "  1) Enter the private key for '$XPR_ACCOUNT'"
-      echo "  2) Choose a different account name"
-      echo -n "Choice [1]: "
-      read -r EXIST_CHOICE
-      EXIST_CHOICE="${EXIST_CHOICE:-1}"
-
-      if [ "$EXIST_CHOICE" = "2" ]; then
-        fail "Re-run the script and choose a different name"
-      fi
-
-      prompt_value XPR_PRIVATE_KEY "Private key for '$XPR_ACCOUNT' (PVT_K1_...)" "" true
-    else
-      log "Creating account '$XPR_ACCOUNT' on testnet..."
-      echo -e "  ${CYAN}This may take a moment on first run (downloading @proton/cli)...${NC}"
-
-      npx -y @proton/cli chain:set proton-test 2>/dev/null
-
-      CREATE_OUTPUT=$(npx -y @proton/cli account:create "$XPR_ACCOUNT" 2>&1) || {
-        echo "$CREATE_OUTPUT"
-        fail "Account creation failed. The name may be taken — try a different one."
-      }
-      success "Account '$XPR_ACCOUNT' created on testnet"
-
-      KEY_OUTPUT=$(npx -y @proton/cli key:list 2>&1)
-      EXTRACTED_KEY=$(echo "$KEY_OUTPUT" | grep -oE 'PVT_K1_[A-Za-z0-9]+' | head -1)
-
-      if [ -n "$EXTRACTED_KEY" ]; then
-        XPR_PRIVATE_KEY="$EXTRACTED_KEY"
-        success "Private key extracted"
-        echo ""
-        echo -e "  ${BOLD}Your private key:${NC} $EXTRACTED_KEY"
-        echo -e "  ${YELLOW}Save this somewhere safe! It controls your account.${NC}"
-        echo ""
-      else
-        echo ""
-        echo -e "${YELLOW}Could not auto-extract private key. Run this to find it:${NC}"
-        echo "  npx @proton/cli key:list"
-        echo ""
-        prompt_value XPR_PRIVATE_KEY "Paste your private key (PVT_K1_...)" "" true
-      fi
-    fi
+  # Update endpoints after network choice
+  if [ "$NETWORK" = "mainnet" ]; then
+    RPC_ENDPOINT="https://proton.eosusa.io"
+    HYPERION="https://proton.eosusa.io"
+  else
+    RPC_ENDPOINT="https://tn1.protonnz.com"
+    HYPERION="https://api-xprnetwork-test.saltant.io"
   fi
 fi
 
-# If still not set, prompt normally
+# ── Account Setup (only if not already configured) ────
+
 if [ -z "$XPR_ACCOUNT" ]; then
-  prompt_value XPR_ACCOUNT "XPR account name"
+  # Detect existing Proton CLI accounts
+  EXISTING_CLI_ACCOUNT=""
+  EXISTING_CLI_KEY=""
+  if command -v npx &>/dev/null; then
+    CLI_KEYS=$(npx -y @proton/cli key:list 2>/dev/null || true)
+    EXISTING_CLI_KEY=$(echo "$CLI_KEYS" | grep -oE 'PVT_K1_[A-Za-z0-9]+' | head -1)
+    if [ -n "$EXISTING_CLI_KEY" ]; then
+      EXISTING_CLI_ACCOUNT=$(echo "$CLI_KEYS" | grep -oE '[a-z1-5.]{1,12}' | head -1)
+    fi
+  fi
+
+  if [ "$NON_INTERACTIVE" = false ]; then
+    echo ""
+    echo -e "${BOLD}XPR Network Account${NC}"
+
+    if [ -n "$EXISTING_CLI_KEY" ] && [ -n "$EXISTING_CLI_ACCOUNT" ]; then
+      echo "  1) Use existing Proton CLI account: ${GREEN}${EXISTING_CLI_ACCOUNT}${NC} (detected)"
+      echo "  2) Enter a different account and key"
+      echo "  3) Create a new account (testnet only, requires Node.js)"
+      echo -n "Choice [1]: "
+      read -r ACCOUNT_CHOICE
+      ACCOUNT_CHOICE="${ACCOUNT_CHOICE:-1}"
+
+      if [ "$ACCOUNT_CHOICE" = "1" ]; then
+        XPR_ACCOUNT="$EXISTING_CLI_ACCOUNT"
+        XPR_PRIVATE_KEY="$EXISTING_CLI_KEY"
+        success "Using existing account: $XPR_ACCOUNT"
+      fi
+      [ "$ACCOUNT_CHOICE" = "3" ] && ACCOUNT_CHOICE="CREATE"
+    else
+      echo "  1) Yes — I have an account and private key"
+      echo "  2) No — create one for me (testnet only, requires Node.js)"
+      echo -n "Choice [1]: "
+      read -r ACCOUNT_CHOICE
+      ACCOUNT_CHOICE="${ACCOUNT_CHOICE:-1}"
+      [ "$ACCOUNT_CHOICE" = "2" ] && ACCOUNT_CHOICE="CREATE"
+    fi
+
+    if [ "${ACCOUNT_CHOICE:-}" = "CREATE" ]; then
+      if [ "$NETWORK" = "mainnet" ]; then
+        fail "Automatic account creation is only available on testnet"
+      fi
+      if ! command -v npx &>/dev/null; then
+        echo ""
+        echo -e "${RED}Node.js is required to create an account.${NC}"
+        echo "  Mac:   brew install node"
+        echo "  Linux: curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo bash - && sudo apt install -y nodejs"
+        fail "Install Node.js and re-run"
+      fi
+
+      echo ""
+      echo -en "${BOLD}Choose an account name${NC} (1-12 chars, a-z 1-5 and .): "
+      read -r XPR_ACCOUNT
+
+      if ! echo "$XPR_ACCOUNT" | grep -qE '^[a-z1-5.]{1,12}$'; then
+        fail "Invalid account name '$XPR_ACCOUNT'. Use only a-z, 1-5, and dots (max 12 chars)"
+      fi
+
+      # Check if account already exists BEFORE attempting creation
+      EXISTING_CHECK=$(curl -s -X POST "$RPC_ENDPOINT/v1/chain/get_account" \
+        -H "Content-Type: application/json" \
+        -d "{\"account_name\": \"$XPR_ACCOUNT\"}" 2>/dev/null || echo "NOT_FOUND")
+
+      if echo "$EXISTING_CHECK" | grep -q '"account_name"'; then
+        echo ""
+        echo -e "${YELLOW}Account '$XPR_ACCOUNT' already exists on $NETWORK.${NC}"
+        echo "  You need the private key that controls this account."
+        echo ""
+        echo "  1) Enter the private key for '$XPR_ACCOUNT'"
+        echo "  2) Choose a different account name"
+        echo -n "Choice [1]: "
+        read -r EXIST_CHOICE
+        EXIST_CHOICE="${EXIST_CHOICE:-1}"
+        [ "$EXIST_CHOICE" = "2" ] && fail "Re-run the script and choose a different name"
+        prompt_value XPR_PRIVATE_KEY "Private key for '$XPR_ACCOUNT' (PVT_K1_...)" "" true
+      else
+        log "Creating account '$XPR_ACCOUNT' on testnet..."
+        echo -e "  ${CYAN}This may take a moment on first run (downloading @proton/cli)...${NC}"
+        npx -y @proton/cli chain:set proton-test 2>/dev/null
+        CREATE_OUTPUT=$(npx -y @proton/cli account:create "$XPR_ACCOUNT" 2>&1) || {
+          echo "$CREATE_OUTPUT"
+          fail "Account creation failed. The name may be taken — try a different one."
+        }
+        success "Account '$XPR_ACCOUNT' created on testnet"
+
+        KEY_OUTPUT=$(npx -y @proton/cli key:list 2>&1)
+        EXTRACTED_KEY=$(echo "$KEY_OUTPUT" | grep -oE 'PVT_K1_[A-Za-z0-9]+' | head -1)
+        if [ -n "$EXTRACTED_KEY" ]; then
+          XPR_PRIVATE_KEY="$EXTRACTED_KEY"
+          success "Private key extracted"
+          echo ""
+          echo -e "  ${BOLD}Your private key:${NC} $EXTRACTED_KEY"
+          echo -e "  ${YELLOW}Save this somewhere safe! It controls your account.${NC}"
+          echo ""
+        else
+          prompt_value XPR_PRIVATE_KEY "Paste your private key (PVT_K1_...)" "" true
+        fi
+      fi
+    fi
+  fi
+
+  # Final prompt if still empty
+  if [ -z "$XPR_ACCOUNT" ]; then
+    prompt_value XPR_ACCOUNT "XPR account name"
+  fi
 fi
 success "Account: $XPR_ACCOUNT"
 
@@ -329,10 +338,12 @@ if [ -z "$XPR_PRIVATE_KEY" ]; then
 fi
 success "Private key: set"
 
-prompt_value ANTHROPIC_API_KEY "Anthropic API key (from console.anthropic.com)" "" true
+if [ -z "$ANTHROPIC_API_KEY" ]; then
+  prompt_value ANTHROPIC_API_KEY "Anthropic API key (from console.anthropic.com)" "" true
+fi
 success "API key: set"
 
-# ── Validate Account & Key ───────────────────
+# ── Phase 4: Validate Account & Key ─────────
 
 echo ""
 log "Validating account on-chain..."
@@ -344,9 +355,9 @@ ACCOUNT_CHECK=$(curl -s -X POST "$RPC_ENDPOINT/v1/chain/get_account" \
 if echo "$ACCOUNT_CHECK" | grep -q '"account_name"'; then
   success "Account '$XPR_ACCOUNT' exists on $NETWORK"
 
-  # Validate that the private key matches the account's on-chain active keys
+  # Validate key matches on-chain active keys
   if command -v node &>/dev/null; then
-    log "Validating private key matches account..."
+    log "Validating private key..."
     ONCHAIN_KEYS=$(echo "$ACCOUNT_CHECK" | node -e "
       const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
       const active = d.permissions?.find(p => p.perm_name === 'active');
@@ -361,70 +372,58 @@ if echo "$ACCOUNT_CHECK" | grep -q '"account_name"'; then
         try {
           const { PrivateKey } = require('@proton/js');
           console.log(PrivateKey.fromString(process.argv[1]).getPublicKey().toString());
-        } catch(e2) { console.error(e2.message); }
+        } catch(e2) { /* silent */ }
       }
     " "$XPR_PRIVATE_KEY" 2>/dev/null || echo "")
 
     if [ -n "$DERIVED_PUB" ] && [ -n "$ONCHAIN_KEYS" ]; then
       KEY_MATCH=false
       while IFS= read -r onchain_key; do
-        if [ "$DERIVED_PUB" = "$onchain_key" ]; then
-          KEY_MATCH=true
-          break
-        fi
+        [ "$DERIVED_PUB" = "$onchain_key" ] && KEY_MATCH=true && break
       done <<< "$ONCHAIN_KEYS"
 
       if [ "$KEY_MATCH" = true ]; then
         success "Private key matches account's active permission"
       else
         echo ""
-        echo -e "${RED}  KEY MISMATCH${NC}"
-        echo -e "  Your private key does NOT match '$XPR_ACCOUNT's on-chain active keys."
-        echo -e "  Derived public key: ${CYAN}${DERIVED_PUB}${NC}"
-        echo -e "  On-chain active keys:"
+        echo -e "  ${RED}KEY MISMATCH${NC} — private key does NOT match '$XPR_ACCOUNT'"
+        echo -e "  Derived:  ${CYAN}${DERIVED_PUB}${NC}"
+        echo -e "  On-chain:"
         while IFS= read -r k; do echo -e "    ${CYAN}${k}${NC}"; done <<< "$ONCHAIN_KEYS"
         echo ""
-        echo -e "  The agent ${RED}will not be able to sign transactions${NC}."
-        echo -e "  You need the private key that corresponds to one of the on-chain keys."
-        echo ""
         if [ "$NON_INTERACTIVE" = false ]; then
-          echo -n "Continue anyway? [y/N]: "
-          read -r cont
-          [ "$cont" = "y" ] || [ "$cont" = "Y" ] || exit 1
+          echo -n "  Enter the correct private key (or Ctrl+C to abort): "
+          read -rs XPR_PRIVATE_KEY
+          echo ""
         else
           fail "Key mismatch — provide the correct private key for '$XPR_ACCOUNT'"
         fi
       fi
     else
-      warn "Could not verify key match (missing @proton/js or node issue)"
+      warn "Could not verify key (missing @proton/js)"
     fi
-  else
-    warn "Node.js not found — skipping key validation (install node to enable)"
   fi
 else
   warn "Could not verify account '$XPR_ACCOUNT' on $NETWORK"
   if [ "$NON_INTERACTIVE" = false ]; then
-    echo -n "Continue anyway? [y/N]: "
+    echo -n "  Continue anyway? [y/N]: "
     read -r cont
     [ "$cont" = "y" ] || [ "$cont" = "Y" ] || exit 1
   fi
 fi
 
-# ── Create Working Directory ─────────────────
+# ── Phase 5: Write Config Files ─────────────
 
-mkdir -p "$WORK_DIR"
-cd "$WORK_DIR"
-log "Working directory: $(pwd)"
+echo ""
+log "Writing configuration..."
 
-# ── Generate Security Tokens ─────────────────
+# Generate tokens only if not already set
+[ -z "$OPENCLAW_HOOK_TOKEN" ] && OPENCLAW_HOOK_TOKEN=$(openssl rand -hex 32)
+[ -z "$WEBHOOK_ADMIN_TOKEN" ] && WEBHOOK_ADMIN_TOKEN=$(openssl rand -hex 32)
 
-OPENCLAW_HOOK_TOKEN=$(openssl rand -hex 32)
-WEBHOOK_ADMIN_TOKEN=$(openssl rand -hex 32)
-
-# ── Write .env ───────────────────────────────
-
+# Always rewrite .env to pick up any fixes (key changes, etc.)
 cat > .env <<ENVEOF
-# Generated by bootstrap.sh on $(date -Iseconds)
+# Generated by bootstrap.sh v${VERSION} on $(date -Iseconds)
 XPR_ACCOUNT=$XPR_ACCOUNT
 XPR_PRIVATE_KEY=$XPR_PRIVATE_KEY
 XPR_PERMISSION=active
@@ -443,11 +442,9 @@ A2A_MIN_KYC_LEVEL=0
 A2A_RATE_LIMIT=20
 A2A_TOOL_MODE=full
 ENVEOF
+success ".env written"
 
-success "Created .env"
-
-# ── Write docker-compose.yml ─────────────────
-
+# Write docker-compose.yml (always, to pick up image updates)
 cat > docker-compose.yml <<'DCEOF'
 services:
   indexer:
@@ -505,67 +502,9 @@ services:
 volumes:
   indexer-data:
 DCEOF
+success "docker-compose.yml written"
 
-success "Created docker-compose.yml"
-
-# ── Pull & Start ─────────────────────────────
-
-echo ""
-log "Pulling Docker images..."
-$COMPOSE pull 2>&1 | while IFS= read -r line; do echo "    $line"; done
-success "Images pulled"
-
-echo ""
-log "Starting indexer..."
-$COMPOSE up -d indexer
-
-echo -e "  ${CYAN}Waiting for indexer health...${NC}"
-for i in $(seq 1 45); do
-  if curl -sf http://localhost:3001/health >/dev/null 2>&1; then
-    success "Indexer healthy"
-    break
-  fi
-  [ "$i" -eq 45 ] && fail "Indexer didn't start in 45s. Run: $COMPOSE logs indexer"
-  sleep 1
-done
-
-# ── Register Webhook ─────────────────────────
-
-echo ""
-log "Registering webhook..."
-
-WEBHOOK_RESP=$(curl -sf -X POST http://localhost:3001/api/webhooks \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $WEBHOOK_ADMIN_TOKEN" \
-  -d "{
-    \"url\": \"http://agent:8080/hooks/agent\",
-    \"token\": \"$OPENCLAW_HOOK_TOKEN\",
-    \"event_filter\": [\"job.*\", \"feedback.*\", \"validation.*\", \"dispute.*\", \"bid.*\", \"agent.*\"],
-    \"account_filter\": \"$XPR_ACCOUNT\"
-  }" 2>/dev/null || echo '{"error":"failed"}')
-
-if echo "$WEBHOOK_RESP" | grep -q '"id"'; then
-  success "Webhook registered for $XPR_ACCOUNT"
-else
-  warn "Webhook registration issue: $WEBHOOK_RESP"
-fi
-
-# ── Start Agent ──────────────────────────────
-
-log "Starting agent..."
-$COMPOSE up -d agent
-
-for i in $(seq 1 30); do
-  if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
-    success "Agent running"
-    break
-  fi
-  [ "$i" -eq 30 ] && warn "Agent didn't respond in 30s. Check: $COMPOSE logs agent"
-  sleep 1
-done
-
-# ── Create chat script ──────────────────────
-
+# Write chat script
 cat > chat <<'CHATEOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -586,8 +525,10 @@ else
     RESP=$(curl -sf -X POST "$AGENT_URL/run" \
       -H 'Content-Type: application/json' \
       -H "Authorization: Bearer $OPENCLAW_HOOK_TOKEN" \
+      --max-time 120 \
       -d "{\"prompt\": $(echo "$PROMPT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')}" 2>&1) || {
       echo "Error: $RESP"
+      echo ""
       continue
     }
     echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('result','(no response)'))" 2>/dev/null || echo "$RESP"
@@ -599,30 +540,189 @@ fi
 RESP=$(curl -sf -X POST "$AGENT_URL/run" \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $OPENCLAW_HOOK_TOKEN" \
+  --max-time 120 \
   -d "{\"prompt\": $(echo "$PROMPT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')}")
 
 echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('result','(no response)'))" 2>/dev/null || echo "$RESP"
 CHATEOF
 chmod +x chat
-success "Created chat script"
+success "chat script written"
 
-# ── Done ─────────────────────────────────────
+# ── Phase 6: Infrastructure ─────────────────
+
+echo ""
+log "Checking infrastructure..."
+
+# Check if containers are already running
+INDEXER_RUNNING=false
+AGENT_RUNNING=false
+if $COMPOSE ps --format json 2>/dev/null | grep -q '"indexer"' 2>/dev/null; then
+  INDEXER_RUNNING=true
+elif $COMPOSE ps 2>/dev/null | grep -q 'indexer.*running' 2>/dev/null; then
+  INDEXER_RUNNING=true
+fi
+if $COMPOSE ps --format json 2>/dev/null | grep -q '"agent"' 2>/dev/null; then
+  AGENT_RUNNING=true
+elif $COMPOSE ps 2>/dev/null | grep -q 'agent.*running' 2>/dev/null; then
+  AGENT_RUNNING=true
+fi
+
+# Pull latest images
+log "Pulling latest images..."
+$COMPOSE pull 2>&1 | while IFS= read -r line; do echo "    $line"; done
+success "Images up to date"
+
+# Start or restart services
+if [ "$EXISTING_SETUP" = true ]; then
+  # Restart to pick up any config changes
+  log "Restarting services with updated config..."
+  $COMPOSE up -d --force-recreate 2>&1 | while IFS= read -r line; do echo "    $line"; done
+else
+  log "Starting services..."
+  $COMPOSE up -d 2>&1 | while IFS= read -r line; do echo "    $line"; done
+fi
+
+# Wait for indexer health
+echo -e "  ${CYAN}Waiting for indexer...${NC}"
+for i in $(seq 1 45); do
+  if curl -sf http://localhost:3001/health >/dev/null 2>&1; then
+    success "Indexer healthy"
+    break
+  fi
+  [ "$i" -eq 45 ] && fail "Indexer didn't start in 45s. Run: $COMPOSE logs indexer"
+  sleep 1
+done
+
+# Wait for agent health
+echo -e "  ${CYAN}Waiting for agent...${NC}"
+for i in $(seq 1 30); do
+  if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+    success "Agent healthy"
+    break
+  fi
+  [ "$i" -eq 30 ] && fail "Agent didn't start in 30s. Run: $COMPOSE logs agent"
+  sleep 1
+done
+
+# ── Phase 7: Webhook Registration ───────────
+
+echo ""
+log "Checking webhook registration..."
+
+EXISTING_HOOKS=$(curl -sf -H "Authorization: Bearer $WEBHOOK_ADMIN_TOKEN" \
+  http://localhost:3001/api/webhooks 2>/dev/null || echo "[]")
+
+if echo "$EXISTING_HOOKS" | grep -q "\"account_filter\":\"$XPR_ACCOUNT\""; then
+  success "Webhook already registered for $XPR_ACCOUNT"
+else
+  log "Registering webhook..."
+  WEBHOOK_RESP=$(curl -sf -X POST http://localhost:3001/api/webhooks \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $WEBHOOK_ADMIN_TOKEN" \
+    -d "{
+      \"url\": \"http://agent:8080/hooks/agent\",
+      \"token\": \"$OPENCLAW_HOOK_TOKEN\",
+      \"event_filter\": [\"job.*\", \"feedback.*\", \"validation.*\", \"dispute.*\", \"bid.*\", \"agent.*\"],
+      \"account_filter\": \"$XPR_ACCOUNT\"
+    }" 2>/dev/null || echo '{"error":"failed"}')
+
+  if echo "$WEBHOOK_RESP" | grep -q '"id"'; then
+    success "Webhook registered for $XPR_ACCOUNT"
+  else
+    warn "Webhook registration issue: $WEBHOOK_RESP"
+  fi
+fi
+
+# ── Phase 8: On-Chain Agent Registration ────
+
+echo ""
+log "Checking on-chain registration..."
+
+AGENT_ONCHAIN=$(curl -s -X POST "$RPC_ENDPOINT/v1/chain/get_table_rows" \
+  -H "Content-Type: application/json" \
+  -d "{\"code\":\"agentcore\",\"table\":\"agents\",\"scope\":\"agentcore\",\"lower_bound\":\"$XPR_ACCOUNT\",\"upper_bound\":\"$XPR_ACCOUNT\",\"limit\":1,\"json\":true}" \
+  2>/dev/null || echo '{"rows":[]}')
+
+if echo "$AGENT_ONCHAIN" | grep -q "\"account\":\"$XPR_ACCOUNT\""; then
+  success "Agent registered on-chain"
+  # Show current on-chain info
+  AGENT_NAME=$(echo "$AGENT_ONCHAIN" | python3 -c "import json,sys; rows=json.load(sys.stdin).get('rows',[]); print(rows[0].get('name','') if rows else '')" 2>/dev/null || echo "")
+  [ -n "$AGENT_NAME" ] && echo -e "    Name: ${CYAN}${AGENT_NAME}${NC}"
+else
+  warn "Agent NOT registered on-chain"
+  log "Registering agent on-chain via agent runner..."
+
+  REG_RESP=$(curl -sf -X POST http://localhost:8080/run \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $OPENCLAW_HOOK_TOKEN" \
+    --max-time 120 \
+    -d "{\"prompt\": \"Register me as an agent on-chain right now. Use my account name as the display name, set description to 'Autonomous AI agent on XPR Network', protocol to 'https', endpoint to 'http://localhost:8080', and capabilities to ['general', 'jobs', 'bidding']. Use the xpr_register_agent tool with confirmed=true. If there is a registration fee, check xpr_get_core_config first to find the fee amount.\"}" \
+    2>/dev/null || echo '{"error":"registration request failed"}')
+
+  # Check if it worked
+  sleep 3
+  AGENT_RECHECK=$(curl -s -X POST "$RPC_ENDPOINT/v1/chain/get_table_rows" \
+    -H "Content-Type: application/json" \
+    -d "{\"code\":\"agentcore\",\"table\":\"agents\",\"scope\":\"agentcore\",\"lower_bound\":\"$XPR_ACCOUNT\",\"upper_bound\":\"$XPR_ACCOUNT\",\"limit\":1,\"json\":true}" \
+    2>/dev/null || echo '{"rows":[]}')
+
+  if echo "$AGENT_RECHECK" | grep -q "\"account\":\"$XPR_ACCOUNT\""; then
+    success "Agent registered on-chain"
+  else
+    warn "On-chain registration may have failed. Check: $COMPOSE logs agent"
+    echo -e "    ${CYAN}You can register manually: ./chat \"Register me as an agent\"${NC}"
+  fi
+fi
+
+# ── Phase 9: Final Status ───────────────────
 
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════${NC}"
-echo -e "${GREEN}${BOLD}  Your agent is live!${NC}"
+echo -e "${GREEN}${BOLD}  Setup complete${NC}"
 echo -e "${BOLD}═══════════════════════════════════════════${NC}"
 echo ""
-echo -e "  ${BOLD}Agent:${NC}    $XPR_ACCOUNT"
-echo -e "  ${BOLD}Network:${NC}  $NETWORK"
-echo -e "  ${BOLD}Dir:${NC}      $(pwd)"
-echo -e "  ${BOLD}Indexer:${NC}  http://localhost:3001"
-echo -e "  ${BOLD}Agent:${NC}    http://localhost:8080"
+
+# Run full status check
+INDEXER_HEALTH=$(curl -sf http://localhost:3001/health 2>/dev/null || echo '{}')
+AGENT_HEALTH=$(curl -sf http://localhost:8080/health 2>/dev/null || echo '{}')
+INDEXER_OK=$(echo "$INDEXER_HEALTH" | grep -c '"status"' 2>/dev/null || echo "0")
+AGENT_OK=$(echo "$AGENT_HEALTH" | grep -c '"ok":true' 2>/dev/null || echo "0")
+TOOL_COUNT=$(echo "$AGENT_HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('tools',0))" 2>/dev/null || echo "?")
+
+echo -e "  ${BOLD}Account:${NC}   $XPR_ACCOUNT"
+echo -e "  ${BOLD}Network:${NC}   $NETWORK"
+echo -e "  ${BOLD}Directory:${NC} $(pwd)"
+echo ""
+
+if [ "$INDEXER_OK" -gt 0 ]; then
+  echo -e "  ${GREEN}Indexer:${NC}   healthy (http://localhost:3001)"
+else
+  echo -e "  ${RED}Indexer:${NC}   NOT healthy"
+fi
+
+if [ "$AGENT_OK" -gt 0 ]; then
+  echo -e "  ${GREEN}Agent:${NC}     healthy (http://localhost:8080) — ${TOOL_COUNT} tools"
+else
+  echo -e "  ${RED}Agent:${NC}     NOT healthy"
+fi
+
+# Check on-chain status one more time
+FINAL_CHAIN=$(curl -s -X POST "$RPC_ENDPOINT/v1/chain/get_table_rows" \
+  -H "Content-Type: application/json" \
+  -d "{\"code\":\"agentcore\",\"table\":\"agents\",\"scope\":\"agentcore\",\"lower_bound\":\"$XPR_ACCOUNT\",\"upper_bound\":\"$XPR_ACCOUNT\",\"limit\":1,\"json\":true}" \
+  2>/dev/null || echo '{"rows":[]}')
+
+if echo "$FINAL_CHAIN" | grep -q "\"account\":\"$XPR_ACCOUNT\""; then
+  echo -e "  ${GREEN}On-chain:${NC}  registered"
+else
+  echo -e "  ${YELLOW}On-chain:${NC}  not registered yet — run: ./chat \"Register me as an agent\""
+fi
+
 echo ""
 echo -e "${BOLD}Talk to your agent:${NC}"
 echo "  cd $(pwd)"
-echo "  ./chat                                  # Interactive chat"
-echo "  ./chat \"Check my status\"                # One-shot"
+echo "  ./chat                     # Interactive chat"
+echo "  ./chat \"Check my status\"   # One-shot command"
 echo ""
 echo -e "${BOLD}Other commands:${NC}"
 echo "  $COMPOSE logs -f           # Live logs"
