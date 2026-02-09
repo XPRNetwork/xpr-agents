@@ -97,18 +97,24 @@ if (lastBlock > 0 || [...contractCursors.values()].some(b => b > 0)) {
   }
 }
 
+// Frozen snapshot of per-contract cursors at startup.
+// Used ONLY for resume dedup — never mutated during the session.
+// Strict < means the cursor's own block is replayed (safe; at most a few
+// duplicate actions from the boundary block, but no data loss).
+const resumeCursors: ReadonlyMap<string, number> = new Map(contractCursors);
+
 // Action handler shared by both stream and poller.
-// Skips actions at or below the contract's persisted cursor to prevent
-// duplicate processing when streaming resumes from min(cursors).
 function handleAction(action: StreamAction): void {
   const contract = action.act.account;
 
-  // Dedup: skip actions already processed by this contract's cursor.
-  // Token transfers are an exception — they're routed to multiple destination
-  // contracts, so we use the token contract's own cursor for dedup.
-  const contractCursor = contractCursors.get(contract) || 0;
-  if (action.block_num <= contractCursor) {
-    return; // Already processed
+  // Resume dedup: skip actions strictly BELOW the contract's persisted cursor.
+  // Uses the frozen startup snapshot so live processing is never filtered.
+  // Strict < (not <=) ensures all actions in the cursor's own block are
+  // re-processed — this is the safe direction (small harmless replay on
+  // restart vs data loss from <=).
+  const resumeBlock = resumeCursors.get(contract) || 0;
+  if (resumeBlock > 0 && action.block_num < resumeBlock) {
+    return; // Definitely already processed
   }
 
   try {
@@ -136,8 +142,6 @@ function handleAction(action: StreamAction): void {
     // Update cursors after successful processing
     updateCursor(db, action.block_num);
     updateContractCursor(db, contract, action.block_num);
-    // Keep in-memory cursors in sync for dedup within the same session
-    contractCursors.set(contract, action.block_num);
   } catch (error) {
     console.error(`Error handling action ${action.act.name}:`, error);
   }
