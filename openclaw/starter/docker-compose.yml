@@ -1,6 +1,6 @@
 services:
   indexer:
-    image: ghcr.io/paulgnz/xpr-agents-indexer:latest
+    image: ghcr.io/xprnetwork/xpr-agents-indexer:latest
     environment:
       - PORT=3001
       - DB_PATH=/data/agents.db
@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
 
   agent:
-    image: ghcr.io/paulgnz/xpr-agent-runner:latest
+    image: ghcr.io/xprnetwork/xpr-agent-runner:latest
     environment:
       - PORT=8080
       - XPR_ACCOUNT=${XPR_ACCOUNT}
@@ -52,7 +52,7 @@ services:
     restart: unless-stopped
 
   telegram:
-    image: ghcr.io/paulgnz/xpr-agent-telegram:latest
+    image: ghcr.io/xprnetwork/xpr-agent-telegram:latest
     profiles: ["telegram"]
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}

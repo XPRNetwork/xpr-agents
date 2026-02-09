@@ -22,9 +22,9 @@ if [ ! -t 0 ] && [ $# -eq 0 ]; then
   exec bash "$TMPSCRIPT" "$@"
 fi
 
-INDEXER_IMAGE="ghcr.io/paulgnz/xpr-agents-indexer:latest"
-AGENT_IMAGE="ghcr.io/paulgnz/xpr-agent-runner:latest"
-TELEGRAM_IMAGE="ghcr.io/paulgnz/xpr-agent-telegram:latest"
+INDEXER_IMAGE="ghcr.io/xprnetwork/xpr-agents-indexer:latest"
+AGENT_IMAGE="ghcr.io/xprnetwork/xpr-agent-runner:latest"
+TELEGRAM_IMAGE="ghcr.io/xprnetwork/xpr-agent-telegram:latest"
 
 # Colors
 RED='\033[0;31m'
@@ -472,7 +472,7 @@ success ".env written"
 cat > docker-compose.yml <<'DCEOF'
 services:
   indexer:
-    image: ghcr.io/paulgnz/xpr-agents-indexer:latest
+    image: ghcr.io/xprnetwork/xpr-agents-indexer:latest
     environment:
       - PORT=3001
       - DB_PATH=/data/agents.db
@@ -491,7 +491,7 @@ services:
     restart: unless-stopped
 
   agent:
-    image: ghcr.io/paulgnz/xpr-agent-runner:latest
+    image: ghcr.io/xprnetwork/xpr-agent-runner:latest
     environment:
       - PORT=8080
       - XPR_ACCOUNT=${XPR_ACCOUNT}
@@ -524,7 +524,7 @@ services:
     restart: unless-stopped
 
   telegram:
-    image: ghcr.io/paulgnz/xpr-agent-telegram:latest
+    image: ghcr.io/xprnetwork/xpr-agent-telegram:latest
     profiles: ["telegram"]
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
