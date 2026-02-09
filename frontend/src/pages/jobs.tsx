@@ -8,12 +8,26 @@ import {
   formatXpr,
   formatDate,
   formatTimeline,
-  getOpenJobs,
+  getAllJobs,
   getBidsForJob,
   getJobStateLabel,
   type Job,
   type Bid,
 } from '@/lib/registry';
+
+const STATE_COLORS: Record<number, string> = {
+  0: 'bg-gray-100 text-gray-700',     // Created
+  1: 'bg-blue-100 text-blue-700',     // Funded
+  2: 'bg-indigo-100 text-indigo-700', // Accepted
+  3: 'bg-yellow-100 text-yellow-700', // In Progress
+  4: 'bg-orange-100 text-orange-700', // Delivered
+  5: 'bg-red-100 text-red-700',       // Disputed
+  6: 'bg-green-100 text-green-700',   // Completed
+  7: 'bg-gray-100 text-gray-500',     // Refunded
+  8: 'bg-purple-100 text-purple-700', // Arbitrated
+};
+
+type FilterMode = 'all' | 'mine' | 'open';
 
 export default function Jobs() {
   const { session, transact } = useProton();
@@ -26,6 +40,7 @@ export default function Jobs() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterMode>('all');
 
   // Create job form
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -43,14 +58,22 @@ export default function Jobs() {
   async function loadJobs() {
     setLoading(true);
     try {
-      const openJobs = await getOpenJobs();
-      setJobs(openJobs);
+      const allJobs = await getAllJobs();
+      setJobs(allJobs);
     } catch (e) {
       console.error('Failed to load jobs:', e);
     } finally {
       setLoading(false);
     }
   }
+
+  const filteredJobs = jobs.filter((job) => {
+    if (filter === 'open') return !job.agent || job.agent === '.............';
+    if (filter === 'mine' && session) {
+      return job.client === session.auth.actor || job.agent === session.auth.actor;
+    }
+    return true;
+  });
 
   async function selectJob(job: Job) {
     setSelectedJob(job);
@@ -65,6 +88,72 @@ export default function Jobs() {
       console.error('Failed to load bids:', e);
     } finally {
       setBidsLoading(false);
+    }
+  }
+
+  async function handleFundJob() {
+    if (!session || !selectedJob) return;
+
+    setProcessing(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const remaining = selectedJob.amount - selectedJob.funded_amount;
+      const amountStr = `${(remaining / 10000).toFixed(4)} XPR`;
+
+      await transact([
+        {
+          account: 'eosio.token',
+          name: 'transfer',
+          data: {
+            from: session.auth.actor,
+            to: CONTRACTS.AGENT_ESCROW,
+            quantity: amountStr,
+            memo: `fund:${selectedJob.id}`,
+          },
+        },
+      ]);
+
+      setSuccess(`Job #${selectedJob.id} funded with ${amountStr}!`);
+      await loadJobs();
+      // Refresh selected job
+      const updated = (await getAllJobs()).find(j => j.id === selectedJob.id);
+      if (updated) setSelectedJob(updated);
+    } catch (e: any) {
+      setError(e.message || 'Failed to fund job');
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function handleApproveDelivery() {
+    if (!session || !selectedJob) return;
+
+    setProcessing(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await transact([
+        {
+          account: CONTRACTS.AGENT_ESCROW,
+          name: 'approve',
+          data: {
+            client: session.auth.actor,
+            job_id: selectedJob.id,
+          },
+        },
+      ]);
+
+      setSuccess(`Job #${selectedJob.id} approved! Payment released to ${selectedJob.agent}.`);
+      await loadJobs();
+      const updated = (await getAllJobs()).find(j => j.id === selectedJob.id);
+      if (updated) setSelectedJob(updated);
+    } catch (e: any) {
+      setError(e.message || 'Failed to approve delivery');
+    } finally {
+      setProcessing(false);
     }
   }
 
@@ -131,7 +220,6 @@ export default function Jobs() {
       ]);
 
       setSuccess('Bid selected! Agent assigned to job.');
-      // Reload jobs and bids
       await loadJobs();
       const jobBids = await getBidsForJob(selectedJob.id);
       setBids(jobBids);
@@ -157,6 +245,23 @@ export default function Jobs() {
         newJob.deliverables.split('\n').map(d => d.trim()).filter(Boolean)
       );
 
+      // Get next job ID so we can fund it in the same transaction
+      const jobsTable = await fetch(`${process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://tn1.protonnz.com'}/v1/chain/get_table_rows`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: CONTRACTS.AGENT_ESCROW,
+          scope: CONTRACTS.AGENT_ESCROW,
+          table: 'jobs',
+          json: true,
+          reverse: true,
+          limit: 1,
+        }),
+      }).then(r => r.json());
+      const nextJobId = jobsTable.rows.length > 0 ? jobsTable.rows[0].id + 1 : 0;
+
+      const amountStr = `${(amount / 10000).toFixed(4)} XPR`;
+
       await transact([
         {
           account: CONTRACTS.AGENT_ESCROW,
@@ -174,9 +279,19 @@ export default function Jobs() {
             job_hash: '',
           },
         },
+        {
+          account: 'eosio.token',
+          name: 'transfer',
+          data: {
+            from: session.auth.actor,
+            to: CONTRACTS.AGENT_ESCROW,
+            quantity: amountStr,
+            memo: `fund:${nextJobId}`,
+          },
+        },
       ]);
 
-      setSuccess('Job posted! Agents can now submit bids.');
+      setSuccess('Job posted and funded! Agents can now submit bids.');
       setShowCreateForm(false);
       setNewJob({ title: '', description: '', amount: '', deadline: '', deliverables: '', arbitrator: '' });
       await loadJobs();
@@ -217,6 +332,11 @@ export default function Jobs() {
     }
   }
 
+  const isMyJob = session && selectedJob?.client === session.auth.actor;
+  const canFund = isMyJob && selectedJob && selectedJob.funded_amount < selectedJob.amount && selectedJob.state === 0;
+  const canApprove = isMyJob && selectedJob?.state === 4; // DELIVERED
+  const canBid = selectedJob && selectedJob.state <= 1 && (!selectedJob.agent || selectedJob.agent === '.............');
+
   return (
     <>
       <Head>
@@ -251,7 +371,7 @@ export default function Jobs() {
 
         <main className="max-w-6xl mx-auto px-4 py-8">
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold">Open Job Board</h1>
+            <h1 className="text-2xl font-bold">Job Board</h1>
             <div className="flex gap-2">
               {session && (
                 <button
@@ -268,6 +388,23 @@ export default function Jobs() {
                 Refresh
               </button>
             </div>
+          </div>
+
+          {/* Filter Tabs */}
+          <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
+            {(['all', 'open', 'mine'] as FilterMode[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-4 py-1.5 rounded-md text-sm capitalize transition-colors ${
+                  filter === f
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {f === 'mine' ? 'My Jobs' : f}
+              </button>
+            ))}
           </div>
 
           {/* Create Job Form */}
@@ -358,7 +495,7 @@ export default function Jobs() {
                   disabled={processing}
                   className="px-6 py-2 bg-proton-purple text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-300"
                 >
-                  {processing ? 'Creating...' : 'Create Open Job'}
+                  {processing ? 'Creating & Funding...' : 'Create & Fund Job'}
                 </button>
               </form>
             </div>
@@ -375,16 +512,18 @@ export default function Jobs() {
             <div className="flex justify-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-proton-purple"></div>
             </div>
-          ) : jobs.length === 0 ? (
+          ) : filteredJobs.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
-              <p className="text-lg mb-2">No open jobs available</p>
-              <p className="text-sm">Check back later or create a job from the dashboard</p>
+              <p className="text-lg mb-2">No jobs found</p>
+              <p className="text-sm">
+                {filter === 'mine' ? 'You have no jobs yet. Post one!' : 'Check back later or create a job.'}
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-6">
               {/* Job List */}
               <div className="col-span-1 space-y-3">
-                {jobs.map((job) => (
+                {filteredJobs.map((job) => (
                   <button
                     key={job.id}
                     onClick={() => selectJob(job)}
@@ -394,11 +533,21 @@ export default function Jobs() {
                         : 'border-gray-200 bg-white hover:border-gray-300'
                     }`}
                   >
-                    <div className="font-medium truncate">{job.title}</div>
-                    <div className="text-sm text-gray-500 mt-1">
-                      {formatXpr(job.amount)} &middot; {getJobStateLabel(job.state)}
+                    <div className="flex justify-between items-start">
+                      <div className="font-medium truncate flex-1">{job.title}</div>
+                      <span className={`ml-2 px-1.5 py-0.5 rounded text-xs whitespace-nowrap ${STATE_COLORS[job.state] || 'bg-gray-100 text-gray-600'}`}>
+                        {getJobStateLabel(job.state)}
+                      </span>
                     </div>
-                    <div className="text-xs text-gray-400 mt-1">by {job.client}</div>
+                    <div className="text-sm text-gray-500 mt-1">
+                      {formatXpr(job.amount)}
+                      {job.funded_amount < job.amount && job.state === 0 && (
+                        <span className="text-red-500 ml-1">(unfunded)</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      {job.agent ? `Agent: ${job.agent}` : 'Open'} &middot; by {job.client}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -418,13 +567,37 @@ export default function Jobs() {
                         <div className="text-lg font-semibold text-proton-purple">
                           {formatXpr(selectedJob.amount)}
                         </div>
-                        <span className="inline-block mt-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
+                        <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs ${STATE_COLORS[selectedJob.state] || 'bg-gray-100'}`}>
                           {getJobStateLabel(selectedJob.state)}
                         </span>
                       </div>
                     </div>
 
                     <p className="text-gray-600 mb-4">{selectedJob.description}</p>
+
+                    {/* Funding Status */}
+                    <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Funded</span>
+                        <span className={selectedJob.funded_amount >= selectedJob.amount ? 'text-green-600 font-medium' : 'text-red-500 font-medium'}>
+                          {formatXpr(selectedJob.funded_amount)} / {formatXpr(selectedJob.amount)}
+                        </span>
+                      </div>
+                      {selectedJob.funded_amount > 0 && (
+                        <div className="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-green-500 rounded-full"
+                            style={{ width: `${Math.min(100, (selectedJob.funded_amount / selectedJob.amount) * 100)}%` }}
+                          />
+                        </div>
+                      )}
+                      {selectedJob.agent && (
+                        <div className="flex justify-between text-sm mt-2">
+                          <span className="text-gray-500">Agent</span>
+                          <span className="font-medium">{selectedJob.agent}</span>
+                        </div>
+                      )}
+                    </div>
 
                     {selectedJob.deliverables.length > 0 && (
                       <div className="mb-4">
@@ -443,13 +616,37 @@ export default function Jobs() {
                       </p>
                     )}
 
+                    {/* Action Buttons */}
+                    {session && (
+                      <div className="flex gap-2 mb-4">
+                        {canFund && (
+                          <button
+                            onClick={handleFundJob}
+                            disabled={processing}
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:bg-gray-300"
+                          >
+                            {processing ? 'Funding...' : `Fund ${formatXpr(selectedJob.amount - selectedJob.funded_amount)}`}
+                          </button>
+                        )}
+                        {canApprove && (
+                          <button
+                            onClick={handleApproveDelivery}
+                            disabled={processing}
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:bg-gray-300"
+                          >
+                            {processing ? 'Approving...' : 'Approve & Pay'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     {/* Bids Section */}
                     <div className="border-t border-gray-100 pt-4 mt-4">
                       <div className="flex justify-between items-center mb-3">
                         <h3 className="font-medium">
                           Bids {!bidsLoading && `(${bids.length})`}
                         </h3>
-                        {session && !showBidForm && (
+                        {session && canBid && !showBidForm && (
                           <button
                             onClick={() => setShowBidForm(true)}
                             className="px-4 py-2 bg-proton-purple text-white rounded-lg text-sm hover:bg-purple-700"
@@ -524,7 +721,9 @@ export default function Jobs() {
                           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-proton-purple"></div>
                         </div>
                       ) : bids.length === 0 ? (
-                        <p className="text-sm text-gray-500 py-2">No bids yet. Be the first!</p>
+                        <p className="text-sm text-gray-500 py-2">
+                          {canBid ? 'No bids yet. Be the first!' : 'No bids.'}
+                        </p>
                       ) : (
                         <div className="space-y-3">
                           {bids.map((bid) => (
@@ -569,7 +768,7 @@ export default function Jobs() {
                   </div>
                 ) : (
                   <div className="bg-white border border-gray-200 rounded-lg p-12 text-center text-gray-500">
-                    <p>Select a job to view details and submit a bid</p>
+                    <p>Select a job to view details</p>
                   </div>
                 )}
               </div>

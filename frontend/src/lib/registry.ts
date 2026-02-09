@@ -281,6 +281,19 @@ export async function getOpenJobs(limit = 100): Promise<Job[]> {
     .map(parseJob);
 }
 
+export async function getAllJobs(limit = 100): Promise<Job[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'jobs',
+    reverse: true,
+    limit,
+  });
+
+  return result.rows.map(parseJob);
+}
+
 export async function getJob(id: number): Promise<Job | null> {
   const result = await rpc.get_table_rows({
     json: true,
