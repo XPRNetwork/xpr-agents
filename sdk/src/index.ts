@@ -54,7 +54,7 @@ export const NETWORKS = {
   },
   TESTNET: {
     rpc: 'https://tn1.protonnz.com',
-    hyperion: 'https://proton-testnet.eosusa.io',
+    hyperion: 'https://api-xprnetwork-test.saltant.io',
     chainId: '71ee83bcf52142d61019d95f9cc5427ba6a0d7ff8accd9e2088ae2abeaf3d3dd',
   },
 } as const;

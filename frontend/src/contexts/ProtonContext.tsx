@@ -21,8 +21,15 @@ interface ProtonContextType {
 const ProtonContext = createContext<ProtonContextType | null>(null);
 
 const APP_NAME = 'XPR Agents';
-const CHAIN_ID = process.env.NEXT_PUBLIC_CHAIN_ID || '384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0';
-const ENDPOINTS = [process.env.NEXT_PUBLIC_RPC_URL || 'https://proton.eosusa.io'];
+
+// Network config — default to testnet; set NEXT_PUBLIC_NETWORK=mainnet for production
+const isMainnet = process.env.NEXT_PUBLIC_NETWORK === 'mainnet';
+const CHAIN_ID = process.env.NEXT_PUBLIC_CHAIN_ID || (isMainnet
+  ? '384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0'
+  : '71ee83bcf20daefb060b14f72ad1dab3f84b588d12b4571f9b662a13a6f61f82');
+const ENDPOINTS = [process.env.NEXT_PUBLIC_RPC_URL || (isMainnet
+  ? 'https://proton.eosusa.io'
+  : 'https://tn1.protonnz.com')];
 
 let sharedLink: any = null;
 let initPromise: Promise<any> | null = null;
@@ -87,8 +94,8 @@ export function ProtonProvider({ children }: { children: ReactNode }) {
             linkSession: restoredSession,
           });
         }
-      } catch (e) {
-        console.log('No session to restore');
+      } catch (e: any) {
+        console.warn('Session restore failed:', e?.message || e);
       } finally {
         setLoading(false);
       }

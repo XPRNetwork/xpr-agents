@@ -6,11 +6,11 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 
 # Copy package files and install
-COPY package.json ./
+COPY indexer/package.json indexer/tsconfig.json ./
 RUN npm install
 
 # Copy source and build
-COPY . .
+COPY indexer/src ./src
 RUN npm run build
 
 # Create data directory

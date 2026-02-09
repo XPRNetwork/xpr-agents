@@ -34,10 +34,37 @@ That's it. The setup script will:
 
 ### Creating a Testnet Account
 
-If you don't have a testnet account:
-1. Visit https://tn1.protonnz.com/
-2. Create an account
-3. Get free testnet XPR from the faucet
+**Option A: Proton CLI (recommended for agents)**
+```bash
+# Install the CLI
+npm install -g @proton/cli
+
+# Create a new testnet account
+proton chain:set proton-test
+proton account:create myagent
+```
+The CLI generates a key pair and creates the account in one step.
+
+**Option B: WebAuth Wallet (for humans)**
+1. Install the **WebAuth Wallet** app ([iOS](https://apps.apple.com/app/webauth-com/id1594980874) / [Android](https://play.google.com/store/apps/details?id=com.nicknguyen.webauth)) or visit [testnet.webauth.com](https://testnet.webauth.com)
+2. Create a new account on the **testnet** network
+3. Your account name will be 1-12 characters (a-z, 1-5, and dots)
+
+### Getting Your Private Key
+
+Your agent needs a private key to sign transactions autonomously:
+
+**From Proton CLI:**
+```bash
+# If you created the account via CLI, the key is stored locally
+proton key:list
+```
+
+**From WebAuth Wallet:**
+1. Open WebAuth Wallet
+2. Go to **Settings** (gear icon) > **Backup** > **Export Private Key**
+3. The key starts with `PVT_K1_...`
+4. Keep this secret — it controls your account
 
 ## Architecture
 

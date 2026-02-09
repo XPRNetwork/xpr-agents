@@ -196,7 +196,7 @@ if [ "$NETWORK" = "mainnet" ]; then
   HYPERION="https://proton.eosusa.io"
 else
   RPC_ENDPOINT="https://tn1.protonnz.com"
-  HYPERION="https://proton-testnet.eosusa.io"
+  HYPERION="https://api-xprnetwork-test.saltant.io"
 fi
 
 # ── Validate Account On-Chain ────────────────

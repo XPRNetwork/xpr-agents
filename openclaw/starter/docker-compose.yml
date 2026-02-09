@@ -6,7 +6,7 @@ services:
     environment:
       - PORT=3001
       - DB_PATH=/data/agents.db
-      - HYPERION_ENDPOINTS=${HYPERION_ENDPOINTS:-https://proton-testnet.eosusa.io}
+      - HYPERION_ENDPOINTS=${HYPERION_ENDPOINTS:-https://api-xprnetwork-test.saltant.io}
       - WEBHOOK_ADMIN_TOKEN=${WEBHOOK_ADMIN_TOKEN}
     volumes:
       - indexer-data:/data

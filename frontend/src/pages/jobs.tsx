@@ -168,8 +168,10 @@ export default function Jobs() {
             description: newJob.description,
             deliverables,
             amount,
+            symbol: 'XPR',
             deadline: deadlineSeconds,
             arbitrator: newJob.arbitrator || '',
+            job_hash: '',
           },
         },
       ]);
