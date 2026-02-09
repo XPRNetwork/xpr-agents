@@ -15,7 +15,7 @@ VERSION="0.4.0"
 
 # ── Self-relaunch for interactive mode ───────
 if [ ! -t 0 ] && [ $# -eq 0 ]; then
-  TMPSCRIPT=$(mktemp /tmp/xpr-bootstrap.XXXXXX.sh)
+  TMPSCRIPT=$(mktemp /tmp/xpr-bootstrap-XXXXXX)
   SELF_URL="https://gist.githubusercontent.com/paulgnz/ee18380f8b8fdaca0319dce7e38046dd/raw/bootstrap.sh"
   curl -fsSL "$SELF_URL" -o "$TMPSCRIPT"
   chmod +x "$TMPSCRIPT"
