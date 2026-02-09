@@ -668,7 +668,7 @@ async function pollOnChain(): Promise<void> {
             console.log(`[poller] Newly assigned job #${job.id} in FUNDED state`);
             runAgent('poll:job_assigned', {
               job_id: job.id, client: job.client, agent: job.agent,
-              state: job.state, title: job.title, amount: job.amount, budget_xpr: jobBudgetXpr,
+              state: job.state, title: job.title, budget_xpr: jobBudgetXpr,
             }, `You have been assigned to job #${job.id} "${job.title}" (${jobBudgetXpr} XPR). It is FUNDED. Accept the job, start working on it, and deliver the result.`).catch(err => {
               console.error(`[poller] Failed to process newly assigned job:`, err.message);
             });
@@ -687,8 +687,8 @@ async function pollOnChain(): Promise<void> {
           runAgent('poll:job_state_change', {
             job_id: job.id, client: job.client, agent: job.agent,
             from_state: prevState, to_state: job.state,
-            title: job.title, amount: job.amount, budget_xpr: jobBudgetXpr,
-          }, `Job #${job.id} "${job.title}" (budget: ${jobBudgetXpr} XPR) changed from ${fromName} to ${toName}. The amount field in raw units is ${job.amount} (divide by 10000 for XPR). Review and take appropriate action.`).catch(err => {
+            title: job.title, budget_xpr: jobBudgetXpr,
+          }, `Job #${job.id} "${job.title}" (budget: ${jobBudgetXpr} XPR) changed from ${fromName} to ${toName}. Review and take appropriate action.`).catch(err => {
             console.error(`[poller] Failed to process job state change:`, err.message);
           });
         }
@@ -696,6 +696,9 @@ async function pollOnChain(): Promise<void> {
     }
 
     // 2. Check for new open jobs (bidding opportunities)
+    // NOTE: Open jobs are evaluated even on first poll — the agent should bid on
+    // existing opportunities, not just newly-appeared ones. We still track IDs to
+    // avoid re-processing the same job on every cycle.
     if (listOpenJobs) {
       const res: any = await listOpenJobs.handler({ limit: 20 });
       const jobs: any[] = res?.items || res || [];
@@ -704,16 +707,13 @@ async function pollOnChain(): Promise<void> {
         if (knownOpenJobIds.has(job.id)) continue;
         knownOpenJobIds.add(job.id);
 
-        // Don't trigger on first poll (seed)
-        if (firstPoll) continue;
-
         const budgetXpr = (job.amount / 10000).toFixed(4);
-        console.log(`[poller] New open job #${job.id}: "${job.title}" (${budgetXpr} XPR)`);
+        console.log(`[poller] ${firstPoll ? 'Existing' : 'New'} open job #${job.id}: "${job.title}" (${budgetXpr} XPR)`);
         runAgent('poll:new_open_job', {
           job_id: job.id, client: job.client, title: job.title,
-          description: job.description, amount: job.amount, budget_xpr: budgetXpr, deadline: job.deadline,
-        }, `New open job #${job.id} "${job.title}" with budget ${budgetXpr} XPR. The amount field in raw units is ${job.amount} (divide by 10000 for XPR). Bid at or below the budget. Evaluate if you should bid on it.`).catch(err => {
-          console.error(`[poller] Failed to process new open job:`, err.message);
+          description: job.description, budget_xpr: budgetXpr, deadline: job.deadline,
+        }, `${firstPoll ? 'Existing' : 'New'} open job #${job.id} "${job.title}" with budget ${budgetXpr} XPR. When bidding, use the XPR amount directly (e.g. ${budgetXpr} or less). Evaluate if you should bid on it.`).catch(err => {
+          console.error(`[poller] Failed to process open job:`, err.message);
         });
       }
     }

@@ -231,6 +231,7 @@ export MAX_TRANSFER_AMOUNT="${MAX_TRANSFER_AMOUNT:-1000000}"
 export A2A_AUTH_REQUIRED="${A2A_AUTH_REQUIRED:-true}"
 export A2A_TOOL_MODE="${A2A_TOOL_MODE:-full}"
 export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+export PINATA_JWT="${PINATA_JWT:-}"
 export PORT="${PORT:-8080}"
 
 # ── Start ─────────────────────────────────────
