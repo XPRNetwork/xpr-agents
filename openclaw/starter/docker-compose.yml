@@ -41,6 +41,7 @@ services:
       - A2A_TOOL_MODE=${A2A_TOOL_MODE:-full}
       - POLL_ENABLED=${POLL_ENABLED:-true}
       - POLL_INTERVAL=${POLL_INTERVAL:-30}
+      - PINATA_JWT=${PINATA_JWT:-}
     ports:
       - "8080:8080"
     healthcheck:
