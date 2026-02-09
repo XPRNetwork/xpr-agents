@@ -413,16 +413,16 @@ export function updateContractCursor(db: Database.Database, contract: string, bl
   `).run(contract, blockNum);
 }
 
-/**
- * Returns true if this action has already been processed (duplicate).
- * If not, records it and returns false.
- */
-export function isActionProcessed(db: Database.Database, globalSequence: number): boolean {
+/** Check-only: returns true if this action was already processed. */
+export function hasBeenProcessed(db: Database.Database, globalSequence: number): boolean {
   if (globalSequence <= 0) return false; // No sequence available — can't dedup
-  const existing = db.prepare('SELECT 1 FROM processed_actions WHERE global_sequence = ?').get(globalSequence);
-  if (existing) return true;
-  db.prepare('INSERT INTO processed_actions (global_sequence) VALUES (?)').run(globalSequence);
-  return false;
+  return !!db.prepare('SELECT 1 FROM processed_actions WHERE global_sequence = ?').get(globalSequence);
+}
+
+/** Insert-only: mark an action as processed. Call after handler success. */
+export function markActionProcessed(db: Database.Database, globalSequence: number): void {
+  if (globalSequence <= 0) return;
+  db.prepare('INSERT OR IGNORE INTO processed_actions (global_sequence) VALUES (?)').run(globalSequence);
 }
 
 /**

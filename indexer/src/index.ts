@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { initDatabase, updateStats, getLastCursor, updateCursor, ensureContractCursors, getContractCursors, updateContractCursor, isActionProcessed, pruneProcessedActions } from './db/schema';
+import { initDatabase, updateStats, getLastCursor, updateCursor, ensureContractCursors, getContractCursors, updateContractCursor, hasBeenProcessed, markActionProcessed, pruneProcessedActions } from './db/schema';
 import { HyperionStream, StreamAction } from './stream';
 import { HyperionPoller } from './poller';
 import { handleAgentAction, handleAgentCoreTransfer } from './handlers/agent';
@@ -117,7 +117,7 @@ function handleAction(action: StreamAction): void {
   }
 
   // Layer 2: exact dedup via global_sequence — prevents boundary-block duplicates
-  if (isActionProcessed(db, action.global_sequence)) {
+  if (hasBeenProcessed(db, action.global_sequence)) {
     return;
   }
 
@@ -143,7 +143,8 @@ function handleAction(action: StreamAction): void {
       }
     }
 
-    // Update cursors after successful processing
+    // Mark processed + update cursors only after handler success
+    markActionProcessed(db, action.global_sequence);
     updateCursor(db, action.block_num);
     updateContractCursor(db, contract, action.block_num);
   } catch (error) {
