@@ -597,6 +597,7 @@ All phases are complete:
 - 5 OpenClaw A2A tools: discover, send_message, get_task, cancel_task, delegate_job
 - Protocol spec: `docs/A2A.md` — compatible with Google A2A, XPR extensions for on-chain identity
 - **A2A Authentication** — EOSIO signature auth (`sdk/src/eosio-auth.ts`), trust gating, per-account rate limiting, tool sandboxing (`A2A_TOOL_MODE=readonly`)
+- **Security hardening** — task ownership scoping (prevents cross-caller hijack), raw body preservation for signature verification, webhook auth fail-closed pattern, KYC array parsing with numeric sanitization
 
 ## Comparison: EIP-8004 vs XPR Network
 
@@ -618,7 +619,9 @@ xpr-agents/
 ├── MODEL.md                     # Data model documentation
 ├── README.md                    # Project overview
 ├── docs/
-│   └── A2A.md                   # A2A protocol specification
+│   ├── A2A.md                   # A2A protocol specification
+│   ├── SECURITY_AUDIT.md        # Security audit report
+│   └── infrastructure.md        # Deployment & init instructions
 ├── contracts/
 │   ├── agentcore/
 │   │   └── assembly/
@@ -640,6 +643,7 @@ xpr-agents/
 │   │   ├── ValidationRegistry.ts
 │   │   ├── EscrowRegistry.ts
 │   │   ├── A2AClient.ts          # A2A JSON-RPC client
+│   │   ├── eosio-auth.ts         # EOSIO signature signing/verification for A2A
 │   │   ├── types.ts
 │   │   └── utils.ts
 │   └── package.json
@@ -653,7 +657,7 @@ xpr-agents/
 │   │   │   ├── agent.ts         # 10 agentcore tools
 │   │   │   ├── feedback.ts      # 7 agentfeed tools
 │   │   │   ├── validation.ts    # 9 agentvalid tools
-│   │   │   ├── escrow.ts        # 13 agentescrow tools
+│   │   │   ├── escrow.ts        # 19 agentescrow tools (incl. bidding)
 │   │   │   ├── indexer.ts       # 4 indexer query tools
 │   │   │   └── a2a.ts           # 5 A2A protocol tools
 │   │   └── util/
@@ -671,7 +675,8 @@ xpr-agents/
 │   │       ├── package.json
 │   │       ├── Dockerfile
 │   │       └── src/
-│   │           └── index.ts     # Webhook listener + Claude agentic loop
+│   │           ├── index.ts     # Webhook listener + Claude agentic loop + A2A server
+│   │           └── a2a-auth.ts  # A2A authentication, trust gating, rate limiting
 │   └── tests/
 │       ├── tools.test.ts
 │       ├── confirm.test.ts
@@ -719,14 +724,14 @@ cd ../agentvalid && npm install && npm run build
 proton chain:set proton-test
 ./scripts/deploy-testnet.sh
 
-# Run all tests (456 total)
-cd sdk && npm test                       # 183 tests (Jest)
-cd contracts/agentcore && npm test       # 67 tests (ts-mocha + @proton/vert)
+# Run all tests (549 total)
+cd sdk && npm test                       # 225 tests (Jest)
+cd contracts/agentcore && npm test       # 71 tests (ts-mocha + @proton/vert)
 cd contracts/agentfeed && npm test       # 44 tests
 cd contracts/agentvalid && npm test      # 37 tests
-cd contracts/agentescrow && npm test     # 45 tests
-cd openclaw && npx vitest run            # 52 tests (vitest)
-cd indexer && npm test                   # 28 tests (vitest)
+cd contracts/agentescrow && npm test     # 57 tests
+cd openclaw && npx vitest run            # 53 tests (vitest)
+cd indexer && npm test                   # 62 tests (vitest)
 ```
 
 ## Indexer Notes
