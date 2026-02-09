@@ -6,6 +6,8 @@ export interface PollerConfig {
   contracts: string[];
   pollIntervalMs?: number;
   startBlock?: number;
+  /** Per-contract start blocks (takes priority over startBlock for matching contracts) */
+  contractStartBlocks?: Map<string, number>;
 }
 
 /**
@@ -26,11 +28,12 @@ export class HyperionPoller extends EventEmitter {
     super();
     this.config = config;
     this.pollInterval = config.pollIntervalMs || 5000;
-    // Initialize per-contract block cursors
+    // Initialize per-contract block cursors, preferring saved per-contract values
     this.contractBlocks = new Map();
-    const startBlock = config.startBlock || 0;
+    const defaultStart = config.startBlock || 0;
     for (const contract of config.contracts) {
-      this.contractBlocks.set(contract, startBlock);
+      const saved = config.contractStartBlocks?.get(contract);
+      this.contractBlocks.set(contract, saved ?? defaultStart);
     }
   }
 

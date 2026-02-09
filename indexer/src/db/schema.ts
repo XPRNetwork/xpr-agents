@@ -295,6 +295,13 @@ export function initDatabase(dbPath: string): Database.Database {
 
     INSERT OR IGNORE INTO stream_cursor (id, last_block_num) VALUES (1, 0);
 
+    -- Per-contract cursor tracking for safe resume (avoids cross-contract block skips)
+    CREATE TABLE IF NOT EXISTS contract_cursors (
+      contract TEXT PRIMARY KEY,
+      last_block_num INTEGER DEFAULT 0,
+      updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+    );
+
     -- Webhook subscriptions for push notifications
     CREATE TABLE IF NOT EXISTS webhook_subscriptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -366,4 +373,21 @@ export function getLastCursor(db: Database.Database): number {
 
 export function updateCursor(db: Database.Database, blockNum: number): void {
   db.prepare("UPDATE stream_cursor SET last_block_num = ?, updated_at = strftime('%s', 'now') WHERE id = 1").run(blockNum);
+}
+
+export function getContractCursors(db: Database.Database): Map<string, number> {
+  const rows = db.prepare('SELECT contract, last_block_num FROM contract_cursors').all() as Array<{ contract: string; last_block_num: number }>;
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    map.set(row.contract, row.last_block_num);
+  }
+  return map;
+}
+
+export function updateContractCursor(db: Database.Database, contract: string, blockNum: number): void {
+  db.prepare(`
+    INSERT INTO contract_cursors (contract, last_block_num, updated_at)
+    VALUES (?, ?, strftime('%s', 'now'))
+    ON CONFLICT(contract) DO UPDATE SET last_block_num = excluded.last_block_num, updated_at = excluded.updated_at
+  `).run(contract, blockNum);
 }

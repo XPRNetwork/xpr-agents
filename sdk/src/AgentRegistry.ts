@@ -295,7 +295,8 @@ export class AgentRegistry {
     if (agent.owner) {
       const kycResult = await this.rpc.get_table_rows<{
         acc: string;
-        kyc: Array<{ kyc_level: number | string; kyc_provider?: string }>;
+        verified?: number;
+        kyc: unknown[];
       }>({
         json: true,
         code: 'eosio.proton',
@@ -306,40 +307,64 @@ export class AgentRegistry {
         limit: 1,
       });
 
-      if (kycResult.rows.length > 0 && kycResult.rows[0].kyc?.length > 0) {
-        // Find the highest KYC level, handling various formats:
-        // - number: 3
-        // - string number: "3"
-        // - provider:level: "metallicus:3"
-        // - comma-separated multi-provider: "provA:3,provB:1"
-        const levels: number[] = [];
+      if (kycResult.rows.length > 0) {
+        const row = kycResult.rows[0];
+        const rawKyc = row.kyc;
+        if (Array.isArray(rawKyc) && rawKyc.length > 0) {
+          // KYC entries can be:
+          // - objects: {kyc_provider, kyc_level, kyc_date} where kyc_level is a claims string
+          // - plain numbers (test environments)
+          // - plain strings
+          const levels: number[] = [];
 
-        for (const k of kycResult.rows[0].kyc) {
-          if (typeof k.kyc_level === 'number') {
-            levels.push(k.kyc_level);
-          } else {
-            const levelStr = String(k.kyc_level);
-            // Handle comma-separated multi-provider strings (e.g., "provA:3,provB:1")
-            const providers = levelStr.split(',');
-            for (const provider of providers) {
-              const trimmed = provider.trim();
-              if (trimmed.includes(':')) {
-                // "provider:level" format - take the level part
-                const parts = trimmed.split(':');
-                const level = parseInt(parts[parts.length - 1], 10);
-                if (!isNaN(level)) levels.push(level);
-              } else {
-                // Plain number string
-                const level = parseInt(trimmed, 10);
-                if (!isNaN(level)) levels.push(level);
+          for (const entry of rawKyc) {
+            if (typeof entry === 'number') {
+              levels.push(entry);
+            } else if (typeof entry === 'string') {
+              const num = parseInt(entry, 10);
+              if (!isNaN(num)) levels.push(num);
+            } else if (typeof entry === 'object' && entry !== null) {
+              const k = entry as Record<string, unknown>;
+              const kycLevel = k.kyc_level;
+              if (typeof kycLevel === 'number') {
+                levels.push(kycLevel);
+              } else if (typeof kycLevel === 'string') {
+                // Parse claims string: "trulioo:address,trulioo:lastname,..."
+                // or numeric formats: "3", "provider:3"
+                const claims = kycLevel.split(',').filter(s => s.trim().length > 0);
+                let foundNumeric = false;
+                for (const claim of claims) {
+                  const trimmed = claim.trim();
+                  if (trimmed.includes(':')) {
+                    const parts = trimmed.split(':');
+                    const level = parseInt(parts[parts.length - 1], 10);
+                    if (!isNaN(level) && String(level) === parts[parts.length - 1]) {
+                      levels.push(level);
+                      foundNumeric = true;
+                    }
+                  } else {
+                    const level = parseInt(trimmed, 10);
+                    if (!isNaN(level)) {
+                      levels.push(level);
+                      foundNumeric = true;
+                    }
+                  }
+                }
+                // If no numeric levels found, derive from claim count
+                if (!foundNumeric && claims.length > 0) {
+                  levels.push(Math.min(Math.ceil(claims.length / 3), 3));
+                }
               }
             }
           }
+
+          kycLevel = levels.length > 0 ? Math.max(...levels) : 0;
         }
 
-        // P2 FIX: Safe max - fallback to 0 if no valid levels found
-        // Math.max(...[]) returns -Infinity, which would poison trust scores
-        kycLevel = levels.length > 0 ? Math.max(...levels) : 0;
+        // Fallback: if no KYC level extracted but account is verified, use level 1
+        if (kycLevel === 0 && row.verified === 1) {
+          kycLevel = 1;
+        }
       }
     }
 

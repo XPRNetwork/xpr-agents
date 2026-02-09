@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { initDatabase, updateStats, getLastCursor, updateCursor } from './db/schema';
+import { initDatabase, updateStats, getLastCursor, updateCursor, getContractCursors, updateContractCursor } from './db/schema';
 import { HyperionStream, StreamAction } from './stream';
 import { HyperionPoller } from './poller';
 import { handleAgentAction, handleAgentCoreTransfer } from './handlers/agent';
@@ -83,10 +83,16 @@ const server = app.listen(config.port, () => {
   console.log(`API server running on port ${config.port}`);
 });
 
-// Read cursor for resume
+// Read cursors for resume
 const lastBlock = getLastCursor(db);
+const contractCursors = getContractCursors(db);
 if (lastBlock > 0) {
-  console.log(`Resuming from block ${lastBlock}`);
+  console.log(`Resuming from global block ${lastBlock}`);
+  if (contractCursors.size > 0) {
+    for (const [c, b] of contractCursors) {
+      console.log(`  ${c}: block ${b}`);
+    }
+  }
 }
 
 // Action handler shared by both stream and poller
@@ -115,8 +121,9 @@ function handleAction(action: StreamAction): void {
       }
     }
 
-    // Update cursor after successful processing
+    // Update cursors after successful processing
     updateCursor(db, action.block_num);
+    updateContractCursor(db, contract, action.block_num);
   } catch (error) {
     console.error(`Error handling action ${action.act.name}:`, error);
   }
@@ -142,13 +149,19 @@ async function startIngestion(): Promise<void> {
   const endpoint = config.hyperionEndpoints[0];
   const streamingAvailable = !usePolling && await checkStreamingSupport(endpoint);
 
+  // For streaming, use the minimum per-contract cursor as the safe resume point
+  // (streaming doesn't support per-contract start blocks)
+  const safeResumeBlock = contractCursors.size > 0
+    ? Math.min(...contractCursors.values())
+    : lastBlock;
+
   if (streamingAvailable) {
     console.log('Streaming supported — using WebSocket mode');
     const stream = new HyperionStream({
       endpoints: config.hyperionEndpoints,
       contracts: Object.values(config.contracts),
       irreversibleOnly: true,
-      ...(lastBlock > 0 && { startBlock: lastBlock }),
+      ...(safeResumeBlock > 0 && { startBlock: safeResumeBlock }),
     });
     source = stream;
   } else {
@@ -158,6 +171,7 @@ async function startIngestion(): Promise<void> {
       contracts: Object.values(config.contracts),
       pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '5000'),
       ...(lastBlock > 0 && { startBlock: lastBlock }),
+      contractStartBlocks: contractCursors.size > 0 ? contractCursors : undefined,
     });
     source = poller;
   }
