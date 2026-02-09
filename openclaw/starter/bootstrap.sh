@@ -263,33 +263,57 @@ if [ -z "$XPR_ACCOUNT" ] && [ "$NON_INTERACTIVE" = false ]; then
       fail "Invalid account name '$XPR_ACCOUNT'. Use only a-z, 1-5, and dots (max 12 chars)"
     fi
 
-    log "Creating account '$XPR_ACCOUNT' on testnet..."
-    echo -e "  ${CYAN}This may take a moment on first run (downloading @proton/cli)...${NC}"
+    # Check if account already exists on-chain BEFORE attempting creation
+    EXISTING_CHECK=$(curl -sf -X POST "$RPC_ENDPOINT/v1/chain/get_account" \
+      -H "Content-Type: application/json" \
+      -d "{\"account_name\": \"$XPR_ACCOUNT\"}" 2>/dev/null || echo "NOT_FOUND")
 
-    npx -y @proton/cli chain:set proton-test 2>/dev/null
-
-    CREATE_OUTPUT=$(npx -y @proton/cli account:create "$XPR_ACCOUNT" 2>&1) || {
-      echo "$CREATE_OUTPUT"
-      fail "Account creation failed. The name may be taken — try a different one."
-    }
-    success "Account '$XPR_ACCOUNT' created on testnet"
-
-    KEY_OUTPUT=$(npx -y @proton/cli key:list 2>&1)
-    EXTRACTED_KEY=$(echo "$KEY_OUTPUT" | grep -oE 'PVT_K1_[A-Za-z0-9]+' | head -1)
-
-    if [ -n "$EXTRACTED_KEY" ]; then
-      XPR_PRIVATE_KEY="$EXTRACTED_KEY"
-      success "Private key extracted"
+    if echo "$EXISTING_CHECK" | grep -q '"account_name"'; then
       echo ""
-      echo -e "  ${BOLD}Your private key:${NC} $EXTRACTED_KEY"
-      echo -e "  ${YELLOW}Save this somewhere safe! It controls your account.${NC}"
+      echo -e "${YELLOW}Account '$XPR_ACCOUNT' already exists on $NETWORK.${NC}"
+      echo "  You need the private key that controls this account."
+      echo "  If you don't have it, choose a different name."
       echo ""
+      echo "  1) Enter the private key for '$XPR_ACCOUNT'"
+      echo "  2) Choose a different account name"
+      echo -n "Choice [1]: "
+      read -r EXIST_CHOICE
+      EXIST_CHOICE="${EXIST_CHOICE:-1}"
+
+      if [ "$EXIST_CHOICE" = "2" ]; then
+        fail "Re-run the script and choose a different name"
+      fi
+
+      prompt_value XPR_PRIVATE_KEY "Private key for '$XPR_ACCOUNT' (PVT_K1_...)" "" true
     else
-      echo ""
-      echo -e "${YELLOW}Could not auto-extract private key. Run this to find it:${NC}"
-      echo "  npx @proton/cli key:list"
-      echo ""
-      prompt_value XPR_PRIVATE_KEY "Paste your private key (PVT_K1_...)" "" true
+      log "Creating account '$XPR_ACCOUNT' on testnet..."
+      echo -e "  ${CYAN}This may take a moment on first run (downloading @proton/cli)...${NC}"
+
+      npx -y @proton/cli chain:set proton-test 2>/dev/null
+
+      CREATE_OUTPUT=$(npx -y @proton/cli account:create "$XPR_ACCOUNT" 2>&1) || {
+        echo "$CREATE_OUTPUT"
+        fail "Account creation failed. The name may be taken — try a different one."
+      }
+      success "Account '$XPR_ACCOUNT' created on testnet"
+
+      KEY_OUTPUT=$(npx -y @proton/cli key:list 2>&1)
+      EXTRACTED_KEY=$(echo "$KEY_OUTPUT" | grep -oE 'PVT_K1_[A-Za-z0-9]+' | head -1)
+
+      if [ -n "$EXTRACTED_KEY" ]; then
+        XPR_PRIVATE_KEY="$EXTRACTED_KEY"
+        success "Private key extracted"
+        echo ""
+        echo -e "  ${BOLD}Your private key:${NC} $EXTRACTED_KEY"
+        echo -e "  ${YELLOW}Save this somewhere safe! It controls your account.${NC}"
+        echo ""
+      else
+        echo ""
+        echo -e "${YELLOW}Could not auto-extract private key. Run this to find it:${NC}"
+        echo "  npx @proton/cli key:list"
+        echo ""
+        prompt_value XPR_PRIVATE_KEY "Paste your private key (PVT_K1_...)" "" true
+      fi
     fi
   fi
 fi
