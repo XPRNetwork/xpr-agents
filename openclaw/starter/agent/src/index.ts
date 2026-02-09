@@ -108,7 +108,7 @@ const readonlyAnthropicTools: Anthropic.Tool[] = readonlyTools.map(t => ({
   input_schema: t.parameters as Anthropic.Tool.InputSchema,
 }));
 
-// A2A task store (in-memory)
+// A2A task store (in-memory with TTL eviction)
 interface A2ATaskRecord {
   id: string;
   owner: string;           // authenticated caller who created the task
@@ -117,9 +117,33 @@ interface A2ATaskRecord {
   artifacts?: Array<{ parts: Array<{ type: string; text: string }>; index: number }>;
   history?: unknown[];
   metadata?: Record<string, unknown>;
+  createdAt: number;       // Date.now() for TTL eviction
 }
 const a2aTasks = new Map<string, A2ATaskRecord>();
 let a2aTaskCounter = 0;
+
+const A2A_TASK_MAX_SIZE = 1000;
+const A2A_TASK_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Periodic cleanup every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, task] of a2aTasks) {
+    if (now - task.createdAt > A2A_TASK_TTL_MS) {
+      a2aTasks.delete(id);
+    }
+  }
+}, 5 * 60 * 1000).unref();
+
+function evictOldestTasks(): void {
+  if (a2aTasks.size <= A2A_TASK_MAX_SIZE) return;
+  // Evict oldest tasks until under limit
+  const entries = [...a2aTasks.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
+  const toRemove = entries.slice(0, a2aTasks.size - A2A_TASK_MAX_SIZE);
+  for (const [id] of toRemove) {
+    a2aTasks.delete(id);
+  }
+}
 
 // Agent card cache (60s TTL)
 let agentCardCache: { card: unknown; expiresAt: number } | null = null;
@@ -425,8 +449,10 @@ app.post('/a2a', async (req, res) => {
           contextId,
           status: { state: 'working', timestamp: new Date().toISOString() },
           metadata: params?.metadata,
+          createdAt: Date.now(),
         };
         a2aTasks.set(taskId, taskRecord);
+        evictOldestTasks();
 
         // Run through the agentic loop
         const agentResult = await runAgent(

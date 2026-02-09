@@ -11,19 +11,27 @@ export interface PollerConfig {
 /**
  * Polls Hyperion v2 history API for actions when WebSocket streaming
  * is unavailable (e.g. testnet endpoints with streaming disabled).
+ *
+ * Uses per-contract block cursors to avoid skipping actions when
+ * contracts have actions at different block heights.
  */
 export class HyperionPoller extends EventEmitter {
   private config: PollerConfig;
   private pollTimer: NodeJS.Timeout | null = null;
-  private lastBlock: number;
+  private contractBlocks: Map<string, number>;
   private running = false;
   private readonly pollInterval: number;
 
   constructor(config: PollerConfig) {
     super();
     this.config = config;
-    this.lastBlock = config.startBlock || 0;
     this.pollInterval = config.pollIntervalMs || 5000;
+    // Initialize per-contract block cursors
+    this.contractBlocks = new Map();
+    const startBlock = config.startBlock || 0;
+    for (const contract of config.contracts) {
+      this.contractBlocks.set(contract, startBlock);
+    }
   }
 
   start(): void {
@@ -52,14 +60,15 @@ export class HyperionPoller extends EventEmitter {
   }
 
   private async pollContract(contract: string): Promise<void> {
+    const lastBlock = this.contractBlocks.get(contract) || 0;
     const params = new URLSearchParams({
       account: contract,
       limit: '100',
       sort: 'asc',
     });
 
-    if (this.lastBlock > 0) {
-      params.set('after', String(this.lastBlock));
+    if (lastBlock > 0) {
+      params.set('after', String(lastBlock));
     }
 
     const url = `${this.config.endpoint}/v2/history/get_actions?${params}`;
@@ -83,8 +92,8 @@ export class HyperionPoller extends EventEmitter {
 
       this.emit('action', streamAction);
 
-      if (action.block_num > this.lastBlock) {
-        this.lastBlock = action.block_num;
+      if (action.block_num > lastBlock) {
+        this.contractBlocks.set(contract, action.block_num);
       }
     }
   }

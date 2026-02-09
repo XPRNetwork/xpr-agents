@@ -158,13 +158,56 @@ async function getAccountTrust(
       limit: 1,
     });
     if (kycResult.rows && kycResult.rows.length > 0) {
-      const rawKyc = (kycResult.rows[0] as any).kyc;
-      // kyc field is an array of provider-specific levels (e.g. [1, 2]), not a scalar
-      if (Array.isArray(rawKyc)) {
-        const numericLevels = rawKyc.map(Number).filter((n: number) => !isNaN(n) && isFinite(n));
-        kycLevel = numericLevels.length > 0 ? Math.min(Math.max(...numericLevels), 3) : 0;
-      } else {
-        kycLevel = typeof rawKyc === 'number' ? rawKyc : 0;
+      const row = kycResult.rows[0] as any;
+      const rawKyc = row.kyc;
+      // On-chain kyc field is an array. Entries may be:
+      // - objects: {kyc_provider, kyc_level, kyc_date} where kyc_level is a claims string
+      // - numbers: plain numeric levels (test environments)
+      if (Array.isArray(rawKyc) && rawKyc.length > 0) {
+        const levels: number[] = [];
+        for (const entry of rawKyc) {
+          if (typeof entry === 'object' && entry !== null && 'kyc_level' in entry) {
+            // Object format: {kyc_provider: "metal.kyc", kyc_level: "trulioo:address,...", kyc_date: N}
+            // Parse kyc_level string for numeric values or count claims
+            const levelStr = String(entry.kyc_level);
+            const claims = levelStr.split(',').filter((s: string) => s.trim().length > 0);
+            // Determine level: if any segment parses as a plain number, use it;
+            // otherwise derive level from claim count (1-3 = level 1, 4-6 = level 2, 7+ = level 3)
+            let foundNumeric = false;
+            for (const claim of claims) {
+              const trimmed = claim.trim();
+              if (trimmed.includes(':')) {
+                const parts = trimmed.split(':');
+                const num = parseInt(parts[parts.length - 1], 10);
+                if (!isNaN(num) && String(num) === parts[parts.length - 1]) {
+                  levels.push(num);
+                  foundNumeric = true;
+                }
+              } else {
+                const num = parseInt(trimmed, 10);
+                if (!isNaN(num)) {
+                  levels.push(num);
+                  foundNumeric = true;
+                }
+              }
+            }
+            // If no numeric levels found, derive from claim count
+            if (!foundNumeric && claims.length > 0) {
+              levels.push(Math.min(Math.ceil(claims.length / 3), 3));
+            }
+          } else {
+            // Plain number or string number
+            const num = Number(entry);
+            if (!isNaN(num) && isFinite(num)) {
+              levels.push(num);
+            }
+          }
+        }
+        kycLevel = levels.length > 0 ? Math.min(Math.max(...levels), 3) : 0;
+      }
+      // Also check the simpler 'verified' flag as baseline
+      if (kycLevel === 0 && row.verified === 1) {
+        kycLevel = 1;
       }
     }
   } catch {
