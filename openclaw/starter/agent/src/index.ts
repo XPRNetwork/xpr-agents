@@ -583,7 +583,20 @@ async function pollOnChain(): Promise<void> {
         knownJobStates.set(job.id, job.state);
 
         // First poll — just seed state, don't trigger
-        if (prevState === undefined) continue;
+        if (prevState === undefined) {
+          // But if this is a newly-assigned job (not first poll) in FUNDED state, act on it
+          if (!firstPoll && job.state >= 1 && job.state <= 1) {
+            const jobBudgetXpr = (job.amount / 10000).toFixed(4);
+            console.log(`[poller] Newly assigned job #${job.id} in FUNDED state`);
+            runAgent('poll:job_assigned', {
+              job_id: job.id, client: job.client, agent: job.agent,
+              state: job.state, title: job.title, amount: job.amount, budget_xpr: jobBudgetXpr,
+            }, `You have been assigned to job #${job.id} "${job.title}" (${jobBudgetXpr} XPR). It is FUNDED. Accept the job, start working on it, and deliver the result.`).catch(err => {
+              console.error(`[poller] Failed to process newly assigned job:`, err.message);
+            });
+          }
+          continue;
+        }
 
         // State changed — notify the agent
         if (prevState !== job.state) {
