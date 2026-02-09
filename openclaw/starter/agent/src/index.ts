@@ -84,12 +84,17 @@ systemPrompt += `\n\n## Runtime Context\n- Account: ${process.env.XPR_ACCOUNT}\n
 systemPrompt += `\n\n## Delivering Jobs\nWhen delivering a job, ALWAYS:\n1. Call \`store_deliverable\` with the full deliverable content first\n2. Use the returned URL as the \`evidence_uri\` when calling \`xpr_deliver_job\`\nThis ensures the client can view your work.`;
 
 // Convert tools to Anthropic API format (lazy — picks up tools added later like store_deliverable)
-function getAnthropicTools(): Anthropic.Tool[] {
-  return tools.map(t => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.parameters as Anthropic.Tool.InputSchema,
-  }));
+// Includes Anthropic's built-in web search tool for real-time internet access
+function getAnthropicTools(): (Anthropic.Tool | { type: string; name: string; max_uses?: number })[] {
+  return [
+    // Built-in web search — Claude handles it server-side, no custom handler needed
+    { type: 'web_search_20250305', name: 'web_search', max_uses: 5 },
+    ...tools.map(t => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.parameters as Anthropic.Tool.InputSchema,
+    })),
+  ];
 }
 
 const anthropic = new Anthropic();
@@ -110,12 +115,15 @@ const a2aAuthConfig: A2AAuthConfig = {
 // A2A tool sandboxing
 const a2aToolMode = (process.env.A2A_TOOL_MODE || 'full') as 'full' | 'readonly';
 const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health');
-function getReadonlyAnthropicTools(): Anthropic.Tool[] {
-  return readonlyTools.map(t => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.parameters as Anthropic.Tool.InputSchema,
-  }));
+function getReadonlyAnthropicTools(): (Anthropic.Tool | { type: string; name: string; max_uses?: number })[] {
+  return [
+    { type: 'web_search_20250305', name: 'web_search', max_uses: 5 },
+    ...readonlyTools.map(t => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.parameters as Anthropic.Tool.InputSchema,
+    })),
+  ];
 }
 
 // A2A task store (in-memory with TTL eviction)
@@ -201,7 +209,7 @@ async function runAgent(eventType: string, data: any, message: string, options?:
         messages,
       });
 
-      // If no tool use, return the text response
+      // If done, return the text response
       if (response.stop_reason === 'end_turn') {
         const text = response.content
           .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -212,9 +220,17 @@ async function runAgent(eventType: string, data: any, message: string, options?:
       }
 
       // Add assistant response to messages
-      messages.push({ role: 'assistant', content: response.content });
+      messages.push({ role: 'assistant', content: response.content as any });
 
-      // Execute tool calls
+      // Handle pause_turn (long-running server tool like web search)
+      // Just continue the loop — pass the response back to let Claude continue
+      if (response.stop_reason === 'pause_turn') {
+        console.log(`[agent] pause_turn — continuing`);
+        messages.push({ role: 'user', content: [{ type: 'text', text: 'Continue.' }] });
+        continue;
+      }
+
+      // Execute local tool calls (skip server_tool_use — handled by API)
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const block of response.content) {
         if (block.type === 'tool_use') {
@@ -249,7 +265,9 @@ async function runAgent(eventType: string, data: any, message: string, options?:
         }
       }
 
-      messages.push({ role: 'user', content: toolResults });
+      if (toolResults.length > 0) {
+        messages.push({ role: 'user', content: toolResults });
+      }
     }
 
     return 'Max turns reached without completion';
