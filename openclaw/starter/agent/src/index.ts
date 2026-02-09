@@ -234,8 +234,8 @@ app.use(express.json({
 // Webhook endpoint — receives events from the indexer
 app.post('/hooks/agent', async (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
-  if (process.env.OPENCLAW_HOOK_TOKEN && token !== process.env.OPENCLAW_HOOK_TOKEN) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  if (!token || token !== process.env.OPENCLAW_HOOK_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized: Bearer token required' });
   }
 
   const { event_type, data, message } = req.body;
