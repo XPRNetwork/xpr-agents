@@ -129,6 +129,37 @@ export default function Jobs() {
     }
   }
 
+  async function handleCancelJob() {
+    if (!session || !selectedJob) return;
+
+    setProcessing(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await transact([
+        {
+          account: CONTRACTS.AGENT_ESCROW,
+          name: 'cancel',
+          data: {
+            client: session.auth.actor,
+            job_id: selectedJob.id,
+          },
+        },
+      ]);
+
+      setSuccess(`Job #${selectedJob.id} cancelled. Funds refunded.`);
+      await new Promise(r => setTimeout(r, 1500));
+      const refreshed = await getAllJobs();
+      setJobs(refreshed);
+      setSelectedJob(null);
+    } catch (e: any) {
+      setError(e.message || 'Failed to cancel job');
+    } finally {
+      setProcessing(false);
+    }
+  }
+
   async function handleApproveDelivery() {
     if (!session || !selectedJob) return;
 
@@ -320,9 +351,10 @@ export default function Jobs() {
   }
 
   const isMyJob = session && selectedJob?.client === session.auth.actor;
-  // Can fund: client owns job, not fully funded, state is CREATED (0) with agent assigned (bid selected), or state 0 for direct-hire
+  // Can fund: client owns job, not fully funded, state is CREATED (0) with agent assigned (bid selected)
   const canFund = isMyJob && selectedJob && selectedJob.funded_amount < selectedJob.amount && selectedJob.state === 0 && selectedJob.agent && selectedJob.agent !== '.............';
   const canApprove = isMyJob && selectedJob?.state === 4; // DELIVERED
+  const canCancel = isMyJob && selectedJob && (selectedJob.state === 0 || selectedJob.state === 1); // CREATED or FUNDED
   const canBid = selectedJob && selectedJob.state === 0 && (!selectedJob.agent || selectedJob.agent === '.............');
 
   return (
@@ -623,6 +655,15 @@ export default function Jobs() {
                             className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:bg-gray-300"
                           >
                             {processing ? 'Approving...' : 'Approve & Pay'}
+                          </button>
+                        )}
+                        {canCancel && (
+                          <button
+                            onClick={handleCancelJob}
+                            disabled={processing}
+                            className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600 disabled:bg-gray-300"
+                          >
+                            {processing ? 'Cancelling...' : 'Cancel Job'}
                           </button>
                         )}
                       </div>
