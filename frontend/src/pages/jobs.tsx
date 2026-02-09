@@ -235,7 +235,7 @@ export default function Jobs() {
     }
   }
 
-  async function handleSelectBid(bidId: number) {
+  async function handleSelectBid(bid: Bid) {
     if (!session || !selectedJob) return;
 
     setProcessing(true);
@@ -243,18 +243,31 @@ export default function Jobs() {
     setSuccess(null);
 
     try {
+      const amountStr = `${(bid.amount / 10000).toFixed(4)} XPR`;
+
+      // Select bid + fund in one transaction
       await transact([
         {
           account: CONTRACTS.AGENT_ESCROW,
           name: 'selectbid',
           data: {
             client: session.auth.actor,
-            bid_id: bidId,
+            bid_id: bid.id,
+          },
+        },
+        {
+          account: 'eosio.token',
+          name: 'transfer',
+          data: {
+            from: session.auth.actor,
+            to: CONTRACTS.AGENT_ESCROW,
+            quantity: amountStr,
+            memo: `fund:${selectedJob.id}`,
           },
         },
       ]);
 
-      setSuccess('Bid selected! Agent assigned. Now fund the job to start.');
+      setSuccess(`Bid selected and job funded with ${amountStr}! Agent ${bid.agent} assigned.`);
       await new Promise(r => setTimeout(r, 1500));
       const refreshed = await getAllJobs();
       setJobs(refreshed);
@@ -561,8 +574,8 @@ export default function Jobs() {
                     </div>
                     <div className="text-sm text-gray-500 mt-1">
                       {formatXpr(job.amount)}
-                      {job.funded_amount < job.amount && job.state === 0 && (
-                        <span className="text-red-500 ml-1">(unfunded)</span>
+                      {job.funded_amount < job.amount && job.state === 0 && !job.agent && (
+                        <span className="text-gray-400 ml-1">(awaiting bids)</span>
                       )}
                     </div>
                     <div className="text-xs text-gray-400 mt-1">
@@ -768,13 +781,13 @@ export default function Jobs() {
                                   </div>
                                 </div>
                                 <div className="flex gap-2">
-                                  {session?.auth.actor === selectedJob.client && (
+                                  {session?.auth.actor === selectedJob.client && selectedJob.state === 0 && (
                                     <button
-                                      onClick={() => handleSelectBid(bid.id)}
+                                      onClick={() => handleSelectBid(bid)}
                                       disabled={processing}
-                                      className="text-xs px-2 py-1 bg-proton-purple text-white rounded hover:bg-purple-700 disabled:opacity-50"
+                                      className="text-xs px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
                                     >
-                                      Select
+                                      Select & Fund
                                     </button>
                                   )}
                                   {session?.auth.actor === bid.agent && (
