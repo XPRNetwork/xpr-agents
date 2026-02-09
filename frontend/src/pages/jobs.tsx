@@ -8,6 +8,7 @@ import {
   formatXpr,
   formatDate,
   formatTimeline,
+  getAgent,
   getAllJobs,
   getBidsForJob,
   getJobStateLabel,
@@ -46,6 +47,10 @@ export default function Jobs() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newJob, setNewJob] = useState({ title: '', description: '', amount: '', deadline: '', deliverables: '', arbitrator: '' });
 
+  // Deliverable viewer
+  const [deliverableContent, setDeliverableContent] = useState<string | null>(null);
+  const [deliverableLoading, setDeliverableLoading] = useState(false);
+
   // Bid form state
   const [bidAmount, setBidAmount] = useState('');
   const [bidTimeline, setBidTimeline] = useState('');
@@ -75,10 +80,29 @@ export default function Jobs() {
     return true;
   });
 
+  async function fetchDeliverable(agentAccount: string, jobId: number) {
+    setDeliverableLoading(true);
+    setDeliverableContent(null);
+    try {
+      const agent = await getAgent(agentAccount);
+      if (!agent?.endpoint) throw new Error('Agent endpoint not found');
+      const url = `${agent.endpoint}/deliverables/${jobId}`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (!resp.ok) throw new Error('Not found');
+      const data = await resp.json();
+      setDeliverableContent(data.content || 'No content');
+    } catch {
+      setDeliverableContent(null);
+    } finally {
+      setDeliverableLoading(false);
+    }
+  }
+
   async function selectJob(job: Job) {
     setSelectedJob(job);
     setBidsLoading(true);
     setShowBidForm(false);
+    setDeliverableContent(null);
     setError(null);
     setSuccess(null);
     try {
@@ -647,6 +671,34 @@ export default function Jobs() {
                       <p className="text-sm text-gray-500 mb-4">
                         Deadline: {formatDate(selectedJob.deadline)}
                       </p>
+                    )}
+
+                    {/* Deliverable Result */}
+                    {selectedJob.state >= 4 && selectedJob.agent && (
+                      <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div className="flex justify-between items-center mb-2">
+                          <h3 className="text-sm font-medium text-blue-700">Agent Deliverable</h3>
+                          {!deliverableContent && !deliverableLoading && (
+                            <button
+                              onClick={() => fetchDeliverable(selectedJob.agent, selectedJob.id)}
+                              className="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                            >
+                              View Result
+                            </button>
+                          )}
+                        </div>
+                        {deliverableLoading && (
+                          <p className="text-sm text-blue-500">Loading deliverable...</p>
+                        )}
+                        {deliverableContent && (
+                          <div className="text-sm text-gray-700 whitespace-pre-wrap bg-white p-3 rounded border border-blue-100 max-h-96 overflow-y-auto">
+                            {deliverableContent}
+                          </div>
+                        )}
+                        {!deliverableContent && !deliverableLoading && (
+                          <p className="text-xs text-blue-400">Click to fetch the deliverable from the agent&apos;s endpoint</p>
+                        )}
+                      </div>
                     )}
 
                     {/* Action Buttons */}

@@ -79,14 +79,18 @@ if (systemPrompt === 'You are an autonomous AI agent on XPR Network.') {
 }
 
 // Add account context to system prompt
-systemPrompt += `\n\n## Runtime Context\n- Account: ${process.env.XPR_ACCOUNT}\n- Network: ${process.env.XPR_NETWORK || 'testnet'}`;
+const baseUrl = process.env.AGENT_PUBLIC_URL || `http://localhost:${process.env.PORT || '8080'}`;
+systemPrompt += `\n\n## Runtime Context\n- Account: ${process.env.XPR_ACCOUNT}\n- Network: ${process.env.XPR_NETWORK || 'testnet'}\n- Public URL: ${baseUrl}`;
+systemPrompt += `\n\n## Delivering Jobs\nWhen delivering a job, ALWAYS:\n1. Call \`store_deliverable\` with the full deliverable content first\n2. Use the returned URL as the \`evidence_uri\` when calling \`xpr_deliver_job\`\nThis ensures the client can view your work.`;
 
-// Convert tools to Anthropic API format
-const anthropicTools: Anthropic.Tool[] = tools.map(t => ({
-  name: t.name,
-  description: t.description,
-  input_schema: t.parameters as Anthropic.Tool.InputSchema,
-}));
+// Convert tools to Anthropic API format (lazy — picks up tools added later like store_deliverable)
+function getAnthropicTools(): Anthropic.Tool[] {
+  return tools.map(t => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.parameters as Anthropic.Tool.InputSchema,
+  }));
+}
 
 const anthropic = new Anthropic();
 const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '10');
@@ -106,11 +110,13 @@ const a2aAuthConfig: A2AAuthConfig = {
 // A2A tool sandboxing
 const a2aToolMode = (process.env.A2A_TOOL_MODE || 'full') as 'full' | 'readonly';
 const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health');
-const readonlyAnthropicTools: Anthropic.Tool[] = readonlyTools.map(t => ({
-  name: t.name,
-  description: t.description,
-  input_schema: t.parameters as Anthropic.Tool.InputSchema,
-}));
+function getReadonlyAnthropicTools(): Anthropic.Tool[] {
+  return readonlyTools.map(t => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.parameters as Anthropic.Tool.InputSchema,
+  }));
+}
 
 // A2A task store (in-memory with TTL eviction)
 interface A2ATaskRecord {
@@ -168,7 +174,7 @@ async function runAgent(eventType: string, data: any, message: string, options?:
 
   const useReadonly = options?.toolSet === 'readonly';
   const activeTools = useReadonly ? readonlyTools : tools;
-  const activeAnthropicTools = useReadonly ? readonlyAnthropicTools : anthropicTools;
+  const activeAnthropicTools = useReadonly ? getReadonlyAnthropicTools() : getAnthropicTools();
 
   try {
     const userMessage = [
@@ -533,6 +539,41 @@ app.post('/a2a', async (req, res) => {
       error: { code: -32603, message: err.message || 'Internal error' },
     });
   }
+});
+
+// ── Deliverables store ────────────────────
+// Agents store deliverable content here before calling xpr_deliver_job.
+// Clients/frontend can fetch via GET /deliverables/:jobId
+const deliverables = new Map<number, { content: string; created_at: string }>();
+
+// Internal tool: store_deliverable (not an on-chain tool, just local storage)
+tools.push({
+  name: 'store_deliverable',
+  description: 'Store job deliverable content locally before delivering on-chain. The content will be served at GET /deliverables/:jobId on this agent\'s endpoint. Call this BEFORE xpr_deliver_job.',
+  parameters: {
+    type: 'object',
+    required: ['job_id', 'content'],
+    properties: {
+      job_id: { type: 'number', description: 'Job ID' },
+      content: { type: 'string', description: 'The full deliverable content (text, markdown, etc.)' },
+    },
+  },
+  handler: async ({ job_id, content }: { job_id: number; content: string }) => {
+    deliverables.set(job_id, { content, created_at: new Date().toISOString() });
+    const baseUrl = process.env.AGENT_PUBLIC_URL || `http://localhost:${process.env.PORT || '8080'}`;
+    return { stored: true, url: `${baseUrl}/deliverables/${job_id}` };
+  },
+});
+
+// Serve deliverables
+app.get('/deliverables/:jobId', (req, res) => {
+  const jobId = parseInt(req.params.jobId);
+  const entry = deliverables.get(jobId);
+  if (!entry) {
+    return res.status(404).json({ error: 'Deliverable not found' });
+  }
+  // Return as JSON with content
+  res.json({ job_id: jobId, content: entry.content, created_at: entry.created_at });
 });
 
 // Health check
