@@ -7,14 +7,26 @@ set -euo pipefail
 #
 # No repo clone needed. Pulls public Docker images and starts.
 #
-# Interactive:
-#   curl -fsSL https://gist.githubusercontent.com/.../bootstrap.sh | bash
-#
-# Non-interactive:
-#   curl -fsSL ... | bash -s -- --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx
+# curl -fsSL https://gist.githubusercontent.com/.../bootstrap.sh | bash
 #
 
-VERSION="0.2.0"
+VERSION="0.3.0"
+
+# ── Self-relaunch for interactive mode ───────
+# When piped via `curl | bash`, stdin is consumed by the pipe so interactive
+# prompts can't read input. Detect this, save the script to a temp file,
+# and re-exec so stdin is connected to the terminal.
+if [ ! -t 0 ] && [ $# -eq 0 ]; then
+  TMPSCRIPT=$(mktemp /tmp/xpr-bootstrap.XXXXXX.sh)
+  # We're being piped — the script content is on stdin. But bash already
+  # has it buffered, so we can't re-read it. Instead, download it again.
+  GIST_URL="${BASH_SOURCE[0]:-}"
+  # Save ourselves to a temp file by re-downloading
+  SELF_URL="https://gist.githubusercontent.com/paulgnz/ee18380f8b8fdaca0319dce7e38046dd/raw/bootstrap.sh"
+  curl -fsSL "$SELF_URL" -o "$TMPSCRIPT"
+  chmod +x "$TMPSCRIPT"
+  exec bash "$TMPSCRIPT" "$@"
+fi
 INDEXER_IMAGE="ghcr.io/paulgnz/xpr-agents-indexer:latest"
 AGENT_IMAGE="ghcr.io/paulgnz/xpr-agent-runner:latest"
 
@@ -112,13 +124,14 @@ prompt_value() {
     fail "$varname is required in non-interactive mode (use --help)"
   fi
   if [ "$secret" = true ]; then
-    echo -en "${BOLD}$prompt${NC}: " > /dev/tty
-    read -rs value < /dev/tty; echo "" > /dev/tty
+    echo -en "${BOLD}$prompt${NC}: "
+    read -rs value
+    echo ""
   else
-    echo -en "${BOLD}$prompt${NC}" > /dev/tty
-    [ -n "$default" ] && echo -n " [$default]" > /dev/tty || true
-    echo -n ": " > /dev/tty
-    read -r value < /dev/tty
+    echo -en "${BOLD}$prompt${NC}"
+    [ -n "$default" ] && echo -n " [$default]" || true
+    echo -n ": "
+    read -r value
   fi
   value="${value:-$default}"
   [ -z "$value" ] && fail "$varname is required"
@@ -130,9 +143,10 @@ prompt_choice() {
   local options=("$@")
   local current="${!varname:-}"
   if [ -n "$current" ]; then return; fi
-  echo -e "\n${BOLD}$prompt${NC}" > /dev/tty
-  for i in "${!options[@]}"; do echo "  $((i + 1))) ${options[$i]}" > /dev/tty; done
-  echo -n "Choice [1]: " > /dev/tty; read -r choice < /dev/tty
+  echo -e "\n${BOLD}$prompt${NC}"
+  for i in "${!options[@]}"; do echo "  $((i + 1))) ${options[$i]}"; done
+  echo -n "Choice [1]: "
+  read -r choice
   choice="${choice:-1}"
   local idx=$((choice - 1))
   [ "$idx" -lt 0 ] || [ "$idx" -ge "${#options[@]}" ] && idx=0
@@ -185,80 +199,113 @@ fi
 
 # ── Account Setup ────────────────────────────
 
-# If account/key not provided via flags, ask if they have one
-if [ -z "$XPR_ACCOUNT" ] && [ "$NON_INTERACTIVE" = false ]; then
-  echo "" > /dev/tty
-  echo -e "${BOLD}Do you have an XPR Network account?${NC}" > /dev/tty
-  echo "  1) Yes — I have an account and private key" > /dev/tty
-  echo "  2) No — create one for me (testnet only, requires Node.js)" > /dev/tty
-  echo -n "Choice [1]: " > /dev/tty; read -r HAS_ACCOUNT < /dev/tty
-  HAS_ACCOUNT="${HAS_ACCOUNT:-1}"
+# Detect existing Proton CLI accounts
+EXISTING_CLI_ACCOUNT=""
+EXISTING_CLI_KEY=""
+if command -v npx &>/dev/null; then
+  CLI_KEYS=$(npx -y @proton/cli key:list 2>/dev/null || true)
+  EXISTING_CLI_KEY=$(echo "$CLI_KEYS" | grep -oE 'PVT_K1_[A-Za-z0-9]+' | head -1)
+  if [ -n "$EXISTING_CLI_KEY" ]; then
+    EXISTING_CLI_ACCOUNT=$(echo "$CLI_KEYS" | grep -oE '[a-z1-5.]{1,12}' | head -1)
+  fi
+fi
 
-  if [ "$HAS_ACCOUNT" = "2" ]; then
+# If account/key not provided via flags, offer options
+if [ -z "$XPR_ACCOUNT" ] && [ "$NON_INTERACTIVE" = false ]; then
+  echo ""
+  echo -e "${BOLD}XPR Network Account${NC}"
+
+  if [ -n "$EXISTING_CLI_KEY" ] && [ -n "$EXISTING_CLI_ACCOUNT" ]; then
+    echo "  1) Use existing Proton CLI account: ${GREEN}${EXISTING_CLI_ACCOUNT}${NC} (detected)"
+    echo "  2) Enter a different account and key"
+    echo "  3) Create a new account (testnet only, requires Node.js)"
+    echo -n "Choice [1]: "
+    read -r ACCOUNT_CHOICE
+    ACCOUNT_CHOICE="${ACCOUNT_CHOICE:-1}"
+
+    if [ "$ACCOUNT_CHOICE" = "1" ]; then
+      XPR_ACCOUNT="$EXISTING_CLI_ACCOUNT"
+      XPR_PRIVATE_KEY="$EXISTING_CLI_KEY"
+      success "Using existing account: $XPR_ACCOUNT"
+    fi
+    [ "$ACCOUNT_CHOICE" = "3" ] && ACCOUNT_CHOICE="CREATE"
+  else
+    echo "  1) Yes — I have an account and private key"
+    echo "  2) No — create one for me (testnet only, requires Node.js)"
+    echo -n "Choice [1]: "
+    read -r ACCOUNT_CHOICE
+    ACCOUNT_CHOICE="${ACCOUNT_CHOICE:-1}"
+    [ "$ACCOUNT_CHOICE" = "2" ] && ACCOUNT_CHOICE="CREATE"
+  fi
+
+  if [ "$ACCOUNT_CHOICE" = "CREATE" ]; then
     if [ "$NETWORK" = "mainnet" ]; then
       fail "Automatic account creation is only available on testnet"
     fi
 
     if ! command -v npx &>/dev/null; then
-      echo "" > /dev/tty
-      echo -e "${RED}Node.js is required to create an account.${NC}" > /dev/tty
-      echo "" > /dev/tty
-      echo "Install it:" > /dev/tty
-      echo "  Mac:   brew install node" > /dev/tty
-      echo "  Linux: curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo bash - && sudo apt install -y nodejs" > /dev/tty
-      echo "" > /dev/tty
-      echo "Then re-run this script." > /dev/tty
+      echo ""
+      echo -e "${RED}Node.js is required to create an account.${NC}"
+      echo ""
+      echo "Install it:"
+      echo "  Mac:   brew install node"
+      echo "  Linux: curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo bash - && sudo apt install -y nodejs"
+      echo ""
+      echo "Then re-run this script."
       exit 1
     fi
 
-    echo "" > /dev/tty
-    echo -en "${BOLD}Choose an account name${NC} (1-12 chars, a-z 1-5 and .): " > /dev/tty
-    read -r XPR_ACCOUNT < /dev/tty
+    echo ""
+    echo -en "${BOLD}Choose an account name${NC} (1-12 chars, a-z 1-5 and .): "
+    read -r XPR_ACCOUNT
 
-    # Validate name format
     if ! echo "$XPR_ACCOUNT" | grep -qE '^[a-z1-5.]{1,12}$'; then
       fail "Invalid account name '$XPR_ACCOUNT'. Use only a-z, 1-5, and dots (max 12 chars)"
     fi
 
     log "Creating account '$XPR_ACCOUNT' on testnet..."
-    echo -e "  ${CYAN}This may take a moment on first run (downloading @proton/cli)...${NC}" > /dev/tty
+    echo -e "  ${CYAN}This may take a moment on first run (downloading @proton/cli)...${NC}"
 
-    # Set chain to testnet
     npx -y @proton/cli chain:set proton-test 2>/dev/null
 
-    # Create account — proton CLI generates keys and stores them locally
     CREATE_OUTPUT=$(npx -y @proton/cli account:create "$XPR_ACCOUNT" 2>&1) || {
       echo "$CREATE_OUTPUT"
       fail "Account creation failed. The name may be taken — try a different one."
     }
     success "Account '$XPR_ACCOUNT' created on testnet"
 
-    # Extract the private key from proton CLI keychain
     KEY_OUTPUT=$(npx -y @proton/cli key:list 2>&1)
-    # The key:list output contains PVT_K1_ keys
     EXTRACTED_KEY=$(echo "$KEY_OUTPUT" | grep -oE 'PVT_K1_[A-Za-z0-9]+' | head -1)
 
     if [ -n "$EXTRACTED_KEY" ]; then
       XPR_PRIVATE_KEY="$EXTRACTED_KEY"
       success "Private key extracted"
+      echo ""
+      echo -e "  ${BOLD}Your private key:${NC} $EXTRACTED_KEY"
+      echo -e "  ${YELLOW}Save this somewhere safe! It controls your account.${NC}"
+      echo ""
     else
-      echo "" > /dev/tty
-      echo -e "${YELLOW}Could not auto-extract private key. Run this to find it:${NC}" > /dev/tty
-      echo "  npx @proton/cli key:list" > /dev/tty
-      echo "" > /dev/tty
+      echo ""
+      echo -e "${YELLOW}Could not auto-extract private key. Run this to find it:${NC}"
+      echo "  npx @proton/cli key:list"
+      echo ""
       prompt_value XPR_PRIVATE_KEY "Paste your private key (PVT_K1_...)" "" true
     fi
   fi
 fi
 
 # If still not set, prompt normally
-prompt_value XPR_ACCOUNT "XPR account name"
+if [ -z "$XPR_ACCOUNT" ]; then
+  prompt_value XPR_ACCOUNT "XPR account name"
+fi
 success "Account: $XPR_ACCOUNT"
 
-prompt_value XPR_PRIVATE_KEY "Private key (PVT_K1_...)" "" true
+if [ -z "$XPR_PRIVATE_KEY" ]; then
+  prompt_value XPR_PRIVATE_KEY "Private key (PVT_K1_...)" "" true
+fi
 success "Private key: set"
 
-prompt_value ANTHROPIC_API_KEY "Anthropic API key" "" true
+prompt_value ANTHROPIC_API_KEY "Anthropic API key (from console.anthropic.com)" "" true
 success "API key: set"
 
 # ── Validate Account ─────────────────────────
@@ -275,7 +322,8 @@ if echo "$ACCOUNT_CHECK" | grep -q '"account_name"'; then
 else
   warn "Could not verify account '$XPR_ACCOUNT' on $NETWORK"
   if [ "$NON_INTERACTIVE" = false ]; then
-    echo -n "Continue anyway? [y/N]: " > /dev/tty; read -r cont < /dev/tty
+    echo -n "Continue anyway? [y/N]: "
+    read -r cont
     [ "$cont" = "y" ] || [ "$cont" = "Y" ] || exit 1
   fi
 fi
