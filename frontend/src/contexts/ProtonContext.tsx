@@ -56,7 +56,7 @@ async function initSDK(restoreSession: boolean): Promise<{ link: any; session: L
       chainId: CHAIN_ID,
       endpoints: ENDPOINTS,
       restoreSession,
-      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+      storage: typeof window !== 'undefined' ? window.localStorage as any : undefined,
     },
     transportOptions: {
       requestAccount: APP_NAME,
