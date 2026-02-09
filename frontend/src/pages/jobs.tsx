@@ -116,9 +116,11 @@ export default function Jobs() {
       ]);
 
       setSuccess(`Job #${selectedJob.id} funded with ${amountStr}!`);
-      await loadJobs();
-      // Refresh selected job
-      const updated = (await getAllJobs()).find(j => j.id === selectedJob.id);
+      // Wait for chain to process the block before re-fetching
+      await new Promise(r => setTimeout(r, 1500));
+      const refreshed = await getAllJobs();
+      setJobs(refreshed);
+      const updated = refreshed.find(j => j.id === selectedJob.id);
       if (updated) setSelectedJob(updated);
     } catch (e: any) {
       setError(e.message || 'Failed to fund job');
@@ -147,8 +149,10 @@ export default function Jobs() {
       ]);
 
       setSuccess(`Job #${selectedJob.id} approved! Payment released to ${selectedJob.agent}.`);
-      await loadJobs();
-      const updated = (await getAllJobs()).find(j => j.id === selectedJob.id);
+      await new Promise(r => setTimeout(r, 1500));
+      const refreshed = await getAllJobs();
+      setJobs(refreshed);
+      const updated = refreshed.find(j => j.id === selectedJob.id);
       if (updated) setSelectedJob(updated);
     } catch (e: any) {
       setError(e.message || 'Failed to approve delivery');
@@ -220,6 +224,7 @@ export default function Jobs() {
       ]);
 
       setSuccess('Bid selected! Agent assigned to job.');
+      await new Promise(r => setTimeout(r, 1500));
       await loadJobs();
       const jobBids = await getBidsForJob(selectedJob.id);
       setBids(jobBids);
@@ -294,6 +299,7 @@ export default function Jobs() {
       setSuccess('Job posted and funded! Agents can now submit bids.');
       setShowCreateForm(false);
       setNewJob({ title: '', description: '', amount: '', deadline: '', deliverables: '', arbitrator: '' });
+      await new Promise(r => setTimeout(r, 1500));
       await loadJobs();
     } catch (e: any) {
       setError(e.message || 'Failed to create job');
