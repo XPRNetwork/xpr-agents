@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { initDatabase, updateStats, getLastCursor, updateCursor, ensureContractCursors, getContractCursors, updateContractCursor } from './db/schema';
+import { initDatabase, updateStats, getLastCursor, updateCursor, ensureContractCursors, getContractCursors, updateContractCursor, isActionProcessed, pruneProcessedActions } from './db/schema';
 import { HyperionStream, StreamAction } from './stream';
 import { HyperionPoller } from './poller';
 import { handleAgentAction, handleAgentCoreTransfer } from './handlers/agent';
@@ -97,24 +97,28 @@ if (lastBlock > 0 || [...contractCursors.values()].some(b => b > 0)) {
   }
 }
 
-// Frozen snapshot of per-contract cursors at startup.
-// Used ONLY for resume dedup — never mutated during the session.
-// Strict < means the cursor's own block is replayed (safe; at most a few
-// duplicate actions from the boundary block, but no data loss).
+// Frozen snapshot of per-contract cursors at startup for bulk skip optimization.
 const resumeCursors: ReadonlyMap<string, number> = new Map(contractCursors);
 
+// Prune old dedup entries on startup to bound table size
+pruneProcessedActions(db, 0);
+
 // Action handler shared by both stream and poller.
+// Two-layer dedup:
+//   1. Block-level: skip actions in blocks strictly below the contract's persisted cursor (fast bulk skip)
+//   2. Action-level: skip actions by global_sequence if already in processed_actions (exact boundary dedup)
 function handleAction(action: StreamAction): void {
   const contract = action.act.account;
 
-  // Resume dedup: skip actions strictly BELOW the contract's persisted cursor.
-  // Uses the frozen startup snapshot so live processing is never filtered.
-  // Strict < (not <=) ensures all actions in the cursor's own block are
-  // re-processed — this is the safe direction (small harmless replay on
-  // restart vs data loss from <=).
+  // Layer 1: bulk skip — blocks well below this contract's cursor are definitely done
   const resumeBlock = resumeCursors.get(contract) || 0;
   if (resumeBlock > 0 && action.block_num < resumeBlock) {
-    return; // Definitely already processed
+    return;
+  }
+
+  // Layer 2: exact dedup via global_sequence — prevents boundary-block duplicates
+  if (isActionProcessed(db, action.global_sequence)) {
+    return;
   }
 
   try {

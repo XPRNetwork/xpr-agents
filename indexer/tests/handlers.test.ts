@@ -12,9 +12,11 @@ import { WebhookDispatcher } from '../src/webhooks/dispatcher';
 /*  Test Helpers                                                        */
 /* ------------------------------------------------------------------ */
 
+let actionSeq = 0;
 function createAction(account: string, name: string, data: Record<string, any>, overrides: Partial<StreamAction> = {}): StreamAction {
   return {
     block_num: 100,
+    global_sequence: ++actionSeq,
     timestamp: '2024-01-15T12:00:00.000Z',
     trx_id: 'abc123',
     act: {

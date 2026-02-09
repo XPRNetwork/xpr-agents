@@ -302,6 +302,12 @@ export function initDatabase(dbPath: string): Database.Database {
       updated_at INTEGER DEFAULT (strftime('%s', 'now'))
     );
 
+    -- Action dedup: tracks processed global_sequence values to prevent
+    -- duplicate inserts on boundary-block replay after restart.
+    CREATE TABLE IF NOT EXISTS processed_actions (
+      global_sequence INTEGER PRIMARY KEY
+    );
+
     -- Webhook subscriptions for push notifications
     CREATE TABLE IF NOT EXISTS webhook_subscriptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -405,4 +411,32 @@ export function updateContractCursor(db: Database.Database, contract: string, bl
     VALUES (?, ?, strftime('%s', 'now'))
     ON CONFLICT(contract) DO UPDATE SET last_block_num = excluded.last_block_num, updated_at = excluded.updated_at
   `).run(contract, blockNum);
+}
+
+/**
+ * Returns true if this action has already been processed (duplicate).
+ * If not, records it and returns false.
+ */
+export function isActionProcessed(db: Database.Database, globalSequence: number): boolean {
+  if (globalSequence <= 0) return false; // No sequence available — can't dedup
+  const existing = db.prepare('SELECT 1 FROM processed_actions WHERE global_sequence = ?').get(globalSequence);
+  if (existing) return true;
+  db.prepare('INSERT INTO processed_actions (global_sequence) VALUES (?)').run(globalSequence);
+  return false;
+}
+
+/**
+ * Remove processed_actions entries for blocks older than the minimum
+ * per-contract cursor. Only needs the minimum block — actions below it
+ * are already filtered by the resume cursor guard.
+ */
+export function pruneProcessedActions(db: Database.Database, belowBlock: number): void {
+  // We don't store block_num in processed_actions for simplicity.
+  // Instead, prune entries older than a count threshold to bound table size.
+  const MAX_DEDUP_ENTRIES = 10000;
+  const count = (db.prepare('SELECT COUNT(*) as cnt FROM processed_actions').get() as { cnt: number }).cnt;
+  if (count > MAX_DEDUP_ENTRIES) {
+    const toDelete = count - MAX_DEDUP_ENTRIES;
+    db.prepare('DELETE FROM processed_actions WHERE global_sequence IN (SELECT global_sequence FROM processed_actions ORDER BY global_sequence ASC LIMIT ?)').run(toDelete);
+  }
 }
