@@ -52,6 +52,14 @@ export default function Jobs() {
   const [deliverableContent, setDeliverableContent] = useState<string | null>(null);
   const [deliverableLoading, setDeliverableLoading] = useState(false);
 
+  // Rating modal
+  const [showRating, setShowRating] = useState(false);
+  const [ratingAgent, setRatingAgent] = useState('');
+  const [ratingJobId, setRatingJobId] = useState(0);
+  const [ratingScore, setRatingScore] = useState(5);
+  const [ratingTags, setRatingTags] = useState('');
+  const [ratingSubmitting, setRatingSubmitting] = useState(false);
+
   // Bid form state
   const [bidAmount, setBidAmount] = useState('');
   const [bidTimeline, setBidTimeline] = useState('');
@@ -228,6 +236,13 @@ export default function Jobs() {
       ]);
 
       setSuccess(`Job #${selectedJob.id} approved! Payment released to ${selectedJob.agent}.`);
+      // Show rating modal
+      setRatingAgent(selectedJob.agent);
+      setRatingJobId(selectedJob.id);
+      setRatingScore(5);
+      setRatingTags('');
+      setShowRating(true);
+
       await new Promise(r => setTimeout(r, 1500));
       const refreshed = await getAllJobs();
       setJobs(refreshed);
@@ -237,6 +252,37 @@ export default function Jobs() {
       setError(e.message || 'Failed to approve delivery');
     } finally {
       setProcessing(false);
+    }
+  }
+
+  async function handleSubmitRating() {
+    if (!session || !ratingAgent) return;
+
+    setRatingSubmitting(true);
+    try {
+      await transact([
+        {
+          account: CONTRACTS.AGENT_FEED,
+          name: 'submit',
+          data: {
+            reviewer: session.auth.actor,
+            agent: ratingAgent,
+            score: ratingScore,
+            tags: ratingTags,
+            job_hash: String(ratingJobId),
+            evidence_uri: '',
+            amount_paid: 0,
+          },
+        },
+      ]);
+      setSuccess(`Rated ${ratingAgent} ${ratingScore}/5!`);
+      setShowRating(false);
+    } catch (e: any) {
+      // Don't block — rating is optional
+      console.error('Rating failed:', e);
+      setShowRating(false);
+    } finally {
+      setRatingSubmitting(false);
     }
   }
 
@@ -893,6 +939,55 @@ export default function Jobs() {
             </div>
           )}
         </main>
+
+        {/* Rating Modal */}
+        {showRating && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
+              <h3 className="text-lg font-bold mb-1">Rate {ratingAgent}</h3>
+              <p className="text-sm text-gray-500 mb-4">How was job #{ratingJobId}?</p>
+
+              <div className="flex justify-center gap-2 mb-4">
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setRatingScore(s)}
+                    className={`text-3xl transition-transform ${
+                      s <= ratingScore ? 'text-yellow-400 scale-110' : 'text-gray-300'
+                    } hover:scale-125`}
+                  >
+                    ★
+                  </button>
+                ))}
+              </div>
+              <p className="text-center text-sm text-gray-500 mb-4">{ratingScore}/5</p>
+
+              <input
+                type="text"
+                value={ratingTags}
+                onChange={(e) => setRatingTags(e.target.value)}
+                placeholder="Tags: fast, quality, creative..."
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm mb-4"
+              />
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSubmitRating}
+                  disabled={ratingSubmitting}
+                  className="flex-1 px-4 py-2 bg-proton-purple text-white rounded-lg text-sm hover:bg-purple-700 disabled:bg-gray-300"
+                >
+                  {ratingSubmitting ? 'Submitting...' : 'Submit Rating'}
+                </button>
+                <button
+                  onClick={() => setShowRating(false)}
+                  className="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50"
+                >
+                  Skip
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
