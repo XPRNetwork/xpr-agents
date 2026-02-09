@@ -591,11 +591,12 @@ async function pollOnChain(): Promise<void> {
           const toName = stateNames[job.state] || String(job.state);
           console.log(`[poller] Job #${job.id} state changed: ${fromName} → ${toName}`);
 
+          const jobBudgetXpr = (job.amount / 10000).toFixed(4);
           runAgent('poll:job_state_change', {
             job_id: job.id, client: job.client, agent: job.agent,
             from_state: prevState, to_state: job.state,
-            title: job.title, amount: job.amount,
-          }, `Job #${job.id} "${job.title}" changed from ${fromName} to ${toName}. Review and take appropriate action.`).catch(err => {
+            title: job.title, amount: job.amount, budget_xpr: jobBudgetXpr,
+          }, `Job #${job.id} "${job.title}" (budget: ${jobBudgetXpr} XPR) changed from ${fromName} to ${toName}. The amount field in raw units is ${job.amount} (divide by 10000 for XPR). Review and take appropriate action.`).catch(err => {
             console.error(`[poller] Failed to process job state change:`, err.message);
           });
         }
@@ -614,11 +615,12 @@ async function pollOnChain(): Promise<void> {
         // Don't trigger on first poll (seed)
         if (knownOpenJobIds.size <= jobs.length && knownJobStates.size === 0) continue;
 
-        console.log(`[poller] New open job #${job.id}: "${job.title}" (${job.amount} ${job.symbol || 'XPR'})`);
+        const budgetXpr = (job.amount / 10000).toFixed(4);
+        console.log(`[poller] New open job #${job.id}: "${job.title}" (${budgetXpr} XPR)`);
         runAgent('poll:new_open_job', {
           job_id: job.id, client: job.client, title: job.title,
-          description: job.description, amount: job.amount, deadline: job.deadline,
-        }, `New open job #${job.id} "${job.title}" posted for ${job.amount} XPR. Evaluate if you should bid on it.`).catch(err => {
+          description: job.description, amount: job.amount, budget_xpr: budgetXpr, deadline: job.deadline,
+        }, `New open job #${job.id} "${job.title}" with budget ${budgetXpr} XPR. The amount field in raw units is ${job.amount} (divide by 10000 for XPR). Bid at or below the budget. Evaluate if you should bid on it.`).catch(err => {
           console.error(`[poller] Failed to process new open job:`, err.message);
         });
       }
