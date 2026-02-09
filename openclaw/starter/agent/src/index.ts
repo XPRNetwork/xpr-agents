@@ -111,6 +111,7 @@ const readonlyAnthropicTools: Anthropic.Tool[] = readonlyTools.map(t => ({
 // A2A task store (in-memory)
 interface A2ATaskRecord {
   id: string;
+  owner: string;           // authenticated caller who created the task
   contextId?: string;
   status: { state: string; message?: unknown; timestamp: string };
   artifacts?: Array<{ parts: Array<{ type: string; text: string }>; index: number }>;
@@ -225,7 +226,10 @@ async function runAgent(eventType: string, data: any, message: string, options?:
 
 // Express server
 const app = express();
-app.use(express.json());
+// Preserve raw body for A2A signature verification (verify callback runs before parsing)
+app.use(express.json({
+  verify: (req: any, _res, buf) => { req.rawBody = buf.toString('utf-8'); },
+}));
 
 // Webhook endpoint — receives events from the indexer
 app.post('/hooks/agent', async (req, res) => {
@@ -334,19 +338,17 @@ app.get('/.well-known/agent.json', async (_req, res) => {
 });
 
 // A2A JSON-RPC endpoint
-app.post('/a2a', express.text({ type: 'application/json' }), async (req, res) => {
-  // Parse body (received as raw text for signature verification)
-  const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-  let parsed: any;
-  try {
-    parsed = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-  } catch {
+app.post('/a2a', async (req, res) => {
+  // Use raw wire bytes preserved by express.json verify callback for signature verification
+  const rawBody = (req as any).rawBody as string | undefined;
+  if (!rawBody) {
     return res.json({
       jsonrpc: '2.0',
       id: null,
-      error: { code: -32700, message: 'Parse error: invalid JSON' },
+      error: { code: -32700, message: 'Parse error: missing request body' },
     });
   }
+  const parsed = req.body;
 
   const { jsonrpc, id, method, params } = parsed;
 
@@ -412,6 +414,7 @@ app.post('/a2a', express.text({ type: 'application/json' }), async (req, res) =>
 
         const taskRecord: A2ATaskRecord = {
           id: taskId,
+          owner: authAccount,
           contextId,
           status: { state: 'working', timestamp: new Date().toISOString() },
           metadata: params?.metadata,
@@ -443,7 +446,7 @@ app.post('/a2a', express.text({ type: 'application/json' }), async (req, res) =>
           });
         }
         const task = a2aTasks.get(taskId);
-        if (!task) {
+        if (!task || task.owner !== authAccount) {
           return res.json({
             jsonrpc: '2.0', id,
             error: { code: -32001, message: `Task not found: ${taskId}` },
@@ -462,7 +465,7 @@ app.post('/a2a', express.text({ type: 'application/json' }), async (req, res) =>
           });
         }
         const task = a2aTasks.get(taskId);
-        if (!task) {
+        if (!task || task.owner !== authAccount) {
           return res.json({
             jsonrpc: '2.0', id,
             error: { code: -32001, message: `Task not found: ${taskId}` },

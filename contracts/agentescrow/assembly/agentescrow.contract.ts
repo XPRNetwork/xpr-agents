@@ -575,7 +575,7 @@ export class AgentEscrowContract extends Contract {
 
     check(job.client == client, "Only client can select a bid");
     check(job.agent == EMPTY_NAME, "Job already has an assigned agent");
-    check(job.state == 0 || job.state == 1, "Job must be in CREATED or FUNDED state");
+    check(job.state == 0, "Job must be in CREATED state (fund after selecting a bid)");
 
     // Verify bid agent is still active
     const agentRef = this.requireAgentRef(bid.agent);

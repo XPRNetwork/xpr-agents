@@ -171,10 +171,11 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
         );
       }
       break;
-    case 'selectbid':
+    case 'selectbid': {
+      // Capture bid data BEFORE handleSelectBid deletes all bids for the job
+      const selectedBid = db.prepare('SELECT agent, job_id, amount FROM bids WHERE id = ?').get(data.bid_id) as { agent: string; job_id: number; amount: number } | undefined;
       handleSelectBid(db, data);
       if (dispatcher) {
-        const selectedBid = db.prepare('SELECT agent, job_id FROM bids WHERE id = ?').get(data.bid_id) as { agent: string; job_id: number } | undefined;
         dispatcher.dispatch(
           'bid.selected',
           selectedBid ? [data.client, selectedBid.agent] : [data.client],
@@ -184,6 +185,7 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
         );
       }
       break;
+    }
     case 'withdrawbid':
       handleWithdrawBid(db, data);
       break;
