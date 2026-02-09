@@ -57,6 +57,12 @@ export function handleValidationAction(db: Database.Database, action: StreamActi
     case 'withdraw':
       handleWithdraw(db, data);
       break;
+    case 'cleanvals':
+      handleCleanValidations(db, data);
+      break;
+    case 'cleanchals':
+      handleCleanChallenges(db, data);
+      break;
     default:
       console.log(`Unknown agentvalid action: ${name}`);
   }
@@ -362,6 +368,41 @@ function handleUnstake(db: Database.Database, data: any): void {
 function handleWithdraw(db: Database.Database, data: any): void {
   // Withdrawal completed - stake was already reduced during unstake
   console.log(`Validator ${data.account} withdrew unstaked funds (unstake_id: ${data.unstake_id})`);
+}
+
+function handleCleanValidations(db: Database.Database, data: any): void {
+  // Mirror on-chain cleanup: delete old unchallenged validations for agent
+  const agent = data.agent;
+  const maxAge = data.max_age || 0;
+  const maxDelete = data.max_delete || 100;
+  const cutoff = Math.floor(Date.now() / 1000) - maxAge;
+
+  const result = db.prepare(`
+    DELETE FROM validations WHERE id IN (
+      SELECT id FROM validations
+      WHERE agent = ? AND timestamp < ? AND challenged = 0
+      LIMIT ?
+    )
+  `).run(agent, cutoff, maxDelete);
+
+  console.log(`Cleaned ${result.changes} old validations for ${agent}`);
+}
+
+function handleCleanChallenges(db: Database.Database, data: any): void {
+  // Mirror on-chain cleanup: delete old resolved challenges
+  const maxAge = data.max_age || 0;
+  const maxDelete = data.max_delete || 100;
+  const cutoff = Math.floor(Date.now() / 1000) - maxAge;
+
+  const result = db.prepare(`
+    DELETE FROM validation_challenges WHERE id IN (
+      SELECT id FROM validation_challenges
+      WHERE status != 0 AND resolved_at > 0 AND resolved_at < ?
+      LIMIT ?
+    )
+  `).run(cutoff, maxDelete);
+
+  console.log(`Cleaned ${result.changes} old validation challenges`);
 }
 
 function logEvent(db: Database.Database, action: StreamAction): void {

@@ -187,6 +187,12 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
     case 'withdrawbid':
       handleWithdrawBid(db, data);
       break;
+    case 'cleanjobs':
+      handleCleanJobs(db, data);
+      break;
+    case 'cleandisps':
+      handleCleanEscrowDisputes(db, data);
+      break;
     default:
       console.log(`Unknown agentescrow action: ${name}`);
   }
@@ -588,6 +594,45 @@ function handleSelectBid(db: Database.Database, data: any): void {
 function handleWithdrawBid(db: Database.Database, data: any): void {
   db.prepare('DELETE FROM bids WHERE id = ?').run(data.bid_id);
   console.log(`Bid ${data.bid_id} withdrawn by ${data.agent}`);
+}
+
+function handleCleanJobs(db: Database.Database, data: any): void {
+  // Mirror on-chain cleanup: delete old terminal-state jobs and their milestones
+  const maxAge = data.max_age || 0;
+  const maxDelete = data.max_delete || 100;
+  const cutoff = Math.floor(Date.now() / 1000) - maxAge;
+
+  // Find jobs to delete (states 6=completed, 7=refunded, 8=arbitrated)
+  const jobs = db.prepare(`
+    SELECT id FROM jobs
+    WHERE state IN (6, 7, 8) AND updated_at < ?
+    LIMIT ?
+  `).all(cutoff, maxDelete) as Array<{ id: number }>;
+
+  for (const job of jobs) {
+    db.prepare('DELETE FROM milestones WHERE job_id = ?').run(job.id);
+    db.prepare('DELETE FROM bids WHERE job_id = ?').run(job.id);
+    db.prepare('DELETE FROM jobs WHERE id = ?').run(job.id);
+  }
+
+  console.log(`Cleaned ${jobs.length} completed jobs`);
+}
+
+function handleCleanEscrowDisputes(db: Database.Database, data: any): void {
+  // Mirror on-chain cleanup: delete old resolved escrow disputes
+  const maxAge = data.max_age || 0;
+  const maxDelete = data.max_delete || 100;
+  const cutoff = Math.floor(Date.now() / 1000) - maxAge;
+
+  const result = db.prepare(`
+    DELETE FROM escrow_disputes WHERE id IN (
+      SELECT id FROM escrow_disputes
+      WHERE resolution != 0 AND resolved_at > 0 AND resolved_at < ?
+      LIMIT ?
+    )
+  `).run(cutoff, maxDelete);
+
+  console.log(`Cleaned ${result.changes} old escrow disputes`);
 }
 
 function logEvent(db: Database.Database, action: StreamAction): void {

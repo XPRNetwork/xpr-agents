@@ -70,6 +70,12 @@ export function handleFeedbackAction(db: Database.Database, action: StreamAction
     case 'addprovider':
     case 'setprovider':
     case 'rmprovider':
+    case 'cleanfback':
+      handleCleanFeedback(db, data);
+      break;
+    case 'cleandisps':
+      handleCleanFeedbackDisputes(db, data);
+      break;
     case 'cleanrecalc':
     case 'cancelrecalc':
     case 'submitext':
@@ -217,6 +223,46 @@ function handleReinstate(db: Database.Database, data: any): void {
   }
 
   console.log(`Feedback ${data.feedback_id} reinstated`);
+}
+
+function handleCleanFeedback(db: Database.Database, data: any): void {
+  // Mirror on-chain cleanup: delete old feedback for agent older than max_age
+  // Contract only deletes undisputed or resolved feedback
+  const agent = data.agent;
+  const maxAge = data.max_age || 0;
+  const maxDelete = data.max_delete || 100;
+  const cutoff = Math.floor(Date.now() / 1000) - maxAge;
+
+  const result = db.prepare(`
+    DELETE FROM feedback WHERE id IN (
+      SELECT id FROM feedback
+      WHERE agent = ? AND timestamp < ?
+      AND (disputed = 0 OR resolved = 1)
+      LIMIT ?
+    )
+  `).run(agent, cutoff, maxDelete);
+
+  if (result.changes > 0) {
+    updateAgentScore(db, agent);
+  }
+  console.log(`Cleaned ${result.changes} old feedback for ${agent}`);
+}
+
+function handleCleanFeedbackDisputes(db: Database.Database, data: any): void {
+  // Mirror on-chain cleanup: delete old resolved disputes
+  const maxAge = data.max_age || 0;
+  const maxDelete = data.max_delete || 100;
+  const cutoff = Math.floor(Date.now() / 1000) - maxAge;
+
+  const result = db.prepare(`
+    DELETE FROM feedback_disputes WHERE id IN (
+      SELECT id FROM feedback_disputes
+      WHERE status != 0 AND resolved_at > 0 AND resolved_at < ?
+      LIMIT ?
+    )
+  `).run(cutoff, maxDelete);
+
+  console.log(`Cleaned ${result.changes} old feedback disputes`);
 }
 
 function updateAgentScore(db: Database.Database, agent: string): void {

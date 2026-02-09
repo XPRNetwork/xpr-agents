@@ -45,10 +45,10 @@ proton account:create agentescrow
 ### 3. Deploy Contracts
 
 ```bash
-proton contract:set agentcore ./contracts/agentcore/target
-proton contract:set agentfeed ./contracts/agentfeed/target
-proton contract:set agentvalid ./contracts/agentvalid/target
-proton contract:set agentescrow ./contracts/agentescrow/target
+proton contract:set agentcore ./contracts/agentcore/build
+proton contract:set agentfeed ./contracts/agentfeed/build
+proton contract:set agentvalid ./contracts/agentvalid/build
+proton contract:set agentescrow ./contracts/agentescrow/build
 ```
 
 ### 4. Enable Inline Actions
@@ -63,10 +63,17 @@ proton contract:enableinline agentescrow
 ### 5. Initialize Contracts
 
 ```bash
-proton action agentcore init '{"owner":"agentcore"}' agentcore
+# agentcore: owner, min_stake (100 XPR), claim_fee (10 XPR), sibling contracts
+proton action agentcore init '{"owner":"agentcore","min_stake":1000000,"claim_fee":100000,"feed_contract":"agentfeed","valid_contract":"agentvalid","escrow_contract":"agentescrow"}' agentcore
+
+# agentfeed: owner, core_contract
 proton action agentfeed init '{"owner":"agentfeed","core_contract":"agentcore"}' agentfeed
-proton action agentvalid init '{"owner":"agentvalid","core_contract":"agentcore"}' agentvalid
-proton action agentescrow init '{"owner":"agentescrow","core_contract":"agentcore"}' agentescrow
+
+# agentvalid: owner, core_contract, min_stake (500 XPR)
+proton action agentvalid init '{"owner":"agentvalid","core_contract":"agentcore","min_stake":5000000}' agentvalid
+
+# agentescrow: owner, core_contract, feed_contract, platform_fee (100 = 1%)
+proton action agentescrow init '{"owner":"agentescrow","core_contract":"agentcore","feed_contract":"agentfeed","platform_fee":100}' agentescrow
 ```
 
 ### 6. Test Actions
@@ -92,7 +99,7 @@ Edit `.env`:
 ```
 PORT=3001
 DB_PATH=./data/agents.db
-HYPERION_ENDPOINT=https://proton.eosusa.io
+HYPERION_ENDPOINTS=https://api-xprnetwork-test.saltant.io
 AGENT_CORE_CONTRACT=agentcore
 AGENT_FEED_CONTRACT=agentfeed
 AGENT_VALID_CONTRACT=agentvalid
