@@ -560,6 +560,7 @@ const knownOpenJobIds = new Set<number>();           // open job ids already see
 const knownFeedbackIds = new Set<number>();          // feedback ids already seen
 const knownChallengeIds = new Set<number>();         // challenge ids already seen
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let firstPoll = true;                               // true until first poll completes
 
 async function pollOnChain(): Promise<void> {
   if (shuttingDown) return;
@@ -613,7 +614,7 @@ async function pollOnChain(): Promise<void> {
         knownOpenJobIds.add(job.id);
 
         // Don't trigger on first poll (seed)
-        if (knownOpenJobIds.size <= jobs.length && knownJobStates.size === 0) continue;
+        if (firstPoll) continue;
 
         const budgetXpr = (job.amount / 10000).toFixed(4);
         console.log(`[poller] New open job #${job.id}: "${job.title}" (${budgetXpr} XPR)`);
@@ -636,7 +637,7 @@ async function pollOnChain(): Promise<void> {
         knownFeedbackIds.add(fb.id);
 
         // Skip seed
-        if (knownFeedbackIds.size <= items.length && knownJobStates.size === 0) continue;
+        if (firstPoll) continue;
 
         console.log(`[poller] New feedback #${fb.id} from ${fb.reviewer}: score ${fb.score}/5`);
         runAgent('poll:new_feedback', {
@@ -659,7 +660,7 @@ async function pollOnChain(): Promise<void> {
         knownChallengeIds.add(v.id);
 
         // Skip seed
-        if (knownChallengeIds.size <= validations.filter((x: any) => x?.challenged).length && knownJobStates.size === 0) continue;
+        if (firstPoll) continue;
 
         console.log(`[poller] Validation #${v.id} has been challenged`);
         runAgent('poll:validation_challenged', {
@@ -671,6 +672,11 @@ async function pollOnChain(): Promise<void> {
     }
   } catch (err: any) {
     console.error(`[poller] Poll error:`, err.message);
+  }
+
+  if (firstPoll) {
+    firstPoll = false;
+    console.log(`[poller] Seeded: ${knownJobStates.size} agent jobs, ${knownOpenJobIds.size} open jobs, ${knownFeedbackIds.size} feedback, ${knownChallengeIds.size} challenges`);
   }
 
   // Schedule next poll
