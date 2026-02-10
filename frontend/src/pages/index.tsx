@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { WalletButton } from '@/components/WalletButton';
+import { Header } from '@/components/Header';
 import { AgentList } from '@/components/AgentList';
 import { TrustBadge } from '@/components/TrustBadge';
 import {
@@ -46,44 +46,17 @@ export default function Home() {
       </Head>
 
       <div className="min-h-screen bg-zinc-950">
-        {/* Header */}
-        <header className="bg-zinc-950/80 backdrop-blur-lg border-b border-zinc-800 sticky top-0 z-40">
-          <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-            <Link href="/" className="flex items-center gap-2">
-              <img src="/xpr-logo.png" alt="XPR" className="h-7 w-7" />
-              <span className="text-xl font-bold text-white">XPR Agents</span>
-            </Link>
-            <nav className="flex items-center gap-6">
-              <Link href="/" className="text-proton-purple font-medium">
-                Discover
-              </Link>
-              <Link href="/jobs" className="text-zinc-400 hover:text-white transition-colors">
-                Jobs
-              </Link>
-              <Link href="/leaderboard" className="text-zinc-400 hover:text-white transition-colors">
-                Leaderboard
-              </Link>
-              <Link href="/register" className="text-zinc-400 hover:text-white transition-colors">
-                Register
-              </Link>
-              <Link href="/dashboard" className="text-zinc-400 hover:text-white transition-colors">
-                Dashboard
-              </Link>
-              <WalletButton />
-            </nav>
-          </div>
-          <div className="h-px bg-gradient-to-r from-transparent via-proton-purple/50 to-transparent" />
-        </header>
+        <Header activePage="discover" />
 
         {/* Hero */}
         <section className="relative bg-gradient-to-r from-proton-purple to-purple-600 text-white py-16">
           <div className="absolute inset-0 shadow-[0_0_120px_rgba(125,60,248,0.15)]" />
           <div className="relative max-w-6xl mx-auto px-4 text-center">
-            <h1 className="text-4xl font-bold mb-4">Trustless Agent Registry</h1>
-            <p className="text-xl opacity-90 mb-8">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4">Trustless Agent Registry</h1>
+            <p className="text-base sm:text-lg md:text-xl opacity-90 mb-8">
               Discover, validate, and interact with AI agents on XPR Network
             </p>
-            <div className="flex justify-center gap-4">
+            <div className="flex flex-col sm:flex-row justify-center gap-4">
               <Link
                 href="/register"
                 className="px-6 py-3 bg-white text-proton-purple rounded-lg font-semibold hover:bg-zinc-100 transition-colors"
@@ -103,7 +76,7 @@ export default function Home() {
         {/* Stats */}
         <section className="bg-zinc-900/50 border-b border-zinc-800 py-8">
           <div className="max-w-6xl mx-auto px-4">
-            <div className="grid grid-cols-5 gap-8 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 md:gap-8 text-center">
               <div>
                 <div className="text-3xl font-bold text-proton-purple">{stats.activeAgents}</div>
                 <div className="text-zinc-400">Active Agents</div>
@@ -133,7 +106,7 @@ export default function Home() {
         {/* Top Agents + Recent Activity */}
         {(topAgents.length > 0 || recentJobs.length > 0) && (
           <section className="max-w-6xl mx-auto px-4 py-10">
-            <div className="grid grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {/* Top Agents Mini-Leaderboard */}
               {topAgents.length > 0 && (
                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { WalletButton } from '@/components/WalletButton';
+import { Header } from '@/components/Header';
 import { TrustBadge } from '@/components/TrustBadge';
 import {
   getLeaderboard,
@@ -46,34 +46,7 @@ export default function Leaderboard() {
       </Head>
 
       <div className="min-h-screen bg-zinc-950">
-        {/* Header */}
-        <header className="bg-zinc-950/80 backdrop-blur-lg border-b border-zinc-800 sticky top-0 z-40">
-          <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-            <Link href="/" className="flex items-center gap-2">
-              <img src="/xpr-logo.png" alt="XPR" className="h-7 w-7" />
-              <span className="text-xl font-bold text-white">XPR Agents</span>
-            </Link>
-            <nav className="flex items-center gap-6">
-              <Link href="/" className="text-zinc-400 hover:text-white transition-colors">
-                Discover
-              </Link>
-              <Link href="/jobs" className="text-zinc-400 hover:text-white transition-colors">
-                Jobs
-              </Link>
-              <Link href="/leaderboard" className="text-proton-purple font-medium">
-                Leaderboard
-              </Link>
-              <Link href="/register" className="text-zinc-400 hover:text-white transition-colors">
-                Register
-              </Link>
-              <Link href="/dashboard" className="text-zinc-400 hover:text-white transition-colors">
-                Dashboard
-              </Link>
-              <WalletButton />
-            </nav>
-          </div>
-          <div className="h-px bg-gradient-to-r from-transparent via-proton-purple/50 to-transparent" />
-        </header>
+        <Header activePage="leaderboard" />
 
         <main className="max-w-6xl mx-auto px-4 py-8">
           {/* Page Title */}
@@ -116,8 +89,8 @@ export default function Leaderboard() {
             </div>
           ) : (
             <div className="space-y-3">
-              {/* Column Headers */}
-              <div className="grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+              {/* Column Headers — desktop only */}
+              <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wider">
                 <div className="col-span-1">Rank</div>
                 <div className="col-span-4">Agent</div>
                 {tab === 'trust' && (
@@ -153,8 +126,48 @@ export default function Leaderboard() {
 
                 return (
                   <Link key={entry.agent.account} href={`/agent/${entry.agent.account}`}>
+                    {/* Mobile card */}
                     <div
-                      className={`grid grid-cols-12 gap-4 items-center px-4 py-4 rounded-xl border transition-all cursor-pointer ${
+                      className={`md:hidden flex items-center gap-3 px-4 py-3 rounded-xl border transition-all cursor-pointer ${
+                        isTop3
+                          ? 'bg-zinc-900/80 border-zinc-700 hover:border-zinc-600'
+                          : 'bg-zinc-900/40 border-zinc-800/50 hover:border-zinc-700 hover:bg-zinc-900/60'
+                      }`}
+                    >
+                      <span
+                        className={`text-lg font-bold w-8 shrink-0 ${
+                          isTop3 ? RANK_COLORS[index] : 'text-zinc-600'
+                        }`}
+                      >
+                        #{rank}
+                      </span>
+                      <div
+                        className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                          isTop3
+                            ? 'bg-proton-purple/20 text-proton-purple'
+                            : 'bg-zinc-800 text-zinc-400'
+                        }`}
+                      >
+                        {entry.agent.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-white text-sm truncate">{entry.agent.name}</div>
+                        <div className="text-xs text-zinc-500">@{entry.agent.account}</div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <TrustBadge trustScore={entry.trustScore} size="sm" />
+                        {tab === 'earnings' && entry.earnings > 0 && (
+                          <div className="text-xs text-emerald-400 mt-0.5">{formatXpr(entry.earnings)}</div>
+                        )}
+                        {tab === 'activity' && (
+                          <div className="text-xs text-zinc-400 mt-0.5">{entry.agent.total_jobs} jobs</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Desktop grid row */}
+                    <div
+                      className={`hidden md:grid grid-cols-12 gap-4 items-center px-4 py-4 rounded-xl border transition-all cursor-pointer ${
                         isTop3
                           ? 'bg-zinc-900/80 border-zinc-700 hover:border-zinc-600'
                           : 'bg-zinc-900/40 border-zinc-800/50 hover:border-zinc-700 hover:bg-zinc-900/60'

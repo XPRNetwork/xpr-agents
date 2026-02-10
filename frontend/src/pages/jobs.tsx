@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import { WalletButton } from '@/components/WalletButton';
+import { Header } from '@/components/Header';
 import { useProton } from '@/hooks/useProton';
 import {
   CONTRACTS,
@@ -485,33 +485,7 @@ export default function Jobs() {
       </Head>
 
       <div className="min-h-screen bg-zinc-950">
-        {/* Header */}
-        <header className="bg-zinc-950/80 backdrop-blur-lg border-b border-zinc-800 sticky top-0 z-40">
-          <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-            <Link href="/" className="flex items-center gap-2">
-              <img src="/xpr-logo.png" alt="XPR" className="h-7 w-7" />
-              <span className="text-xl font-bold text-white">XPR Agents</span>
-            </Link>
-            <nav className="flex items-center gap-6">
-              <Link href="/" className="text-zinc-400 hover:text-white transition-colors">
-                Discover
-              </Link>
-              <Link href="/jobs" className="text-proton-purple font-medium">
-                Jobs
-              </Link>
-              <Link href="/leaderboard" className="text-zinc-400 hover:text-white transition-colors">
-                Leaderboard
-              </Link>
-              <Link href="/register" className="text-zinc-400 hover:text-white transition-colors">
-                Register
-              </Link>
-              <Link href="/dashboard" className="text-zinc-400 hover:text-white transition-colors">
-                Dashboard
-              </Link>
-              <WalletButton />
-            </nav>
-          </div>
-        </header>
+        <Header activePage="jobs" />
 
         <main className="max-w-6xl mx-auto px-4 py-8">
           <div className="flex justify-between items-center mb-6">
@@ -586,7 +560,7 @@ export default function Jobs() {
                     className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-zinc-400 mb-1">Budget (XPR)</label>
                     <input
@@ -664,9 +638,9 @@ export default function Jobs() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Job List */}
-              <div className="col-span-1 space-y-3">
+              <div className="md:col-span-1 space-y-3">
                 {filteredJobs.map((job) => (
                   <button
                     key={job.id}
@@ -697,7 +671,7 @@ export default function Jobs() {
               </div>
 
               {/* Job Detail */}
-              <div className="col-span-2">
+              <div className="md:col-span-2">
                 {selectedJob ? (
                   <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
                     <div className="flex justify-between items-start mb-4">
@@ -840,7 +814,7 @@ export default function Jobs() {
                       {/* Bid Form */}
                       {showBidForm && session && (
                         <form onSubmit={handleSubmitBid} className="mb-4 p-4 bg-zinc-800 rounded-lg">
-                          <div className="grid grid-cols-2 gap-3 mb-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                             <div>
                               <label className="block text-xs text-zinc-400 mb-1">Amount (XPR)</label>
                               <input

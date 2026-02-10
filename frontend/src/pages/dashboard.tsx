@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { WalletButton } from '@/components/WalletButton';
+import { Header } from '@/components/Header';
 import { TrustBadge } from '@/components/TrustBadge';
 import { PluginSelector } from '@/components/PluginSelector';
 import { useProton } from '@/hooks/useProton';
@@ -144,16 +145,7 @@ export default function Dashboard() {
         </Head>
 
         <div className="min-h-screen bg-zinc-950">
-          <header className="bg-zinc-950/80 backdrop-blur-lg border-b border-zinc-800">
-            <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-              <Link href="/" className="flex items-center gap-2">
-                <img src="/xpr-logo.png" alt="XPR" className="h-7 w-7" />
-                <span className="text-xl font-bold text-white">XPR Agents</span>
-              </Link>
-              <WalletButton />
-            </div>
-          </header>
-
+          <Header activePage="dashboard" />
           <main className="max-w-6xl mx-auto px-4 py-12 text-center">
             <h1 className="text-2xl font-bold text-white mb-4">Agent Dashboard</h1>
             <p className="text-zinc-400 mb-8">Connect your wallet to view your dashboard</p>
@@ -180,16 +172,7 @@ export default function Dashboard() {
         </Head>
 
         <div className="min-h-screen bg-zinc-950">
-          <header className="bg-zinc-950/80 backdrop-blur-lg border-b border-zinc-800">
-            <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-              <Link href="/" className="flex items-center gap-2">
-                <img src="/xpr-logo.png" alt="XPR" className="h-7 w-7" />
-                <span className="text-xl font-bold text-white">XPR Agents</span>
-              </Link>
-              <WalletButton />
-            </div>
-          </header>
-
+          <Header activePage="dashboard" />
           <main className="max-w-6xl mx-auto px-4 py-12 text-center">
             <h1 className="text-2xl font-bold text-white mb-4">No Agent Registered</h1>
             <p className="text-zinc-400 mb-8">
@@ -214,41 +197,16 @@ export default function Dashboard() {
       </Head>
 
       <div className="min-h-screen bg-zinc-950">
-        <header className="bg-zinc-950/80 backdrop-blur-lg border-b border-zinc-800">
-          <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-            <Link href="/" className="flex items-center gap-2">
-              <img src="/xpr-logo.png" alt="XPR" className="h-7 w-7" />
-              <span className="text-xl font-bold text-white">XPR Agents</span>
-            </Link>
-            <nav className="flex items-center gap-6">
-              <Link href="/" className="text-zinc-400 hover:text-white transition-colors">
-                Discover
-              </Link>
-              <Link href="/jobs" className="text-zinc-400 hover:text-white transition-colors">
-                Jobs
-              </Link>
-              <Link href="/leaderboard" className="text-zinc-400 hover:text-white transition-colors">
-                Leaderboard
-              </Link>
-              <Link href="/register" className="text-zinc-400 hover:text-white transition-colors">
-                Register
-              </Link>
-              <Link href="/dashboard" className="text-proton-purple font-medium">
-                Dashboard
-              </Link>
-              <WalletButton />
-            </nav>
-          </div>
-        </header>
+        <Header activePage="dashboard" />
 
         <main className="max-w-6xl mx-auto px-4 py-8">
           {error && (
             <div className="mb-6 p-4 bg-red-500/10 text-red-400 rounded-lg">{error}</div>
           )}
 
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Main Info */}
-            <div className="col-span-2 space-y-6">
+            <div className="md:col-span-2 space-y-6">
               {/* Agent Overview */}
               <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
                 <div className="flex justify-between items-start">
@@ -300,7 +258,7 @@ export default function Dashboard() {
               </div>
 
               {/* Stats */}
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
                   <div className="text-sm text-zinc-400">Stake</div>
                   <div className="text-xl font-semibold text-white">{formatXpr(agent.stake)}</div>
@@ -323,7 +281,7 @@ export default function Dashboard() {
               <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
                 <h2 className="text-lg font-semibold text-white mb-4">Manage Stake</h2>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-zinc-400 mb-2">Add Stake</label>
                     <div className="flex gap-2">

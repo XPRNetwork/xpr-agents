@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
-import { WalletButton } from '@/components/WalletButton';
+import { Header } from '@/components/Header';
 import { TrustBadge } from '@/components/TrustBadge';
 import { FeedbackForm } from '@/components/FeedbackForm';
 import { useAgent } from '@/hooks/useAgent';
@@ -58,33 +58,7 @@ export default function AgentDetail() {
       </Head>
 
       <div className="min-h-screen bg-zinc-950">
-        {/* Header */}
-        <header className="bg-zinc-950/80 backdrop-blur-lg border-b border-zinc-800">
-          <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-            <Link href="/" className="flex items-center gap-2">
-              <img src="/xpr-logo.png" alt="XPR" className="h-7 w-7" />
-              <span className="text-xl font-bold text-white">XPR Agents</span>
-            </Link>
-            <nav className="flex items-center gap-6">
-              <Link href="/" className="text-zinc-400 hover:text-white transition-colors">
-                Discover
-              </Link>
-              <Link href="/jobs" className="text-zinc-400 hover:text-white transition-colors">
-                Jobs
-              </Link>
-              <Link href="/leaderboard" className="text-zinc-400 hover:text-white transition-colors">
-                Leaderboard
-              </Link>
-              <Link href="/register" className="text-zinc-400 hover:text-white transition-colors">
-                Register
-              </Link>
-              <Link href="/dashboard" className="text-zinc-400 hover:text-white transition-colors">
-                Dashboard
-              </Link>
-              <WalletButton />
-            </nav>
-          </div>
-        </header>
+        <Header />
 
         <main className="max-w-6xl mx-auto px-4 py-8">
           {/* Agent Header */}
@@ -125,7 +99,7 @@ export default function AgentDetail() {
             </div>
 
             {/* Stats */}
-            <div className="mt-6 grid grid-cols-4 gap-4">
+            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-zinc-800 rounded-lg p-4">
                 <div className="text-sm text-zinc-400">Stake</div>
                 <div className="text-lg font-semibold text-white">{formatXpr(agent.stake)}</div>
@@ -208,9 +182,9 @@ export default function AgentDetail() {
             </div>
           )}
 
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Feedback List */}
-            <div className="col-span-2">
+            <div className="md:col-span-2">
               <h2 className="text-xl font-bold text-white mb-4">
                 Feedback ({score?.feedback_count || 0})
               </h2>
