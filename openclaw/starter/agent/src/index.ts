@@ -759,7 +759,7 @@ async function pollOnChain(): Promise<void> {
         // First poll — just seed state, don't trigger
         if (prevState === undefined) {
           // But if this is a newly-assigned job (not first poll) in FUNDED state, act on it
-          if (!firstPoll && job.state === 1) {
+          if (!firstPoll && (job.state === 1 || job.state === 'funded')) {
             const jobBudgetXpr = (job.amount / 10000).toFixed(4);
             console.log(`[poller] Newly assigned job #${job.id} in FUNDED state`);
             activeJobIds.add(job.id);
@@ -774,7 +774,7 @@ async function pollOnChain(): Promise<void> {
         }
 
         // Re-evaluate FUNDED jobs on every cycle (in case they were missed on restart)
-        if (prevState === job.state && job.state === 1) {
+        if (prevState === job.state && (job.state === 1 || job.state === 'funded')) {
           const jobBudgetXpr = (job.amount / 10000).toFixed(4);
           console.log(`[poller] Re-evaluating FUNDED job #${job.id}`);
           activeJobIds.add(job.id);
