@@ -220,7 +220,24 @@ export default function Dashboard() {
               <img src="/xpr-logo.png" alt="XPR" className="h-7 w-7" />
               <span className="text-xl font-bold text-white">XPR Agents</span>
             </Link>
-            <WalletButton />
+            <nav className="flex items-center gap-6">
+              <Link href="/" className="text-zinc-400 hover:text-white transition-colors">
+                Discover
+              </Link>
+              <Link href="/jobs" className="text-zinc-400 hover:text-white transition-colors">
+                Jobs
+              </Link>
+              <Link href="/leaderboard" className="text-zinc-400 hover:text-white transition-colors">
+                Leaderboard
+              </Link>
+              <Link href="/register" className="text-zinc-400 hover:text-white transition-colors">
+                Register
+              </Link>
+              <Link href="/dashboard" className="text-proton-purple font-medium">
+                Dashboard
+              </Link>
+              <WalletButton />
+            </nav>
           </div>
         </header>
 

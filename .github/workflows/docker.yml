@@ -42,6 +42,8 @@ jobs:
           file: ./indexer/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          cache-from: type=gha,scope=indexer
+          cache-to: type=gha,mode=max,scope=indexer
           tags: |
             ${{ env.REGISTRY }}/${{ env.OWNER }}/xpr-agents-indexer:latest
             ${{ env.REGISTRY }}/${{ env.OWNER }}/xpr-agents-indexer:${{ github.sha }}
@@ -71,6 +73,8 @@ jobs:
           file: ./openclaw/starter/agent/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          cache-from: type=gha,scope=agent
+          cache-to: type=gha,mode=max,scope=agent
           tags: |
             ${{ env.REGISTRY }}/${{ env.OWNER }}/xpr-agent-runner:latest
             ${{ env.REGISTRY }}/${{ env.OWNER }}/xpr-agent-runner:${{ github.sha }}
@@ -100,6 +104,8 @@ jobs:
           file: ./openclaw/starter/telegram/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          cache-from: type=gha,scope=telegram
+          cache-to: type=gha,mode=max,scope=telegram
           tags: |
             ${{ env.REGISTRY }}/${{ env.OWNER }}/xpr-agent-telegram:latest
             ${{ env.REGISTRY }}/${{ env.OWNER }}/xpr-agent-telegram:${{ github.sha }}

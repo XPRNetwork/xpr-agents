@@ -449,3 +449,58 @@ export async function getJobsByAgent(agent: string): Promise<Job[]> {
     .filter((row: any) => row.agent === agent)
     .map(parseJob);
 }
+
+// Leaderboard types and helpers
+export interface LeaderboardEntry {
+  agent: Agent;
+  trustScore: TrustScore;
+  earnings: number;
+  completedJobs: number;
+}
+
+export async function getAgentEarnings(account: string): Promise<{ total: number; completedJobs: number }> {
+  const jobs = await getJobsByAgent(account);
+  const completed = jobs.filter(j => j.state === 6 || j.state === 8);
+  const total = completed.reduce((sum, j) => sum + j.amount, 0);
+  return { total, completedJobs: completed.length };
+}
+
+export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
+  const agents = await getAgents(500);
+  const activeAgents = agents.filter(a => a.active);
+
+  const entries = await Promise.all(
+    activeAgents.map(async (agent) => {
+      const [agentScore, kycLevel, earnings] = await Promise.all([
+        getAgentScore(agent.account).catch(() => null),
+        getKycLevel(agent.account).catch(() => 0),
+        getAgentEarnings(agent.account).catch(() => ({ total: 0, completedJobs: 0 })),
+      ]);
+
+      const trustScore = calculateTrustScore(agent, agentScore, kycLevel);
+
+      return {
+        agent,
+        trustScore,
+        earnings: earnings.total,
+        completedJobs: earnings.completedJobs,
+      };
+    })
+  );
+
+  return entries;
+}
+
+export async function getRecentCompletedJobs(limit = 5): Promise<Job[]> {
+  const jobs = await getAllJobs(100);
+  return jobs
+    .filter(j => j.state === 6 || j.state === 8)
+    .slice(0, limit);
+}
+
+export async function getNetworkEarnings(): Promise<number> {
+  const jobs = await getAllJobs(500);
+  return jobs
+    .filter(j => j.state === 6 || j.state === 8)
+    .reduce((sum, j) => sum + j.amount, 0);
+}

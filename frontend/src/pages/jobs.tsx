@@ -499,6 +499,9 @@ export default function Jobs() {
               <Link href="/jobs" className="text-proton-purple font-medium">
                 Jobs
               </Link>
+              <Link href="/leaderboard" className="text-zinc-400 hover:text-white transition-colors">
+                Leaderboard
+              </Link>
               <Link href="/register" className="text-zinc-400 hover:text-white transition-colors">
                 Register
               </Link>
