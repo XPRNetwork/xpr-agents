@@ -6,7 +6,7 @@
  */
 
 import { recoverA2APublicKey, hashBody } from '@xpr-agents/sdk';
-import { JsonRpc } from '@proton/js';
+import { JsonRpc, Key } from '@proton/js';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -105,7 +105,14 @@ async function getAccountKeys(rpc: JsonRpc, account: string): Promise<string[]> 
     throw new A2AAuthError(`Account '${account}' has no active permission`, -32000);
   }
 
-  const keys = activePermission.required_auth.keys.map((k: any) => k.key);
+  // Normalize to PUB_K1_ format — chain may return legacy EOS... prefix
+  const keys = activePermission.required_auth.keys.map((k: any) => {
+    const raw: string = k.key;
+    if (raw.startsWith('EOS')) {
+      return Key.PublicKey.fromString(raw).toString(); // converts to PUB_K1_
+    }
+    return raw;
+  });
 
   if (keys.length === 0) {
     throw new A2AAuthError(`Account '${account}' has no active keys`, -32000);
