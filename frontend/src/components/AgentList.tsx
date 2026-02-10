@@ -74,7 +74,7 @@ export function AgentList() {
 
   if (error) {
     return (
-      <div className="text-center py-12 text-red-500">
+      <div className="text-center py-12 text-red-400">
         <p>{error}</p>
       </div>
     );
@@ -89,7 +89,7 @@ export function AgentList() {
             className={`px-3 py-1 rounded-lg text-sm ${
               filter === 'active'
                 ? 'bg-proton-purple text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
             }`}
           >
             Active
@@ -99,7 +99,7 @@ export function AgentList() {
             className={`px-3 py-1 rounded-lg text-sm ${
               filter === 'all'
                 ? 'bg-proton-purple text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
             }`}
           >
             All
@@ -109,7 +109,7 @@ export function AgentList() {
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as any)}
-          className="px-3 py-1 border border-gray-200 rounded-lg text-sm"
+          className="px-3 py-1 bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-lg text-sm"
         >
           <option value="trust">Sort by Trust</option>
           <option value="stake">Sort by Stake</option>
@@ -118,7 +118,7 @@ export function AgentList() {
       </div>
 
       {filteredAgents.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">
+        <div className="text-center py-12 text-zinc-500">
           <p>No agents found</p>
         </div>
       ) : (

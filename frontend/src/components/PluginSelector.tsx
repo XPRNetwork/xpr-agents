@@ -70,7 +70,7 @@ export function PluginSelector({ onSelect, selectedIds = [] }: PluginSelectorPro
     return (
       <div className="animate-pulse space-y-2">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-16 bg-gray-100 rounded-lg"></div>
+          <div key={i} className="h-16 bg-zinc-800 rounded-lg"></div>
         ))}
       </div>
     );
@@ -84,7 +84,7 @@ export function PluginSelector({ onSelect, selectedIds = [] }: PluginSelectorPro
           className={`px-3 py-1 rounded-lg text-sm whitespace-nowrap ${
             category === 'all'
               ? 'bg-proton-purple text-white'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
           }`}
         >
           All
@@ -96,7 +96,7 @@ export function PluginSelector({ onSelect, selectedIds = [] }: PluginSelectorPro
             className={`px-3 py-1 rounded-lg text-sm whitespace-nowrap ${
               category === key
                 ? 'bg-proton-purple text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
             }`}
           >
             {label}
@@ -105,7 +105,7 @@ export function PluginSelector({ onSelect, selectedIds = [] }: PluginSelectorPro
       </div>
 
       {filteredPlugins.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">
+        <div className="text-center py-8 text-zinc-500">
           <p>No plugins available</p>
         </div>
       ) : (
@@ -116,22 +116,22 @@ export function PluginSelector({ onSelect, selectedIds = [] }: PluginSelectorPro
               onClick={() => !selectedIds.includes(plugin.id) && onSelect(plugin)}
               className={`p-3 border rounded-lg cursor-pointer transition-colors ${
                 selectedIds.includes(plugin.id)
-                  ? 'border-proton-purple bg-purple-50'
-                  : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  ? 'border-proton-purple bg-proton-purple/10'
+                  : 'border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800'
               }`}
             >
               <div className="flex justify-between items-start">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-medium">{plugin.name}</span>
-                    <span className="text-xs text-gray-400">v{plugin.version}</span>
+                    <span className="font-medium text-white">{plugin.name}</span>
+                    <span className="text-xs text-zinc-600">v{plugin.version}</span>
                     {plugin.verified && (
-                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                      <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full">
                         Verified
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-zinc-500">
                     {CATEGORY_LABELS[plugin.category] || plugin.category} · by @{plugin.author}
                   </p>
                 </div>

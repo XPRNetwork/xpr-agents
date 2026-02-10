@@ -36,12 +36,12 @@ export function TrustBadge({ trustScore, size = 'md', showBreakdown = false }: T
       >
         {trustScore.total}
       </div>
-      <span className={`text-${size === 'sm' ? 'xs' : 'sm'} text-gray-600`}>
+      <span className={`text-${size === 'sm' ? 'xs' : 'sm'} text-zinc-400`}>
         {ratingLabels[trustScore.rating]}
       </span>
 
       {showBreakdown && (
-        <div className="mt-2 text-xs text-gray-500 space-y-1">
+        <div className="mt-2 text-xs text-zinc-500 space-y-1">
           <div className="flex justify-between gap-4">
             <span>KYC:</span>
             <span>{trustScore.breakdown.kyc}/30</span>

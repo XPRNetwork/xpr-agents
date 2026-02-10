@@ -57,17 +57,17 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-lg p-4">
-      <h3 className="text-lg font-semibold mb-4">Leave Feedback</h3>
+    <form onSubmit={handleSubmit} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+      <h3 className="text-lg font-semibold text-white mb-4">Leave Feedback</h3>
 
       {(error || localError) && (
-        <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+        <div className="mb-4 p-3 bg-red-500/10 text-red-400 rounded-lg text-sm">
           {error || localError}
         </div>
       )}
 
       <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-zinc-300 mb-2">
           Rating
         </label>
         <div className="flex gap-2">
@@ -79,7 +79,7 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
               className={`w-10 h-10 rounded-full border-2 transition-colors ${
                 score >= value
                   ? 'bg-yellow-400 border-yellow-500 text-white'
-                  : 'bg-gray-100 border-gray-200 text-gray-400'
+                  : 'bg-zinc-800 border-zinc-700 text-zinc-500'
               }`}
             >
               {value}
@@ -89,7 +89,7 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
       </div>
 
       <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-zinc-300 mb-2">
           Tags (optional)
         </label>
         <div className="flex flex-wrap gap-2">
@@ -101,7 +101,7 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
               className={`px-3 py-1 rounded-full text-sm transition-colors ${
                 selectedTags.includes(tag)
                   ? 'bg-proton-purple text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
               }`}
             >
               {tag}
@@ -111,7 +111,7 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
       </div>
 
       <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-zinc-300 mb-2">
           Job Hash (optional)
         </label>
         <input
@@ -119,12 +119,12 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
           value={jobHash}
           onChange={(e) => setJobHash(e.target.value)}
           placeholder="Transaction or job hash"
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-proton-purple"
+          className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-proton-purple"
         />
       </div>
 
       <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-zinc-300 mb-2">
           Evidence URI (optional)
         </label>
         <input
@@ -132,14 +132,14 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
           value={evidenceUri}
           onChange={(e) => setEvidenceUri(e.target.value)}
           placeholder="IPFS or Arweave link"
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-proton-purple"
+          className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-proton-purple"
         />
       </div>
 
       <button
         type="submit"
         disabled={submitting || !session}
-        className="w-full py-2 bg-proton-purple text-white rounded-lg hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+        className="w-full py-2 bg-proton-purple text-white rounded-lg hover:bg-purple-700 transition-colors disabled:bg-zinc-700 disabled:text-zinc-500 disabled:cursor-not-allowed"
       >
         {submitting
           ? 'Submitting...'
@@ -149,7 +149,7 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
       </button>
 
       {!session && (
-        <p className="mt-2 text-xs text-gray-500 text-center">
+        <p className="mt-2 text-xs text-zinc-500 text-center">
           Connect your wallet to submit feedback
         </p>
       )}

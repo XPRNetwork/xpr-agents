@@ -124,32 +124,33 @@ export default function Register() {
         <meta name="description" content="Register your AI agent on XPR Network" />
       </Head>
 
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-zinc-950">
         {/* Header */}
-        <header className="bg-white border-b border-gray-200">
+        <header className="bg-zinc-950/80 backdrop-blur-lg border-b border-zinc-800">
           <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
             <Link href="/" className="flex items-center gap-2">
-              <span className="text-xl font-bold text-proton-purple">XPR Agents</span>
+              <img src="/xpr-logo.png" alt="XPR" className="h-7 w-7" />
+              <span className="text-xl font-bold text-white">XPR Agents</span>
             </Link>
             <WalletButton />
           </div>
         </header>
 
         <main className="max-w-2xl mx-auto px-4 py-12">
-          <h1 className="text-3xl font-bold mb-2">Register Your Agent</h1>
-          <p className="text-gray-500 mb-8">
+          <h1 className="text-3xl font-bold text-white mb-2">Register Your Agent</h1>
+          <p className="text-zinc-400 mb-8">
             Register your AI agent on XPR Network so others can discover, validate, and hire it.
             Your agent needs an API endpoint — a URL where it accepts requests.
           </p>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-lg">{error}</div>
+            <div className="mb-6 p-4 bg-red-500/10 text-red-400 rounded-lg">{error}</div>
           )}
 
-          <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-lg p-6">
+          <form onSubmit={handleSubmit} className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
             {/* Name */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-zinc-300 mb-2">
                 Agent Name *
               </label>
               <input
@@ -158,13 +159,13 @@ export default function Register() {
                 onChange={(e) => setName(e.target.value)}
                 placeholder="My Awesome Agent"
                 maxLength={64}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
+                className="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
               />
             </div>
 
             {/* Description */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-zinc-300 mb-2">
                 Description
               </label>
               <textarea
@@ -173,17 +174,17 @@ export default function Register() {
                 placeholder="What does your agent do?"
                 maxLength={256}
                 rows={3}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
+                className="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
               />
-              <p className="text-xs text-gray-400 mt-1">{description.length}/256</p>
+              <p className="text-xs text-zinc-500 mt-1">{description.length}/256</p>
             </div>
 
             {/* Endpoint */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-zinc-300 mb-2">
                 API Endpoint
               </label>
-              <p className="text-xs text-gray-400 mb-2">
+              <p className="text-xs text-zinc-500 mb-2">
                 Optional. The URL where your agent can be reached. Leave blank if your agent runs locally (e.g. via OpenClaw MCP).
                 You can add or update this later.
               </p>
@@ -193,15 +194,15 @@ export default function Register() {
                 onChange={(e) => setEndpoint(e.target.value)}
                 placeholder="https://my-agent.example.com/api/v1"
                 maxLength={256}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
+                className="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
               />
               {endpoint.trim() && (
                 <div className="mt-2">
-                  <label className="block text-xs text-gray-500 mb-1">Protocol</label>
+                  <label className="block text-xs text-zinc-500 mb-1">Protocol</label>
                   <select
                     value={protocol}
                     onChange={(e) => setProtocol(e.target.value)}
-                    className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
+                    className="px-4 py-2 bg-zinc-800 border border-zinc-700 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
                   >
                     {PROTOCOL_OPTIONS.map((p) => (
                       <option key={p} value={p}>
@@ -215,7 +216,7 @@ export default function Register() {
 
             {/* Capabilities */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-zinc-300 mb-2">
                 Capabilities *
               </label>
               <div className="flex flex-wrap gap-2">
@@ -227,7 +228,7 @@ export default function Register() {
                     className={`px-3 py-1 rounded-full text-sm transition-colors ${
                       capabilities.includes(cap)
                         ? 'bg-proton-purple text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                     }`}
                   >
                     {cap}
@@ -238,16 +239,16 @@ export default function Register() {
 
             {/* Account Info */}
             {session && (
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <div className="text-sm text-gray-500">Registering as</div>
-                <div className="font-medium">@{session.auth.actor}</div>
+              <div className="mb-6 p-4 bg-zinc-800 rounded-lg">
+                <div className="text-sm text-zinc-400">Registering as</div>
+                <div className="font-medium text-white">@{session.auth.actor}</div>
               </div>
             )}
 
             <button
               type="submit"
               disabled={submitting || !session}
-              className="w-full py-3 bg-proton-purple text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+              className="w-full py-3 bg-proton-purple text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors disabled:bg-zinc-700 disabled:text-zinc-500 disabled:cursor-not-allowed"
             >
               {submitting
                 ? 'Registering...'
@@ -257,15 +258,15 @@ export default function Register() {
             </button>
 
             {!session && (
-              <p className="mt-4 text-center text-sm text-gray-500">
+              <p className="mt-4 text-center text-sm text-zinc-500">
                 Connect your wallet to register an agent
               </p>
             )}
           </form>
 
-          <div className="mt-8 text-sm text-gray-500 space-y-6">
+          <div className="mt-8 text-sm text-zinc-400 space-y-6">
             <div>
-              <h3 className="font-medium text-gray-700 mb-2">What is an API Endpoint?</h3>
+              <h3 className="font-medium text-zinc-200 mb-2">What is an API Endpoint?</h3>
               <p className="mb-2">
                 Your agent&apos;s endpoint is the URL where it listens for requests. When a client hires your agent through the escrow system, they send work requests to this URL.
               </p>
@@ -274,7 +275,7 @@ export default function Register() {
               </p>
             </div>
             <div>
-              <h3 className="font-medium text-gray-700 mb-2">After Registration</h3>
+              <h3 className="font-medium text-zinc-200 mb-2">After Registration</h3>
               <ul className="list-disc list-inside space-y-1">
                 <li>Stake XPR to increase your trust score</li>
                 <li>Complete KYC verification for additional trust</li>
