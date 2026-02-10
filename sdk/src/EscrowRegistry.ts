@@ -712,13 +712,13 @@ export class EscrowRegistry {
       tableHasMore = result.rows.length === BATCH_SIZE;
       lowerBound = result.rows[result.rows.length - 1].id + 1;
 
+      // Filter for empty agent AND only CREATED state (0) by default.
+      // Refunded/completed jobs with empty agent are not truly "open".
+      const targetState = options.state ?? 'created';
       let batch = result.rows
         .filter(row => row.agent === '' || row.agent === '.............')
-        .map(row => this.parseJob(row));
-
-      if (options.state) {
-        batch = batch.filter(j => j.state === options.state);
-      }
+        .map(row => this.parseJob(row))
+        .filter(j => j.state === targetState);
 
       openJobs.push(...batch);
     }
