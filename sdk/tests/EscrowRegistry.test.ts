@@ -449,7 +449,9 @@ describe('EscrowRegistry read operations', () => {
         expect.objectContaining({
           table: 'jobs',
           index_position: 2,
-          key_type: 'i64',
+          key_type: 'name',
+          lower_bound: 'alice',
+          upper_bound: 'alice',
         })
       );
     });

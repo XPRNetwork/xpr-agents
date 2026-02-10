@@ -210,24 +210,25 @@ export class EscrowRegistry {
    * List jobs for a client
    */
   async listJobsByClient(client: string, options: JobListOptions = {}): Promise<PaginatedResult<Job>> {
-    const { limit = 100, cursor } = options;
+    const { limit = 100 } = options;
 
+    // Use secondary index with client name as bounds to efficiently query
+    // only rows for this client, instead of scanning from index position 0.
     const result = await this.rpc.get_table_rows<JobRaw>({
       json: true,
       code: this.contract,
       scope: this.contract,
       table: 'jobs',
       index_position: 2, // byClient index
-      key_type: 'i64',
-      lower_bound: cursor,
+      key_type: 'name',
+      lower_bound: client,
+      upper_bound: client,
       limit: limit + 1,
     });
 
     const hasMore = result.rows.length > limit;
     const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
-    let jobs = rows
-      .filter(row => row.client === client)
-      .map(row => this.parseJob(row));
+    let jobs = rows.map(row => this.parseJob(row));
 
     if (options.state) {
       jobs = jobs.filter(j => j.state === options.state);
@@ -244,24 +245,25 @@ export class EscrowRegistry {
    * List jobs for an agent
    */
   async listJobsByAgent(agent: string, options: JobListOptions = {}): Promise<PaginatedResult<Job>> {
-    const { limit = 100, cursor } = options;
+    const { limit = 100 } = options;
 
+    // Use secondary index with agent name as bounds to efficiently query
+    // only rows for this agent, instead of scanning from index position 0.
     const result = await this.rpc.get_table_rows<JobRaw>({
       json: true,
       code: this.contract,
       scope: this.contract,
       table: 'jobs',
       index_position: 3, // byAgent index
-      key_type: 'i64',
-      lower_bound: cursor,
+      key_type: 'name',
+      lower_bound: agent,
+      upper_bound: agent,
       limit: limit + 1,
     });
 
     const hasMore = result.rows.length > limit;
     const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
-    let jobs = rows
-      .filter(row => row.agent === agent)
-      .map(row => this.parseJob(row));
+    let jobs = rows.map(row => this.parseJob(row));
 
     if (options.state) {
       jobs = jobs.filter(j => j.state === options.state);

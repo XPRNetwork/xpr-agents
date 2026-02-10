@@ -1,6 +1,6 @@
 {
   "name": "@xpr-agents/sdk",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "TypeScript SDK for XPR Network Trustless Agent Registry - register agents, submit feedback, validate outputs, and manage escrow jobs",
   "author": "XPR Network",
   "license": "MIT",
