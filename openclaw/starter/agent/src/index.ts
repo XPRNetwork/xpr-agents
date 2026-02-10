@@ -85,11 +85,12 @@ systemPrompt += `\n\n## Delivering Jobs\nWhen delivering a job, ALWAYS:\n1. Call
 
 // Convert tools to Anthropic API format (lazy — picks up tools added later like store_deliverable)
 // Includes Anthropic's built-in web search tool for real-time internet access
-function getAnthropicTools(): (Anthropic.Tool | { type: string; name: string; max_uses?: number })[] {
+function getAnthropicTools(): Anthropic.Messages.Tool[] {
   return [
     // Built-in web search — Claude handles it server-side, no custom handler needed
-    { type: 'web_search_20250305', name: 'web_search', max_uses: 5 },
+    { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Messages.Tool,
     ...tools.map(t => ({
+      type: 'custom' as const,
       name: t.name,
       description: t.description,
       input_schema: t.parameters as Anthropic.Tool.InputSchema,
@@ -115,10 +116,11 @@ const a2aAuthConfig: A2AAuthConfig = {
 // A2A tool sandboxing
 const a2aToolMode = (process.env.A2A_TOOL_MODE || 'full') as 'full' | 'readonly';
 const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health');
-function getReadonlyAnthropicTools(): (Anthropic.Tool | { type: string; name: string; max_uses?: number })[] {
+function getReadonlyAnthropicTools(): Anthropic.Messages.Tool[] {
   return [
-    { type: 'web_search_20250305', name: 'web_search', max_uses: 5 },
+    { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Messages.Tool,
     ...readonlyTools.map(t => ({
+      type: 'custom' as const,
       name: t.name,
       description: t.description,
       input_schema: t.parameters as Anthropic.Tool.InputSchema,
@@ -224,7 +226,7 @@ async function runAgent(eventType: string, data: any, message: string, options?:
 
       // Handle pause_turn (long-running server tool like web search)
       // Just continue the loop — pass the response back to let Claude continue
-      if (response.stop_reason === 'pause_turn') {
+      if ((response.stop_reason as string) === 'pause_turn') {
         console.log(`[agent] pause_turn — continuing`);
         messages.push({ role: 'user', content: [{ type: 'text', text: 'Continue.' }] });
         continue;

@@ -113,7 +113,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
         const allJobs = [...asClient.items, ...asAgent.items];
         const unique = allJobs.filter((j, i, arr) => arr.findIndex((x: any) => x.id === (j as any).id) === i);
         const filtered = state !== undefined ? unique.filter((j: any) => j.state === state) : unique;
-        return { items: filtered.slice(0, limit).map(j => jobToXpr(j as Record<string, unknown>)), hasMore: filtered.length > limit };
+        return { items: filtered.slice(0, limit).map(j => jobToXpr(j as unknown as Record<string, unknown>)), hasMore: filtered.length > limit };
       }
 
       return { items: [], hasMore: false, message: 'Provide client or agent filter, or set XPR_ACCOUNT env var' };
