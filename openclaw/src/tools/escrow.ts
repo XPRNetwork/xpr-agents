@@ -21,6 +21,23 @@ import {
 } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
 
+/** Convert raw on-chain amounts (e.g. 150000) to XPR (e.g. 15) for display */
+function jobToXpr(job: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...job,
+    amount_xpr: typeof job.amount === 'number' ? job.amount / 10000 : job.amount,
+    funded_amount_xpr: typeof job.funded_amount === 'number' ? job.funded_amount / 10000 : job.funded_amount,
+    released_amount_xpr: typeof job.released_amount === 'number' ? job.released_amount / 10000 : job.released_amount,
+  };
+}
+
+function bidToXpr(bid: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...bid,
+    amount_xpr: typeof bid.amount === 'number' ? bid.amount / 10000 : bid.amount,
+  };
+}
+
 export function registerEscrowTools(api: PluginApi, config: PluginConfig): void {
   const contracts = config.contracts;
 
@@ -28,7 +45,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
   api.registerTool({
     name: 'xpr_get_job',
-    description: 'Get detailed information about an escrow job including state, funding, and deadlines. States: 0=CREATED, 1=FUNDED, 2=ACCEPTED, 3=INPROGRESS, 4=DELIVERED, 5=DISPUTED, 6=COMPLETED, 7=REFUNDED, 8=ARBITRATED.',
+    description: 'Get detailed information about an escrow job including state, funding, and deadlines. States: 0=CREATED, 1=FUNDED, 2=ACCEPTED, 3=INPROGRESS, 4=DELIVERED, 5=DISPUTED, 6=COMPLETED, 7=REFUNDED, 8=ARBITRATED. Amounts (amount_xpr, funded_amount_xpr, released_amount_xpr) are in XPR.',
     parameters: {
       type: 'object',
       required: ['id'],
@@ -43,7 +60,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       if (!job) {
         return { error: `Job #${id} not found` };
       }
-      return job;
+      return jobToXpr(job as unknown as Record<string, unknown>);
     },
   });
 
@@ -73,12 +90,16 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       if (agent) validateAccountName(agent, 'agent');
 
       const registry = new EscrowRegistry(config.rpc, undefined, contracts.agentescrow);
+      const convertList = (result: { items: unknown[]; hasMore: boolean }) => ({
+        items: result.items.map(j => jobToXpr(j as Record<string, unknown>)),
+        hasMore: result.hasMore,
+      });
 
       if (client) {
-        return registry.listJobsByClient(client, { limit: Math.min(limit, 100) });
+        return convertList(await registry.listJobsByClient(client, { limit: Math.min(limit, 100) }));
       }
       if (agent) {
-        return registry.listJobsByAgent(agent, { limit: Math.min(limit, 100) });
+        return convertList(await registry.listJobsByAgent(agent, { limit: Math.min(limit, 100) }));
       }
 
       // For general listing, use client query with the session actor if available
@@ -90,9 +111,9 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
           registry.listJobsByAgent(account, { limit: Math.min(limit, 100) }),
         ]);
         const allJobs = [...asClient.items, ...asAgent.items];
-        const unique = allJobs.filter((j, i, arr) => arr.findIndex(x => x.id === j.id) === i);
-        const filtered = state !== undefined ? unique.filter(j => j.state === state) : unique;
-        return { items: filtered.slice(0, limit), hasMore: filtered.length > limit };
+        const unique = allJobs.filter((j, i, arr) => arr.findIndex((x: any) => x.id === (j as any).id) === i);
+        const filtered = state !== undefined ? unique.filter((j: any) => j.state === state) : unique;
+        return { items: filtered.slice(0, limit).map(j => jobToXpr(j as Record<string, unknown>)), hasMore: filtered.length > limit };
       }
 
       return { items: [], hasMore: false, message: 'Provide client or agent filter, or set XPR_ACCOUNT env var' };
@@ -487,7 +508,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
   api.registerTool({
     name: 'xpr_list_open_jobs',
-    description: 'List open jobs available for bidding (no agent assigned yet). These are jobs posted to the open job board.',
+    description: 'List open jobs available for bidding (no agent assigned yet). These are jobs posted to the open job board. The amount_xpr field shows the budget in XPR — bid at or below this value.',
     parameters: {
       type: 'object',
       properties: {
@@ -496,13 +517,17 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
     },
     handler: async ({ limit = 20 }: { limit?: number }) => {
       const registry = new EscrowRegistry(config.rpc, undefined, contracts.agentescrow);
-      return registry.listOpenJobs({ limit: Math.min(limit, 100) });
+      const result = await registry.listOpenJobs({ limit: Math.min(limit, 100) });
+      return {
+        items: result.items.map(j => jobToXpr(j as unknown as Record<string, unknown>)),
+        hasMore: result.hasMore,
+      };
     },
   });
 
   api.registerTool({
     name: 'xpr_list_bids',
-    description: 'List all bids submitted for a specific job.',
+    description: 'List all bids submitted for a specific job. The amount_xpr field shows the bid amount in XPR.',
     parameters: {
       type: 'object',
       required: ['job_id'],
@@ -514,7 +539,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       validatePositiveInt(job_id, 'job_id');
       const registry = new EscrowRegistry(config.rpc, undefined, contracts.agentescrow);
       const bids = await registry.listBidsForJob(job_id);
-      return { bids, count: bids.length };
+      return { bids: bids.map(b => bidToXpr(b as unknown as Record<string, unknown>)), count: bids.length };
     },
   });
 
