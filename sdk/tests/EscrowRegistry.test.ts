@@ -688,7 +688,7 @@ describe('EscrowRegistry bidding read operations', () => {
         expect.objectContaining({
           table: 'jobs',
           lower_bound: '5',
-          limit: 11, // limit + 1 for hasMore check
+          limit: 100, // batch size for scanning sparse open jobs
         })
       );
     });

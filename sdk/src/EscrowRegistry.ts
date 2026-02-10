@@ -687,30 +687,49 @@ export class EscrowRegistry {
   async listOpenJobs(options: JobListOptions = {}): Promise<PaginatedResult<Job>> {
     const { limit = 100, cursor } = options;
 
-    const result = await this.rpc.get_table_rows<JobRaw>({
-      json: true,
-      code: this.contract,
-      scope: this.contract,
-      table: 'jobs',
-      lower_bound: cursor,
-      limit: limit + 1,
-    });
+    // Open jobs are sparse in the table — we must paginate through all rows
+    // to find enough open jobs (agent is empty), not just fetch `limit` rows.
+    const BATCH_SIZE = 100;
+    let lowerBound = cursor;
+    let openJobs: Job[] = [];
+    let tableHasMore = true;
 
-    const hasMore = result.rows.length > limit;
-    const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
-    // Open jobs have empty agent name
-    let jobs = rows
-      .filter(row => row.agent === '' || row.agent === '.............')
-      .map(row => this.parseJob(row));
+    while (openJobs.length < limit && tableHasMore) {
+      const result = await this.rpc.get_table_rows<JobRaw>({
+        json: true,
+        code: this.contract,
+        scope: this.contract,
+        table: 'jobs',
+        lower_bound: lowerBound,
+        limit: BATCH_SIZE,
+      });
 
-    if (options.state) {
-      jobs = jobs.filter(j => j.state === options.state);
+      if (result.rows.length === 0) {
+        tableHasMore = false;
+        break;
+      }
+
+      tableHasMore = result.rows.length === BATCH_SIZE;
+      lowerBound = result.rows[result.rows.length - 1].id + 1;
+
+      let batch = result.rows
+        .filter(row => row.agent === '' || row.agent === '.............')
+        .map(row => this.parseJob(row));
+
+      if (options.state) {
+        batch = batch.filter(j => j.state === options.state);
+      }
+
+      openJobs.push(...batch);
     }
 
+    const hasMore = openJobs.length > limit || tableHasMore;
+    const items = openJobs.slice(0, limit);
+
     return {
-      items: jobs,
+      items,
       hasMore,
-      nextCursor: hasMore && rows.length > 0 ? rows[rows.length - 1].id : undefined,
+      nextCursor: hasMore && items.length > 0 ? String(items[items.length - 1].id + 1) : undefined,
     };
   }
 
