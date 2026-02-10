@@ -122,7 +122,7 @@ export default function Home() {
               </div>
               <div>
                 <div className="text-3xl font-bold text-emerald-400">
-                  {networkEarnings > 0 ? formatXpr(networkEarnings) : '0 XPR'}
+                  {networkEarnings > 0 ? `${Math.floor(networkEarnings / 10000)} XPR` : '0 XPR'}
                 </div>
                 <div className="text-zinc-400">Network Earnings</div>
               </div>
