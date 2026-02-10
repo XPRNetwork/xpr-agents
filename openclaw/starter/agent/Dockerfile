@@ -10,6 +10,8 @@ COPY package.json tsconfig.json ./
 COPY src ./src
 RUN npm install && npm run build
 
+RUN mkdir -p /data && chown node:node /data
+
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
   CMD wget --spider -q http://localhost:8080/health || exit 1
 
