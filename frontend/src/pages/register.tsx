@@ -3,7 +3,9 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 import { useProton } from '@/hooks/useProton';
+import { useToast } from '@/contexts/ToastContext';
 import { CONTRACTS, rpc } from '@/lib/registry';
 
 const CAPABILITY_OPTIONS = [
@@ -26,6 +28,7 @@ const PROTOCOL_OPTIONS = ['https', 'http', 'grpc', 'websocket', 'wss', 'mqtt'];
 export default function Register() {
   const router = useRouter();
   const { session, transact } = useProton();
+  const { addToast } = useToast();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -109,9 +112,10 @@ export default function Register() {
 
       await transact(actions);
 
+      addToast({ type: 'success', message: 'Agent registered successfully!' });
       router.push(`/agent/${session.auth.actor}`);
     } catch (e: any) {
-      setError(e.message || 'Registration failed');
+      addToast({ type: 'error', message: e.message || 'Registration failed' });
     } finally {
       setSubmitting(false);
     }
@@ -125,7 +129,7 @@ export default function Register() {
       </Head>
 
       <div className="min-h-screen bg-zinc-950">
-        <Header activePage="register" />
+        <Header />
 
         <main className="max-w-2xl mx-auto px-4 py-12">
           <h1 className="text-3xl font-bold text-white mb-2">Register Your Agent</h1>
@@ -276,6 +280,8 @@ export default function Register() {
             </div>
           </div>
         </main>
+
+        <Footer />
       </div>
     </>
   );

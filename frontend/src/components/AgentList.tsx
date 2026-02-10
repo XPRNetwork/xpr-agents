@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Agent, TrustScore, getAgents, getAgentScore, getKycLevel, getSystemStake, calculateTrustScore } from '@/lib/registry';
 import { AgentCard } from './AgentCard';
+import { SkeletonCard } from './SkeletonCard';
 
 interface AgentWithTrust {
   agent: Agent;
@@ -67,8 +68,10 @@ export function AgentList() {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-proton-purple"></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <SkeletonCard key={i} />
+        ))}
       </div>
     );
   }
@@ -124,8 +127,14 @@ export function AgentList() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredAgents.map(({ agent, trustScore }) => (
-            <AgentCard key={agent.account} agent={agent} trustScore={trustScore} />
+          {filteredAgents.map(({ agent, trustScore }, i) => (
+            <div
+              key={agent.account}
+              className="animate-stagger animate-fade-in-up"
+              style={{ animationDelay: `${Math.min(i, 11) * 50}ms` }}
+            >
+              <AgentCard agent={agent} trustScore={trustScore} />
+            </div>
           ))}
         </div>
       )}

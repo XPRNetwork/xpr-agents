@@ -1,12 +1,12 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
-import type { LinkSession } from '@proton/link';
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 
 interface Session {
   auth: {
     actor: string;
     permission: string;
   };
-  linkSession: LinkSession;
+  link: any;
+  linkSession: any;
 }
 
 interface ProtonContextType {
@@ -21,6 +21,8 @@ interface ProtonContextType {
 const ProtonContext = createContext<ProtonContextType | null>(null);
 
 const APP_NAME = 'XPR Agents';
+// requestAccount must be a valid on-chain account — shown as requestor in wallet
+const REQUEST_ACCOUNT = process.env.NEXT_PUBLIC_REQUEST_ACCOUNT || 'agentcore';
 
 // Network config — default to testnet; set NEXT_PUBLIC_NETWORK=mainnet for production
 const isMainnet = process.env.NEXT_PUBLIC_NETWORK === 'mainnet';
@@ -31,76 +33,46 @@ const ENDPOINTS = [process.env.NEXT_PUBLIC_RPC_URL || (isMainnet
   ? 'https://proton.eosusa.io'
   : 'https://tn1.protonnz.com')];
 
-let sharedLink: any = null;
-let initPromise: Promise<any> | null = null;
-
-async function initSDK(restoreSession: boolean): Promise<{ link: any; session: LinkSession | null }> {
-  if (sharedLink && !restoreSession) {
-    return { link: sharedLink, session: null };
-  }
-
-  // If already initializing with restore, wait for it
-  if (initPromise && restoreSession) {
-    const result = await initPromise;
-    return { link: sharedLink, session: result.session || null };
-  }
-  if (initPromise) {
-    await initPromise;
-    return { link: sharedLink, session: null };
-  }
-
-  const { default: ProtonWebSDK } = await import('@proton/web-sdk');
-
-  initPromise = ProtonWebSDK({
-    linkOptions: {
-      chainId: CHAIN_ID,
-      endpoints: ENDPOINTS,
-      restoreSession,
-    },
-    transportOptions: {
-      requestAccount: APP_NAME,
-    },
-    selectorOptions: {
-      appName: APP_NAME,
-    },
-  });
-
-  const result = await initPromise;
-
-  if (result.link) {
-    sharedLink = result.link;
-  }
-
-  initPromise = null;
-
-  return { link: sharedLink, session: result.session || null };
-}
+// Module-level flags survive React StrictMode remounts (refs don't)
+let sessionRestoreStarted = false;
+let loginInProgress = false;
 
 export function ProtonProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const initialized = useRef(false);
 
+  // Restore session on mount
   useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
+    if (sessionRestoreStarted) return;
+    sessionRestoreStarted = true;
 
-    const restoreSession = async () => {
+    (async () => {
       try {
-        // Timeout after 5s — if SDK hangs (e.g. no previous session), don't block UI
-        const timeout = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Session restore timeout')), 5000)
-        );
-        const { session: restoredSession } = await Promise.race([initSDK(true), timeout]);
+        const { default: ProtonWebSDK } = await import('@proton/web-sdk');
 
-        if (restoredSession) {
+        const { link, session: restored } = await ProtonWebSDK({
+          linkOptions: {
+            chainId: CHAIN_ID,
+            endpoints: ENDPOINTS,
+            restoreSession: true,
+          },
+          transportOptions: {
+            requestAccount: REQUEST_ACCOUNT,
+          },
+          selectorOptions: {
+            appName: APP_NAME,
+          },
+        });
+
+        if (restored) {
           setSession({
             auth: {
-              actor: restoredSession.auth.actor.toString(),
-              permission: restoredSession.auth.permission.toString(),
+              actor: restored.auth.actor.toString(),
+              permission: restored.auth.permission.toString(),
             },
-            linkSession: restoredSession,
+            link,
+            linkSession: restored,
           });
         }
       } catch (e: any) {
@@ -108,49 +80,60 @@ export function ProtonProvider({ children }: { children: ReactNode }) {
       } finally {
         setLoading(false);
       }
-    };
-
-    restoreSession();
+    })();
   }, []);
 
   const login = useCallback(async () => {
+    if (loginInProgress) return;
+    loginInProgress = true;
+
     setLoading(true);
     setError(null);
 
     try {
-      const { link } = await initSDK(false);
+      const { default: ProtonWebSDK } = await import('@proton/web-sdk');
 
-      if (!link) {
-        throw new Error('Failed to initialize wallet connection');
-      }
+      // Fresh ProtonWebSDK call WITHOUT restoreSession — shows wallet selector
+      const { link, session: loginSession } = await ProtonWebSDK({
+        linkOptions: {
+          chainId: CHAIN_ID,
+          endpoints: ENDPOINTS,
+        },
+        transportOptions: {
+          requestAccount: REQUEST_ACCOUNT,
+        },
+        selectorOptions: {
+          appName: APP_NAME,
+        },
+      });
 
-      const loginResult = await link.login(APP_NAME);
-
-      if (loginResult?.session) {
+      if (loginSession) {
         setSession({
           auth: {
-            actor: loginResult.session.auth.actor.toString(),
-            permission: loginResult.session.auth.permission.toString(),
+            actor: loginSession.auth.actor.toString(),
+            permission: loginSession.auth.permission.toString(),
           },
-          linkSession: loginResult.session,
+          link,
+          linkSession: loginSession,
         });
       }
     } catch (e: any) {
       setError(e.message || 'Failed to login');
     } finally {
+      loginInProgress = false;
       setLoading(false);
     }
   }, []);
 
   const logout = useCallback(async () => {
-    if (sharedLink && session) {
+    if (session?.link) {
       try {
-        await sharedLink.removeSession(APP_NAME, session.auth, CHAIN_ID);
+        await session.link.removeSession(REQUEST_ACCOUNT, session.auth, CHAIN_ID);
       } catch (e) {
         console.log('Error removing session:', e);
       }
-      setSession(null);
     }
+    setSession(null);
   }, [session]);
 
   const transact = useCallback(

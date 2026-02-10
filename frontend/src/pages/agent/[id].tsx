@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 import { TrustBadge } from '@/components/TrustBadge';
 import { FeedbackForm } from '@/components/FeedbackForm';
 import { useAgent } from '@/hooks/useAgent';
@@ -256,6 +257,8 @@ export default function AgentDetail() {
             </div>
           </div>
         </main>
+
+        <Footer />
       </div>
     </>
   );

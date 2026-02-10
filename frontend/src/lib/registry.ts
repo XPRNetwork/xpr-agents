@@ -427,7 +427,10 @@ export function formatTimeline(seconds: number): string {
 }
 
 export function formatXpr(amount: number): string {
-  return (amount / 10000).toFixed(4) + ' XPR';
+  const xpr = amount / 10000;
+  // Clean display: drop trailing zeros, max 2 decimals for readability
+  if (xpr === Math.floor(xpr)) return `${xpr} XPR`;
+  return `${parseFloat(xpr.toFixed(2))} XPR`;
 }
 
 export function formatDate(timestamp: number): string {
@@ -514,6 +517,379 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
 
   return entries;
 }
+
+// ============== VALIDATORS / VALIDATIONS / CHALLENGES ==============
+
+export interface Validator {
+  account: string;
+  stake: number;
+  method: string;
+  specializations: string[];
+  total_validations: number;
+  incorrect_validations: number;
+  accuracy_score: number;
+  pending_challenges: number;
+  registered_at: number;
+  active: boolean;
+}
+
+export interface Validation {
+  id: number;
+  validator: string;
+  agent: string;
+  job_hash: string;
+  result: number; // 0=fail, 1=pass, 2=partial
+  confidence: number;
+  evidence_uri: string;
+  challenged: boolean;
+  timestamp: number;
+}
+
+export interface Challenge {
+  id: number;
+  validation_id: number;
+  challenger: string;
+  reason: string;
+  evidence_uri: string;
+  stake: number;
+  funding_deadline: number;
+  status: number; // 0=pending, 1=upheld, 2=rejected, 3=cancelled
+  resolver: string;
+  resolution_notes: string;
+  created_at: number;
+  resolved_at: number;
+}
+
+export interface ValidatorConfig {
+  owner: string;
+  min_stake: number;
+  challenge_stake: number;
+  unstake_delay: number;
+  challenge_window: number;
+  slash_percent: number;
+  dispute_period: number;
+  validation_fee: number;
+}
+
+export interface ValidatorUnstake {
+  id: number;
+  validator: string;
+  amount: number;
+  request_time: number;
+  available_at: number;
+}
+
+function parseValidator(row: any): Validator {
+  let specializations: string[] = [];
+  try { specializations = JSON.parse(row.specializations || '[]'); } catch { /* malformed */ }
+  return {
+    account: row.account,
+    stake: parseInt(row.stake) || 0,
+    method: row.method || '',
+    specializations,
+    total_validations: parseInt(row.total_validations) || 0,
+    incorrect_validations: parseInt(row.incorrect_validations) || 0,
+    accuracy_score: parseInt(row.accuracy_score) ?? 10000,
+    pending_challenges: parseInt(row.pending_challenges) || 0,
+    registered_at: parseInt(row.registered_at) || 0,
+    active: row.active === 1 || row.active === true,
+  };
+}
+
+function parseValidation(row: any): Validation {
+  return {
+    id: parseInt(row.id),
+    validator: row.validator,
+    agent: row.agent,
+    job_hash: row.job_hash || '',
+    result: parseInt(row.result) || 0,
+    confidence: parseInt(row.confidence) || 0,
+    evidence_uri: row.evidence_uri || '',
+    challenged: row.challenged === 1 || row.challenged === true,
+    timestamp: parseInt(row.timestamp) || 0,
+  };
+}
+
+function parseChallenge(row: any): Challenge {
+  return {
+    id: parseInt(row.id),
+    validation_id: parseInt(row.validation_id),
+    challenger: row.challenger,
+    reason: row.reason || '',
+    evidence_uri: row.evidence_uri || '',
+    stake: parseInt(row.stake) || 0,
+    funding_deadline: parseInt(row.funding_deadline) || 0,
+    status: parseInt(row.status) || 0,
+    resolver: row.resolver || '',
+    resolution_notes: row.resolution_notes || '',
+    created_at: parseInt(row.created_at) || 0,
+    resolved_at: parseInt(row.resolved_at) || 0,
+  };
+}
+
+export async function getValidators(limit = 100): Promise<Validator[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_VALID,
+    scope: CONTRACTS.AGENT_VALID,
+    table: 'validators',
+    limit,
+  });
+  return result.rows.map(parseValidator);
+}
+
+export async function getValidator(account: string): Promise<Validator | null> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_VALID,
+    scope: CONTRACTS.AGENT_VALID,
+    table: 'validators',
+    lower_bound: account,
+    upper_bound: account,
+    limit: 1,
+  });
+  if (result.rows.length === 0) return null;
+  return parseValidator(result.rows[0]);
+}
+
+export async function getValidations(limit = 100): Promise<Validation[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_VALID,
+    scope: CONTRACTS.AGENT_VALID,
+    table: 'validations',
+    reverse: true,
+    limit,
+  });
+  return result.rows.map(parseValidation);
+}
+
+export async function getValidationsByValidator(validator: string): Promise<Validation[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_VALID,
+    scope: CONTRACTS.AGENT_VALID,
+    table: 'validations',
+    limit: 500,
+  });
+  return result.rows
+    .filter((row: any) => row.validator === validator)
+    .map(parseValidation);
+}
+
+export async function getChallenges(limit = 100): Promise<Challenge[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_VALID,
+    scope: CONTRACTS.AGENT_VALID,
+    table: 'challenges',
+    reverse: true,
+    limit,
+  });
+  return result.rows.map(parseChallenge);
+}
+
+export async function getChallengesForValidation(validationId: number): Promise<Challenge[]> {
+  const challenges = await getChallenges(500);
+  return challenges.filter(c => c.validation_id === validationId);
+}
+
+export async function getValidatorConfig(): Promise<ValidatorConfig | null> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_VALID,
+    scope: CONTRACTS.AGENT_VALID,
+    table: 'config',
+    limit: 1,
+  });
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    owner: row.owner,
+    min_stake: parseInt(row.min_stake) || 0,
+    challenge_stake: parseInt(row.challenge_stake) || 0,
+    unstake_delay: parseInt(row.unstake_delay) || 0,
+    challenge_window: parseInt(row.challenge_window) || 0,
+    slash_percent: parseInt(row.slash_percent) || 0,
+    dispute_period: parseInt(row.dispute_period) || 0,
+    validation_fee: parseInt(row.validation_fee) || 0,
+  };
+}
+
+export async function getValidatorUnstakes(account: string): Promise<ValidatorUnstake[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_VALID,
+    scope: CONTRACTS.AGENT_VALID,
+    table: 'unstakes',
+    limit: 100,
+  });
+  return result.rows
+    .filter((row: any) => row.validator === account)
+    .map((row: any) => ({
+      id: parseInt(row.id),
+      validator: row.validator,
+      amount: parseInt(row.amount) || 0,
+      request_time: parseInt(row.request_time) || 0,
+      available_at: parseInt(row.available_at) || 0,
+    }));
+}
+
+// ============== ARBITRATORS / DISPUTES ==============
+
+export interface Arbitrator {
+  account: string;
+  stake: number;
+  fee_percent: number;
+  total_cases: number;
+  successful_cases: number;
+  active: boolean;
+}
+
+export interface Dispute {
+  id: number;
+  job_id: number;
+  raised_by: string;
+  reason: string;
+  evidence_uri: string;
+  client_amount: number;
+  agent_amount: number;
+  resolution: number; // 0=pending, 1=client, 2=agent, 3=split
+  resolver: string;
+  resolution_notes: string;
+  created_at: number;
+  resolved_at: number;
+}
+
+export interface EscrowConfig {
+  owner: string;
+  min_arbitrator_stake: number;
+  arb_unstake_delay: number;
+  platform_fee: number;
+  min_job_amount: number;
+  dispute_window: number;
+}
+
+export interface ArbUnstake {
+  account: string;
+  amount: number;
+  requested_at: number;
+  available_at: number;
+}
+
+function parseArbitrator(row: any): Arbitrator {
+  return {
+    account: row.account,
+    stake: parseInt(row.stake) || 0,
+    fee_percent: parseInt(row.fee_percent) || 0,
+    total_cases: parseInt(row.total_cases) || 0,
+    successful_cases: parseInt(row.successful_cases) || 0,
+    active: row.active === 1 || row.active === true,
+  };
+}
+
+function parseDispute(row: any): Dispute {
+  return {
+    id: parseInt(row.id),
+    job_id: parseInt(row.job_id),
+    raised_by: row.raised_by,
+    reason: row.reason || '',
+    evidence_uri: row.evidence_uri || '',
+    client_amount: parseInt(row.client_amount) || 0,
+    agent_amount: parseInt(row.agent_amount) || 0,
+    resolution: parseInt(row.resolution) || 0,
+    resolver: row.resolver || '',
+    resolution_notes: row.resolution_notes || '',
+    created_at: parseInt(row.created_at) || 0,
+    resolved_at: parseInt(row.resolved_at) || 0,
+  };
+}
+
+export async function getArbitrators(limit = 100): Promise<Arbitrator[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'arbitrators',
+    limit,
+  });
+  return result.rows.map(parseArbitrator);
+}
+
+export async function getArbitrator(account: string): Promise<Arbitrator | null> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'arbitrators',
+    lower_bound: account,
+    upper_bound: account,
+    limit: 1,
+  });
+  if (result.rows.length === 0) return null;
+  return parseArbitrator(result.rows[0]);
+}
+
+export async function getDisputes(limit = 100): Promise<Dispute[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'disputes',
+    reverse: true,
+    limit,
+  });
+  return result.rows.map(parseDispute);
+}
+
+export async function getDisputesForJob(jobId: number): Promise<Dispute[]> {
+  const disputes = await getDisputes(500);
+  return disputes.filter(d => d.job_id === jobId);
+}
+
+export async function getEscrowConfig(): Promise<EscrowConfig | null> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'config',
+    limit: 1,
+  });
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    owner: row.owner,
+    min_arbitrator_stake: parseInt(row.min_arbitrator_stake) || 0,
+    arb_unstake_delay: parseInt(row.arb_unstake_delay) || 0,
+    platform_fee: parseInt(row.platform_fee) || 0,
+    min_job_amount: parseInt(row.min_job_amount) || 0,
+    dispute_window: parseInt(row.dispute_window) || 0,
+  };
+}
+
+export async function getArbUnstake(account: string): Promise<ArbUnstake | null> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'arbunstakes',
+    lower_bound: account,
+    upper_bound: account,
+    limit: 1,
+  });
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    account: row.account,
+    amount: parseInt(row.amount) || 0,
+    requested_at: parseInt(row.requested_at) || 0,
+    available_at: parseInt(row.available_at) || 0,
+  };
+}
+
+export const VALIDATION_RESULT_LABELS = ['Fail', 'Pass', 'Partial'];
+export const CHALLENGE_STATUS_LABELS = ['Pending', 'Upheld', 'Rejected', 'Cancelled'];
+export const DISPUTE_RESOLUTION_LABELS = ['Pending', 'Client Wins', 'Agent Wins', 'Split'];
 
 export async function getRecentCompletedJobs(limit = 5): Promise<Job[]> {
   const jobs = await getAllJobs(100);

@@ -3,9 +3,11 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { WalletButton } from '@/components/WalletButton';
 import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 import { TrustBadge } from '@/components/TrustBadge';
 import { PluginSelector } from '@/components/PluginSelector';
 import { useProton } from '@/hooks/useProton';
+import { useToast } from '@/contexts/ToastContext';
 import { useAgent } from '@/hooks/useAgent';
 import { CONTRACTS, formatXpr, formatTimeline, getBidsByAgent, type Bid } from '@/lib/registry';
 
@@ -15,10 +17,15 @@ export default function Dashboard() {
     session?.auth.actor
   );
 
+  const { addToast } = useToast();
+
+  function getTxId(result: any): string | undefined {
+    return result?.processed?.id;
+  }
+
   const [stakeAmount, setStakeAmount] = useState('');
   const [unstakeAmount, setUnstakeAmount] = useState('');
   const [processing, setProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [showPluginSelector, setShowPluginSelector] = useState(false);
   const [myBids, setMyBids] = useState<Bid[]>([]);
 
@@ -32,10 +39,9 @@ export default function Dashboard() {
     if (!session || !stakeAmount) return;
 
     setProcessing(true);
-    setError(null);
 
     try {
-      await transact([
+      const result = await transact([
         {
           account: 'eosio',
           name: 'stakexpr',
@@ -46,10 +52,11 @@ export default function Dashboard() {
         },
       ]);
 
+      addToast({ type: 'success', message: `Staked ${parseFloat(stakeAmount).toFixed(4)} XPR`, txId: getTxId(result) });
       setStakeAmount('');
       refresh();
     } catch (e: any) {
-      setError(e.message || 'Stake failed');
+      addToast({ type: 'error', message: e.message || 'Stake failed' });
     } finally {
       setProcessing(false);
     }
@@ -59,11 +66,10 @@ export default function Dashboard() {
     if (!session || !unstakeAmount) return;
 
     setProcessing(true);
-    setError(null);
 
     try {
       const amount = Math.floor(parseFloat(unstakeAmount) * 10000);
-      await transact([
+      const result = await transact([
         {
           account: CONTRACTS.AGENT_CORE,
           name: 'unstake',
@@ -74,10 +80,11 @@ export default function Dashboard() {
         },
       ]);
 
+      addToast({ type: 'success', message: `Unstake requested for ${parseFloat(unstakeAmount).toFixed(4)} XPR`, txId: getTxId(result) });
       setUnstakeAmount('');
       refresh();
     } catch (e: any) {
-      setError(e.message || 'Unstake failed');
+      addToast({ type: 'error', message: e.message || 'Unstake failed' });
     } finally {
       setProcessing(false);
     }
@@ -87,10 +94,9 @@ export default function Dashboard() {
     if (!session || !agent) return;
 
     setProcessing(true);
-    setError(null);
 
     try {
-      await transact([
+      const result = await transact([
         {
           account: CONTRACTS.AGENT_CORE,
           name: 'setstatus',
@@ -101,9 +107,10 @@ export default function Dashboard() {
         },
       ]);
 
+      addToast({ type: 'success', message: agent.active ? 'Agent deactivated' : 'Agent activated', txId: getTxId(result) });
       refresh();
     } catch (e: any) {
-      setError(e.message || 'Failed to update status');
+      addToast({ type: 'error', message: e.message || 'Failed to update status' });
     } finally {
       setProcessing(false);
     }
@@ -113,10 +120,9 @@ export default function Dashboard() {
     if (!session) return;
 
     setProcessing(true);
-    setError(null);
 
     try {
-      await transact([
+      const result = await transact([
         {
           account: CONTRACTS.AGENT_CORE,
           name: 'addplugin',
@@ -128,10 +134,11 @@ export default function Dashboard() {
         },
       ]);
 
+      addToast({ type: 'success', message: `Plugin "${plugin.name}" added`, txId: getTxId(result) });
       setShowPluginSelector(false);
       refresh();
     } catch (e: any) {
-      setError(e.message || 'Failed to add plugin');
+      addToast({ type: 'error', message: e.message || 'Failed to add plugin' });
     } finally {
       setProcessing(false);
     }
@@ -151,6 +158,7 @@ export default function Dashboard() {
             <p className="text-zinc-400 mb-8">Connect your wallet to view your dashboard</p>
             <WalletButton />
           </main>
+          <Footer />
         </div>
       </>
     );
@@ -185,6 +193,7 @@ export default function Dashboard() {
               Register Agent
             </Link>
           </main>
+          <Footer />
         </div>
       </>
     );
@@ -200,10 +209,6 @@ export default function Dashboard() {
         <Header activePage="dashboard" />
 
         <main className="max-w-6xl mx-auto px-4 py-8">
-          {error && (
-            <div className="mb-6 p-4 bg-red-500/10 text-red-400 rounded-lg">{error}</div>
-          )}
-
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Main Info */}
             <div className="md:col-span-2 space-y-6">
@@ -421,7 +426,7 @@ export default function Dashboard() {
                     View Profile
                   </Link>
                   <a
-                    href="https://www.protonchain.com/wallet"
+                    href="https://webauth.com"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block w-full py-2 px-4 text-center border border-zinc-700 text-zinc-300 rounded-lg hover:bg-zinc-800"
@@ -433,6 +438,8 @@ export default function Dashboard() {
             </div>
           </div>
         </main>
+
+        <Footer />
       </div>
     </>
   );

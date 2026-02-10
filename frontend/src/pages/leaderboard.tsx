@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 import { TrustBadge } from '@/components/TrustBadge';
 import {
   getLeaderboard,
@@ -267,12 +268,7 @@ export default function Leaderboard() {
           )}
         </main>
 
-        {/* Footer */}
-        <footer className="bg-zinc-950 border-t border-zinc-800 py-8 mt-12">
-          <div className="max-w-6xl mx-auto px-4 text-center text-zinc-500">
-            <p>Built on XPR Network</p>
-          </div>
-        </footer>
+        <Footer />
       </div>
     </>
   );
