@@ -22,7 +22,10 @@ import type { PluginApi, PluginConfig } from './types';
 export default function xprAgentsPlugin(api: PluginApi): void {
   const rawConfig = api.getConfig();
 
-  const rpcEndpoint = (rawConfig.rpcEndpoint as string) || 'https://tn1.protonnz.com';
+  const rpcEndpoint = rawConfig.rpcEndpoint as string;
+  if (!rpcEndpoint) {
+    throw new Error('[xpr-agents] rpcEndpoint is required. Set XPR_RPC_ENDPOINT or configure rpcEndpoint in plugin config.');
+  }
   const hasCredentials = !!process.env.XPR_PRIVATE_KEY && !!process.env.XPR_ACCOUNT;
 
   // Create RPC connection and optional session
@@ -52,7 +55,7 @@ export default function xprAgentsPlugin(api: PluginApi): void {
       agentescrow: contractsRaw.agentescrow || 'agentescrow',
     },
     confirmHighRisk: rawConfig.confirmHighRisk !== false,
-    maxTransferAmount: (rawConfig.maxTransferAmount as number) || 1000000,
+    maxTransferAmount: (rawConfig.maxTransferAmount as number) || 10000000,
   };
 
   // Register all tool groups

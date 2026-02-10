@@ -355,6 +355,20 @@ describe('maxTransferAmount Enforcement', () => {
     ).rejects.toThrow('exceeds maximum');
   });
 
+  it('rejects xpr_submit_bid amount exceeding maxTransferAmount', async () => {
+    registerEscrowTools(api, lowMaxConfig());
+    const tool = api.tools.get('xpr_submit_bid')!;
+    await expect(
+      tool.handler({
+        job_id: 1,
+        amount: 20, // 20 XPR > 10 XPR max
+        timeline: 604800,
+        proposal: 'I can do this',
+        confirmed: true,
+      })
+    ).rejects.toThrow('exceeds maximum');
+  });
+
   it('allows amounts within maxTransferAmount', async () => {
     registerAgentTools(api, lowMaxConfig());
     const tool = api.tools.get('xpr_register_agent')!;

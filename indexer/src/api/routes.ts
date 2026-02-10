@@ -459,7 +459,7 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
       return { valid: false, error: 'Localhost URLs are not allowed' };
     }
 
-    // Block private IP ranges
+    // Block private IP ranges (IPv4)
     const privatePatterns = [
       /^10\./,                    // 10.0.0.0/8
       /^172\.(1[6-9]|2\d|3[01])\./, // 172.16.0.0/12
@@ -470,8 +470,13 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
       return { valid: false, error: 'Private IP addresses are not allowed' };
     }
 
-    // Block cloud metadata endpoints
-    const metadataHosts = ['metadata.google.internal', 'metadata.google.com'];
+    // Block IPv6-mapped IPv4 (::ffff:x.x.x.x) and private IPv6 ranges
+    if (hostname.startsWith('::ffff:') || hostname.startsWith('fd') || hostname.startsWith('fc')) {
+      return { valid: false, error: 'Private IPv6 addresses are not allowed' };
+    }
+
+    // Block AWS/GCP/Azure metadata endpoints
+    const metadataHosts = ['metadata.google.internal', 'metadata.google.com', '169.254.169.254'];
     if (metadataHosts.includes(hostname)) {
       return { valid: false, error: 'Cloud metadata endpoints are not allowed' };
     }
@@ -497,6 +502,12 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
     const urlCheck = isValidWebhookUrl(url);
     if (!urlCheck.valid) {
       return res.status(400).json({ error: `Invalid webhook URL: ${urlCheck.error}` });
+    }
+
+    // Subscription limit: max 100 active subscriptions
+    const subCount = (db.prepare('SELECT COUNT(*) as cnt FROM webhook_subscriptions').get() as { cnt: number }).cnt;
+    if (subCount >= 100) {
+      return res.status(429).json({ error: 'Webhook subscription limit reached (max 100)' });
     }
 
     const stmt = db.prepare(`

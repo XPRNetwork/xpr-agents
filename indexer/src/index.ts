@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import { initDatabase, updateStats, getLastCursor, updateCursor, ensureContractCursors, getContractCursors, updateContractCursor, hasBeenProcessed, markActionProcessed, pruneProcessedActions } from './db/schema';
+import { initDatabase, updateStats, getLastCursor, updateCursor, ensureContractCursors, getContractCursors, updateContractCursor, hasBeenProcessed, markActionProcessed, pruneProcessedActions, pruneEvents, pruneWebhookDeliveries } from './db/schema';
 import { HyperionStream, StreamAction } from './stream';
 import { HyperionPoller } from './poller';
 import { handleAgentAction, handleAgentCoreTransfer } from './handlers/agent';
@@ -263,6 +263,24 @@ async function startIngestion(): Promise<void> {
   }
   startIngestion();
 })();
+
+// ── Periodic cleanup ──
+const CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
+const EVENT_MAX_AGE = 7 * 24 * 60 * 60;  // 7 days in seconds
+const DELIVERY_MAX_AGE = 3 * 24 * 60 * 60; // 3 days in seconds
+
+setInterval(() => {
+  try {
+    const eventsDeleted = pruneEvents(db, EVENT_MAX_AGE);
+    const deliveriesDeleted = pruneWebhookDeliveries(db, DELIVERY_MAX_AGE);
+    pruneProcessedActions(db, 0);
+    if (eventsDeleted > 0 || deliveriesDeleted > 0) {
+      console.log(`[cleanup] Pruned ${eventsDeleted} events, ${deliveriesDeleted} webhook deliveries`);
+    }
+  } catch (err) {
+    console.error('[cleanup] Error during periodic cleanup:', err);
+  }
+}, CLEANUP_INTERVAL).unref();
 
 // Graceful shutdown
 process.on('SIGINT', () => {

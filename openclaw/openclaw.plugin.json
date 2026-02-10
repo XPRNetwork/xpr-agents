@@ -12,7 +12,7 @@
       },
       "rpcEndpoint": {
         "type": "string",
-        "default": "https://tn1.protonnz.com"
+        "description": "XPR Network RPC endpoint URL (required)"
       },
       "indexerUrl": {
         "type": "string",
@@ -33,7 +33,7 @@
       },
       "maxTransferAmount": {
         "type": "number",
-        "default": 100000000
+        "default": 10000000
       }
     }
   },

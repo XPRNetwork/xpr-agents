@@ -567,6 +567,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(job_id, 'job_id');
       if (amount <= 0) throw new Error('amount must be positive');
+      validateAmount(xprToSmallestUnits(amount), config.maxTransferAmount);
       validatePositiveInt(timeline, 'timeline');
       validateRequired(proposal, 'proposal');
 

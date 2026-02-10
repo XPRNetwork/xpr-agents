@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { initDatabase } from '../src/db/schema';
+import { initDatabase, pruneEvents, pruneWebhookDeliveries } from '../src/db/schema';
 import { handleAgentAction, handleAgentCoreTransfer } from '../src/handlers/agent';
 import { handleFeedbackAction } from '../src/handlers/feedback';
 import { handleValidationAction } from '../src/handlers/validation';
@@ -1284,5 +1284,56 @@ describe('Handler Webhook Integration', () => {
     const agent = db.prepare('SELECT * FROM agents WHERE account = ?').get('alice') as any;
     expect(agent).toBeTruthy();
     // No dispatcher passed, no crash
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Database Pruning Tests                                              */
+/* ------------------------------------------------------------------ */
+
+describe('pruneEvents', () => {
+  it('should delete events older than maxAgeSec', () => {
+    const now = Math.floor(Date.now() / 1000);
+    const old = now - 8 * 24 * 60 * 60; // 8 days ago
+    const recent = now - 1 * 24 * 60 * 60; // 1 day ago
+
+    db.prepare('INSERT INTO events (block_num, action_name, contract, data, timestamp) VALUES (?, ?, ?, ?, ?)').run(1, 'register', 'agentcore', '{}', old);
+    db.prepare('INSERT INTO events (block_num, action_name, contract, data, timestamp) VALUES (?, ?, ?, ?, ?)').run(2, 'submit', 'agentfeed', '{}', recent);
+
+    const deleted = pruneEvents(db, 7 * 24 * 60 * 60); // 7 days
+    expect(deleted).toBe(1);
+
+    const remaining = (db.prepare('SELECT COUNT(*) as cnt FROM events').get() as { cnt: number }).cnt;
+    expect(remaining).toBe(1);
+  });
+
+  it('should return 0 when no events to prune', () => {
+    const deleted = pruneEvents(db, 7 * 24 * 60 * 60);
+    expect(deleted).toBe(0);
+  });
+});
+
+describe('pruneWebhookDeliveries', () => {
+  it('should delete deliveries older than maxAgeSec', () => {
+    const now = Math.floor(Date.now() / 1000);
+    const old = now - 4 * 24 * 60 * 60; // 4 days ago
+    const recent = now - 1 * 24 * 60 * 60; // 1 day ago
+
+    // Need a subscription first for the foreign key
+    db.prepare('INSERT INTO webhook_subscriptions (url, token, event_filter) VALUES (?, ?, ?)').run('https://example.com', 'tok', '["*"]');
+
+    db.prepare('INSERT INTO webhook_deliveries (subscription_id, event_type, payload, status_code, attempted_at) VALUES (?, ?, ?, ?, ?)').run(1, 'test', '{}', 200, old);
+    db.prepare('INSERT INTO webhook_deliveries (subscription_id, event_type, payload, status_code, attempted_at) VALUES (?, ?, ?, ?, ?)').run(1, 'test', '{}', 200, recent);
+
+    const deleted = pruneWebhookDeliveries(db, 3 * 24 * 60 * 60); // 3 days
+    expect(deleted).toBe(1);
+
+    const remaining = (db.prepare('SELECT COUNT(*) as cnt FROM webhook_deliveries').get() as { cnt: number }).cnt;
+    expect(remaining).toBe(1);
+  });
+
+  it('should return 0 when no deliveries to prune', () => {
+    const deleted = pruneWebhookDeliveries(db, 3 * 24 * 60 * 60);
+    expect(deleted).toBe(0);
   });
 });

@@ -8,6 +8,7 @@ import {
   getAgentScore,
   getAgentFeedback,
   getKycLevel,
+  getSystemStake,
   calculateTrustScore,
 } from '@/lib/registry';
 
@@ -38,11 +39,12 @@ export function useAgent(account: string | undefined): UseAgentResult {
     setError(null);
 
     try {
-      const [agentData, scoreData, feedbackData, kyc] = await Promise.all([
+      const [agentData, scoreData, feedbackData, kyc, stake] = await Promise.all([
         getAgent(account),
         getAgentScore(account),
         getAgentFeedback(account),
         getKycLevel(account),
+        getSystemStake(account),
       ]);
 
       setAgent(agentData);
@@ -51,7 +53,7 @@ export function useAgent(account: string | undefined): UseAgentResult {
       setKycLevel(kyc);
 
       if (agentData) {
-        setTrustScore(calculateTrustScore(agentData, scoreData, kyc));
+        setTrustScore(calculateTrustScore(agentData, scoreData, kyc, stake));
       }
     } catch (e: any) {
       setError(e.message || 'Failed to fetch agent data');

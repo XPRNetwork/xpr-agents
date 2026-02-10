@@ -442,6 +442,26 @@ export function markActionProcessed(db: Database.Database, dedupeKey: string): v
 }
 
 /**
+ * Prune events older than maxAgeSec seconds.
+ * Returns the number of deleted rows.
+ */
+export function pruneEvents(db: Database.Database, maxAgeSec: number): number {
+  const cutoff = Math.floor(Date.now() / 1000) - maxAgeSec;
+  const result = db.prepare('DELETE FROM events WHERE timestamp < ?').run(cutoff);
+  return result.changes;
+}
+
+/**
+ * Prune webhook deliveries older than maxAgeSec seconds.
+ * Returns the number of deleted rows.
+ */
+export function pruneWebhookDeliveries(db: Database.Database, maxAgeSec: number): number {
+  const cutoff = Math.floor(Date.now() / 1000) - maxAgeSec;
+  const result = db.prepare('DELETE FROM webhook_deliveries WHERE attempted_at < ?').run(cutoff);
+  return result.changes;
+}
+
+/**
  * Prune oldest processed_actions entries to bound table size.
  * Uses ROWID ordering (insertion order) for deletion priority.
  */

@@ -33,14 +33,32 @@ const mockApi = {
   getConfig() {
     return {
       network: process.env.XPR_NETWORK || 'testnet',
-      rpcEndpoint: process.env.XPR_RPC_ENDPOINT || 'https://tn1.protonnz.com',
+      rpcEndpoint: process.env.XPR_RPC_ENDPOINT || '',
       indexerUrl: process.env.INDEXER_URL || 'http://indexer:3001',
       confirmHighRisk: false, // autonomous mode - no confirmation gates
-      maxTransferAmount: parseInt(process.env.MAX_TRANSFER_AMOUNT || '1000000'),
+      maxTransferAmount: (() => {
+        const parsed = parseInt(process.env.MAX_TRANSFER_AMOUNT || '10000000');
+        if (isNaN(parsed) || parsed <= 0) {
+          console.warn('[agent] MAX_TRANSFER_AMOUNT is invalid, using default 10000000 (1000 XPR)');
+          return 10000000;
+        }
+        return parsed;
+      })(),
       contracts: {},
     };
   },
 };
+
+// ── Fail-fast: require critical env vars ──
+if (!process.env.XPR_RPC_ENDPOINT) {
+  console.error('[FATAL] XPR_RPC_ENDPOINT is required. Set it in .env or environment.');
+  process.exit(1);
+}
+
+if (!process.env.OPENCLAW_HOOK_TOKEN) {
+  console.error('[FATAL] OPENCLAW_HOOK_TOKEN is required for webhook authentication. Set it in .env or environment.');
+  process.exit(1);
+}
 
 // Load plugin (registers all 55 tools)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -99,12 +117,12 @@ function getAnthropicTools(): Anthropic.Messages.Tool[] {
 }
 
 const anthropic = new Anthropic();
-const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '10');
+const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '20');
 const MODEL = process.env.AGENT_MODEL || 'claude-sonnet-4-20250514';
 
 // A2A authentication config
 const a2aAuthConfig: A2AAuthConfig = {
-  rpcEndpoint: process.env.XPR_RPC_ENDPOINT || 'https://tn1.protonnz.com',
+  rpcEndpoint: process.env.XPR_RPC_ENDPOINT!,
   authRequired: process.env.A2A_AUTH_REQUIRED !== 'false',
   minTrustScore: parseInt(process.env.A2A_MIN_TRUST_SCORE || '0'),
   minKycLevel: parseInt(process.env.A2A_MIN_KYC_LEVEL || '0'),
@@ -564,7 +582,17 @@ app.post('/a2a', async (req, res) => {
 // ── Deliverables store ────────────────────
 // Agents store deliverable content here before calling xpr_deliver_job.
 // Clients/frontend can fetch via GET /deliverables/:jobId
+const MAX_DELIVERABLES = 200;
 const deliverables = new Map<number, { content: string; created_at: string }>();
+
+function setDeliverable(jobId: number, entry: { content: string; created_at: string }): void {
+  deliverables.set(jobId, entry);
+  // LRU eviction: remove oldest entries if over capacity
+  if (deliverables.size > MAX_DELIVERABLES) {
+    const oldest = deliverables.keys().next().value;
+    if (oldest !== undefined) deliverables.delete(oldest);
+  }
+}
 
 // Upload to IPFS via Pinata if configured
 async function uploadToIpfs(content: string, jobId: number): Promise<string | null> {
@@ -606,7 +634,7 @@ tools.push({
     },
   },
   handler: async ({ job_id, content }: { job_id: number; content: string }) => {
-    deliverables.set(job_id, { content, created_at: new Date().toISOString() });
+    setDeliverable(job_id, { content, created_at: new Date().toISOString() });
 
     // Try IPFS first (Pinata)
     const ipfsUrl = await uploadToIpfs(content, job_id);
@@ -657,8 +685,53 @@ const knownJobStates = new Map<number, number>();   // job_id → state
 const knownOpenJobIds = new Set<number>();           // open job ids already seen
 const knownFeedbackIds = new Set<number>();          // feedback ids already seen
 const knownChallengeIds = new Set<number>();         // challenge ids already seen
+const activeJobIds = new Set<number>();              // jobs currently being processed (per-job lock)
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let firstPoll = true;                               // true until first poll completes
+
+// ── Poller state persistence ──
+const POLLER_STATE_PATH = path.resolve(process.env.POLLER_STATE_PATH || './poller-state.json');
+
+interface PollerState {
+  knownJobStates: Record<string, number>;
+  knownOpenJobIds: number[];
+  knownFeedbackIds: number[];
+  knownChallengeIds: number[];
+}
+
+function savePollerState(): void {
+  try {
+    const state: PollerState = {
+      knownJobStates: Object.fromEntries(knownJobStates),
+      knownOpenJobIds: [...knownOpenJobIds],
+      knownFeedbackIds: [...knownFeedbackIds],
+      knownChallengeIds: [...knownChallengeIds],
+    };
+    fs.writeFileSync(POLLER_STATE_PATH, JSON.stringify(state), 'utf-8');
+  } catch (err: any) {
+    console.warn(`[poller] Failed to save state: ${err.message}`);
+  }
+}
+
+function loadPollerState(): boolean {
+  try {
+    if (!fs.existsSync(POLLER_STATE_PATH)) return false;
+    const raw = fs.readFileSync(POLLER_STATE_PATH, 'utf-8');
+    const state: PollerState = JSON.parse(raw);
+    for (const [k, v] of Object.entries(state.knownJobStates)) {
+      knownJobStates.set(Number(k), v);
+    }
+    for (const id of state.knownOpenJobIds) knownOpenJobIds.add(id);
+    for (const id of state.knownFeedbackIds) knownFeedbackIds.add(id);
+    for (const id of state.knownChallengeIds) knownChallengeIds.add(id);
+    firstPoll = false; // skip seed — we already have state
+    console.log(`[poller] Restored state: ${knownJobStates.size} jobs, ${knownOpenJobIds.size} open, ${knownFeedbackIds.size} feedback, ${knownChallengeIds.size} challenges`);
+    return true;
+  } catch (err: any) {
+    console.warn(`[poller] Failed to load state (will seed from chain): ${err.message}`);
+    return false;
+  }
+}
 
 async function pollOnChain(): Promise<void> {
   if (shuttingDown) return;
@@ -680,19 +753,37 @@ async function pollOnChain(): Promise<void> {
         const prevState = knownJobStates.get(job.id);
         knownJobStates.set(job.id, job.state);
 
+        // Per-job lock: skip if this job is already being processed
+        if (activeJobIds.has(job.id)) continue;
+
         // First poll — just seed state, don't trigger
         if (prevState === undefined) {
           // But if this is a newly-assigned job (not first poll) in FUNDED state, act on it
-          if (!firstPoll && job.state >= 1 && job.state <= 1) {
+          if (!firstPoll && job.state === 1) {
             const jobBudgetXpr = (job.amount / 10000).toFixed(4);
             console.log(`[poller] Newly assigned job #${job.id} in FUNDED state`);
+            activeJobIds.add(job.id);
             runAgent('poll:job_assigned', {
               job_id: job.id, client: job.client, agent: job.agent,
               state: job.state, title: job.title, budget_xpr: jobBudgetXpr,
             }, `You have been assigned to job #${job.id} "${job.title}" (${jobBudgetXpr} XPR). It is FUNDED. Accept the job, start working on it, and deliver the result.`).catch(err => {
               console.error(`[poller] Failed to process newly assigned job:`, err.message);
-            });
+            }).finally(() => activeJobIds.delete(job.id));
           }
+          continue;
+        }
+
+        // Re-evaluate FUNDED jobs on every cycle (in case they were missed on restart)
+        if (prevState === job.state && job.state === 1) {
+          const jobBudgetXpr = (job.amount / 10000).toFixed(4);
+          console.log(`[poller] Re-evaluating FUNDED job #${job.id}`);
+          activeJobIds.add(job.id);
+          runAgent('poll:job_assigned', {
+            job_id: job.id, client: job.client, agent: job.agent,
+            state: job.state, title: job.title, budget_xpr: jobBudgetXpr,
+          }, `You have been assigned to job #${job.id} "${job.title}" (${jobBudgetXpr} XPR). It is FUNDED. Accept the job, start working on it, and deliver the result.`).catch(err => {
+            console.error(`[poller] Failed to process FUNDED job:`, err.message);
+          }).finally(() => activeJobIds.delete(job.id));
           continue;
         }
 
@@ -704,13 +795,14 @@ async function pollOnChain(): Promise<void> {
           console.log(`[poller] Job #${job.id} state changed: ${fromName} → ${toName}`);
 
           const jobBudgetXpr = (job.amount / 10000).toFixed(4);
+          activeJobIds.add(job.id);
           runAgent('poll:job_state_change', {
             job_id: job.id, client: job.client, agent: job.agent,
             from_state: prevState, to_state: job.state,
             title: job.title, budget_xpr: jobBudgetXpr,
           }, `Job #${job.id} "${job.title}" (budget: ${jobBudgetXpr} XPR) changed from ${fromName} to ${toName}. Review and take appropriate action.`).catch(err => {
             console.error(`[poller] Failed to process job state change:`, err.message);
-          });
+          }).finally(() => activeJobIds.delete(job.id));
         }
       }
     }
@@ -790,6 +882,9 @@ async function pollOnChain(): Promise<void> {
     console.log(`[poller] Seeded: ${knownJobStates.size} agent jobs, ${knownOpenJobIds.size} open jobs, ${knownFeedbackIds.size} feedback, ${knownChallengeIds.size} challenges`);
   }
 
+  // Persist state after each poll cycle
+  savePollerState();
+
   // Schedule next poll
   if (!shuttingDown) {
     pollTimer = setTimeout(pollOnChain, POLL_INTERVAL);
@@ -802,6 +897,8 @@ function startPoller(): void {
     console.log('[poller] Polling disabled (POLL_ENABLED=false)');
     return;
   }
+  // Restore persisted state (avoids re-seeding and duplicate processing after restart)
+  loadPollerState();
   console.log(`[poller] Starting on-chain poller (interval: ${POLL_INTERVAL / 1000}s)`);
   // Initial delay to let the server start
   pollTimer = setTimeout(pollOnChain, 5000);
@@ -822,15 +919,32 @@ async function ensureRegistered(): Promise<void> {
 
   const getAgent = tools.find(t => t.name === 'xpr_get_agent');
   const registerAgent = tools.find(t => t.name === 'xpr_register_agent');
+  const updateAgent = tools.find(t => t.name === 'xpr_update_agent');
   if (!getAgent || !registerAgent) {
     console.warn('[agent-runner] Registration tools not found, skipping auto-register');
     return;
   }
 
+  const desiredEndpoint = process.env.AGENT_PUBLIC_URL || '';
+  if (!desiredEndpoint) {
+    console.warn('[agent-runner] AGENT_PUBLIC_URL not set — endpoint will default to localhost (not reachable externally)');
+  }
+  const endpointToUse = desiredEndpoint || `http://localhost:${process.env.PORT || '8080'}`;
+
   try {
     const agentData: any = await getAgent.handler({ account });
     if (agentData && agentData.account) {
       console.log(`[agent-runner] Already registered on-chain as "${agentData.name}"`);
+      // Auto-update endpoint if it changed
+      if (updateAgent && desiredEndpoint && agentData.endpoint !== desiredEndpoint) {
+        console.log(`[agent-runner] Endpoint mismatch: on-chain="${agentData.endpoint}" vs desired="${desiredEndpoint}" — updating`);
+        try {
+          await updateAgent.handler({ endpoint: desiredEndpoint, confirmed: true });
+          console.log(`[agent-runner] Endpoint updated on-chain to ${desiredEndpoint}`);
+        } catch (err: any) {
+          console.error(`[agent-runner] Failed to update endpoint: ${err.message}`);
+        }
+      }
       return;
     }
   } catch {
@@ -842,7 +956,7 @@ async function ensureRegistered(): Promise<void> {
     await registerAgent.handler({
       name: account,
       description: `Autonomous AI agent (${account})`,
-      endpoint: `http://localhost:${process.env.PORT || '8080'}`,
+      endpoint: endpointToUse,
       protocol: 'https',
       capabilities: ['general', 'jobs', 'bidding'],
       confirmed: true,

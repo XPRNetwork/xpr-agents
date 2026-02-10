@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Agent, TrustScore, getAgents, getAgentScore, getKycLevel, calculateTrustScore } from '@/lib/registry';
+import { Agent, TrustScore, getAgents, getAgentScore, getKycLevel, getSystemStake, calculateTrustScore } from '@/lib/registry';
 import { AgentCard } from './AgentCard';
 
 interface AgentWithTrust {
@@ -24,13 +24,14 @@ export function AgentList() {
         const agentsWithTrust = await Promise.all(
           agentList.map(async (agent) => {
             try {
-              const [score, kycLevel] = await Promise.all([
+              const [score, kycLevel, systemStake] = await Promise.all([
                 getAgentScore(agent.account),
                 getKycLevel(agent.account),
+                getSystemStake(agent.account),
               ]);
               return {
                 agent,
-                trustScore: calculateTrustScore(agent, score, kycLevel),
+                trustScore: calculateTrustScore(agent, score, kycLevel, systemStake),
               };
             } catch {
               return { agent, trustScore: null };

@@ -203,14 +203,37 @@ export async function getKycLevel(account: string): Promise<number> {
   }
 }
 
+export async function getSystemStake(account: string): Promise<number> {
+  try {
+    const result = await rpc.get_table_rows({
+      json: true,
+      code: 'eosio',
+      scope: 'eosio',
+      table: 'voters',
+      lower_bound: account,
+      upper_bound: account,
+      limit: 1,
+    });
+    if (result.rows.length > 0 && result.rows[0].staked) {
+      return parseInt(result.rows[0].staked) || 0;
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function calculateTrustScore(
   agent: Agent,
   agentScore: AgentScore | null,
-  kycLevel: number
+  kycLevel: number,
+  systemStake?: number
 ): TrustScore {
+  // systemStake is in smallest units (divide by 10000 for XPR), then /500 for score
+  const stakeXpr = (systemStake ?? agent.stake) / 10000;
   const breakdown = {
     kyc: Math.min(kycLevel * 10, 30),
-    stake: Math.min(Math.floor((agent.stake / 10000) / 500), 20),
+    stake: Math.min(Math.floor(stakeXpr / 500), 20),
     reputation: 0,
     longevity: 0,
   };
@@ -471,13 +494,14 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
 
   const entries = await Promise.all(
     activeAgents.map(async (agent) => {
-      const [agentScore, kycLevel, earnings] = await Promise.all([
+      const [agentScore, kycLevel, earnings, systemStake] = await Promise.all([
         getAgentScore(agent.account).catch(() => null),
         getKycLevel(agent.account).catch(() => 0),
         getAgentEarnings(agent.account).catch(() => ({ total: 0, completedJobs: 0 })),
+        getSystemStake(agent.account).catch(() => 0),
       ]);
 
-      const trustScore = calculateTrustScore(agent, agentScore, kycLevel);
+      const trustScore = calculateTrustScore(agent, agentScore, kycLevel, systemStake);
 
       return {
         agent,
