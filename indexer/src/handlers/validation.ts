@@ -371,38 +371,40 @@ function handleWithdraw(db: Database.Database, data: any): void {
 }
 
 function handleCleanValidations(db: Database.Database, data: any): void {
-  // Mirror on-chain cleanup: delete old unchallenged validations for agent
+  // Mark cleaned-from-chain validations as archived
   const agent = data.agent;
   const maxAge = data.max_age || 0;
   const maxDelete = data.max_delete || 100;
   const cutoff = Math.floor(Date.now() / 1000) - maxAge;
 
   const result = db.prepare(`
-    DELETE FROM validations WHERE id IN (
+    UPDATE validations SET archived = 1
+    WHERE id IN (
       SELECT id FROM validations
-      WHERE agent = ? AND timestamp < ? AND challenged = 0
+      WHERE agent = ? AND timestamp < ? AND challenged = 0 AND archived = 0
       LIMIT ?
     )
   `).run(agent, cutoff, maxDelete);
 
-  console.log(`Cleaned ${result.changes} old validations for ${agent}`);
+  console.log(`Archived ${result.changes} old validations for ${agent}`);
 }
 
 function handleCleanChallenges(db: Database.Database, data: any): void {
-  // Mirror on-chain cleanup: delete old resolved challenges
+  // Mark cleaned-from-chain challenges as archived
   const maxAge = data.max_age || 0;
   const maxDelete = data.max_delete || 100;
   const cutoff = Math.floor(Date.now() / 1000) - maxAge;
 
   const result = db.prepare(`
-    DELETE FROM validation_challenges WHERE id IN (
+    UPDATE validation_challenges SET archived = 1
+    WHERE id IN (
       SELECT id FROM validation_challenges
-      WHERE status != 0 AND resolved_at > 0 AND resolved_at < ?
+      WHERE status != 0 AND resolved_at > 0 AND resolved_at < ? AND archived = 0
       LIMIT ?
     )
   `).run(cutoff, maxDelete);
 
-  console.log(`Cleaned ${result.changes} old validation challenges`);
+  console.log(`Archived ${result.changes} old validation challenges`);
 }
 
 function logEvent(db: Database.Database, action: StreamAction): void {

@@ -351,6 +351,15 @@ export function initDatabase(dbPath: string): Database.Database {
     'ALTER TABLE validators ADD COLUMN pending_challenges INTEGER DEFAULT 0',
     'ALTER TABLE arbitrators ADD COLUMN active_disputes INTEGER DEFAULT 0',
     'ALTER TABLE validation_challenges ADD COLUMN funded_at INTEGER DEFAULT 0',
+    // Archived flag: rows cleaned from chain but preserved in DB for history
+    'ALTER TABLE jobs ADD COLUMN archived INTEGER DEFAULT 0',
+    'ALTER TABLE milestones ADD COLUMN archived INTEGER DEFAULT 0',
+    'ALTER TABLE feedback ADD COLUMN archived INTEGER DEFAULT 0',
+    'ALTER TABLE feedback_disputes ADD COLUMN archived INTEGER DEFAULT 0',
+    'ALTER TABLE validations ADD COLUMN archived INTEGER DEFAULT 0',
+    'ALTER TABLE validation_challenges ADD COLUMN archived INTEGER DEFAULT 0',
+    'ALTER TABLE escrow_disputes ADD COLUMN archived INTEGER DEFAULT 0',
+    'ALTER TABLE plugin_results ADD COLUMN archived INTEGER DEFAULT 0',
   ];
 
   // Migrate processed_actions from INTEGER to TEXT key if needed.

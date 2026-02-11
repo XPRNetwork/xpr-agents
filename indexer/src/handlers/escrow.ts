@@ -607,42 +607,41 @@ function handleWithdrawBid(db: Database.Database, data: any): void {
 }
 
 function handleCleanJobs(db: Database.Database, data: any): void {
-  // Mirror on-chain cleanup: delete old terminal-state jobs and their milestones
+  // Mark cleaned-from-chain jobs as archived (preserve history in DB)
   const maxAge = data.max_age || 0;
   const maxDelete = data.max_delete || 100;
   const cutoff = Math.floor(Date.now() / 1000) - maxAge;
 
-  // Find jobs to delete (states 6=completed, 7=refunded, 8=arbitrated)
   const jobs = db.prepare(`
     SELECT id FROM jobs
-    WHERE state IN (6, 7, 8) AND updated_at < ?
+    WHERE state IN (6, 7, 8) AND updated_at < ? AND archived = 0
     LIMIT ?
   `).all(cutoff, maxDelete) as Array<{ id: number }>;
 
   for (const job of jobs) {
-    db.prepare('DELETE FROM milestones WHERE job_id = ?').run(job.id);
-    db.prepare('DELETE FROM bids WHERE job_id = ?').run(job.id);
-    db.prepare('DELETE FROM jobs WHERE id = ?').run(job.id);
+    db.prepare('UPDATE milestones SET archived = 1 WHERE job_id = ?').run(job.id);
+    db.prepare('UPDATE jobs SET archived = 1 WHERE id = ?').run(job.id);
   }
 
-  console.log(`Cleaned ${jobs.length} completed jobs`);
+  console.log(`Archived ${jobs.length} completed jobs`);
 }
 
 function handleCleanEscrowDisputes(db: Database.Database, data: any): void {
-  // Mirror on-chain cleanup: delete old resolved escrow disputes
+  // Mark cleaned-from-chain disputes as archived
   const maxAge = data.max_age || 0;
   const maxDelete = data.max_delete || 100;
   const cutoff = Math.floor(Date.now() / 1000) - maxAge;
 
   const result = db.prepare(`
-    DELETE FROM escrow_disputes WHERE id IN (
+    UPDATE escrow_disputes SET archived = 1
+    WHERE id IN (
       SELECT id FROM escrow_disputes
-      WHERE resolution != 0 AND resolved_at > 0 AND resolved_at < ?
+      WHERE resolution != 0 AND resolved_at > 0 AND resolved_at < ? AND archived = 0
       LIMIT ?
     )
   `).run(cutoff, maxDelete);
 
-  console.log(`Cleaned ${result.changes} old escrow disputes`);
+  console.log(`Archived ${result.changes} old escrow disputes`);
 }
 
 function logEvent(db: Database.Database, action: StreamAction): void {

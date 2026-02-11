@@ -226,43 +226,41 @@ function handleReinstate(db: Database.Database, data: any): void {
 }
 
 function handleCleanFeedback(db: Database.Database, data: any): void {
-  // Mirror on-chain cleanup: delete old feedback for agent older than max_age
-  // Contract only deletes undisputed or resolved feedback
+  // Mark cleaned-from-chain feedback as archived (preserve history in DB)
   const agent = data.agent;
   const maxAge = data.max_age || 0;
   const maxDelete = data.max_delete || 100;
   const cutoff = Math.floor(Date.now() / 1000) - maxAge;
 
   const result = db.prepare(`
-    DELETE FROM feedback WHERE id IN (
+    UPDATE feedback SET archived = 1
+    WHERE id IN (
       SELECT id FROM feedback
       WHERE agent = ? AND timestamp < ?
-      AND (disputed = 0 OR resolved = 1)
+      AND (disputed = 0 OR resolved = 1) AND archived = 0
       LIMIT ?
     )
   `).run(agent, cutoff, maxDelete);
 
-  if (result.changes > 0) {
-    updateAgentScore(db, agent);
-  }
-  console.log(`Cleaned ${result.changes} old feedback for ${agent}`);
+  console.log(`Archived ${result.changes} old feedback for ${agent}`);
 }
 
 function handleCleanFeedbackDisputes(db: Database.Database, data: any): void {
-  // Mirror on-chain cleanup: delete old resolved disputes
+  // Mark cleaned-from-chain feedback disputes as archived
   const maxAge = data.max_age || 0;
   const maxDelete = data.max_delete || 100;
   const cutoff = Math.floor(Date.now() / 1000) - maxAge;
 
   const result = db.prepare(`
-    DELETE FROM feedback_disputes WHERE id IN (
+    UPDATE feedback_disputes SET archived = 1
+    WHERE id IN (
       SELECT id FROM feedback_disputes
-      WHERE status != 0 AND resolved_at > 0 AND resolved_at < ?
+      WHERE status != 0 AND resolved_at > 0 AND resolved_at < ? AND archived = 0
       LIMIT ?
     )
   `).run(cutoff, maxDelete);
 
-  console.log(`Cleaned ${result.changes} old feedback disputes`);
+  console.log(`Archived ${result.changes} old feedback disputes`);
 }
 
 function updateAgentScore(db: Database.Database, agent: string): void {

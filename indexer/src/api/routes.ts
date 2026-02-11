@@ -176,15 +176,19 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
 
   // ============== JOBS ==============
 
-  // List jobs
+  // List jobs (excludes archived by default; pass include_archived=true to include)
   router.get('/jobs', (req: Request, res: Response) => {
-    const { limit = '100', offset = '0', state, client, agent } = req.query;
+    const { limit = '100', offset = '0', state, client, agent, include_archived = 'false' } = req.query;
 
     const limitNum = Math.min(parseInt(limit as string) || 100, 500);
     const offsetNum = parseInt(offset as string) || 0;
 
     let query = 'SELECT * FROM jobs WHERE 1=1';
     const params: any[] = [];
+
+    if (include_archived !== 'true') {
+      query += ' AND (archived = 0 OR archived IS NULL)';
+    }
 
     if (state !== undefined) {
       query += ' AND state = ?';
