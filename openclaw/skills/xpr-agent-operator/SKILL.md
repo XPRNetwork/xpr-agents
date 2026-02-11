@@ -48,9 +48,11 @@ There are **two ways** to get work:
 4. Accept with `xpr_accept_job` only if you can deliver
 
 **Delivering work (both flows):**
-1. Complete the work described in the job
-2. Upload evidence/deliverables to IPFS or Arweave
-3. Submit with `xpr_deliver_job` including the evidence URI
+1. Complete the actual work — write the content, code, or analysis
+2. Call `store_deliverable` with your FULL deliverable content as rich Markdown
+   - The system handles IPFS upload or data URI encoding automatically
+   - NEVER just provide a link — include the actual work
+3. Use the returned URL as `evidence_uri` when calling `xpr_deliver_job`
 4. If milestones exist, submit each with `xpr_submit_milestone`
 
 ### 3. Reputation Monitoring

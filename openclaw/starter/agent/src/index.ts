@@ -99,7 +99,18 @@ if (systemPrompt === 'You are an autonomous AI agent on XPR Network.') {
 // Add account context to system prompt
 const baseUrl = process.env.AGENT_PUBLIC_URL || `http://localhost:${process.env.PORT || '8080'}`;
 systemPrompt += `\n\n## Runtime Context\n- Account: ${process.env.XPR_ACCOUNT}\n- Network: ${process.env.XPR_NETWORK || 'testnet'}\n- Public URL: ${baseUrl}`;
-systemPrompt += `\n\n## Delivering Jobs\nWhen delivering a job, ALWAYS:\n1. Call \`store_deliverable\` with the full deliverable content first\n2. Use the returned URL as the \`evidence_uri\` when calling \`xpr_deliver_job\`\nThis ensures the client can view your work.`;
+systemPrompt += `\n\n## Delivering Jobs
+When delivering a job, ALWAYS:
+1. Do the actual work — write the text, code, analysis, etc.
+2. Call \`store_deliverable\` with the FULL deliverable content (not a URL or summary)
+3. Use the returned URL as \`evidence_uri\` when calling \`xpr_deliver_job\`
+
+Format guidelines:
+- Write deliverables as **rich Markdown** (headings, lists, code blocks, bold)
+- For writing tasks: deliver the complete text with proper formatting
+- For code tasks: include full source code in fenced code blocks
+- For analysis tasks: use structured sections with headings
+- NEVER deliver just a URL — always include the actual work content`;
 
 // Convert tools to Anthropic API format (lazy — picks up tools added later like store_deliverable)
 // Includes Anthropic's built-in web search tool for real-time internet access
@@ -583,9 +594,9 @@ app.post('/a2a', async (req, res) => {
 // Agents store deliverable content here before calling xpr_deliver_job.
 // Clients/frontend can fetch via GET /deliverables/:jobId
 const MAX_DELIVERABLES = 200;
-const deliverables = new Map<number, { content: string; created_at: string }>();
+const deliverables = new Map<number, { content: string; content_type: string; created_at: string }>();
 
-function setDeliverable(jobId: number, entry: { content: string; created_at: string }): void {
+function setDeliverable(jobId: number, entry: { content: string; content_type: string; created_at: string }): void {
   deliverables.set(jobId, entry);
   // LRU eviction: remove oldest entries if over capacity
   if (deliverables.size > MAX_DELIVERABLES) {
@@ -595,7 +606,7 @@ function setDeliverable(jobId: number, entry: { content: string; created_at: str
 }
 
 // Upload to IPFS via Pinata if configured
-async function uploadToIpfs(content: string, jobId: number): Promise<string | null> {
+async function uploadToIpfs(content: string, jobId: number, contentType: string): Promise<string | null> {
   const jwt = process.env.PINATA_JWT;
   if (!jwt) return null;
   try {
@@ -603,21 +614,21 @@ async function uploadToIpfs(content: string, jobId: number): Promise<string | nu
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
       body: JSON.stringify({
-        pinataContent: { job_id: jobId, content, created_at: new Date().toISOString() },
+        pinataContent: { job_id: jobId, content, content_type: contentType, created_at: new Date().toISOString() },
         pinataMetadata: { name: `job-${jobId}-deliverable` },
       }),
     });
     const data = await resp.json() as { IpfsHash?: string };
     if (data.IpfsHash) {
-      return `https://gateway.pinata.cloud/ipfs/${data.IpfsHash}`;
+      return `https://ipfs.io/ipfs/${data.IpfsHash}`;
     }
   } catch (e) { console.error('[ipfs] Pinata upload failed:', e); }
   return null;
 }
 
 // Encode content as a data URI (works without any external service)
-function toDataUri(content: string): string {
-  const json = JSON.stringify({ content, created_at: new Date().toISOString() });
+function toDataUri(content: string, contentType: string): string {
+  const json = JSON.stringify({ content, content_type: contentType, created_at: new Date().toISOString() });
   return `data:application/json;base64,${Buffer.from(json).toString('base64')}`;
 }
 
@@ -631,20 +642,22 @@ tools.push({
     properties: {
       job_id: { type: 'number', description: 'Job ID' },
       content: { type: 'string', description: 'The full deliverable content (text, markdown, etc.)' },
+      content_type: { type: 'string', description: 'MIME type of the content (default: text/markdown)' },
     },
   },
-  handler: async ({ job_id, content }: { job_id: number; content: string }) => {
-    setDeliverable(job_id, { content, created_at: new Date().toISOString() });
+  handler: async ({ job_id, content, content_type }: { job_id: number; content: string; content_type?: string }) => {
+    const ct = content_type || 'text/markdown';
+    setDeliverable(job_id, { content, content_type: ct, created_at: new Date().toISOString() });
 
     // Try IPFS first (Pinata)
-    const ipfsUrl = await uploadToIpfs(content, job_id);
+    const ipfsUrl = await uploadToIpfs(content, job_id, ct);
     if (ipfsUrl) {
       console.log(`[deliverable] Job ${job_id} pinned to IPFS: ${ipfsUrl}`);
       return { stored: true, url: ipfsUrl, storage: 'ipfs' };
     }
 
     // Default: data URI (content embedded directly, no external service needed)
-    const dataUri = toDataUri(content);
+    const dataUri = toDataUri(content, ct);
     console.log(`[deliverable] Job ${job_id} encoded as data URI (${dataUri.length} chars)`);
     return { stored: true, url: dataUri, storage: 'data_uri' };
   },
@@ -658,7 +671,7 @@ app.get('/deliverables/:jobId', (req, res) => {
     return res.status(404).json({ error: 'Deliverable not found' });
   }
   // Return as JSON with content
-  res.json({ job_id: jobId, content: entry.content, created_at: entry.created_at });
+  res.json({ job_id: jobId, content: entry.content, content_type: entry.content_type, created_at: entry.created_at });
 });
 
 // Health check

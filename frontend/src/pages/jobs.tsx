@@ -156,6 +156,10 @@ export default function Jobs() {
     } finally {
       setBidsLoading(false);
     }
+    // Auto-fetch deliverable for delivered/completed jobs
+    if (job.state >= 4 && job.agent && job.agent !== '.............') {
+      fetchDeliverable(job.id);
+    }
   }
 
   function closeModal() {
@@ -163,6 +167,14 @@ export default function Jobs() {
     setBids([]);
     setShowBidForm(false);
     setDeliverableContent(null);
+  }
+
+  // IPFS gateway fallback helpers
+  const IPFS_GATEWAYS = ['https://ipfs.io/ipfs/', 'https://dweb.link/ipfs/', 'https://cf-ipfs.com/ipfs/'];
+
+  function extractIpfsCid(url: string): string | null {
+    const match = url.match(/\/ipfs\/(Qm[a-zA-Z0-9]{44,}|bafy[a-zA-Z0-9]+)/);
+    return match ? match[1] : null;
   }
 
   async function fetchDeliverable(jobId: number) {
@@ -174,6 +186,7 @@ export default function Jobs() {
         setDeliverableContent('No evidence submitted');
         return;
       }
+      // Data URI — decode inline
       if (evidenceUri.startsWith('data:')) {
         try {
           const base64 = evidenceUri.split(',')[1];
@@ -184,16 +197,39 @@ export default function Jobs() {
         }
         return;
       }
+      // HTTP(S) URL — try fetching directly first
+      let fetched = false;
       try {
         const resp = await fetch(evidenceUri, { signal: AbortSignal.timeout(10000) });
         if (resp.ok) {
           const data = await resp.json();
           setDeliverableContent(data.content || JSON.stringify(data, null, 2));
-        } else {
-          setDeliverableContent(evidenceUri);
+          fetched = true;
         }
       } catch {
-        setDeliverableContent(evidenceUri);
+        // Direct fetch failed — try IPFS gateway fallback
+      }
+      if (!fetched) {
+        const cid = extractIpfsCid(evidenceUri);
+        if (cid) {
+          for (const gw of IPFS_GATEWAYS) {
+            try {
+              const resp = await fetch(`${gw}${cid}`, { signal: AbortSignal.timeout(10000) });
+              if (resp.ok) {
+                const data = await resp.json();
+                setDeliverableContent(data.content || JSON.stringify(data, null, 2));
+                fetched = true;
+                break;
+              }
+            } catch {
+              // Try next gateway
+            }
+          }
+        }
+        if (!fetched) {
+          // Show the URL as a clickable fallback
+          setDeliverableContent(evidenceUri);
+        }
       }
     } catch {
       setDeliverableContent(null);
@@ -478,6 +514,100 @@ export default function Jobs() {
   const canApprove = isMyJob && selectedJob?.state === 4;
   const canCancel = isMyJob && selectedJob && (selectedJob.state === 0 || selectedJob.state === 1);
   const canBid = selectedJob && selectedJob.state === 0 && (!selectedJob.agent || selectedJob.agent === '.............');
+
+  // Lightweight markdown renderer (no external deps)
+  function renderMarkdown(text: string): string {
+    // Escape HTML
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // Fenced code blocks (``` ... ```)
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, _lang, code) => {
+      return `<pre style="background:#18181b;padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0"><code>${code.trim()}</code></pre>`;
+    });
+
+    // Split into lines for block-level processing
+    const lines = html.split('\n');
+    const result: string[] = [];
+    let inList = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i];
+
+      // Skip lines inside <pre> blocks (already processed)
+      if (line.includes('<pre ')) {
+        // Find the closing </pre> and pass through
+        result.push(line);
+        while (i < lines.length - 1 && !lines[i].includes('</pre>')) {
+          i++;
+          result.push(lines[i]);
+        }
+        continue;
+      }
+
+      // Headers
+      if (line.startsWith('### ')) {
+        if (inList) { result.push('</ul>'); inList = false; }
+        result.push(`<h3 style="font-size:1rem;font-weight:600;color:#e4e4e7;margin:12px 0 4px">${line.slice(4)}</h3>`);
+        continue;
+      }
+      if (line.startsWith('## ')) {
+        if (inList) { result.push('</ul>'); inList = false; }
+        result.push(`<h2 style="font-size:1.1rem;font-weight:700;color:#e4e4e7;margin:16px 0 6px">${line.slice(3)}</h2>`);
+        continue;
+      }
+      if (line.startsWith('# ')) {
+        if (inList) { result.push('</ul>'); inList = false; }
+        result.push(`<h1 style="font-size:1.25rem;font-weight:700;color:#fff;margin:16px 0 8px">${line.slice(2)}</h1>`);
+        continue;
+      }
+
+      // List items
+      if (/^[-*] /.test(line)) {
+        if (!inList) { result.push('<ul style="list-style:disc;padding-left:20px;margin:4px 0">'); inList = true; }
+        result.push(`<li style="margin:2px 0">${applyInline(line.slice(2))}</li>`);
+        continue;
+      }
+
+      // Close list if not a list item
+      if (inList) { result.push('</ul>'); inList = false; }
+
+      // Blank line = paragraph break
+      if (line.trim() === '') {
+        result.push('<br/>');
+        continue;
+      }
+
+      // Regular paragraph
+      result.push(`<p style="margin:4px 0">${applyInline(line)}</p>`);
+    }
+    if (inList) result.push('</ul>');
+
+    return result.join('\n');
+  }
+
+  // Inline markdown: bold, inline code, links
+  function applyInline(text: string): string {
+    // Bold
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Inline code
+    text = text.replace(/`([^`]+)`/g, '<code style="background:#27272a;padding:1px 4px;border-radius:3px;font-size:0.9em">$1</code>');
+    // Links [text](url)
+    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#a78bfa;text-decoration:underline">$1</a>');
+    return text;
+  }
+
+  // Check if content looks like markdown
+  function isMarkdown(text: string): boolean {
+    return /^#{1,3} /m.test(text) || /\*\*.+\*\*/.test(text) || /```/.test(text) || /^[-*] /m.test(text);
+  }
+
+  // Check if content is just a URL
+  function isUrl(text: string): boolean {
+    return /^https?:\/\/\S+$/.test(text.trim());
+  }
 
   // Find winning bid for a job (the bid whose agent matches the assigned agent)
   function getWinningBid(): Bid | undefined {
@@ -869,12 +999,30 @@ export default function Jobs() {
                       )}
                     </div>
                     {deliverableLoading && (
-                      <p className="text-sm text-blue-400">Loading...</p>
+                      <p className="text-sm text-blue-400">Loading deliverable...</p>
                     )}
                     {deliverableContent && (
-                      <div className="text-sm text-zinc-300 whitespace-pre-wrap bg-zinc-900 p-3 rounded border border-zinc-800 max-h-64 overflow-y-auto">
-                        {deliverableContent}
-                      </div>
+                      isUrl(deliverableContent) ? (
+                        <div className="text-sm bg-zinc-900 p-3 rounded border border-zinc-800">
+                          <a
+                            href={deliverableContent}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-purple-400 hover:text-purple-300 underline break-all"
+                          >
+                            {deliverableContent} &#8599;
+                          </a>
+                        </div>
+                      ) : isMarkdown(deliverableContent) ? (
+                        <div
+                          className="text-sm text-zinc-300 bg-zinc-900 p-4 rounded border border-zinc-800 max-h-[32rem] overflow-y-auto prose-invert"
+                          dangerouslySetInnerHTML={{ __html: renderMarkdown(deliverableContent) }}
+                        />
+                      ) : (
+                        <div className="text-sm text-zinc-300 whitespace-pre-wrap bg-zinc-900 p-3 rounded border border-zinc-800 max-h-[32rem] overflow-y-auto">
+                          {deliverableContent}
+                        </div>
+                      )
                     )}
                   </div>
                 )}
