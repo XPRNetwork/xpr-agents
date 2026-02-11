@@ -43,6 +43,10 @@ services:
       - POLL_ENABLED=${POLL_ENABLED:-true}
       - POLL_INTERVAL=${POLL_INTERVAL:-30}
       - PINATA_JWT=${PINATA_JWT:-}
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_OWNER=${GITHUB_OWNER:-}
+      - AGENT_PUBLIC_URL=${AGENT_PUBLIC_URL:-}
     volumes:
       - agent-data:/data
     ports:

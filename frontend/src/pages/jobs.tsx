@@ -86,6 +86,11 @@ export default function Jobs() {
   const [ratingTags, setRatingTags] = useState('');
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
 
+  // Dispute form state
+  const [showDispute, setShowDispute] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [disputeEvidence, setDisputeEvidence] = useState('');
+
   // Bid form state
   const [bidAmount, setBidAmount] = useState('');
   const [bidTimeline, setBidTimeline] = useState('');
@@ -381,6 +386,38 @@ export default function Jobs() {
     }
   }
 
+  async function handleDispute() {
+    if (!session || !selectedJob || !disputeReason.trim()) return;
+    setProcessing(true);
+    try {
+      const result = await transact([
+        {
+          account: CONTRACTS.AGENT_ESCROW,
+          name: 'dispute',
+          data: {
+            raised_by: session.auth.actor,
+            job_id: selectedJob.id,
+            reason: disputeReason.trim(),
+            evidence_uri: disputeEvidence.trim() || '',
+          },
+        },
+      ]);
+      addToast({ type: 'success', message: `Dispute raised for Job #${selectedJob.id}. An arbitrator will review.`, txId: getTxId(result) });
+      setShowDispute(false);
+      setDisputeReason('');
+      setDisputeEvidence('');
+      await new Promise(r => setTimeout(r, 1500));
+      const refreshed = await getAllJobs();
+      setJobs(refreshed);
+      const updated = refreshed.find(j => j.id === selectedJob.id);
+      if (updated) setSelectedJob(updated);
+    } catch (e: any) {
+      addToast({ type: 'error', message: e.message || 'Failed to raise dispute' });
+    } finally {
+      setProcessing(false);
+    }
+  }
+
   async function handleSubmitRating() {
     if (!session || !ratingAgent) return;
     setRatingSubmitting(true);
@@ -566,6 +603,7 @@ export default function Jobs() {
   const canFund = isMyJob && selectedJob && selectedJob.funded_amount < selectedJob.amount && selectedJob.state === 0 && selectedJob.agent && selectedJob.agent !== '.............';
   const canApprove = isMyJob && selectedJob?.state === 4;
   const canCancel = isMyJob && selectedJob && (selectedJob.state === 0 || selectedJob.state === 1);
+  const canDispute = isMyJob && selectedJob && selectedJob.state >= 2 && selectedJob.state <= 4;
   const canBid = selectedJob && selectedJob.state === 0 && (!selectedJob.agent || selectedJob.agent === '.............');
 
   // Lightweight markdown renderer (no external deps)
@@ -1170,7 +1208,7 @@ export default function Jobs() {
                 )}
 
                 {/* Action Buttons */}
-                {session && (canFund || canApprove || canCancel) && (
+                {session && (canFund || canApprove || canCancel || canDispute) && (
                   <div className="flex flex-wrap gap-2">
                     {canFund && (
                       <button
@@ -1190,6 +1228,15 @@ export default function Jobs() {
                         {processing ? 'Approving...' : 'Approve & Pay'}
                       </button>
                     )}
+                    {canDispute && (
+                      <button
+                        onClick={() => setShowDispute(true)}
+                        disabled={processing}
+                        className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 disabled:bg-zinc-700 disabled:text-zinc-500"
+                      >
+                        Dispute
+                      </button>
+                    )}
                     {canCancel && (
                       <button
                         onClick={handleCancelJob}
@@ -1199,6 +1246,52 @@ export default function Jobs() {
                         {processing ? 'Cancelling...' : 'Cancel Job'}
                       </button>
                     )}
+                  </div>
+                )}
+
+                {/* Dispute Form */}
+                {showDispute && (
+                  <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg space-y-3">
+                    <h3 className="text-sm font-bold text-amber-400">Raise Dispute</h3>
+                    <p className="text-xs text-zinc-400">
+                      Disputes are reviewed by an arbitrator who decides how funds are split between you and the agent.
+                    </p>
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">Reason *</label>
+                      <textarea
+                        value={disputeReason}
+                        onChange={e => setDisputeReason(e.target.value)}
+                        placeholder="Explain why you're disputing this job..."
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                        rows={3}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">Evidence URL (optional)</label>
+                      <input
+                        type="url"
+                        value={disputeEvidence}
+                        onChange={e => setDisputeEvidence(e.target.value)}
+                        placeholder="https://..."
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleDispute}
+                        disabled={processing || !disputeReason.trim()}
+                        className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 disabled:bg-zinc-700 disabled:text-zinc-500"
+                      >
+                        {processing ? 'Submitting...' : 'Submit Dispute'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowDispute(false); setDisputeReason(''); setDisputeEvidence(''); }}
+                        className="px-4 py-2 text-zinc-400 hover:text-white text-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 )}
 
