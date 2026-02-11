@@ -13,8 +13,11 @@ import {
   getBidsForJob,
   getJobEvidence,
   getJobStateLabel,
+  getDisputesForJob,
+  getEscrowConfig,
   type Job,
   type Bid,
+  type Dispute,
 } from '@/lib/registry';
 
 const STATE_COLORS: Record<number, string> = {
@@ -91,6 +94,13 @@ export default function Jobs() {
   const [disputeReason, setDisputeReason] = useState('');
   const [disputeEvidence, setDisputeEvidence] = useState('');
 
+  // Resolve dispute state
+  const [activeDispute, setActiveDispute] = useState<Dispute | null>(null);
+  const [showResolve, setShowResolve] = useState(false);
+  const [resolvePercent, setResolvePercent] = useState(100); // % to client
+  const [resolveNotes, setResolveNotes] = useState('');
+  const [escrowOwner, setEscrowOwner] = useState('');
+
   // Bid form state
   const [bidAmount, setBidAmount] = useState('');
   const [bidTimeline, setBidTimeline] = useState('');
@@ -98,6 +108,7 @@ export default function Jobs() {
 
   useEffect(() => {
     loadJobs();
+    getEscrowConfig().then(c => { if (c) setEscrowOwner(c.owner); }).catch(() => {});
   }, []);
 
   async function loadJobs() {
@@ -168,6 +179,10 @@ export default function Jobs() {
     if (job.state >= 4 && job.agent && job.agent !== '.............') {
       fetchDeliverable(job.id);
     }
+    // Auto-fetch dispute for disputed jobs
+    if (job.state === 5) {
+      loadDispute(job.id);
+    }
   }
 
   function closeModal() {
@@ -178,6 +193,9 @@ export default function Jobs() {
     setDeliverableType(null);
     setDeliverableMediaUrl(null);
     setEvidenceUrl(null);
+    setActiveDispute(null);
+    setShowResolve(false);
+    setShowDispute(false);
   }
 
   // IPFS gateway fallback helpers
@@ -418,6 +436,46 @@ export default function Jobs() {
     }
   }
 
+  async function loadDispute(jobId: number) {
+    try {
+      const disputes = await getDisputesForJob(jobId);
+      const pending = disputes.find(d => d.resolution === 0);
+      setActiveDispute(pending || null);
+    } catch { setActiveDispute(null); }
+  }
+
+  async function handleResolveDispute() {
+    if (!session || !activeDispute || !resolveNotes.trim()) return;
+    setProcessing(true);
+    try {
+      const result = await transact([
+        {
+          account: CONTRACTS.AGENT_ESCROW,
+          name: 'arbitrate',
+          data: {
+            arbitrator: session.auth.actor,
+            dispute_id: activeDispute.id,
+            client_percent: resolvePercent,
+            resolution_notes: resolveNotes.trim(),
+          },
+        },
+      ]);
+      addToast({ type: 'success', message: `Dispute #${activeDispute.id} resolved. ${resolvePercent}% to client, ${100 - resolvePercent}% to agent.`, txId: getTxId(result) });
+      setShowResolve(false);
+      setResolveNotes('');
+      setActiveDispute(null);
+      await new Promise(r => setTimeout(r, 1500));
+      const refreshed = await getAllJobs();
+      setJobs(refreshed);
+      const updated = refreshed.find(j => j.id === selectedJob?.id);
+      if (updated) setSelectedJob(updated);
+    } catch (e: any) {
+      addToast({ type: 'error', message: e.message || 'Failed to resolve dispute' });
+    } finally {
+      setProcessing(false);
+    }
+  }
+
   async function handleSubmitRating() {
     if (!session || !ratingAgent) return;
     setRatingSubmitting(true);
@@ -604,6 +662,11 @@ export default function Jobs() {
   const canApprove = isMyJob && selectedJob?.state === 4;
   const canCancel = isMyJob && selectedJob && (selectedJob.state === 0 || selectedJob.state === 1);
   const canDispute = isMyJob && selectedJob && selectedJob.state >= 2 && selectedJob.state <= 4;
+  const isArbitrator = session && selectedJob?.state === 5 && (
+    (selectedJob.arbitrator === session.auth.actor) ||
+    ((!selectedJob.arbitrator || selectedJob.arbitrator === '.............') && session.auth.actor === escrowOwner) ||
+    (session.auth.actor === escrowOwner)
+  );
   const canBid = selectedJob && selectedJob.state === 0 && (!selectedJob.agent || selectedJob.agent === '.............');
 
   // Lightweight markdown renderer (no external deps)
@@ -1292,6 +1355,93 @@ export default function Jobs() {
                         Cancel
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {/* Dispute Details */}
+                {selectedJob.state === 5 && activeDispute && (
+                  <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-red-400">Dispute #{activeDispute.id}</h3>
+                      <span className="text-xs text-zinc-500">{formatDate(activeDispute.created_at)}</span>
+                    </div>
+                    <div>
+                      <span className="text-xs text-zinc-500">Raised by:</span>
+                      <span className="text-sm text-white ml-2">{activeDispute.raised_by}</span>
+                    </div>
+                    <div>
+                      <span className="text-xs text-zinc-500">Reason:</span>
+                      <p className="text-sm text-zinc-300 mt-1">{activeDispute.reason}</p>
+                    </div>
+                    {activeDispute.evidence_uri && (
+                      <div>
+                        <span className="text-xs text-zinc-500">Evidence:</span>
+                        <a href={activeDispute.evidence_uri} target="_blank" rel="noopener noreferrer" className="text-sm text-proton-purple hover:underline ml-2 break-all">
+                          {activeDispute.evidence_uri.length > 60 ? activeDispute.evidence_uri.slice(0, 60) + '...' : activeDispute.evidence_uri}
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Resolve button — shown to arbitrator or contract owner */}
+                    {isArbitrator && !showResolve && (
+                      <button
+                        onClick={() => setShowResolve(true)}
+                        className="px-4 py-2 bg-proton-purple text-white rounded-lg text-sm hover:bg-proton-purple/80"
+                      >
+                        Resolve Dispute
+                      </button>
+                    )}
+
+                    {/* Resolve form */}
+                    {isArbitrator && showResolve && (
+                      <div className="space-y-3 pt-2 border-t border-red-500/20">
+                        <h4 className="text-sm font-medium text-white">Resolution</h4>
+                        <div>
+                          <label className="text-xs text-zinc-500 block mb-1">
+                            Refund to client: {resolvePercent}% ({formatXpr(Math.floor(selectedJob.funded_amount * resolvePercent / 100))})
+                          </label>
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            step={5}
+                            value={resolvePercent}
+                            onChange={e => setResolvePercent(Number(e.target.value))}
+                            className="w-full accent-proton-purple"
+                          />
+                          <div className="flex justify-between text-xs text-zinc-500 mt-1">
+                            <span>0% (all to agent)</span>
+                            <span>100% (full refund)</span>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs text-zinc-500 block mb-1">Resolution notes *</label>
+                          <textarea
+                            value={resolveNotes}
+                            onChange={e => setResolveNotes(e.target.value)}
+                            placeholder="Explain the resolution decision..."
+                            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-proton-purple focus:border-proton-purple"
+                            rows={3}
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleResolveDispute}
+                            disabled={processing || !resolveNotes.trim()}
+                            className="px-4 py-2 bg-proton-purple text-white rounded-lg text-sm hover:bg-proton-purple/80 disabled:bg-zinc-700 disabled:text-zinc-500"
+                          >
+                            {processing ? 'Resolving...' : `Resolve: ${resolvePercent}% client / ${100 - resolvePercent}% agent`}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowResolve(false)}
+                            className="px-4 py-2 text-zinc-400 hover:text-white text-sm"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
