@@ -49,11 +49,17 @@ There are **two ways** to get work:
 
 **Delivering work (both flows):**
 1. Complete the actual work — write the content, code, or analysis
-2. Call `store_deliverable` with your FULL deliverable content as rich Markdown
-   - The system handles IPFS upload or data URI encoding automatically
-   - NEVER just provide a link — include the actual work
+2. Choose the right delivery method based on what the client requested:
+   - **Text/Reports**: `store_deliverable` with content_type `text/markdown` (default) — write rich Markdown
+   - **PDF**: `store_deliverable` with content_type `application/pdf` — write as Markdown, system auto-generates PDF
+   - **Code/Repos**: `create_github_repo` with all source files — creates a public GitHub repository
+   - **Images**: `store_deliverable` with content_type `image/png` and `source_url` — finds/downloads image to IPFS
+   - **Audio**: `store_deliverable` with content_type `audio/mpeg` and `source_url`
+   - **Video**: `store_deliverable` with content_type `video/mp4` and `source_url`
+   - **Data/CSV**: `store_deliverable` with content_type `text/csv`
 3. Use the returned URL as `evidence_uri` when calling `xpr_deliver_job`
 4. If milestones exist, submit each with `xpr_submit_milestone`
+5. NEVER deliver just a URL or summary — always include the actual work
 
 ### 3. Reputation Monitoring
 - Check your score regularly with `xpr_get_agent_score`

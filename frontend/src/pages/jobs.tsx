@@ -73,6 +73,8 @@ export default function Jobs() {
 
   // Deliverable viewer
   const [deliverableContent, setDeliverableContent] = useState<string | null>(null);
+  const [deliverableType, setDeliverableType] = useState<string | null>(null);
+  const [deliverableMediaUrl, setDeliverableMediaUrl] = useState<string | null>(null);
   const [deliverableLoading, setDeliverableLoading] = useState(false);
 
   // Rating modal
@@ -167,6 +169,8 @@ export default function Jobs() {
     setBids([]);
     setShowBidForm(false);
     setDeliverableContent(null);
+    setDeliverableType(null);
+    setDeliverableMediaUrl(null);
   }
 
   // IPFS gateway fallback helpers
@@ -177,57 +181,104 @@ export default function Jobs() {
     return match ? match[1] : null;
   }
 
+  // Try to handle a fetch response — returns true if handled
+  function handleBinaryResponse(resp: Response, url: string): boolean {
+    const ct = (resp.headers.get('content-type') || '').split(';')[0].trim();
+    if (ct.includes('application/pdf') || ct.startsWith('image/') || ct.startsWith('audio/') || ct.startsWith('video/')) {
+      setDeliverableType(ct);
+      setDeliverableMediaUrl(url);
+      return true;
+    }
+    return false;
+  }
+
+  async function handleJsonResponse(resp: Response): Promise<boolean> {
+    try {
+      const data = await resp.json();
+      const ct = data.content_type || 'text/markdown';
+      setDeliverableType(ct);
+      if (data.media_url) setDeliverableMediaUrl(data.media_url);
+      setDeliverableContent(data.content || JSON.stringify(data, null, 2));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function fetchDeliverable(jobId: number) {
     setDeliverableLoading(true);
     setDeliverableContent(null);
+    setDeliverableType(null);
+    setDeliverableMediaUrl(null);
     try {
       const evidenceUri = await getJobEvidence(jobId);
       if (!evidenceUri) {
         setDeliverableContent('No evidence submitted');
         return;
       }
-      // Data URI — decode inline
+
+      // Data URI
       if (evidenceUri.startsWith('data:')) {
+        const mimeMatch = evidenceUri.match(/^data:([^;,]+)/);
+        const mime = mimeMatch?.[1] || 'application/json';
+        // Binary data URIs (PDF, image, audio, video)
+        if (mime === 'application/pdf' || mime.startsWith('image/') || mime.startsWith('audio/') || mime.startsWith('video/')) {
+          setDeliverableType(mime);
+          setDeliverableMediaUrl(evidenceUri);
+          return;
+        }
+        // JSON data URI (text content)
         try {
           const base64 = evidenceUri.split(',')[1];
           const decoded = JSON.parse(atob(base64));
+          setDeliverableType(decoded.content_type || 'text/markdown');
           setDeliverableContent(decoded.content || evidenceUri);
         } catch {
           setDeliverableContent(evidenceUri);
         }
         return;
       }
-      // HTTP(S) URL — try fetching directly first
+
+      // GitHub URL
+      if (evidenceUri.includes('github.com/')) {
+        setDeliverableType('github:repo');
+        setDeliverableMediaUrl(evidenceUri);
+        setDeliverableContent(evidenceUri);
+        return;
+      }
+
+      // HTTP(S) URL — try fetching, detect content type from response
       let fetched = false;
       try {
         const resp = await fetch(evidenceUri, { signal: AbortSignal.timeout(10000) });
         if (resp.ok) {
-          const data = await resp.json();
-          setDeliverableContent(data.content || JSON.stringify(data, null, 2));
-          fetched = true;
+          // Check for binary types first (PDF, image, audio, video)
+          if (handleBinaryResponse(resp, evidenceUri)) {
+            fetched = true;
+          } else {
+            fetched = await handleJsonResponse(resp);
+          }
         }
       } catch {
-        // Direct fetch failed — try IPFS gateway fallback
+        // Direct fetch failed
       }
+
+      // IPFS gateway fallback
       if (!fetched) {
         const cid = extractIpfsCid(evidenceUri);
         if (cid) {
           for (const gw of IPFS_GATEWAYS) {
             try {
-              const resp = await fetch(`${gw}${cid}`, { signal: AbortSignal.timeout(10000) });
+              const gwUrl = `${gw}${cid}`;
+              const resp = await fetch(gwUrl, { signal: AbortSignal.timeout(10000) });
               if (resp.ok) {
-                const data = await resp.json();
-                setDeliverableContent(data.content || JSON.stringify(data, null, 2));
-                fetched = true;
-                break;
+                if (handleBinaryResponse(resp, gwUrl)) { fetched = true; break; }
+                if (await handleJsonResponse(resp)) { fetched = true; break; }
               }
-            } catch {
-              // Try next gateway
-            }
+            } catch { /* next gateway */ }
           }
         }
         if (!fetched) {
-          // Show the URL as a clickable fallback
           setDeliverableContent(evidenceUri);
         }
       }
@@ -989,7 +1040,7 @@ export default function Jobs() {
                   <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                     <div className="flex justify-between items-center mb-2">
                       <h3 className="text-sm font-medium text-blue-400">Agent Deliverable</h3>
-                      {!deliverableContent && !deliverableLoading && (
+                      {!deliverableContent && !deliverableMediaUrl && !deliverableLoading && (
                         <button
                           onClick={() => fetchDeliverable(selectedJob.id)}
                           className="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -1001,15 +1052,70 @@ export default function Jobs() {
                     {deliverableLoading && (
                       <p className="text-sm text-blue-400">Loading deliverable...</p>
                     )}
-                    {deliverableContent && (
+
+                    {/* PDF embed */}
+                    {deliverableType === 'application/pdf' && deliverableMediaUrl && (
+                      <div>
+                        <iframe src={deliverableMediaUrl} className="w-full h-96 rounded border border-zinc-800 bg-white" />
+                        <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-purple-400 hover:text-purple-300 mt-2 inline-block">
+                          Download PDF &#8599;
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Image embed */}
+                    {deliverableType?.startsWith('image/') && deliverableMediaUrl && (
+                      <div>
+                        <img src={deliverableMediaUrl} alt="Deliverable" className="max-w-full rounded border border-zinc-800" />
+                        <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-purple-400 hover:text-purple-300 mt-2 inline-block">
+                          Open full size &#8599;
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Audio player */}
+                    {deliverableType?.startsWith('audio/') && deliverableMediaUrl && (
+                      <div>
+                        <audio src={deliverableMediaUrl} controls className="w-full" />
+                        <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-purple-400 hover:text-purple-300 mt-2 inline-block">
+                          Download audio &#8599;
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Video player */}
+                    {deliverableType?.startsWith('video/') && deliverableMediaUrl && (
+                      <div>
+                        <video src={deliverableMediaUrl} controls className="max-w-full rounded border border-zinc-800" />
+                        <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-purple-400 hover:text-purple-300 mt-2 inline-block">
+                          Download video &#8599;
+                        </a>
+                      </div>
+                    )}
+
+                    {/* GitHub repo link */}
+                    {deliverableType === 'github:repo' && deliverableMediaUrl && (
+                      <div className="flex items-center gap-2 bg-zinc-900 p-3 rounded border border-zinc-800">
+                        <svg className="w-5 h-5 text-zinc-400 shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+                        </svg>
+                        <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
+                          className="text-purple-400 hover:text-purple-300 underline break-all">
+                          {deliverableMediaUrl} &#8599;
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Text content (markdown, plain, csv, etc.) */}
+                    {deliverableContent && !deliverableMediaUrl && (
                       isUrl(deliverableContent) ? (
                         <div className="text-sm bg-zinc-900 p-3 rounded border border-zinc-800">
-                          <a
-                            href={deliverableContent}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-purple-400 hover:text-purple-300 underline break-all"
-                          >
+                          <a href={deliverableContent} target="_blank" rel="noopener noreferrer"
+                            className="text-purple-400 hover:text-purple-300 underline break-all">
                             {deliverableContent} &#8599;
                           </a>
                         </div>

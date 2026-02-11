@@ -102,15 +102,22 @@ systemPrompt += `\n\n## Runtime Context\n- Account: ${process.env.XPR_ACCOUNT}\n
 systemPrompt += `\n\n## Delivering Jobs
 When delivering a job, ALWAYS:
 1. Do the actual work — write the text, code, analysis, etc.
-2. Call \`store_deliverable\` with the FULL deliverable content (not a URL or summary)
+2. Store the deliverable using the right content_type:
+   - **Text/Markdown** (default): \`store_deliverable\` with content_type "text/markdown"
+   - **PDF**: \`store_deliverable\` with content_type "application/pdf" — a PDF is auto-generated from your Markdown
+   - **Code repos**: \`create_github_repo\` with all source files — creates a public GitHub repo
+   - **Images**: \`store_deliverable\` with content_type "image/png" (or jpeg/gif/webp) and source_url
+   - **Audio**: \`store_deliverable\` with content_type "audio/mpeg" and source_url
+   - **Video**: \`store_deliverable\` with content_type "video/mp4" and source_url
+   - **CSV/Data**: \`store_deliverable\` with content_type "text/csv"
 3. Use the returned URL as \`evidence_uri\` when calling \`xpr_deliver_job\`
 
 Format guidelines:
-- Write deliverables as **rich Markdown** (headings, lists, code blocks, bold)
-- For writing tasks: deliver the complete text with proper formatting
-- For code tasks: include full source code in fenced code blocks
-- For analysis tasks: use structured sections with headings
-- NEVER deliver just a URL — always include the actual work content`;
+- Write deliverables as **rich Markdown** (headings, lists, code blocks, bold, numbered lists)
+- If the client requests a PDF: write as Markdown, set content_type to "application/pdf"
+- If the client requests code: use \`create_github_repo\` with complete source files
+- For media (images/audio/video): find content via web search, then use source_url to upload
+- NEVER deliver just a URL or summary — always include the actual work content`;
 
 // Convert tools to Anthropic API format (lazy — picks up tools added later like store_deliverable)
 // Includes Anthropic's built-in web search tool for real-time internet access
@@ -594,19 +601,18 @@ app.post('/a2a', async (req, res) => {
 // Agents store deliverable content here before calling xpr_deliver_job.
 // Clients/frontend can fetch via GET /deliverables/:jobId
 const MAX_DELIVERABLES = 200;
-const deliverables = new Map<number, { content: string; content_type: string; created_at: string }>();
+const deliverables = new Map<number, { content: string; content_type: string; media_url?: string; created_at: string }>();
 
-function setDeliverable(jobId: number, entry: { content: string; content_type: string; created_at: string }): void {
+function setDeliverable(jobId: number, entry: { content: string; content_type: string; media_url?: string; created_at: string }): void {
   deliverables.set(jobId, entry);
-  // LRU eviction: remove oldest entries if over capacity
   if (deliverables.size > MAX_DELIVERABLES) {
     const oldest = deliverables.keys().next().value;
     if (oldest !== undefined) deliverables.delete(oldest);
   }
 }
 
-// Upload to IPFS via Pinata if configured
-async function uploadToIpfs(content: string, jobId: number, contentType: string): Promise<string | null> {
+// Upload JSON to IPFS via Pinata (for text-based content)
+async function uploadJsonToIpfs(content: string, jobId: number, contentType: string): Promise<string | null> {
   const jwt = process.env.PINATA_JWT;
   if (!jwt) return null;
   try {
@@ -619,47 +625,265 @@ async function uploadToIpfs(content: string, jobId: number, contentType: string)
       }),
     });
     const data = await resp.json() as { IpfsHash?: string };
-    if (data.IpfsHash) {
-      return `https://ipfs.io/ipfs/${data.IpfsHash}`;
-    }
-  } catch (e) { console.error('[ipfs] Pinata upload failed:', e); }
+    if (data.IpfsHash) return `https://ipfs.io/ipfs/${data.IpfsHash}`;
+  } catch (e) { console.error('[ipfs] JSON upload failed:', e); }
   return null;
 }
 
-// Encode content as a data URI (works without any external service)
+// Upload binary file to IPFS via Pinata (for PDF, images, audio, video)
+async function uploadBinaryToIpfs(buffer: Buffer, filename: string, mimeType: string): Promise<string | null> {
+  const jwt = process.env.PINATA_JWT;
+  if (!jwt) return null;
+  try {
+    const formData = new FormData();
+    formData.append('file', new Blob([buffer], { type: mimeType }), filename);
+    formData.append('pinataMetadata', JSON.stringify({ name: filename }));
+    const resp = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${jwt}` },
+      body: formData,
+    });
+    const data = await resp.json() as { IpfsHash?: string };
+    if (data.IpfsHash) return `https://ipfs.io/ipfs/${data.IpfsHash}`;
+  } catch (e) { console.error('[ipfs] Binary upload failed:', e); }
+  return null;
+}
+
+// Download binary content from a URL
+const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50MB
+async function downloadFromUrl(url: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+  if (!/^https?:\/\//.test(url)) return null;
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(30000), redirect: 'follow' });
+    if (!resp.ok) return null;
+    const contentType = resp.headers.get('content-type') || 'application/octet-stream';
+    const contentLength = parseInt(resp.headers.get('content-length') || '0');
+    if (contentLength > MAX_DOWNLOAD_SIZE) { console.warn(`[download] Too large: ${contentLength}`); return null; }
+    const arrayBuffer = await resp.arrayBuffer();
+    if (arrayBuffer.byteLength > MAX_DOWNLOAD_SIZE) return null;
+    return { buffer: Buffer.from(arrayBuffer), mimeType: contentType.split(';')[0].trim() };
+  } catch (e) { console.error(`[download] Failed: ${url}`, e); return null; }
+}
+
+// Generate PDF from markdown content using pdfkit
+function stripMarkdownInline(text: string): string {
+  return text.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1').replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1');
+}
+
+async function generatePdfFromMarkdown(content: string): Promise<Buffer> {
+  const PDFDocument = require('pdfkit');
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      const lines = content.split('\n');
+      let inCodeBlock = false;
+      for (const line of lines) {
+        if (line.startsWith('```')) { inCodeBlock = !inCodeBlock; doc.moveDown(0.3); continue; }
+        if (inCodeBlock) { doc.fontSize(9).font('Courier').text(line); continue; }
+        if (line.startsWith('# ')) {
+          doc.moveDown(0.5).fontSize(22).font('Helvetica-Bold').text(stripMarkdownInline(line.slice(2))).moveDown(0.3);
+        } else if (line.startsWith('## ')) {
+          doc.moveDown(0.4).fontSize(17).font('Helvetica-Bold').text(stripMarkdownInline(line.slice(3))).moveDown(0.2);
+        } else if (line.startsWith('### ')) {
+          doc.moveDown(0.3).fontSize(14).font('Helvetica-Bold').text(stripMarkdownInline(line.slice(4))).moveDown(0.2);
+        } else if (/^[-*] /.test(line)) {
+          doc.fontSize(11).font('Helvetica').text(`  \u2022 ${stripMarkdownInline(line.slice(2))}`, { indent: 10 });
+        } else if (/^\d+\.\s/.test(line)) {
+          const m = line.match(/^(\d+\.)\s(.*)/);
+          if (m) doc.fontSize(11).font('Helvetica').text(`  ${m[1]} ${stripMarkdownInline(m[2])}`, { indent: 10 });
+        } else if (line.trim() === '') {
+          doc.moveDown(0.4);
+        } else {
+          doc.fontSize(11).font('Helvetica').text(stripMarkdownInline(line));
+        }
+      }
+      doc.end();
+    } catch (err) { reject(err); }
+  });
+}
+
+// Create a GitHub repo with deliverable files
+async function createGithubRepo(
+  jobId: number, repoName: string, description: string, files: Record<string, string>
+): Promise<string | null> {
+  const token = process.env.GITHUB_TOKEN;
+  const owner = process.env.GITHUB_OWNER;
+  if (!token || !owner) return null;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json',
+    'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28',
+  };
+  try {
+    // Create repo
+    const createResp = await fetch('https://api.github.com/user/repos', {
+      method: 'POST', headers,
+      body: JSON.stringify({ name: repoName, description, private: false, auto_init: true }),
+    });
+    if (!createResp.ok) { console.error('[github] Create repo failed:', await createResp.text()); return null; }
+    const repo = await createResp.json() as { full_name: string; html_url: string; default_branch: string };
+
+    // Get base tree SHA
+    const refResp = await fetch(`https://api.github.com/repos/${repo.full_name}/git/ref/heads/${repo.default_branch}`, { headers });
+    const refData = await refResp.json() as { object: { sha: string } };
+    const commitResp = await fetch(`https://api.github.com/repos/${repo.full_name}/git/commits/${refData.object.sha}`, { headers });
+    const commitData = await commitResp.json() as { tree: { sha: string } };
+
+    // Create blobs + tree
+    const treeItems: Array<{ path: string; mode: string; type: string; sha: string }> = [];
+    for (const [filePath, fileContent] of Object.entries(files)) {
+      const blobResp = await fetch(`https://api.github.com/repos/${repo.full_name}/git/blobs`, {
+        method: 'POST', headers, body: JSON.stringify({ content: fileContent, encoding: 'utf-8' }),
+      });
+      const blobData = await blobResp.json() as { sha: string };
+      treeItems.push({ path: filePath, mode: '100644', type: 'blob', sha: blobData.sha });
+    }
+    const treeResp = await fetch(`https://api.github.com/repos/${repo.full_name}/git/trees`, {
+      method: 'POST', headers, body: JSON.stringify({ base_tree: commitData.tree.sha, tree: treeItems }),
+    });
+    const treeData = await treeResp.json() as { sha: string };
+
+    // Create commit + update ref
+    const newCommitResp = await fetch(`https://api.github.com/repos/${repo.full_name}/git/commits`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ message: `Job #${jobId} deliverable`, tree: treeData.sha, parents: [refData.object.sha] }),
+    });
+    const newCommitData = await newCommitResp.json() as { sha: string };
+    await fetch(`https://api.github.com/repos/${repo.full_name}/git/refs/heads/${repo.default_branch}`, {
+      method: 'PATCH', headers, body: JSON.stringify({ sha: newCommitData.sha }),
+    });
+
+    console.log(`[github] Created repo: ${repo.html_url}`);
+    return repo.html_url;
+  } catch (e) { console.error('[github] Failed:', e); return null; }
+}
+
+// Encode text content as a data URI (fallback when no IPFS)
 function toDataUri(content: string, contentType: string): string {
   const json = JSON.stringify({ content, content_type: contentType, created_at: new Date().toISOString() });
   return `data:application/json;base64,${Buffer.from(json).toString('base64')}`;
 }
 
-// Internal tool: store_deliverable
+// ── Tool: store_deliverable ──
+// Unified deliverable pipeline: routes by content_type to the right storage strategy
 tools.push({
   name: 'store_deliverable',
-  description: 'Store job deliverable content before delivering on-chain. Uploads to IPFS if PINATA_JWT is set, otherwise embeds as data URI. Call this BEFORE xpr_deliver_job.',
+  description: [
+    'Store job deliverable content before delivering on-chain. Call this BEFORE xpr_deliver_job.',
+    'Routes by content_type:',
+    '  text/markdown (default) — stores as JSON on IPFS',
+    '  application/pdf — generates PDF from your Markdown, uploads binary to IPFS',
+    '  image/*, audio/*, video/* — downloads source_url and uploads binary to IPFS',
+    '  text/csv, text/plain, text/html — stores as JSON on IPFS',
+  ].join('\n'),
   parameters: {
     type: 'object',
     required: ['job_id', 'content'],
     properties: {
       job_id: { type: 'number', description: 'Job ID' },
-      content: { type: 'string', description: 'The full deliverable content (text, markdown, etc.)' },
-      content_type: { type: 'string', description: 'MIME type of the content (default: text/markdown)' },
+      content: { type: 'string', description: 'Full deliverable content (markdown, text, CSV, etc.). For media types, can be empty if source_url is provided.' },
+      content_type: { type: 'string', description: 'MIME type: text/markdown (default), application/pdf, image/png, audio/mpeg, video/mp4, text/csv, etc.' },
+      source_url: { type: 'string', description: 'URL to download binary content from (for image/audio/video). The file is downloaded and uploaded to IPFS.' },
+      filename: { type: 'string', description: 'Optional filename for the deliverable (e.g. "report.pdf")' },
     },
   },
-  handler: async ({ job_id, content, content_type }: { job_id: number; content: string; content_type?: string }) => {
+  handler: async ({ job_id, content, content_type, source_url, filename }: {
+    job_id: number; content: string; content_type?: string; source_url?: string; filename?: string;
+  }) => {
     const ct = content_type || 'text/markdown';
-    setDeliverable(job_id, { content, content_type: ct, created_at: new Date().toISOString() });
+    const ts = new Date().toISOString();
 
-    // Try IPFS first (Pinata)
-    const ipfsUrl = await uploadToIpfs(content, job_id, ct);
-    if (ipfsUrl) {
-      console.log(`[deliverable] Job ${job_id} pinned to IPFS: ${ipfsUrl}`);
-      return { stored: true, url: ipfsUrl, storage: 'ipfs' };
+    // ── PDF: generate from markdown, upload binary ──
+    if (ct === 'application/pdf') {
+      try {
+        const pdfBuffer = await generatePdfFromMarkdown(content);
+        setDeliverable(job_id, { content, content_type: ct, created_at: ts });
+        const ipfsUrl = await uploadBinaryToIpfs(pdfBuffer, filename || `job-${job_id}.pdf`, 'application/pdf');
+        if (ipfsUrl) {
+          console.log(`[deliverable] Job ${job_id} PDF → IPFS: ${ipfsUrl}`);
+          return { stored: true, url: ipfsUrl, storage: 'ipfs', content_type: ct };
+        }
+        // Fallback: PDF as data URI
+        const dataUri = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
+        console.log(`[deliverable] Job ${job_id} PDF → data URI`);
+        return { stored: true, url: dataUri, storage: 'data_uri', content_type: ct };
+      } catch (err: any) {
+        console.error(`[deliverable] PDF generation failed:`, err.message);
+        return { stored: false, error: `PDF generation failed: ${err.message}` };
+      }
     }
 
-    // Default: data URI (content embedded directly, no external service needed)
+    // ── Binary media: download source_url → IPFS ──
+    if (ct.startsWith('image/') || ct.startsWith('audio/') || ct.startsWith('video/') || ct === 'application/octet-stream') {
+      let buffer: Buffer | null = null;
+      let mimeType = ct;
+
+      if (source_url) {
+        const downloaded = await downloadFromUrl(source_url);
+        if (downloaded) { buffer = downloaded.buffer; mimeType = downloaded.mimeType || ct; }
+      } else if (content) {
+        // Content provided as base64
+        buffer = Buffer.from(content, 'base64');
+      }
+
+      if (!buffer) return { stored: false, error: 'Failed to obtain binary content. Provide source_url for media types.' };
+
+      setDeliverable(job_id, { content: source_url || '[binary]', content_type: mimeType, created_at: ts });
+      const ext = mimeType.split('/')[1]?.split('+')[0] || 'bin';
+      const ipfsUrl = await uploadBinaryToIpfs(buffer, filename || `job-${job_id}.${ext}`, mimeType);
+      if (ipfsUrl) {
+        console.log(`[deliverable] Job ${job_id} ${mimeType} → IPFS: ${ipfsUrl}`);
+        return { stored: true, url: ipfsUrl, storage: 'ipfs', content_type: mimeType };
+      }
+      const dataUri = `data:${mimeType};base64,${buffer.toString('base64')}`;
+      return { stored: true, url: dataUri, storage: 'data_uri', content_type: mimeType };
+    }
+
+    // ── Text types: markdown, plain, csv, html — JSON on IPFS ──
+    setDeliverable(job_id, { content, content_type: ct, created_at: ts });
+    const ipfsUrl = await uploadJsonToIpfs(content, job_id, ct);
+    if (ipfsUrl) {
+      console.log(`[deliverable] Job ${job_id} ${ct} → IPFS: ${ipfsUrl}`);
+      return { stored: true, url: ipfsUrl, storage: 'ipfs', content_type: ct };
+    }
     const dataUri = toDataUri(content, ct);
-    console.log(`[deliverable] Job ${job_id} encoded as data URI (${dataUri.length} chars)`);
-    return { stored: true, url: dataUri, storage: 'data_uri' };
+    console.log(`[deliverable] Job ${job_id} ${ct} → data URI (${dataUri.length} chars)`);
+    return { stored: true, url: dataUri, storage: 'data_uri', content_type: ct };
+  },
+});
+
+// ── Tool: create_github_repo ──
+tools.push({
+  name: 'create_github_repo',
+  description: 'Create a GitHub repository with code deliverables for a job. Requires GITHUB_TOKEN and GITHUB_OWNER env vars. Returns the repo URL to use as evidence_uri when calling xpr_deliver_job.',
+  parameters: {
+    type: 'object',
+    required: ['job_id', 'name', 'files'],
+    properties: {
+      job_id: { type: 'number', description: 'Job ID' },
+      name: { type: 'string', description: 'Repository name (e.g. "job-59-credit-union-report")' },
+      description: { type: 'string', description: 'Repository description' },
+      files: { type: 'object', description: 'Object mapping file paths to content, e.g. {"src/index.ts": "...", "README.md": "..."}' },
+    },
+  },
+  handler: async ({ job_id, name, description, files }: {
+    job_id: number; name: string; description?: string; files: Record<string, string>;
+  }) => {
+    if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_OWNER) {
+      return { error: 'GitHub not configured. Set GITHUB_TOKEN and GITHUB_OWNER in .env' };
+    }
+    const repoUrl = await createGithubRepo(job_id, name, description || `Deliverable for job #${job_id}`, files);
+    if (!repoUrl) return { error: 'Failed to create GitHub repository' };
+
+    setDeliverable(job_id, {
+      content: `GitHub repository: ${repoUrl}\n\nFiles: ${Object.keys(files).join(', ')}`,
+      content_type: 'github:repo', media_url: repoUrl, created_at: new Date().toISOString(),
+    });
+    return { stored: true, url: repoUrl, storage: 'github', content_type: 'github:repo' };
   },
 });
 
@@ -670,8 +894,7 @@ app.get('/deliverables/:jobId', (req, res) => {
   if (!entry) {
     return res.status(404).json({ error: 'Deliverable not found' });
   }
-  // Return as JSON with content
-  res.json({ job_id: jobId, content: entry.content, content_type: entry.content_type, created_at: entry.created_at });
+  res.json({ job_id: jobId, content: entry.content, content_type: entry.content_type, media_url: entry.media_url, created_at: entry.created_at });
 });
 
 // Health check
