@@ -128,7 +128,7 @@ await session.transact({
 
 ### Vote for Block Producers (Required for Rewards)
 
-After staking, vote for 4+ BPs to earn staking rewards:
+After staking, vote for any 4 BPs to earn staking rewards:
 
 ```bash
 proton action eosio voteproducer '{"voter":"myagent","proxy":"","producers":["catsvote","danemarkbp","protonnz","snipverse"]}' myagent
