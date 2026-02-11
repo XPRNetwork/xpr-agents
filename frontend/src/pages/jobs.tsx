@@ -76,6 +76,7 @@ export default function Jobs() {
   const [deliverableType, setDeliverableType] = useState<string | null>(null);
   const [deliverableMediaUrl, setDeliverableMediaUrl] = useState<string | null>(null);
   const [deliverableLoading, setDeliverableLoading] = useState(false);
+  const [evidenceUrl, setEvidenceUrl] = useState<string | null>(null);
 
   // Rating modal
   const [showRating, setShowRating] = useState(false);
@@ -171,6 +172,7 @@ export default function Jobs() {
     setDeliverableContent(null);
     setDeliverableType(null);
     setDeliverableMediaUrl(null);
+    setEvidenceUrl(null);
   }
 
   // IPFS gateway fallback helpers
@@ -216,6 +218,7 @@ export default function Jobs() {
         setDeliverableContent('No evidence submitted');
         return;
       }
+      setEvidenceUrl(evidenceUri);
 
       // Data URI
       if (evidenceUri.startsWith('data:')) {
@@ -567,8 +570,10 @@ export default function Jobs() {
 
   // Lightweight markdown renderer (no external deps)
   function renderMarkdown(text: string): string {
+    // Strip <cite> tags from web search results (e.g. <cite index="10-15">text</cite>)
+    let html = text.replace(/<cite[^>]*>([\s\S]*?)<\/cite>/g, '$1');
     // Escape HTML
-    let html = text
+    html = html
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
@@ -624,13 +629,19 @@ export default function Jobs() {
       // Close list if not a list item
       if (inList) { result.push('</ul>'); inList = false; }
 
+      // Horizontal rule
+      if (/^---+$/.test(line.trim())) {
+        result.push('<hr style="border-color:#3f3f46;margin:12px 0"/>');
+        continue;
+      }
+
       // Blank line = paragraph break
       if (line.trim() === '') {
         result.push('<br/>');
         continue;
       }
 
-      // Regular paragraph
+      // Regular paragraph (applyInline handles images, bold, code, links)
       result.push(`<p style="margin:4px 0">${applyInline(line)}</p>`);
     }
     if (inList) result.push('</ul>');
@@ -638,14 +649,23 @@ export default function Jobs() {
     return result.join('\n');
   }
 
-  // Inline markdown: bold, inline code, links
+  // Inline markdown: images, bold, inline code, links
+  // Note: HTML is already escaped, so URLs have &amp; instead of &
   function applyInline(text: string): string {
+    // Unescape &amp; back to & in URLs for proper rendering
+    function unescapeUrl(url: string): string {
+      return url.replace(/&amp;/g, '&');
+    }
+    // Images ![alt](url) — must be before links
+    text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^\)]+)\)/g, (_m, alt, url) =>
+      `<img src="${unescapeUrl(url)}" alt="${alt}" style="max-width:100%;border-radius:8px;margin:8px 0" loading="lazy" />`);
     // Bold
     text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     // Inline code
     text = text.replace(/`([^`]+)`/g, '<code style="background:#27272a;padding:1px 4px;border-radius:3px;font-size:0.9em">$1</code>');
     // Links [text](url)
-    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#a78bfa;text-decoration:underline">$1</a>');
+    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, (_m, label, url) =>
+      `<a href="${unescapeUrl(url)}" target="_blank" rel="noopener noreferrer" style="color:#a78bfa;text-decoration:underline">${label}</a>`);
     return text;
   }
 
@@ -1049,7 +1069,13 @@ export default function Jobs() {
                       )}
                     </div>
                     {deliverableLoading && (
-                      <p className="text-sm text-blue-400">Loading deliverable...</p>
+                      <div className="flex items-center gap-3 py-6 justify-center">
+                        <svg className="animate-spin h-5 w-5 text-purple-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        <span className="text-sm text-zinc-400">Fetching from IPFS...</span>
+                      </div>
                     )}
 
                     {/* PDF embed */}
@@ -1128,6 +1154,17 @@ export default function Jobs() {
                           {deliverableContent}
                         </div>
                       )
+                    )}
+
+                    {/* Direct IPFS link — always visible once we have the evidence URI */}
+                    {evidenceUrl && !evidenceUrl.startsWith('data:') && (
+                      <a href={evidenceUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-zinc-500 hover:text-purple-400 mt-2 inline-flex items-center gap-1">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                        View raw on IPFS
+                      </a>
                     )}
                   </div>
                 )}
