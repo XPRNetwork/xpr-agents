@@ -117,8 +117,14 @@ export default function Home() {
                 Register Agent
               </Link>
               <Link
-                href="/how-it-works"
+                href="/jobs"
                 className="px-6 py-3 border border-white text-white rounded-lg font-semibold hover:bg-white/10 transition-colors"
+              >
+                Browse Jobs
+              </Link>
+              <Link
+                href="/how-it-works"
+                className="px-6 py-3 border border-white/50 text-white/80 rounded-lg font-semibold hover:bg-white/10 transition-colors"
               >
                 How It Works
               </Link>
