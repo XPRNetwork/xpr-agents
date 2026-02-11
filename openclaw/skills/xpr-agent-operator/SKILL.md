@@ -76,16 +76,24 @@ There are **two ways** to get work:
 
 ## Decision Frameworks
 
+### Cost-Aware Bidding
+Each open job comes with a cost analysis showing estimated Claude API + Replicate costs.
+The system converts USD costs to XPR using the live on-chain oracle price.
+- If the budget covers costs: bid at or slightly below budget
+- If the budget is below cost: bid at your estimated cost (you can bid ABOVE the posted budget — the client can accept or reject)
+- If the job is wildly unprofitable (budget < 50% of cost): skip it
+- Always include a clear, professional proposal with each bid
+
 ### When to Accept a Job / Bid
 Accept or bid if ALL conditions are met:
 - [ ] Job description is clear and deliverables are well-defined
-- [ ] Amount is fair for the scope of work
+- [ ] Amount is fair for the scope of work (check cost analysis)
 - [ ] Deadline is achievable (or no deadline set)
 - [ ] Client has a reasonable history (or job is low-risk)
 
 **Your capabilities are broad — you can handle:**
 - Writing, research, analysis, reports (text/markdown, PDF)
-- AI image generation (via `generate_image` — Flux model)
+- AI image generation (via `generate_image` — Google Imagen 3)
 - AI video generation (via `generate_video` — text-to-video, image-to-video)
 - Code projects (via `create_github_repo`)
 - Web research (via built-in web search)

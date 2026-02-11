@@ -127,13 +127,22 @@ When delivering a job, ALWAYS:
 3. Use the returned URL as \`evidence_uri\` when calling \`xpr_deliver_job\`
 
 **You have powerful creative capabilities:**
-- AI image generation (Flux model via Replicate) — photorealistic, artistic, any style
+- AI image generation (Google Imagen 3 via Replicate) — photorealistic, artistic, any style
 - AI video generation — text-to-video and image-to-video
 - PDF generation — professional documents from Markdown
 - GitHub repos — complete code projects with multiple files
 - Web search — find and source existing content from the internet
 - NEVER say you can't create images or videos — you have the tools!
-- NEVER deliver just a URL or summary — always include the actual work content`;
+- NEVER deliver just a URL or summary — always include the actual work content
+
+## Bidding on Open Jobs
+When you see an open job with cost analysis:
+1. Review the cost estimate — it accounts for Claude API + Replicate (image/video) costs
+2. If the budget covers costs: bid at or slightly below budget
+3. If the budget is below cost: bid at your estimated cost (you can bid above budget)
+4. If the job is wildly unprofitable (budget < 50% of cost): skip it
+5. Always include a clear proposal explaining what you'll deliver and how
+6. Set a reasonable timeline based on job complexity (hours, not days for most tasks)`;
 
 // Convert tools to Anthropic API format (lazy — picks up tools added later like store_deliverable)
 // Includes Anthropic's built-in web search tool for real-time internet access
@@ -909,11 +918,11 @@ tools.push({
 });
 
 // ── Tool: generate_image ──
-// AI image generation via Replicate (Flux Schnell — fast, high quality)
+// AI image generation via Replicate (Google Nano Banana — high quality)
 tools.push({
   name: 'generate_image',
   description: [
-    'Generate an AI image and optionally store it as a job deliverable in one step.',
+    'Generate an AI image using Google Nano Banana and optionally store it as a job deliverable in one step.',
     'If job_id is provided: generates image, uploads to IPFS, and returns the evidence_uri ready for xpr_deliver_job.',
     'If no job_id: just returns the image URL.',
     'Requires REPLICATE_API_TOKEN in .env.',
@@ -924,23 +933,21 @@ tools.push({
     properties: {
       prompt: { type: 'string', description: 'Detailed description of the image to generate. Be specific about style, composition, colors, lighting.' },
       job_id: { type: 'number', description: 'If provided, auto-stores the generated image as an IPFS deliverable for this job. Use the returned evidence_uri directly with xpr_deliver_job.' },
-      aspect_ratio: { type: 'string', description: 'Aspect ratio: "1:1" (default), "16:9", "9:16", "4:3", "3:4", "21:9"' },
-      num_outputs: { type: 'number', description: 'Number of images (1-4, default 1)' },
+      aspect_ratio: { type: 'string', description: 'Aspect ratio: "1:1" (default), "16:9", "9:16", "4:3", "3:4"' },
     },
   },
-  handler: async ({ prompt, job_id, aspect_ratio, num_outputs }: { prompt: string; job_id?: number; aspect_ratio?: string; num_outputs?: number }) => {
+  handler: async ({ prompt, job_id, aspect_ratio }: { prompt: string; job_id?: number; aspect_ratio?: string }) => {
     const token = process.env.REPLICATE_API_TOKEN;
     if (!token) return { error: 'REPLICATE_API_TOKEN not set. Add it to .env to enable AI image generation.' };
 
     try {
-      const createResp = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
+      const createResp = await fetch('https://api.replicate.com/v1/models/google/imagen-3/predictions', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Prefer: 'wait' },
         body: JSON.stringify({
           input: {
             prompt,
             aspect_ratio: aspect_ratio || '1:1',
-            num_outputs: Math.min(num_outputs || 1, 4),
             output_format: 'png',
           },
         }),
@@ -1005,7 +1012,7 @@ tools.push({
         urls: outputs,
         primary_url: outputs[0],
         prompt,
-        model: 'flux-schnell',
+        model: 'google-imagen-3',
         instruction: 'Call store_deliverable with content_type "image/png" and source_url set to primary_url, then xpr_deliver_job.',
       };
     } catch (e: any) {
@@ -1201,6 +1208,118 @@ function loadPollerState(): boolean {
   }
 }
 
+// ── XPR Price Oracle (mainnet on-chain) ──────
+// Always queries mainnet oracle for accurate price data, even on testnet.
+let cachedXprPrice = 0;
+let xprPriceFetchedAt = 0;
+const XPR_PRICE_CACHE_MS = 5 * 60 * 1000;
+
+async function getXprUsdPrice(): Promise<number> {
+  const MAINNET_RPC = 'https://proton.eosusa.io';
+  const resp = await fetch(`${MAINNET_RPC}/v1/chain/get_table_rows`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      json: true,
+      code: 'oracles',
+      scope: 'oracles',
+      table: 'data',
+      lower_bound: 3,  // XPR/USD feed_index
+      upper_bound: 4,
+      limit: 1,
+    }),
+  });
+  const { rows } = await resp.json() as { rows: Array<{ aggregate?: { d_double?: string | number | null } }> };
+  const raw = rows[0]?.aggregate?.d_double;
+  const price = typeof raw === 'string' ? parseFloat(raw) : (raw || 0);
+  if (price > 0) console.log(`[oracle] XPR/USD price: $${price.toFixed(6)}`);
+  return price;
+}
+
+async function getCachedXprPrice(): Promise<number> {
+  if (Date.now() - xprPriceFetchedAt < XPR_PRICE_CACHE_MS && cachedXprPrice > 0) {
+    return cachedXprPrice;
+  }
+  try {
+    cachedXprPrice = await getXprUsdPrice();
+    xprPriceFetchedAt = Date.now();
+  } catch (err: any) {
+    console.error(`[oracle] Failed to fetch XPR price: ${err.message}`);
+  }
+  return cachedXprPrice;
+}
+
+// ── Cost Estimation ──────────────────────────
+interface CostEstimate {
+  estimated_usd: number;
+  estimated_xpr: number;
+  breakdown: string;
+  job_type: string;
+  xpr_price_usd: number;
+}
+
+const COST_MARGIN = parseFloat(process.env.COST_MARGIN || '1.3');
+
+async function estimateJobCost(title: string, description: string, deliverables: string): Promise<CostEstimate> {
+  const text = `${title} ${description} ${deliverables}`.toLowerCase();
+  const xprPrice = await getCachedXprPrice();
+
+  let claudeCost = 0.10;  // Base: minimal Claude usage
+  let replicateCost = 0;
+  let jobType = 'text';
+
+  // Image generation detection
+  const imageKeywords = ['image', 'picture', 'photo', 'illustration', 'logo', 'design', 'graphic', 'art', 'draw', 'visual', 'banner', 'poster', 'thumbnail'];
+  const hasImage = imageKeywords.some(k => text.includes(k));
+
+  // Video generation detection
+  const videoKeywords = ['video', 'animation', 'motion', 'clip', 'footage'];
+  const hasVideo = videoKeywords.some(k => text.includes(k));
+
+  // Code/analysis detection (heavier Claude usage)
+  const codeKeywords = ['code', 'program', 'develop', 'build', 'implement', 'api', 'script', 'function', 'app', 'software', 'debug', 'fix'];
+  const hasCode = codeKeywords.some(k => text.includes(k));
+
+  // Research/writing detection
+  const researchKeywords = ['research', 'report', 'analysis', 'write', 'article', 'essay', 'documentation', 'blog', 'content', 'review', 'audit'];
+  const hasResearch = researchKeywords.some(k => text.includes(k));
+
+  if (hasVideo) {
+    jobType = 'video';
+    claudeCost = 0.15;
+    replicateCost = 0.25;  // video generation ~$0.25
+  } else if (hasImage) {
+    jobType = 'image';
+    claudeCost = 0.15;
+    const estimatedImages = 2;
+    replicateCost = estimatedImages * 0.039;  // Google Nano Banana @ $0.039/img
+  } else if (hasCode) {
+    jobType = 'code';
+    claudeCost = 0.80;  // Heavier Claude usage for code tasks
+  } else if (hasResearch) {
+    jobType = 'research';
+    claudeCost = 0.50;  // Moderate Claude usage
+  } else {
+    jobType = 'general';
+    claudeCost = 0.30;
+  }
+
+  const totalUsd = claudeCost + replicateCost;
+  const totalWithMargin = totalUsd * COST_MARGIN;
+  const estimatedXpr = xprPrice > 0 ? Math.ceil(totalWithMargin / xprPrice) : 0;
+
+  const breakdown = [
+    `Type: ${jobType}`,
+    `Claude API: ~$${claudeCost.toFixed(2)}`,
+    replicateCost > 0 ? `Replicate: ~$${replicateCost.toFixed(2)}` : null,
+    `Subtotal: $${totalUsd.toFixed(2)} + ${Math.round((COST_MARGIN - 1) * 100)}% margin = $${totalWithMargin.toFixed(2)}`,
+    `XPR price: $${xprPrice.toFixed(6)}`,
+    `Estimated: ${estimatedXpr.toLocaleString()} XPR`,
+  ].filter(Boolean).join(' | ');
+
+  return { estimated_usd: totalWithMargin, estimated_xpr: estimatedXpr, breakdown, job_type: jobType, xpr_price_usd: xprPrice };
+}
+
 async function pollOnChain(): Promise<void> {
   if (shuttingDown) return;
   const account = process.env.XPR_ACCOUNT;
@@ -1289,10 +1408,28 @@ async function pollOnChain(): Promise<void> {
 
         const budgetXpr = (job.amount / 10000).toFixed(4);
         console.log(`[poller] ${firstPoll ? 'Existing' : 'New'} open job #${job.id}: "${job.title}" (${budgetXpr} XPR)`);
+
+        // Estimate costs before triggering Claude
+        const cost = await estimateJobCost(job.title, job.description || '', job.deliverables || '');
+        const budgetUsd = (parseFloat(budgetXpr) * cost.xpr_price_usd).toFixed(2);
+
+        const prompt = `${firstPoll ? 'Existing' : 'New'} open job #${job.id} "${job.title}" with budget ${budgetXpr} XPR.
+
+## Cost Analysis
+- Job type: ${cost.job_type}
+- Estimated cost: ${cost.estimated_xpr.toLocaleString()} XPR ($${cost.estimated_usd.toFixed(2)} USD)
+- Cost breakdown: ${cost.breakdown}
+- Job budget: ${budgetXpr} XPR ($${budgetUsd} USD)
+- ${cost.estimated_xpr > parseFloat(budgetXpr) ? 'WARNING: Budget is BELOW estimated cost — bid higher to cover costs or skip' : 'Budget covers estimated costs'}
+
+Evaluate this job. If bidding, set your bid amount based on the cost analysis above.
+You MAY bid above the posted budget if costs require it — the client can accept or reject.`;
+
         runAgent('poll:new_open_job', {
           job_id: job.id, client: job.client, title: job.title,
           description: job.description, budget_xpr: budgetXpr, deadline: job.deadline,
-        }, `${firstPoll ? 'Existing' : 'New'} open job #${job.id} "${job.title}" with budget ${budgetXpr} XPR. When bidding, use the XPR amount directly (e.g. ${budgetXpr} or less). Evaluate if you should bid on it.`).catch(err => {
+          cost_estimate: cost,
+        }, prompt).catch(err => {
           console.error(`[poller] Failed to process open job:`, err.message);
         });
       }
