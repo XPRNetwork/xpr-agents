@@ -16,6 +16,18 @@ interface TableDef {
   detail: (row: any) => string;
 }
 
+const JOB_STATE_LABELS: Record<number, string> = {
+  0: 'Job Created',
+  1: 'Job Funded',
+  2: 'Job Accepted',
+  3: 'Job In Progress',
+  4: 'Job Delivered',
+  5: 'Job Disputed',
+  6: 'Job Completed',
+  7: 'Job Refunded',
+  8: 'Job Arbitrated',
+};
+
 const TABLES: TableDef[] = [
   {
     code: 'agentcore',
@@ -32,8 +44,11 @@ const TABLES: TableDef[] = [
   {
     code: 'agentescrow',
     table: 'jobs',
-    label: 'Job Activity',
-    detail: (r) => r.title ? `"${r.title.slice(0, 40)}"` : '',
+    label: '',  // dynamic, set below
+    detail: (r) => {
+      const stateLabel = JOB_STATE_LABELS[parseInt(r.state)] || 'Job Activity';
+      return r.title ? `${stateLabel}: "${r.title.slice(0, 40)}"` : stateLabel;
+    },
   },
   {
     code: 'agentescrow',
@@ -119,8 +134,9 @@ export function useChainStream(): ChainStreamResult {
 
           if (initializedRef.current && prev && fp !== prev) {
             const detail = def.detail(rows[0]);
+            const label = def.label || (JOB_STATE_LABELS[parseInt(rows[0]?.state)] || 'Job Activity');
             keyRef.current += 1;
-            setLastEvent({ label: def.label, detail, key: keyRef.current });
+            setLastEvent({ label, detail, key: keyRef.current });
             setPulseCount((c) => c + 1);
           }
         } catch {

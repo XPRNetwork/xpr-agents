@@ -1,16 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { AccountAvatar } from '@/components/AccountAvatar';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
+import { useChainStream } from '@/hooks/useChainStream';
 import {
   CONTRACTS,
   formatXpr,
   formatDate,
   formatTimeline,
   getAllJobs,
+  getBidCounts,
   getBidsForJob,
   getJobEvidence,
   getJobStateLabel,
@@ -108,16 +110,35 @@ export default function Jobs() {
   const [bidTimeline, setBidTimeline] = useState('');
   const [bidProposal, setBidProposal] = useState('');
 
+  // Bid counts for job cards
+  const [bidCounts, setBidCounts] = useState<Map<number, number>>(new Map());
+
+  // Chain stream for live updates
+  const { lastEvent } = useChainStream();
+  const lastEventKeyRef = useRef(0);
+
   useEffect(() => {
     loadJobs();
     getEscrowConfig().then(c => { if (c) setEscrowOwner(c.owner); }).catch(() => {});
   }, []);
 
+  // Auto-refresh and toast on chain events (job/bid changes)
+  useEffect(() => {
+    if (!lastEvent || lastEvent.key === lastEventKeyRef.current) return;
+    lastEventKeyRef.current = lastEvent.key;
+    // Refresh jobs list on any job/bid/dispute event
+    if (lastEvent.label.startsWith('Job') || lastEvent.label === 'Bid Submitted' || lastEvent.label === 'Dispute Raised') {
+      loadJobs();
+      addToast({ type: 'info', message: lastEvent.detail || lastEvent.label });
+    }
+  }, [lastEvent]);
+
   async function loadJobs() {
     setLoading(true);
     try {
-      const allJobs = await getAllJobs();
+      const [allJobs, counts] = await Promise.all([getAllJobs(), getBidCounts()]);
       setJobs(allJobs);
+      setBidCounts(counts);
     } catch (e) {
       console.error('Failed to load jobs:', e);
     } finally {
@@ -1027,6 +1048,8 @@ export default function Jobs() {
                       <div className="text-right text-xs text-zinc-500">
                         {job.agent && job.agent !== '.............' ? (
                           <span className="text-zinc-400">{job.agent}</span>
+                        ) : bidCounts.get(job.id) ? (
+                          <span className="text-amber-400 font-medium">{bidCounts.get(job.id)} bid{bidCounts.get(job.id)! > 1 ? 's' : ''} waiting</span>
                         ) : (
                           <span className="text-emerald-400">Open for bids</span>
                         )}

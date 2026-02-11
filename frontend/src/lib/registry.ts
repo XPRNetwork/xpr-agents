@@ -349,6 +349,24 @@ export async function getJobEvidence(jobId: number): Promise<string | null> {
   return null;
 }
 
+export async function getBidCounts(): Promise<Map<number, number>> {
+  const counts = new Map<number, number>();
+  try {
+    const result = await rpc.get_table_rows({
+      json: true,
+      code: CONTRACTS.AGENT_ESCROW,
+      scope: CONTRACTS.AGENT_ESCROW,
+      table: 'bids',
+      limit: 500,
+    });
+    for (const row of result.rows) {
+      const jobId = parseInt(row.job_id);
+      counts.set(jobId, (counts.get(jobId) || 0) + 1);
+    }
+  } catch { /* silent */ }
+  return counts;
+}
+
 export async function getBidsForJob(jobId: number): Promise<Bid[]> {
   const result = await rpc.get_table_rows({
     json: true,
