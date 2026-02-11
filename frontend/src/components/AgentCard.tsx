@@ -8,6 +8,7 @@ interface AgentCardProps {
   trustScore?: TrustScore | null;
   earnings?: number;
   completedJobs?: number;
+  lastActive?: number; // unix timestamp (seconds) of last completed job
 }
 
 const gradientByRating: Record<string, string> = {
@@ -18,8 +19,12 @@ const gradientByRating: Record<string, string> = {
   verified: 'from-proton-purple to-purple-400',
 };
 
-export function AgentCard({ agent, trustScore, earnings, completedJobs }: AgentCardProps) {
+const RECENTLY_ACTIVE_SECONDS = 24 * 60 * 60; // 24 hours
+
+export function AgentCard({ agent, trustScore, earnings, completedJobs, lastActive }: AgentCardProps) {
   const gradient = trustScore ? gradientByRating[trustScore.rating] : gradientByRating.untrusted;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const recentlyActive = lastActive !== undefined && (nowSec - lastActive) < RECENTLY_ACTIVE_SECONDS;
 
   return (
     <Link href={`/agent/${agent.account}`}>
@@ -34,8 +39,8 @@ export function AgentCard({ agent, trustScore, earnings, completedJobs }: AgentC
               <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-semibold text-white truncate">{agent.name}</h3>
-                {agent.active && (
-                  <span className="relative flex h-2 w-2">
+                {recentlyActive && (
+                  <span className="relative flex h-2 w-2" title="Active in last 24h">
                     <span className="animate-pulse-dot absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
                   </span>

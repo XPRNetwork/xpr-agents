@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Agent, TrustScore, getAgents, getAgentScore, getKycLevel, getSystemStake, calculateTrustScore } from '@/lib/registry';
+import { Agent, TrustScore, getAgents, getAgentScore, getKycLevel, getSystemStake, calculateTrustScore, getAgentLastActivity } from '@/lib/registry';
 import { AgentCard } from './AgentCard';
 import { SkeletonCard } from './SkeletonCard';
 
@@ -10,6 +10,7 @@ interface AgentWithTrust {
 
 export function AgentList() {
   const [agents, setAgents] = useState<AgentWithTrust[]>([]);
+  const [lastActivity, setLastActivity] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'active'>('active');
@@ -19,7 +20,11 @@ export function AgentList() {
     const fetchAgents = async () => {
       setLoading(true);
       try {
-        const agentList = await getAgents();
+        const [agentList, activity] = await Promise.all([
+          getAgents(),
+          getAgentLastActivity(),
+        ]);
+        setLastActivity(activity);
 
         // Fetch trust scores for each agent
         const agentsWithTrust = await Promise.all(
@@ -133,7 +138,7 @@ export function AgentList() {
               className="animate-stagger animate-fade-in-up"
               style={{ animationDelay: `${Math.min(i, 11) * 50}ms` }}
             >
-              <AgentCard agent={agent} trustScore={trustScore} />
+              <AgentCard agent={agent} trustScore={trustScore} lastActive={lastActivity[agent.account]} />
             </div>
           ))}
         </div>

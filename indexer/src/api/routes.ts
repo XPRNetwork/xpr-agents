@@ -34,6 +34,22 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
     res.json({ agents, total: agents.length });
   });
 
+  // Last activity per agent (most recent completed/delivered job)
+  router.get('/agents/activity', (_req: Request, res: Response) => {
+    const rows = db.prepare(`
+      SELECT agent, MAX(updated_at) as last_active
+      FROM jobs
+      WHERE agent != '.............' AND state IN (4, 6, 8)
+      GROUP BY agent
+    `).all() as Array<{ agent: string; last_active: number }>;
+
+    const activity: Record<string, number> = {};
+    for (const row of rows) {
+      activity[row.agent] = row.last_active;
+    }
+    res.json(activity);
+  });
+
   // Get single agent
   router.get('/agents/:account', (req: Request, res: Response) => {
     const { account } = req.params;

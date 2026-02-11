@@ -272,6 +272,7 @@ export interface Job {
   deadline: number;
   arbitrator: string;
   created_at: number;
+  updated_at: number;
 }
 
 export interface Bid {
@@ -409,6 +410,7 @@ function parseJob(row: any): Job {
     deadline: parseInt(row.deadline) || 0,
     arbitrator: row.arbitrator || '',
     created_at: parseInt(row.created_at) || 0,
+    updated_at: parseInt(row.updated_at) || 0,
   };
 }
 
@@ -436,6 +438,22 @@ export async function getBidsByAgent(agent: string): Promise<Bid[]> {
       proposal: row.proposal,
       created_at: parseInt(row.created_at),
     }));
+}
+
+// Returns last activity timestamp (in seconds) per agent from completed/delivered/arbitrated jobs
+export async function getAgentLastActivity(): Promise<Record<string, number>> {
+  const jobs = await getAllJobs(500);
+  const activity: Record<string, number> = {};
+  for (const job of jobs) {
+    // States: 4=delivered, 6=completed, 8=arbitrated
+    if (job.agent && job.agent !== '.............' && [4, 6, 8].includes(job.state)) {
+      const ts = job.updated_at || job.created_at;
+      if (!activity[job.agent] || ts > activity[job.agent]) {
+        activity[job.agent] = ts;
+      }
+    }
+  }
+  return activity;
 }
 
 export function formatTimeline(seconds: number): string {
