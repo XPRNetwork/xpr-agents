@@ -47,7 +47,7 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - GITHUB_OWNER=${GITHUB_OWNER:-}
       - AGENT_PUBLIC_URL=${AGENT_PUBLIC_URL:-}
-      - COST_MARGIN=${COST_MARGIN:-1.3}
+      - COST_MARGIN=${COST_MARGIN:-2.0}
     volumes:
       - agent-data:/data
     ports:

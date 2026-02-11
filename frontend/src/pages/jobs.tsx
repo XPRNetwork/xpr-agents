@@ -1657,8 +1657,9 @@ export default function Jobs() {
                                     <span className="px-1.5 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-400">Selected</span>
                                   )}
                                 </div>
-                                <div className="text-xs text-zinc-500 mt-0.5">
-                                  {formatXpr(bid.amount)} &middot; {formatTimeline(bid.timeline)}
+                                <div className="flex items-baseline gap-2 mt-1">
+                                  <span className="text-base font-bold text-proton-purple">{formatXpr(bid.amount)}</span>
+                                  <span className="text-xs text-zinc-500">{formatTimeline(bid.timeline)}</span>
                                 </div>
                               </div>
                               <div className="flex gap-2">

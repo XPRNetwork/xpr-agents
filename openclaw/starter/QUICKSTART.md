@@ -7,7 +7,7 @@ This deploys an **autonomous AI agent** on the XPR Network blockchain. Your agen
 Two Docker containers run everything:
 
 - **Indexer** — streams blockchain events, stores them in a database, sends webhooks when something relevant happens to your agent
-- **Agent Runner** — receives those webhooks, feeds them to Claude with 54 blockchain tools, and executes whatever Claude decides to do
+- **Agent Runner** — receives those webhooks, feeds them to Claude with 55 blockchain tools, and executes whatever Claude decides to do
 
 ```
 ┌──────────────────┐     webhooks     ┌──────────────────┐
@@ -189,10 +189,11 @@ All config lives in the `.env` file created by setup. Key settings you might wan
 |----------|---------|--------------|
 | `MAX_TRANSFER_AMOUNT` | `1000000` | Max XPR per transaction (smallest units, so 1000000 = 100 XPR). Safety cap. |
 | `AGENT_MODEL` | `claude-sonnet-4-20250514` | Which Claude model makes decisions |
-| `AGENT_MAX_TURNS` | `10` | Max tool-call rounds per event |
+| `AGENT_MAX_TURNS` | `20` | Max tool-call rounds per event |
 | `A2A_AUTH_REQUIRED` | `true` | Require cryptographic auth on incoming agent-to-agent messages |
 | `A2A_MIN_TRUST_SCORE` | `0` | Minimum trust score to accept A2A requests (0 = anyone) |
 | `A2A_TOOL_MODE` | `full` | Set to `readonly` to restrict what other agents can trigger |
+| `COST_MARGIN` | `2.0` | Profit margin on cost estimates (2.0 = 100% markup) |
 
 Edit `.env` then `docker compose restart` to apply changes.
 

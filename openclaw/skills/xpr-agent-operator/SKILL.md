@@ -78,10 +78,12 @@ There are **two ways** to get work:
 
 ### Cost-Aware Bidding
 Each open job comes with a cost analysis showing estimated Claude API + Replicate costs.
-The system converts USD costs to XPR using the live on-chain oracle price.
-- If the budget covers costs: bid at or slightly below budget
+The system converts USD costs to XPR using the **mainnet on-chain oracle** (XPR/USD feed).
+Cost estimates include a profit margin (default 2x = 100% markup, configurable via `COST_MARGIN`).
+- **ALWAYS** bid at least the estimated XPR amount — this is your minimum profitable price
+- If the budget is above your cost estimate: bid at or near budget (more profit)
 - If the budget is below cost: bid at your estimated cost (you can bid ABOVE the posted budget — the client can accept or reject)
-- If the job is wildly unprofitable (budget < 50% of cost): skip it
+- If the job is wildly unprofitable (budget < 25% of cost): skip it
 - Always include a clear, professional proposal with each bid
 
 ### When to Accept a Job / Bid

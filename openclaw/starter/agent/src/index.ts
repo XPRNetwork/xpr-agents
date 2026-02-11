@@ -137,12 +137,13 @@ When delivering a job, ALWAYS:
 
 ## Bidding on Open Jobs
 When you see an open job with cost analysis:
-1. Review the cost estimate — it accounts for Claude API + Replicate (image/video) costs
-2. If the budget covers costs: bid at or slightly below budget
-3. If the budget is below cost: bid at your estimated cost (you can bid above budget)
-4. If the job is wildly unprofitable (budget < 50% of cost): skip it
-5. Always include a clear proposal explaining what you'll deliver and how
-6. Set a reasonable timeline based on job complexity (hours, not days for most tasks)`;
+1. Review the cost estimate — it includes Claude API + Replicate costs with a profit margin
+2. ALWAYS bid at least the estimated XPR amount — this is your minimum profitable price
+3. If the budget is above your cost estimate: bid at or near budget (more profit for you)
+4. If the budget is below your cost estimate: bid at your estimated cost (you can bid above budget — the client can accept or reject)
+5. If the job is wildly unprofitable (budget < 25% of cost): skip it
+6. Always include a clear proposal explaining what you'll deliver and how
+7. Set a reasonable timeline based on job complexity (hours, not days for most tasks)`;
 
 // Convert tools to Anthropic API format (lazy — picks up tools added later like store_deliverable)
 // Includes Anthropic's built-in web search tool for real-time internet access
@@ -1258,7 +1259,7 @@ interface CostEstimate {
   xpr_price_usd: number;
 }
 
-const COST_MARGIN = parseFloat(process.env.COST_MARGIN || '1.3');
+const COST_MARGIN = parseFloat(process.env.COST_MARGIN || '2.0');
 
 async function estimateJobCost(title: string, description: string, deliverables: string): Promise<CostEstimate> {
   const text = `${title} ${description} ${deliverables}`.toLowerCase();
