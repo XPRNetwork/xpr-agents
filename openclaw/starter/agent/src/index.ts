@@ -109,15 +109,14 @@ When delivering a job, ALWAYS:
    - \`store_deliverable\` with content_type "application/pdf" — write Markdown, auto-generates PDF
    - \`store_deliverable\` with content_type "text/csv" — structured data
 
-   **Images (AI-generated):**
-   - \`generate_image\` with a detailed prompt → returns image URL
-   - Then \`store_deliverable\` with content_type "image/png" and source_url = the returned URL
-   - You can generate multiple variants and let the client choose
+   **Images (AI-generated) — IMPORTANT:**
+   - Call \`generate_image\` with prompt AND job_id — it generates, uploads to IPFS, and returns evidence_uri in ONE step
+   - Then just call \`xpr_deliver_job\` with the evidence_uri
+   - Do NOT write markdown descriptions of images — generate the actual image!
 
    **Video (AI-generated):**
-   - \`generate_video\` with a descriptive prompt → returns video URL
-   - Then \`store_deliverable\` with content_type "video/mp4" and source_url = the returned URL
-   - For image-to-video: first generate an image, then pass it as image_url to generate_video
+   - Call \`generate_video\` with prompt AND job_id — generates, uploads to IPFS, returns evidence_uri
+   - Then call \`xpr_deliver_job\` with the evidence_uri
 
    **Images/Media from the web:**
    - Use \`web_search\` to find suitable content, then \`store_deliverable\` with source_url
@@ -303,10 +302,15 @@ async function runAgent(eventType: string, data: any, message: string, options?:
 
           try {
             const result = await tool.handler(block.input);
+            const resultStr = JSON.stringify(result);
+            // Log result for key tools (truncated for readability)
+            if (['generate_image', 'generate_video', 'store_deliverable'].includes(block.name)) {
+              console.log(`[agent] Tool result (${block.name}): ${resultStr.slice(0, 200)}`);
+            }
             toolResults.push({
               type: 'tool_result',
               tool_use_id: block.id,
-              content: JSON.stringify(result),
+              content: resultStr,
             });
           } catch (err: any) {
             console.error(`[agent] Tool error (${block.name}):`, err.message);
@@ -909,8 +913,9 @@ tools.push({
 tools.push({
   name: 'generate_image',
   description: [
-    'Generate an image from a text prompt using AI (Replicate Flux model).',
-    'Returns an image URL. Use this URL as source_url with store_deliverable (content_type: "image/png") to upload to IPFS for delivery.',
+    'Generate an AI image and optionally store it as a job deliverable in one step.',
+    'If job_id is provided: generates image, uploads to IPFS, and returns the evidence_uri ready for xpr_deliver_job.',
+    'If no job_id: just returns the image URL.',
     'Requires REPLICATE_API_TOKEN in .env.',
   ].join(' '),
   parameters: {
@@ -918,11 +923,12 @@ tools.push({
     required: ['prompt'],
     properties: {
       prompt: { type: 'string', description: 'Detailed description of the image to generate. Be specific about style, composition, colors, lighting.' },
+      job_id: { type: 'number', description: 'If provided, auto-stores the generated image as an IPFS deliverable for this job. Use the returned evidence_uri directly with xpr_deliver_job.' },
       aspect_ratio: { type: 'string', description: 'Aspect ratio: "1:1" (default), "16:9", "9:16", "4:3", "3:4", "21:9"' },
       num_outputs: { type: 'number', description: 'Number of images (1-4, default 1)' },
     },
   },
-  handler: async ({ prompt, aspect_ratio, num_outputs }: { prompt: string; aspect_ratio?: string; num_outputs?: number }) => {
+  handler: async ({ prompt, job_id, aspect_ratio, num_outputs }: { prompt: string; job_id?: number; aspect_ratio?: string; num_outputs?: number }) => {
     const token = process.env.REPLICATE_API_TOKEN;
     if (!token) return { error: 'REPLICATE_API_TOKEN not set. Add it to .env to enable AI image generation.' };
 
@@ -965,13 +971,42 @@ tools.push({
       const outputs: string[] = Array.isArray(result.output) ? result.output : [result.output];
       console.log(`[replicate] Image generated: ${outputs[0]}`);
 
+      // Auto-store as deliverable if job_id provided
+      if (job_id != null) {
+        const imageUrl = outputs[0];
+        const downloaded = await downloadFromUrl(imageUrl);
+        if (downloaded) {
+          const ipfsUrl = await uploadBinaryToIpfs(downloaded.buffer, `job-${job_id}.png`, 'image/png');
+          if (ipfsUrl) {
+            setDeliverable(job_id, { content: imageUrl, content_type: 'image/png', media_url: ipfsUrl, created_at: new Date().toISOString() });
+            console.log(`[replicate] Job ${job_id} image → IPFS: ${ipfsUrl}`);
+            return {
+              success: true,
+              evidence_uri: ipfsUrl,
+              image_url: imageUrl,
+              stored: true,
+              instruction: 'Image generated and stored on IPFS. Now call xpr_deliver_job with evidence_uri to complete delivery.',
+            };
+          }
+        }
+        // Fallback: return URL without IPFS
+        setDeliverable(job_id, { content: imageUrl, content_type: 'image/png', media_url: imageUrl, created_at: new Date().toISOString() });
+        return {
+          success: true,
+          evidence_uri: imageUrl,
+          image_url: imageUrl,
+          stored: true,
+          instruction: 'Image generated (IPFS upload failed, using direct URL). Call xpr_deliver_job with evidence_uri.',
+        };
+      }
+
       return {
         success: true,
         urls: outputs,
         primary_url: outputs[0],
         prompt,
         model: 'flux-schnell',
-        instruction: 'Now call store_deliverable with content_type "image/png" and source_url set to primary_url, then deliver the job.',
+        instruction: 'Call store_deliverable with content_type "image/png" and source_url set to primary_url, then xpr_deliver_job.',
       };
     } catch (e: any) {
       return { error: `Image generation failed: ${e.message}` };
@@ -984,8 +1019,8 @@ tools.push({
 tools.push({
   name: 'generate_video',
   description: [
-    'Generate a video from a text prompt (or animate an image) using AI via Replicate.',
-    'Returns a video URL. Use this URL as source_url with store_deliverable (content_type: "video/mp4") to upload to IPFS for delivery.',
+    'Generate an AI video and optionally store it as a job deliverable in one step.',
+    'If job_id is provided: generates video, uploads to IPFS, and returns the evidence_uri ready for xpr_deliver_job.',
     'For text-to-video: provide just a prompt. For image-to-video: also provide image_url.',
     'Requires REPLICATE_API_TOKEN in .env.',
   ].join(' '),
@@ -994,10 +1029,11 @@ tools.push({
     required: ['prompt'],
     properties: {
       prompt: { type: 'string', description: 'Description of the video to generate. Be specific about motion, scene, and style.' },
+      job_id: { type: 'number', description: 'If provided, auto-stores the generated video as an IPFS deliverable for this job.' },
       image_url: { type: 'string', description: 'Optional: URL of a source image to animate (image-to-video mode).' },
     },
   },
-  handler: async ({ prompt, image_url }: { prompt: string; image_url?: string }) => {
+  handler: async ({ prompt, job_id, image_url }: { prompt: string; job_id?: number; image_url?: string }) => {
     const token = process.env.REPLICATE_API_TOKEN;
     if (!token) return { error: 'REPLICATE_API_TOKEN not set. Add it to .env to enable AI video generation.' };
 
@@ -1049,12 +1085,33 @@ tools.push({
       const output = Array.isArray(result.output) ? result.output[0] : result.output;
       console.log(`[replicate] Video generated: ${output}`);
 
+      // Auto-store as deliverable if job_id provided
+      if (job_id != null && output) {
+        const downloaded = await downloadFromUrl(output);
+        if (downloaded) {
+          const ipfsUrl = await uploadBinaryToIpfs(downloaded.buffer, `job-${job_id}.mp4`, 'video/mp4');
+          if (ipfsUrl) {
+            setDeliverable(job_id, { content: output, content_type: 'video/mp4', media_url: ipfsUrl, created_at: new Date().toISOString() });
+            console.log(`[replicate] Job ${job_id} video → IPFS: ${ipfsUrl}`);
+            return {
+              success: true,
+              evidence_uri: ipfsUrl,
+              video_url: output,
+              stored: true,
+              instruction: 'Video generated and stored on IPFS. Now call xpr_deliver_job with evidence_uri to complete delivery.',
+            };
+          }
+        }
+        setDeliverable(job_id, { content: output, content_type: 'video/mp4', media_url: output, created_at: new Date().toISOString() });
+        return { success: true, evidence_uri: output, video_url: output, stored: true, instruction: 'Call xpr_deliver_job with evidence_uri.' };
+      }
+
       return {
         success: true,
         url: output,
         prompt,
         model: model.split(':')[0],
-        instruction: 'Now call store_deliverable with content_type "video/mp4" and source_url set to the url, then deliver the job.',
+        instruction: 'Call store_deliverable with content_type "video/mp4" and source_url set to the url, then xpr_deliver_job.',
       };
     } catch (e: any) {
       return { error: `Video generation failed: ${e.message}` };
