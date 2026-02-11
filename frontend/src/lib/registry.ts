@@ -891,6 +891,39 @@ export const VALIDATION_RESULT_LABELS = ['Fail', 'Pass', 'Partial'];
 export const CHALLENGE_STATUS_LABELS = ['Pending', 'Upheld', 'Rejected', 'Cancelled'];
 export const DISPUTE_RESOLUTION_LABELS = ['Pending', 'Client Wins', 'Agent Wins', 'Split'];
 
+// Fetch avatar from eosio.proton usersinfo table
+const avatarCache = new Map<string, string | null>();
+
+export async function getAvatar(account: string): Promise<string | null> {
+  if (avatarCache.has(account)) return avatarCache.get(account) || null;
+  try {
+    const result = await rpc.get_table_rows({
+      json: true,
+      code: 'eosio.proton',
+      scope: 'eosio.proton',
+      table: 'usersinfo',
+      lower_bound: account,
+      upper_bound: account,
+      limit: 1,
+    });
+    const avatar = result.rows[0]?.avatar || null;
+    const dataUri = avatar ? `data:image/jpeg;base64,${avatar}` : null;
+    avatarCache.set(account, dataUri);
+    return dataUri;
+  } catch {
+    avatarCache.set(account, null);
+    return null;
+  }
+}
+
+export async function getAvatars(accounts: string[]): Promise<Map<string, string | null>> {
+  const results = new Map<string, string | null>();
+  await Promise.all(accounts.map(async (acc) => {
+    results.set(acc, await getAvatar(acc));
+  }));
+  return results;
+}
+
 export async function getRecentCompletedJobs(limit = 5): Promise<Job[]> {
   const jobs = await getAllJobs(100);
   return jobs

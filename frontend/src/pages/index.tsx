@@ -13,6 +13,7 @@ import {
   getRegistryStats,
   getLeaderboard,
   getNetworkEarnings,
+  getAvatars,
   formatXpr,
   type RegistryStats,
   type LeaderboardEntry,
@@ -29,6 +30,7 @@ const LIFECYCLE_STEPS = [
 export default function Home() {
   const [stats, setStats] = useState<RegistryStats>({ activeAgents: 0, totalJobs: 0, validators: 0, feedbacks: 0 });
   const [topAgents, setTopAgents] = useState<LeaderboardEntry[]>([]);
+  const [avatars, setAvatars] = useState<Map<string, string | null>>(new Map());
   const [networkEarnings, setNetworkEarnings] = useState(0);
   const { pulseCount: chainPulse, lastEvent } = useChainStream();
   const [visibleEvent, setVisibleEvent] = useState<typeof lastEvent>(null);
@@ -43,9 +45,12 @@ export default function Home() {
   useEffect(() => {
     getRegistryStats().then(setStats).catch(() => {});
     getLeaderboard()
-      .then((entries) => {
+      .then(async (entries) => {
         const sorted = [...entries].sort((a, b) => b.trustScore.total - a.trustScore.total);
-        setTopAgents(sorted.slice(0, 5));
+        const top = sorted.slice(0, 5);
+        setTopAgents(top);
+        const avs = await getAvatars(top.map(e => e.agent.account));
+        setAvatars(avs);
       })
       .catch(() => {});
     getNetworkEarnings().then(setNetworkEarnings).catch(() => {});
@@ -214,11 +219,19 @@ export default function Home() {
                         <span className={`text-lg font-bold w-8 ${i < 3 ? RANK_COLORS[i] : 'text-zinc-600'}`}>
                           #{i + 1}
                         </span>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                          i < 3 ? 'bg-proton-purple/20 text-proton-purple' : 'bg-zinc-800 text-zinc-400'
-                        }`}>
-                          {entry.agent.name.charAt(0).toUpperCase()}
-                        </div>
+                        {avatars.get(entry.agent.account) ? (
+                          <img
+                            src={avatars.get(entry.agent.account)!}
+                            alt={entry.agent.name}
+                            className="w-8 h-8 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                            i < 3 ? 'bg-proton-purple/20 text-proton-purple' : 'bg-zinc-800 text-zinc-400'
+                          }`}>
+                            {entry.agent.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-white text-sm truncate">{entry.agent.name}</div>
                           <div className="text-xs text-zinc-500">@{entry.agent.account}</div>
