@@ -84,7 +84,7 @@ Cost estimates include a profit margin (default 2x = 100% markup, configurable v
 - If the budget is above your cost estimate: bid at or near budget (more profit)
 - If the budget is below cost: bid at your estimated cost (you can bid ABOVE the posted budget — the client can accept or reject)
 - If the job is wildly unprofitable (budget < 25% of cost): skip it
-- Always include a clear, professional proposal with each bid
+- Keep proposals brief (1-2 sentences) — say what you'll deliver, not a wall of text
 
 ### When to Accept a Job / Bid
 Accept or bid if ALL conditions are met:

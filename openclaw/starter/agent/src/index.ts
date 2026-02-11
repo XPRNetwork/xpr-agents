@@ -1434,8 +1434,11 @@ async function pollOnChain(): Promise<void> {
 - Job budget: ${budgetXpr} XPR ($${budgetUsd} USD)
 - ${cost.estimated_xpr > parseFloat(budgetXpr) ? 'WARNING: Budget is BELOW estimated cost — bid higher to cover costs or skip' : 'Budget covers estimated costs'}
 
-Evaluate this job. If bidding, set your bid amount based on the cost analysis above.
-You MAY bid above the posted budget if costs require it — the client can accept or reject.`;
+Evaluate this job and if it matches your capabilities, submit a bid using xpr_submit_bid.
+Set your bid amount based on the cost analysis above — at LEAST the estimated cost.
+You MAY bid above the posted budget if costs require it — the client can accept or reject.
+Include a brief proposal (1-2 sentences) saying what you will deliver.
+If the job is outside your capabilities or wildly unprofitable (budget < 25% of cost), skip it.`;
 
         runAgent('poll:new_open_job', {
           job_id: job.id, client: job.client, title: job.title,
