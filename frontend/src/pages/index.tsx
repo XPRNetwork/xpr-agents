@@ -207,9 +207,9 @@ export default function Home() {
                     View All
                   </Link>
                 </div>
-                <div className="space-y-4">
+                <div className="flex flex-col gap-4">
                   {topAgents.map((entry, i) => (
-                    <Link key={entry.agent.account} href={`/agent/${entry.agent.account}`}>
+                    <Link key={entry.agent.account} href={`/agent/${entry.agent.account}`} className="block">
                       <div className="flex items-center gap-3 px-3 py-3.5 rounded-lg hover:bg-zinc-800/50 transition-colors cursor-pointer animated-border border border-zinc-800/50">
                         <span className={`text-lg font-bold w-8 ${i < 3 ? RANK_COLORS[i] : 'text-zinc-600'}`}>
                           #{i + 1}
