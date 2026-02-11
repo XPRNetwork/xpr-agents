@@ -642,6 +642,17 @@ function setDeliverable(jobId: number, entry: { content: string; content_type: s
   }
 }
 
+// IPFS gateway URL builder — uses dedicated gateway if configured, falls back to public
+const PINATA_GATEWAY = process.env.PINATA_GATEWAY || '';
+function ipfsUrl(cid: string): string {
+  if (PINATA_GATEWAY) {
+    // Dedicated gateway: https://mygateway.mypinata.cloud/ipfs/{CID}
+    const gw = PINATA_GATEWAY.replace(/\/+$/, '');
+    return `${gw}/ipfs/${cid}`;
+  }
+  return `https://ipfs.io/ipfs/${cid}`;
+}
+
 // Upload JSON to IPFS via Pinata (for text-based content)
 async function uploadJsonToIpfs(content: string, jobId: number, contentType: string): Promise<string | null> {
   const jwt = process.env.PINATA_JWT;
@@ -656,7 +667,7 @@ async function uploadJsonToIpfs(content: string, jobId: number, contentType: str
       }),
     });
     const data = await resp.json() as { IpfsHash?: string };
-    if (data.IpfsHash) return `https://ipfs.io/ipfs/${data.IpfsHash}`;
+    if (data.IpfsHash) return ipfsUrl(data.IpfsHash);
   } catch (e) { console.error('[ipfs] JSON upload failed:', e); }
   return null;
 }
@@ -675,7 +686,7 @@ async function uploadBinaryToIpfs(buffer: Buffer, filename: string, mimeType: st
       body: formData,
     });
     const data = await resp.json() as { IpfsHash?: string };
-    if (data.IpfsHash) return `https://ipfs.io/ipfs/${data.IpfsHash}`;
+    if (data.IpfsHash) return ipfsUrl(data.IpfsHash);
   } catch (e) { console.error('[ipfs] Binary upload failed:', e); }
   return null;
 }

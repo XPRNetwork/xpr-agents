@@ -296,17 +296,23 @@ export default function Jobs() {
         return;
       }
 
-      // For IPFS URLs, go straight to public gateways (skip broken Pinata gateway etc.)
+      // For IPFS URLs, try the original URL first (may be a fast dedicated gateway),
+      // then fall back to public gateways
       const cid = extractIpfsCid(evidenceUri);
       let fetched = false;
 
       if (cid) {
+        // Build gateway list: original URL first (agent's gateway), then public fallbacks
+        const urls = [evidenceUri];
         for (const gw of IPFS_GATEWAYS) {
+          const gwUrl = `${gw}${cid}`;
+          if (gwUrl !== evidenceUri) urls.push(gwUrl);
+        }
+        for (const url of urls) {
           try {
-            const gwUrl = `${gw}${cid}`;
-            const resp = await fetch(gwUrl, { signal: AbortSignal.timeout(15000) });
+            const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
             if (resp.ok) {
-              if (handleBinaryResponse(resp, gwUrl)) { fetched = true; break; }
+              if (handleBinaryResponse(resp, url)) { fetched = true; break; }
               if (await handleJsonResponse(resp)) { fetched = true; break; }
             }
           } catch { /* next gateway */ }
