@@ -908,8 +908,8 @@ export default function Jobs() {
 
           {/* Create Job Modal */}
           {showCreateForm && session && (
-            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowCreateForm(false)}>
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-lg font-semibold text-white">Post a New Job</h2>
                   <button onClick={() => setShowCreateForm(false)} className="text-zinc-500 hover:text-zinc-300 text-xl leading-none">&times;</button>
@@ -1113,8 +1113,8 @@ export default function Jobs() {
 
         {/* Job Detail Modal */}
         {selectedJob && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center p-4 pt-8 overflow-y-auto">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl w-full max-w-2xl shadow-2xl my-4">
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center p-4 pt-8 overflow-y-auto" onClick={() => setSelectedJob(null)}>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl w-full max-w-2xl shadow-2xl my-4" onClick={e => e.stopPropagation()}>
               {/* Modal Header */}
               <div className="flex justify-between items-start p-6 pb-0">
                 <div className="flex-1 min-w-0">
@@ -1704,8 +1704,8 @@ export default function Jobs() {
 
         {/* Rating Modal */}
         {showRating && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60]">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 w-full max-w-sm shadow-xl">
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60]" onClick={() => setShowRating(false)}>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
               <h3 className="text-lg font-bold text-white mb-1">Rate {ratingAgent}</h3>
               <p className="text-sm text-zinc-500 mb-4">How was job #{ratingJobId}?</p>
               <div className="flex justify-center gap-2 mb-4">

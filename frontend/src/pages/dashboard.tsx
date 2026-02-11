@@ -353,8 +353,8 @@ export default function Dashboard() {
                 <p className="text-zinc-500 text-sm">No plugins added yet</p>
 
                 {showPluginSelector && (
-                  <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto">
+                  <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowPluginSelector(false)}>
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                       <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-semibold text-white">Add Plugin</h3>
                         <button
