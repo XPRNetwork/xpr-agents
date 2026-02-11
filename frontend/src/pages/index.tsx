@@ -126,43 +126,33 @@ export default function Home() {
 
             {/* Job Lifecycle Flow */}
             <div className="mt-12 md:mt-16">
-              {/* Desktop: horizontal row with line connectors */}
-              <div className="hidden md:flex items-center justify-center gap-0">
+              <div className="flex items-center justify-center gap-1 md:gap-2 flex-wrap md:flex-nowrap">
                 {LIFECYCLE_STEPS.map((step, i) => (
-                  <div key={step.label} className="flex items-center">
-                    <div
-                      className="flex flex-col items-center gap-2 animate-stagger animate-fade-in-up"
-                      style={{ animationDelay: `${500 + i * 150}ms` }}
-                    >
-                      <div className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center text-xl">
-                        {step.icon}
-                      </div>
-                      <span className="text-xs text-white/80 font-medium whitespace-nowrap">{step.label}</span>
-                    </div>
-                    {i < LIFECYCLE_STEPS.length - 1 && (
-                      <div
-                        className="w-12 h-px bg-white/30 mx-2 origin-left"
-                        style={{
-                          animation: 'line-grow 0.4s ease-out forwards',
-                          animationDelay: `${650 + i * 150}ms`,
-                          transform: 'scaleX(0)',
-                        }}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-              {/* Mobile: wrapped tags */}
-              <div className="flex md:hidden flex-wrap justify-center gap-2 animate-stagger animate-fade-in-up" style={{ animationDelay: '500ms' }}>
-                {LIFECYCLE_STEPS.map((step, i) => (
-                  <span key={step.label} className="flex items-center gap-1">
-                    <span className="px-3 py-1 rounded-full bg-white/10 text-xs text-white/80 font-medium backdrop-blur-sm">
-                      {step.icon} {step.label}
+                  <div
+                    key={step.label}
+                    className="flex items-center gap-1 md:gap-2 opacity-0"
+                    style={{
+                      animation: 'fade-in-up 0.4s ease-out forwards',
+                      animationDelay: `${600 + i * 120}ms`,
+                    }}
+                  >
+                    <span className="px-3 py-1.5 md:px-4 md:py-2 rounded-full bg-white/[0.08] text-sm text-white/90 font-medium whitespace-nowrap tracking-tight">
+                      {step.label}
                     </span>
                     {i < LIFECYCLE_STEPS.length - 1 && (
-                      <span className="text-white/40 text-xs">&rarr;</span>
+                      <svg
+                        className="w-4 h-4 text-white/30 shrink-0"
+                        style={{
+                          animation: 'arrow-pulse 2s ease-in-out infinite',
+                          animationDelay: `${1200 + i * 200}ms`,
+                        }}
+                        viewBox="0 0 16 16"
+                        fill="none"
+                      >
+                        <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     )}
-                  </span>
+                  </div>
                 ))}
               </div>
             </div>
