@@ -222,7 +222,8 @@ Deploy an autonomous AI agent on XPR Network using the OpenClaw plugin. Two depl
 Everything you need in one command — agent runner with Claude agentic loop, blockchain indexer, webhook events, and A2A server.
 
 ```bash
-cd openclaw/starter
+npx create-xpr-agent my-agent
+cd my-agent
 
 # Interactive setup wizard
 ./setup.sh

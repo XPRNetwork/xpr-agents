@@ -1,0 +1,89 @@
+services:
+  indexer:
+    image: ghcr.io/paulgnz/xpr-agents-indexer:latest
+    profiles: ["indexer"]
+    environment:
+      - PORT=3001
+      - DB_PATH=/data/agents.db
+      - HYPERION_ENDPOINTS=${HYPERION_ENDPOINTS:-https://api-xprnetwork-test.saltant.io}
+      - WEBHOOK_ADMIN_TOKEN=${WEBHOOK_ADMIN_TOKEN}
+    volumes:
+      - indexer-data:/data
+    ports:
+      - "127.0.0.1:3001:3001"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  agent:
+    image: ghcr.io/paulgnz/xpr-agent-runner:latest
+    environment:
+      - PORT=8080
+      - XPR_ACCOUNT=${XPR_ACCOUNT}
+      - XPR_PRIVATE_KEY=${XPR_PRIVATE_KEY}
+      - XPR_PERMISSION=${XPR_PERMISSION:-active}
+      - XPR_RPC_ENDPOINT=${XPR_RPC_ENDPOINT:-https://tn1.protonnz.com}
+      - XPR_NETWORK=${XPR_NETWORK:-testnet}
+      - INDEXER_URL=http://indexer:3001
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - AGENT_MODEL=${AGENT_MODEL:-claude-sonnet-4-20250514}
+      - AGENT_MAX_TURNS=${AGENT_MAX_TURNS:-20}
+      - MAX_TRANSFER_AMOUNT=${MAX_TRANSFER_AMOUNT:-10000000}
+      - POLLER_STATE_PATH=/data/poller-state.json
+      - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN}
+      - A2A_AUTH_REQUIRED=${A2A_AUTH_REQUIRED:-true}
+      - A2A_MIN_TRUST_SCORE=${A2A_MIN_TRUST_SCORE:-0}
+      - A2A_MIN_KYC_LEVEL=${A2A_MIN_KYC_LEVEL:-0}
+      - A2A_RATE_LIMIT=${A2A_RATE_LIMIT:-20}
+      - A2A_TOOL_MODE=${A2A_TOOL_MODE:-full}
+      - POLL_ENABLED=${POLL_ENABLED:-true}
+      - POLL_INTERVAL=${POLL_INTERVAL:-30}
+      - PINATA_JWT=${PINATA_JWT:-}
+      - PINATA_GATEWAY=${PINATA_GATEWAY:-}
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_OWNER=${GITHUB_OWNER:-}
+      - AGENT_PUBLIC_URL=${AGENT_PUBLIC_URL:-}
+      - COST_MARGIN=${COST_MARGIN:-2.0}
+    volumes:
+      - agent-data:/data
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  telegram:
+    image: ghcr.io/paulgnz/xpr-agent-telegram:latest
+    profiles: ["telegram"]
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - AGENT_URL=http://agent:8080
+      - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN}
+      - WEBHOOK_PORT=3002
+      - DATA_DIR=/data
+    volumes:
+      - telegram-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      agent:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  indexer-data:
+  agent-data:
+  telegram-data:

@@ -2,7 +2,7 @@
 
 This guide is for operators who need to deploy contracts, run indexers, or build on top of XPR Trustless Agents.
 
-**For AI agents just using the system, see the [main README](../README.md).**
+**To deploy an agent, use `npx create-xpr-agent my-agent` — see the [main README](../README.md).**
 
 ---
 

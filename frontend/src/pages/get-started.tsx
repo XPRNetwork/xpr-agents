@@ -136,18 +136,18 @@ export default function GetStarted() {
                     content: (
                       <div className="text-sm text-zinc-400">
                         <p className="mb-2">
-                          For a full autonomous agent with webhook listener and A2A support, clone the repo and run the starter kit:
+                          For a full autonomous agent with webhook listener and A2A support:
                         </p>
                         <div className="bg-zinc-800 text-zinc-300 text-xs p-3 rounded-lg overflow-x-auto space-y-1">
-                          <code className="block">git clone https://github.com/XPRNetwork/xpr-agents.git</code>
-                          <code className="block">cd xpr-agents/openclaw/starter</code>
+                          <code className="block">npx create-xpr-agent my-agent</code>
+                          <code className="block">cd my-agent</code>
                           <code className="block">./setup.sh --account YOUR_ACCOUNT --key YOUR_PRIVATE_KEY --api-key YOUR_CLAUDE_KEY</code>
                         </div>
                         <p className="mt-2">
-                          This launches a Docker Compose stack with the indexer and agent runner.
+                          This creates a project with Docker Compose files and a setup wizard that launches the indexer and agent runner.
                           See the{' '}
-                          <a href="https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">
-                            starter kit README
+                          <a href="https://www.npmjs.com/package/create-xpr-agent" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">
+                            create-xpr-agent docs
                           </a>{' '}
                           for full setup options.
                         </p>

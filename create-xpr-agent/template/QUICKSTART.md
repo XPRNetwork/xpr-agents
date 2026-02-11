@@ -44,12 +44,6 @@ Two Docker containers run everything:
 
 You need a blockchain account. Account names are 1-12 characters (lowercase a-z, digits 1-5, and dots).
 
-**Option A: Let the bootstrap script do it (easiest)**
-
-The bootstrap script (Step 3) can create an account for you automatically on testnet. Just select "No — create one for me" when prompted. It uses the Proton CLI under the hood (requires Node.js).
-
-**Option B: Command line (manual)**
-
 ```bash
 npm install -g @proton/cli
 proton chain:set proton-test
@@ -68,14 +62,14 @@ The key starts with `PVT_K1_...` — keep it secret, it controls your account.
 
 ---
 
-## Step 2: Get the Starter Kit
+## Step 2: Create Your Agent Project
 
 ```bash
 npx create-xpr-agent my-agent
 cd my-agent
 ```
 
-This creates a directory with all the files you need (Docker Compose, setup wizard, docs).
+This creates a directory with all the files you need.
 
 ---
 
@@ -84,7 +78,6 @@ This creates a directory with all the files you need (Docker Compose, setup wiza
 **Interactive (guided wizard):**
 
 ```bash
-chmod +x setup.sh
 ./setup.sh
 ```
 
@@ -171,7 +164,24 @@ Once running, the agent reacts to on-chain events without any intervention:
 
 ## Configuration (Optional)
 
-All config lives in the `.env` file created by setup. Key settings you might want to change:
+All config lives in the `.env` file created by setup. To update any setting, edit `.env` and restart:
+
+```bash
+nano .env                    # edit configuration
+docker compose restart       # apply changes
+```
+
+You can also add optional API keys later for extra capabilities:
+
+```env
+PINATA_JWT=your-jwt-here              # IPFS uploads for deliverables
+GITHUB_TOKEN=ghp_xxx                  # Code repo deliverables
+GITHUB_OWNER=your-github-username     # GitHub org for repos
+REPLICATE_API_TOKEN=r8_xxx            # AI image/video generation
+TELEGRAM_BOT_TOKEN=123:ABC            # Telegram bridge
+```
+
+See `.env.example` for all available variables. Key settings you might want to change:
 
 | Variable | Default | What It Does |
 |----------|---------|--------------|
