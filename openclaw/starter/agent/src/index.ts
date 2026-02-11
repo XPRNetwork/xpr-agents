@@ -101,22 +101,39 @@ const baseUrl = process.env.AGENT_PUBLIC_URL || `http://localhost:${process.env.
 systemPrompt += `\n\n## Runtime Context\n- Account: ${process.env.XPR_ACCOUNT}\n- Network: ${process.env.XPR_NETWORK || 'testnet'}\n- Public URL: ${baseUrl}`;
 systemPrompt += `\n\n## Delivering Jobs
 When delivering a job, ALWAYS:
-1. Do the actual work — write the text, code, analysis, etc.
-2. Store the deliverable using the right content_type:
-   - **Text/Markdown** (default): \`store_deliverable\` with content_type "text/markdown"
-   - **PDF**: \`store_deliverable\` with content_type "application/pdf" — a PDF is auto-generated from your Markdown
-   - **Code repos**: \`create_github_repo\` with all source files — creates a public GitHub repo
-   - **Images**: \`store_deliverable\` with content_type "image/png" (or jpeg/gif/webp) and source_url
-   - **Audio**: \`store_deliverable\` with content_type "audio/mpeg" and source_url
-   - **Video**: \`store_deliverable\` with content_type "video/mp4" and source_url
-   - **CSV/Data**: \`store_deliverable\` with content_type "text/csv"
+1. Do the actual work — write the text, generate the image, create the code, etc.
+2. Store the deliverable using the right method:
+
+   **Text & Documents:**
+   - \`store_deliverable\` with content_type "text/markdown" — rich Markdown (default)
+   - \`store_deliverable\` with content_type "application/pdf" — write Markdown, auto-generates PDF
+   - \`store_deliverable\` with content_type "text/csv" — structured data
+
+   **Images (AI-generated):**
+   - \`generate_image\` with a detailed prompt → returns image URL
+   - Then \`store_deliverable\` with content_type "image/png" and source_url = the returned URL
+   - You can generate multiple variants and let the client choose
+
+   **Video (AI-generated):**
+   - \`generate_video\` with a descriptive prompt → returns video URL
+   - Then \`store_deliverable\` with content_type "video/mp4" and source_url = the returned URL
+   - For image-to-video: first generate an image, then pass it as image_url to generate_video
+
+   **Images/Media from the web:**
+   - Use \`web_search\` to find suitable content, then \`store_deliverable\` with source_url
+
+   **Code repositories:**
+   - \`create_github_repo\` with all source files — creates a public GitHub repo
+
 3. Use the returned URL as \`evidence_uri\` when calling \`xpr_deliver_job\`
 
-Format guidelines:
-- Write deliverables as **rich Markdown** (headings, lists, code blocks, bold, numbered lists)
-- If the client requests a PDF: write as Markdown, set content_type to "application/pdf"
-- If the client requests code: use \`create_github_repo\` with complete source files
-- For media (images/audio/video): find content via web search, then use source_url to upload
+**You have powerful creative capabilities:**
+- AI image generation (Flux model via Replicate) — photorealistic, artistic, any style
+- AI video generation — text-to-video and image-to-video
+- PDF generation — professional documents from Markdown
+- GitHub repos — complete code projects with multiple files
+- Web search — find and source existing content from the internet
+- NEVER say you can't create images or videos — you have the tools!
 - NEVER deliver just a URL or summary — always include the actual work content`;
 
 // Convert tools to Anthropic API format (lazy — picks up tools added later like store_deliverable)
@@ -884,6 +901,164 @@ tools.push({
       content_type: 'github:repo', media_url: repoUrl, created_at: new Date().toISOString(),
     });
     return { stored: true, url: repoUrl, storage: 'github', content_type: 'github:repo' };
+  },
+});
+
+// ── Tool: generate_image ──
+// AI image generation via Replicate (Flux Schnell — fast, high quality)
+tools.push({
+  name: 'generate_image',
+  description: [
+    'Generate an image from a text prompt using AI (Replicate Flux model).',
+    'Returns an image URL. Use this URL as source_url with store_deliverable (content_type: "image/png") to upload to IPFS for delivery.',
+    'Requires REPLICATE_API_TOKEN in .env.',
+  ].join(' '),
+  parameters: {
+    type: 'object',
+    required: ['prompt'],
+    properties: {
+      prompt: { type: 'string', description: 'Detailed description of the image to generate. Be specific about style, composition, colors, lighting.' },
+      aspect_ratio: { type: 'string', description: 'Aspect ratio: "1:1" (default), "16:9", "9:16", "4:3", "3:4", "21:9"' },
+      num_outputs: { type: 'number', description: 'Number of images (1-4, default 1)' },
+    },
+  },
+  handler: async ({ prompt, aspect_ratio, num_outputs }: { prompt: string; aspect_ratio?: string; num_outputs?: number }) => {
+    const token = process.env.REPLICATE_API_TOKEN;
+    if (!token) return { error: 'REPLICATE_API_TOKEN not set. Add it to .env to enable AI image generation.' };
+
+    try {
+      const createResp = await fetch('https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Prefer: 'wait' },
+        body: JSON.stringify({
+          input: {
+            prompt,
+            aspect_ratio: aspect_ratio || '1:1',
+            num_outputs: Math.min(num_outputs || 1, 4),
+            output_format: 'png',
+          },
+        }),
+      });
+
+      if (!createResp.ok) {
+        const errText = await createResp.text();
+        return { error: `Replicate API error: ${createResp.status} ${errText}` };
+      }
+
+      let result = await createResp.json() as any;
+
+      // If not using Prefer: wait, poll for completion
+      if (result.status !== 'succeeded' && result.status !== 'failed') {
+        const deadline = Date.now() + 60000;
+        while (result.status !== 'succeeded' && result.status !== 'failed' && Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 1000));
+          const pollResp = await fetch(result.urls?.get || `https://api.replicate.com/v1/predictions/${result.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          result = await pollResp.json();
+        }
+      }
+
+      if (result.status === 'failed') return { error: `Image generation failed: ${result.error || 'Unknown error'}` };
+      if (result.status !== 'succeeded') return { error: 'Image generation timed out (60s). Try a simpler prompt.' };
+
+      const outputs: string[] = Array.isArray(result.output) ? result.output : [result.output];
+      console.log(`[replicate] Image generated: ${outputs[0]}`);
+
+      return {
+        success: true,
+        urls: outputs,
+        primary_url: outputs[0],
+        prompt,
+        model: 'flux-schnell',
+        instruction: 'Now call store_deliverable with content_type "image/png" and source_url set to primary_url, then deliver the job.',
+      };
+    } catch (e: any) {
+      return { error: `Image generation failed: ${e.message}` };
+    }
+  },
+});
+
+// ── Tool: generate_video ──
+// AI video generation via Replicate
+tools.push({
+  name: 'generate_video',
+  description: [
+    'Generate a video from a text prompt (or animate an image) using AI via Replicate.',
+    'Returns a video URL. Use this URL as source_url with store_deliverable (content_type: "video/mp4") to upload to IPFS for delivery.',
+    'For text-to-video: provide just a prompt. For image-to-video: also provide image_url.',
+    'Requires REPLICATE_API_TOKEN in .env.',
+  ].join(' '),
+  parameters: {
+    type: 'object',
+    required: ['prompt'],
+    properties: {
+      prompt: { type: 'string', description: 'Description of the video to generate. Be specific about motion, scene, and style.' },
+      image_url: { type: 'string', description: 'Optional: URL of a source image to animate (image-to-video mode).' },
+    },
+  },
+  handler: async ({ prompt, image_url }: { prompt: string; image_url?: string }) => {
+    const token = process.env.REPLICATE_API_TOKEN;
+    if (!token) return { error: 'REPLICATE_API_TOKEN not set. Add it to .env to enable AI video generation.' };
+
+    try {
+      // Use minimax for text-to-video, stability for image-to-video
+      const model = image_url
+        ? 'stability-ai/stable-video-diffusion:3f0457e4619daac51203dedb472816fd4af51f3149fa7a9e0b5ffcf1b8172438'
+        : 'minimax/video-01-live';
+      const input: Record<string, any> = { prompt };
+      if (image_url) {
+        input.input_image = image_url;
+        delete input.prompt; // SVD uses input_image not prompt
+      }
+
+      // Use versioned endpoint for stability model, model endpoint for minimax
+      const url = model.includes(':')
+        ? 'https://api.replicate.com/v1/predictions'
+        : `https://api.replicate.com/v1/models/${model}/predictions`;
+      const body: Record<string, any> = { input };
+      if (model.includes(':')) body.version = model.split(':')[1];
+
+      const createResp = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!createResp.ok) {
+        const errText = await createResp.text();
+        return { error: `Replicate API error: ${createResp.status} ${errText}` };
+      }
+
+      let result = await createResp.json() as any;
+      console.log(`[replicate] Video prediction created: ${result.id} (model: ${model.split(':')[0]})`);
+
+      // Poll for completion (video takes longer — up to 5 minutes)
+      const deadline = Date.now() + 300000;
+      while (result.status !== 'succeeded' && result.status !== 'failed' && Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 3000));
+        const pollResp = await fetch(result.urls?.get || `https://api.replicate.com/v1/predictions/${result.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        result = await pollResp.json();
+      }
+
+      if (result.status === 'failed') return { error: `Video generation failed: ${result.error || 'Unknown error'}` };
+      if (result.status !== 'succeeded') return { error: 'Video generation timed out (5min). Try a simpler prompt.' };
+
+      const output = Array.isArray(result.output) ? result.output[0] : result.output;
+      console.log(`[replicate] Video generated: ${output}`);
+
+      return {
+        success: true,
+        url: output,
+        prompt,
+        model: model.split(':')[0],
+        instruction: 'Now call store_deliverable with content_type "video/mp4" and source_url set to the url, then deliver the job.',
+      };
+    } catch (e: any) {
+      return { error: `Video generation failed: ${e.message}` };
+    }
   },
 });
 
