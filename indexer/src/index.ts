@@ -196,8 +196,18 @@ async function checkStreamingSupport(endpoint: string): Promise<boolean> {
 let source: HyperionStream | HyperionPoller;
 
 async function startIngestion(): Promise<void> {
-  const endpoint = config.hyperionEndpoints[0];
-  const streamingAvailable = !usePolling && await checkStreamingSupport(endpoint);
+  // Find first healthy endpoint (for streaming check and poller primary)
+  let endpoint = config.hyperionEndpoints[0];
+  let streamingAvailable = false;
+  if (!usePolling) {
+    for (const ep of config.hyperionEndpoints) {
+      if (await checkStreamingSupport(ep)) {
+        endpoint = ep;
+        streamingAvailable = true;
+        break;
+      }
+    }
+  }
 
   // Per-contract cursors are always populated (ensureContractCursors seeds missing ones with 0).
   // For streaming (single start block), use the minimum across all contracts as safe resume point.
@@ -216,6 +226,7 @@ async function startIngestion(): Promise<void> {
     console.log('Streaming not available — using polling mode');
     const poller = new HyperionPoller({
       endpoint,
+      endpoints: config.hyperionEndpoints,
       contracts: allContracts,
       pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '5000'),
       contractStartBlocks: contractCursors,
@@ -251,10 +262,21 @@ async function startIngestion(): Promise<void> {
   const agentCount = (db.prepare('SELECT COUNT(*) as c FROM agents').get() as any).c;
   const jobCount = (db.prepare('SELECT COUNT(*) as c FROM jobs').get() as any).c;
   if (agentCount === 0 && jobCount === 0) {
-    const rpcEndpoint = config.hyperionEndpoints[0].replace(/\/v2.*$/, '').replace(/\/$/, '');
     console.log('[sync] Empty database — syncing from chain state...');
+    // Try each endpoint until one succeeds
+    let syncDone = false;
+    for (const ep of config.hyperionEndpoints) {
+      const rpcEndpoint = ep.replace(/\/v2.*$/, '').replace(/\/$/, '');
+      try {
+        await syncFromChain(db, rpcEndpoint, config.contracts);
+        syncDone = true;
+        break;
+      } catch (syncErr) {
+        console.warn(`[sync] Failed with ${rpcEndpoint}: ${syncErr instanceof Error ? syncErr.message : syncErr}`);
+      }
+    }
     try {
-      await syncFromChain(db, rpcEndpoint, config.contracts);
+      if (!syncDone) console.warn('[sync] All endpoints failed — starting with empty DB');
       updateStats(db);
       console.log('[sync] Chain sync complete');
     } catch (err) {

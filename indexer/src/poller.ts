@@ -3,6 +3,8 @@ import { StreamAction } from './stream';
 
 export interface PollerConfig {
   endpoint: string;
+  /** Additional endpoints for failover (tried in order when primary fails) */
+  endpoints?: string[];
   contracts: string[];
   pollIntervalMs?: number;
   startBlock?: number;
@@ -23,11 +25,20 @@ export class HyperionPoller extends EventEmitter {
   private contractBlocks: Map<string, number>;
   private running = false;
   private readonly pollInterval: number;
+  private allEndpoints: string[];
+  private currentEndpointIndex = 0;
 
   constructor(config: PollerConfig) {
     super();
     this.config = config;
     this.pollInterval = config.pollIntervalMs || 5000;
+    // Build endpoint list: primary first, then any additional endpoints
+    this.allEndpoints = [config.endpoint];
+    if (config.endpoints) {
+      for (const ep of config.endpoints) {
+        if (!this.allEndpoints.includes(ep)) this.allEndpoints.push(ep);
+      }
+    }
     // Initialize per-contract block cursors, preferring saved per-contract values
     this.contractBlocks = new Map();
     const defaultStart = config.startBlock || 0;
@@ -37,10 +48,14 @@ export class HyperionPoller extends EventEmitter {
     }
   }
 
+  private get currentEndpoint(): string {
+    return this.allEndpoints[this.currentEndpointIndex];
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
-    console.log(`Starting Hyperion poller: ${this.config.endpoint} (every ${this.pollInterval}ms)`);
+    console.log(`Starting Hyperion poller: ${this.currentEndpoint} (every ${this.pollInterval}ms, ${this.allEndpoints.length} endpoints)`);
     this.emit('connected');
     this.poll();
   }
@@ -74,33 +89,56 @@ export class HyperionPoller extends EventEmitter {
       params.set('after', String(lastBlock));
     }
 
-    const url = `${this.config.endpoint}/v2/history/get_actions?${params}`;
+    // Try current endpoint, failover to others on error
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < this.allEndpoints.length; attempt++) {
+      const endpointIndex = (this.currentEndpointIndex + attempt) % this.allEndpoints.length;
+      const endpoint = this.allEndpoints[endpointIndex];
+      const url = `${endpoint}/v2/history/get_actions?${params}`;
 
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
 
-    const data = await response.json() as any;
-    const actions = data.actions || [];
+        const data = await response.json() as any;
+        const actions = data.actions || [];
 
-    for (const action of actions) {
-      const streamAction: StreamAction = {
-        block_num: action.block_num,
-        global_sequence: action.global_sequence || 0,
-        action_ordinal: action.action_ordinal || 0,
-        timestamp: action['@timestamp'] || action.timestamp,
-        trx_id: action.trx_id,
-        act: action.act,
-        inline_traces: action.inline_traces,
-      };
+        // Success — switch to this endpoint if we failed over
+        if (endpointIndex !== this.currentEndpointIndex) {
+          console.log(`Hyperion failover: switched to ${endpoint}`);
+          this.currentEndpointIndex = endpointIndex;
+        }
 
-      this.emit('action', streamAction);
+        for (const action of actions) {
+          const streamAction: StreamAction = {
+            block_num: action.block_num,
+            global_sequence: action.global_sequence || 0,
+            action_ordinal: action.action_ordinal || 0,
+            timestamp: action['@timestamp'] || action.timestamp,
+            trx_id: action.trx_id,
+            act: action.act,
+            inline_traces: action.inline_traces,
+          };
 
-      if (action.block_num > lastBlock) {
-        this.contractBlocks.set(contract, action.block_num);
+          this.emit('action', streamAction);
+
+          if (action.block_num > lastBlock) {
+            this.contractBlocks.set(contract, action.block_num);
+          }
+        }
+        return; // Success, done
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (attempt < this.allEndpoints.length - 1) {
+          console.warn(`Hyperion endpoint ${endpoint} failed (${lastError.message}), trying next...`);
+        }
       }
     }
+
+    // All endpoints failed
+    throw lastError || new Error('All Hyperion endpoints failed');
   }
 
   isConnected(): boolean {
