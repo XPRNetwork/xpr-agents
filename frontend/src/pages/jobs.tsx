@@ -174,7 +174,7 @@ export default function Jobs() {
   }
 
   // IPFS gateway fallback helpers
-  const IPFS_GATEWAYS = ['https://ipfs.io/ipfs/', 'https://dweb.link/ipfs/', 'https://cf-ipfs.com/ipfs/'];
+  const IPFS_GATEWAYS = ['https://ipfs.io/ipfs/', 'https://w3s.link/ipfs/', 'https://4everland.io/ipfs/'];
 
   function extractIpfsCid(url: string): string | null {
     const match = url.match(/\/ipfs\/(Qm[a-zA-Z0-9]{44,}|bafy[a-zA-Z0-9]+)/);
@@ -247,40 +247,39 @@ export default function Jobs() {
         return;
       }
 
-      // HTTP(S) URL — try fetching, detect content type from response
+      // For IPFS URLs, go straight to public gateways (skip broken Pinata gateway etc.)
+      const cid = extractIpfsCid(evidenceUri);
       let fetched = false;
-      try {
-        const resp = await fetch(evidenceUri, { signal: AbortSignal.timeout(10000) });
-        if (resp.ok) {
-          // Check for binary types first (PDF, image, audio, video)
-          if (handleBinaryResponse(resp, evidenceUri)) {
-            fetched = true;
-          } else {
-            fetched = await handleJsonResponse(resp);
-          }
+
+      if (cid) {
+        for (const gw of IPFS_GATEWAYS) {
+          try {
+            const gwUrl = `${gw}${cid}`;
+            const resp = await fetch(gwUrl, { signal: AbortSignal.timeout(15000) });
+            if (resp.ok) {
+              if (handleBinaryResponse(resp, gwUrl)) { fetched = true; break; }
+              if (await handleJsonResponse(resp)) { fetched = true; break; }
+            }
+          } catch { /* next gateway */ }
         }
-      } catch {
-        // Direct fetch failed
+      } else {
+        // Non-IPFS URL — try fetching directly
+        try {
+          const resp = await fetch(evidenceUri, { signal: AbortSignal.timeout(10000) });
+          if (resp.ok) {
+            if (handleBinaryResponse(resp, evidenceUri)) {
+              fetched = true;
+            } else {
+              fetched = await handleJsonResponse(resp);
+            }
+          }
+        } catch {
+          // Direct fetch failed
+        }
       }
 
-      // IPFS gateway fallback
       if (!fetched) {
-        const cid = extractIpfsCid(evidenceUri);
-        if (cid) {
-          for (const gw of IPFS_GATEWAYS) {
-            try {
-              const gwUrl = `${gw}${cid}`;
-              const resp = await fetch(gwUrl, { signal: AbortSignal.timeout(10000) });
-              if (resp.ok) {
-                if (handleBinaryResponse(resp, gwUrl)) { fetched = true; break; }
-                if (await handleJsonResponse(resp)) { fetched = true; break; }
-              }
-            } catch { /* next gateway */ }
-          }
-        }
-        if (!fetched) {
-          setDeliverableContent(evidenceUri);
-        }
+        setDeliverableContent(evidenceUri);
       }
     } catch {
       setDeliverableContent(null);
