@@ -15,6 +15,7 @@ import {
   getJobStateLabel,
   getDisputesForJob,
   getEscrowConfig,
+  DISPUTE_RESOLUTION_LABELS,
   type Job,
   type Bid,
   type Dispute,
@@ -179,8 +180,8 @@ export default function Jobs() {
     if (job.state >= 4 && job.agent && job.agent !== '.............') {
       fetchDeliverable(job.id);
     }
-    // Auto-fetch dispute for disputed jobs
-    if (job.state === 5) {
+    // Auto-fetch dispute for disputed/arbitrated jobs
+    if (job.state === 5 || job.state === 8) {
       loadDispute(job.id);
     }
   }
@@ -439,8 +440,9 @@ export default function Jobs() {
   async function loadDispute(jobId: number) {
     try {
       const disputes = await getDisputesForJob(jobId);
+      // Show most recent dispute — pending first, then resolved
       const pending = disputes.find(d => d.resolution === 0);
-      setActiveDispute(pending || null);
+      setActiveDispute(pending || disputes[0] || null);
     } catch { setActiveDispute(null); }
   }
 
@@ -1358,32 +1360,86 @@ export default function Jobs() {
                   </div>
                 )}
 
-                {/* Dispute Details */}
-                {selectedJob.state === 5 && activeDispute && (
-                  <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg space-y-3">
+                {/* Dispute Details — shown for disputed (5) and arbitrated (8) jobs */}
+                {(selectedJob.state === 5 || selectedJob.state === 8) && activeDispute && (
+                  <div className={`p-4 rounded-lg space-y-3 ${
+                    activeDispute.resolution === 0
+                      ? 'bg-red-500/10 border border-red-500/30'
+                      : 'bg-zinc-800/50 border border-zinc-700'
+                  }`}>
                     <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-bold text-red-400">Dispute #{activeDispute.id}</h3>
-                      <span className="text-xs text-zinc-500">{formatDate(activeDispute.created_at)}</span>
+                      <h3 className={`text-sm font-bold ${activeDispute.resolution === 0 ? 'text-red-400' : 'text-zinc-300'}`}>
+                        Dispute #{activeDispute.id}
+                      </h3>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        activeDispute.resolution === 0
+                          ? 'bg-red-500/20 text-red-400'
+                          : 'bg-emerald-500/20 text-emerald-400'
+                      }`}>
+                        {DISPUTE_RESOLUTION_LABELS[activeDispute.resolution] || 'Unknown'}
+                      </span>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <span className="text-xs text-zinc-500 block">Raised by</span>
+                        <span className="text-white">{activeDispute.raised_by}</span>
+                      </div>
+                      <div>
+                        <span className="text-xs text-zinc-500 block">Filed</span>
+                        <span className="text-zinc-300">{formatDate(activeDispute.created_at)}</span>
+                      </div>
+                    </div>
+
                     <div>
-                      <span className="text-xs text-zinc-500">Raised by:</span>
-                      <span className="text-sm text-white ml-2">{activeDispute.raised_by}</span>
+                      <span className="text-xs text-zinc-500 block mb-1">Reason</span>
+                      <p className="text-sm text-zinc-300">{activeDispute.reason}</p>
                     </div>
-                    <div>
-                      <span className="text-xs text-zinc-500">Reason:</span>
-                      <p className="text-sm text-zinc-300 mt-1">{activeDispute.reason}</p>
-                    </div>
+
                     {activeDispute.evidence_uri && (
                       <div>
-                        <span className="text-xs text-zinc-500">Evidence:</span>
-                        <a href={activeDispute.evidence_uri} target="_blank" rel="noopener noreferrer" className="text-sm text-proton-purple hover:underline ml-2 break-all">
+                        <span className="text-xs text-zinc-500 block mb-1">Evidence</span>
+                        <a href={activeDispute.evidence_uri} target="_blank" rel="noopener noreferrer" className="text-sm text-proton-purple hover:underline break-all">
                           {activeDispute.evidence_uri.length > 60 ? activeDispute.evidence_uri.slice(0, 60) + '...' : activeDispute.evidence_uri}
                         </a>
                       </div>
                     )}
 
-                    {/* Resolve button — shown to arbitrator or contract owner */}
-                    {isArbitrator && !showResolve && (
+                    {/* Resolution details — shown for resolved disputes */}
+                    {activeDispute.resolution > 0 && (
+                      <div className="pt-3 border-t border-zinc-700 space-y-2">
+                        <h4 className="text-sm font-medium text-emerald-400">Resolution</h4>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div>
+                            <span className="text-xs text-zinc-500 block">To client</span>
+                            <span className="text-white font-medium">{formatXpr(activeDispute.client_amount)}</span>
+                          </div>
+                          <div>
+                            <span className="text-xs text-zinc-500 block">To agent</span>
+                            <span className="text-white font-medium">{formatXpr(activeDispute.agent_amount)}</span>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div>
+                            <span className="text-xs text-zinc-500 block">Resolved by</span>
+                            <span className="text-zinc-300">{activeDispute.resolver}</span>
+                          </div>
+                          <div>
+                            <span className="text-xs text-zinc-500 block">Resolved</span>
+                            <span className="text-zinc-300">{formatDate(activeDispute.resolved_at)}</span>
+                          </div>
+                        </div>
+                        {activeDispute.resolution_notes && (
+                          <div>
+                            <span className="text-xs text-zinc-500 block mb-1">Notes</span>
+                            <p className="text-sm text-zinc-300 italic">{activeDispute.resolution_notes}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Resolve button — shown to arbitrator or contract owner for pending disputes */}
+                    {activeDispute.resolution === 0 && isArbitrator && !showResolve && (
                       <button
                         onClick={() => setShowResolve(true)}
                         className="px-4 py-2 bg-proton-purple text-white rounded-lg text-sm hover:bg-proton-purple/80"
@@ -1393,7 +1449,7 @@ export default function Jobs() {
                     )}
 
                     {/* Resolve form */}
-                    {isArbitrator && showResolve && (
+                    {activeDispute.resolution === 0 && isArbitrator && showResolve && (
                       <div className="space-y-3 pt-2 border-t border-red-500/20">
                         <h4 className="text-sm font-medium text-white">Resolution</h4>
                         <div>
