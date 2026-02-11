@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
+import { AccountAvatar } from '@/components/AccountAvatar';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
 import {
@@ -1034,7 +1035,7 @@ export default function Jobs() {
 
                     {/* Footer */}
                     <div className="mt-3 pt-3 border-t border-zinc-800 flex justify-between text-xs text-zinc-500">
-                      <span>by {job.client}</span>
+                      <span className="flex items-center gap-1.5"><AccountAvatar account={job.client} size={16} /> {job.client}</span>
                       <span>{formatDate(job.created_at)}</span>
                     </div>
                   </button>
@@ -1095,8 +1096,8 @@ export default function Jobs() {
                     </span>
                   </div>
                   <h2 className="text-xl font-bold text-white">{selectedJob.title}</h2>
-                  <p className="text-sm text-zinc-500 mt-1">
-                    Posted by {selectedJob.client} &middot; {formatDate(selectedJob.created_at)}
+                  <p className="text-sm text-zinc-500 mt-1 flex items-center gap-1.5">
+                    Posted by <AccountAvatar account={selectedJob.client} size={18} /> {selectedJob.client} &middot; {formatDate(selectedJob.created_at)}
                   </p>
                 </div>
                 <button
@@ -1505,7 +1506,10 @@ export default function Jobs() {
                 {selectedJob.agent && selectedJob.agent !== '.............' && selectedJob.state > 0 && (
                   <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
                     <h3 className="text-sm font-medium text-emerald-400 mb-2">Assigned Agent</h3>
-                    <div className="font-medium text-white">{selectedJob.agent}</div>
+                    <div className="font-medium text-white flex items-center gap-2">
+                      <AccountAvatar account={selectedJob.agent} size={28} />
+                      {selectedJob.agent}
+                    </div>
                     <div className="text-sm text-zinc-400 mt-1">
                       {formatXpr(selectedJob.amount)} budget
                     </div>
@@ -1624,6 +1628,7 @@ export default function Jobs() {
                             <div className="flex justify-between items-start">
                               <div>
                                 <div className="flex items-center gap-2">
+                                  <AccountAvatar account={bid.agent} size={22} />
                                   <span className="font-medium text-sm text-white">{bid.agent}</span>
                                   {isWinner && (
                                     <span className="px-1.5 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-400">Selected</span>

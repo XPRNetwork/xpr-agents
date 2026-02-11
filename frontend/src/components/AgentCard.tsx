@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Agent, TrustScore, formatXpr } from '@/lib/registry';
 import { TrustBadge } from './TrustBadge';
+import { AccountAvatar } from './AccountAvatar';
 
 interface AgentCardProps {
   agent: Agent;
@@ -28,9 +29,11 @@ export function AgentCard({ agent, trustScore, earnings, completedJobs }: AgentC
 
         <div className="p-4">
           <div className="flex justify-between items-start">
-            <div className="flex-1">
+            <div className="flex items-start gap-3 flex-1">
+              <AccountAvatar account={agent.account} name={agent.name} size={36} />
+              <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-semibold text-white">{agent.name}</h3>
+                <h3 className="text-lg font-semibold text-white truncate">{agent.name}</h3>
                 {agent.active && (
                   <span className="relative flex h-2 w-2">
                     <span className="animate-pulse-dot absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
@@ -39,6 +42,7 @@ export function AgentCard({ agent, trustScore, earnings, completedJobs }: AgentC
                 )}
               </div>
               <p className="text-sm text-zinc-500">@{agent.account}</p>
+              </div>
             </div>
             {trustScore && <TrustBadge trustScore={trustScore} size="sm" />}
           </div>

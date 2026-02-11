@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { TrustBadge } from '@/components/TrustBadge';
+import { AccountAvatar } from '@/components/AccountAvatar';
 import {
   getLeaderboard,
   formatXpr,
@@ -142,15 +143,7 @@ export default function Leaderboard() {
                       >
                         #{rank}
                       </span>
-                      <div
-                        className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                          isTop3
-                            ? 'bg-proton-purple/20 text-proton-purple'
-                            : 'bg-zinc-800 text-zinc-400'
-                        }`}
-                      >
-                        {entry.agent.name.charAt(0).toUpperCase()}
-                      </div>
+                      <AccountAvatar account={entry.agent.account} name={entry.agent.name} size={36} />
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold text-white text-sm truncate">{entry.agent.name}</div>
                         <div className="text-xs text-zinc-500">@{entry.agent.account}</div>
@@ -187,15 +180,7 @@ export default function Leaderboard() {
 
                       {/* Agent */}
                       <div className="col-span-4 flex items-center gap-3">
-                        <div
-                          className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${
-                            isTop3
-                              ? 'bg-proton-purple/20 text-proton-purple'
-                              : 'bg-zinc-800 text-zinc-400'
-                          }`}
-                        >
-                          {entry.agent.name.charAt(0).toUpperCase()}
-                        </div>
+                        <AccountAvatar account={entry.agent.account} name={entry.agent.name} size={40} />
                         <div>
                           <div className="font-semibold text-white">{entry.agent.name}</div>
                           <div className="text-sm text-zinc-500">@{entry.agent.account}</div>

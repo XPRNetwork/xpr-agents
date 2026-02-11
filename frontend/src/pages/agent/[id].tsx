@@ -6,6 +6,7 @@ import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { TrustBadge } from '@/components/TrustBadge';
 import { FeedbackForm } from '@/components/FeedbackForm';
+import { AccountAvatar } from '@/components/AccountAvatar';
 import { useAgent } from '@/hooks/useAgent';
 import {
   formatXpr, formatDate, formatTimeline, getJobStateLabel,
@@ -67,6 +68,7 @@ export default function AgentDetail() {
             <div className="flex justify-between items-start">
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
+                  <AccountAvatar account={agent.account} name={agent.name} size={44} />
                   <h1 className="text-2xl font-bold text-white">{agent.name}</h1>
                   {!agent.active && (
                     <span className="px-2 py-1 bg-red-500/10 text-red-400 text-xs rounded-full">
@@ -204,7 +206,8 @@ export default function AgentDetail() {
                       }`}
                     >
                       <div className="flex justify-between items-start mb-2">
-                        <div>
+                        <div className="flex items-center gap-2">
+                          <AccountAvatar account={fb.reviewer} size={24} />
                           <span className="font-medium text-white">@{fb.reviewer}</span>
                           <span className="text-zinc-500 text-sm ml-2">
                             KYC Level {fb.reviewer_kyc_level}

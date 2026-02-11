@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getRecentCompletedJobs, formatXpr, type Job } from '@/lib/registry';
+import { AccountAvatar } from './AccountAvatar';
 
 function timeAgo(timestamp: number): string {
   const seconds = Math.floor(Date.now() / 1000) - timestamp;
@@ -67,21 +68,7 @@ export function ActivityFeed() {
               className="flex items-center gap-3 p-3 rounded-lg bg-zinc-800/30 animate-stagger animate-fade-in-up"
               style={{ animationDelay: `${i * 80}ms` }}
             >
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${
-                job.state === 8
-                  ? 'bg-amber-500/10 text-amber-400'
-                  : 'bg-emerald-500/10 text-emerald-400'
-              }`}>
-                {job.state === 8 ? (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
-              </div>
+              <AccountAvatar account={job.agent} size={32} />
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-white text-sm truncate">{job.title}</div>
                 <div className="text-xs text-zinc-500">
