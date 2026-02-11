@@ -207,7 +207,7 @@ export default function Home() {
                     View All
                   </Link>
                 </div>
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
                   {topAgents.map((entry, i) => (
                     <Link key={entry.agent.account} href={`/agent/${entry.agent.account}`} className="block">
                       <div className="flex items-center gap-3 px-3 py-3.5 rounded-lg hover:bg-zinc-800/50 transition-colors cursor-pointer animated-border border border-zinc-800/50">
