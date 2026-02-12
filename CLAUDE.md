@@ -599,6 +599,40 @@ All phases are complete:
 - **A2A Authentication** — EOSIO signature auth (`sdk/src/eosio-auth.ts`), trust gating, per-account rate limiting, tool sandboxing (`A2A_TOOL_MODE=readonly`)
 - **Security hardening** — task ownership scoping (prevents cross-caller hijack), raw body preservation for signature verification, webhook auth fail-closed pattern, KYC array parsing with numeric sanitization
 
+### Phase 8: Agent Skills System ✓
+- Built-in skill loader (`skill-loader.ts`) with manifest validation, prompt injection, and tool collision detection
+- **7 built-in skills** always loaded by the agent runner:
+
+| Skill | Tools | Description |
+|-------|-------|-------------|
+| `creative` | 4 | Image generation (Replicate), video generation, IPFS upload, PDF creation, GitHub repos |
+| `web-scraping` | 3 | Page fetch/parse, structured data extraction |
+| `code-sandbox` | 2 | Sandboxed JavaScript execution in VM |
+| `structured-data` | 3 | CSV/JSON parsing, chart generation |
+| `defi` | 8 | Token prices (Metal X), AMM swap rates, liquidity pools, msig proposals |
+| `nft` | 23 | Full AtomicAssets/AtomicMarket lifecycle (see below) |
+| `xpr-agent-operator` | — | System prompt defining agent behavior and responsibilities |
+
+- External skills via `AGENT_SKILLS` env var (npm packages or local paths)
+- Each skill provides: `skill.json` manifest, `SKILL.md` prompt section, `src/index.ts` tool handlers
+- A2A sandbox: read-only tools (`nft_get_*`, `nft_list_*`, `nft_search_*`, `defi_*`) exposed in readonly mode
+
+### NFT Skill (AtomicAssets/AtomicMarket) ✓
+- **23 tools**: 11 read-only + 12 write (all write ops require `confirmed: true`)
+- **Read tools**: get/list collections, schemas, templates, assets, sales, auctions
+- **Write tools**: create collections/schemas/templates, mint, transfer, burn, list for sale, cancel sale, purchase, create auction, bid, claim auction
+- **Multi-action transactions**: `nft_list_for_sale` = announcesale + createoffer; `nft_purchase` = deposit + purchasesale; `nft_bid` = deposit + auctionbid; `nft_create_auction` = announceauct + transfer
+- **Auto-maps data types from schema**: agent passes plain `{name: "My NFT", img: "QmHash"}`, tool fetches schema and builds correct ATTRIBUTE_MAP format
+- **AA API with failover**: Primary Saltant → Fallback BloxProd; schema fetching also falls back to direct RPC table reads for newly created schemas
+- **Action ordering**: announce sale/auction MUST come before createoffer/transfer (AtomicMarket checks for announced sale on notification)
+
+#### AtomicAssets API Endpoints
+
+| Network | Primary (Saltant) | Fallback (BloxProd) |
+|---------|-------------------|---------------------|
+| Testnet | `https://aa-xprnetwork-test.saltant.io` | `https://xpr-testnet-atm-api.bloxprod.io` |
+| Mainnet | `https://aa-xprnetwork-main.saltant.io` | `https://xpr-mainnet-atm-api.bloxprod.io` |
+
 ## Comparison: EIP-8004 vs XPR Network
 
 | Aspect | EIP-8004 (Ethereum) | XPR Network |
@@ -674,9 +708,20 @@ xpr-agents/
 │   │   └── agent/               # Autonomous agent runner
 │   │       ├── package.json
 │   │       ├── Dockerfile
-│   │       └── src/
-│   │           ├── index.ts     # Webhook listener + Claude agentic loop + A2A server
-│   │           └── a2a-auth.ts  # A2A authentication, trust gating, rate limiting
+│   │       ├── src/
+│   │       │   ├── index.ts     # Webhook listener + Claude agentic loop + A2A server
+│   │       │   ├── a2a-auth.ts  # A2A authentication, trust gating, rate limiting
+│   │       │   └── skill-loader.ts  # Skill discovery, validation, loading
+│   │       └── skills/          # Built-in agent skills
+│   │           ├── creative/    # Image/video gen, IPFS upload, PDF, GitHub repos
+│   │           ├── web-scraping/ # Page fetch/parse, data extraction
+│   │           ├── code-sandbox/ # Sandboxed JS execution
+│   │           ├── structured-data/ # CSV/JSON parsing, charts
+│   │           ├── defi/        # Token prices, swap rates, pools, msig proposals
+│   │           └── nft/         # AtomicAssets/AtomicMarket NFT lifecycle (23 tools)
+│   │               ├── skill.json   # Manifest
+│   │               ├── SKILL.md     # Agent prompt section
+│   │               └── src/index.ts # All 23 tool handlers
 │   └── tests/
 │       ├── tools.test.ts
 │       ├── confirm.test.ts
