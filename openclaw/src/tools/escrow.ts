@@ -332,9 +332,9 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
         nft_asset_ids: {
           type: 'array',
           items: { type: 'string' },
-          description: 'AtomicAssets asset IDs to deliver. REQUIRED when job involves NFTs. Transfers NFTs to client and renders NFT card on frontend.',
+          description: 'AtomicAssets asset IDs to include as NFT deliverable (auto-formats JSON envelope)',
         },
-        nft_collection: { type: 'string', description: 'Collection name for the NFT deliverable. Use with nft_asset_ids.' },
+        nft_collection: { type: 'string', description: 'Collection name for the NFT deliverable (used with nft_asset_ids)' },
       },
     },
     handler: async ({ job_id, evidence_uri, nft_asset_ids, nft_collection }: {
@@ -386,31 +386,6 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
           ],
         });
         return { ...result, nft_transferred_to: job.client, nft_asset_ids };
-      }
-
-      // Auto-detect: if agent owns NFTs, remind to include nft_asset_ids
-      try {
-        const rpcUrl = (config.rpc as any).endpoint || process.env.XPR_RPC_ENDPOINT || 'https://tn1.protonnz.com';
-        const resp = await fetch(`${rpcUrl}/v1/chain/get_table_rows`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: 'atomicassets', scope: agent, table: 'assets', json: true, limit: 5 }),
-        });
-        const assetRows: any = await resp.json();
-        if (assetRows.rows && assetRows.rows.length > 0) {
-          const ownedAssets = assetRows.rows.map((r: any) => ({
-            asset_id: String(r.asset_id),
-            collection: r.collection_name,
-            template_id: r.template_id,
-          }));
-          return {
-            error: 'You own NFT assets but did not include nft_asset_ids. Please re-call xpr_deliver_job with nft_asset_ids and nft_collection to transfer the NFTs to the client and display them on the frontend.',
-            your_nft_assets: ownedAssets,
-            example: `xpr_deliver_job({ job_id: ${job_id}, evidence_uri: "${evidence_uri}", nft_asset_ids: ["${ownedAssets[0].asset_id}"], nft_collection: "${ownedAssets[0].collection}" })`,
-          };
-        }
-      } catch (err: any) {
-        console.error('[xpr_deliver_job] NFT auto-detect failed:', err.message);
       }
 
       validateUrl(evidence_uri, 'evidence_uri');
