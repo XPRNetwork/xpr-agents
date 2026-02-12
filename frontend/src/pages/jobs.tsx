@@ -1153,8 +1153,12 @@ export default function Jobs() {
                     </span>
                   </div>
                   <h2 className="text-xl font-bold text-white">{selectedJob.title}</h2>
-                  <p className="text-sm text-zinc-500 mt-1 flex items-center gap-1.5">
-                    Posted by <AccountLink account={selectedJob.client} showAvatar avatarSize={18} /> &middot; <span title={formatDate(selectedJob.created_at)}>{formatRelativeTime(selectedJob.created_at)}</span>
+                  <p className="text-sm text-zinc-500 mt-1 flex flex-wrap items-center gap-1.5">
+                    Posted by <AccountLink account={selectedJob.client} showAvatar avatarSize={18} />
+                    {selectedJob.agent && selectedJob.agent !== '.............' && (
+                      <>&middot; Agent: <AccountLink account={selectedJob.agent} isAgent showAvatar avatarSize={18} /></>
+                    )}
+                    &middot; <span title={formatDate(selectedJob.created_at)}>{formatRelativeTime(selectedJob.created_at)}</span>
                   </p>
                 </div>
                 <button
@@ -1170,7 +1174,7 @@ export default function Jobs() {
                 <p className="text-zinc-400">{selectedJob.description}</p>
 
                 {/* Stats Row */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <div className="bg-zinc-800 rounded-lg p-3 text-center">
                     <div className="text-lg font-bold text-proton-purple">{formatXpr(selectedJob.amount)}</div>
                     <div className="text-xs text-zinc-500">Budget</div>
@@ -1180,14 +1184,6 @@ export default function Jobs() {
                       {formatXpr(selectedJob.funded_amount)}
                     </div>
                     <div className="text-xs text-zinc-500">Funded</div>
-                  </div>
-                  <div className="bg-zinc-800 rounded-lg p-3 text-center">
-                    <div className="text-lg font-bold text-white">
-                      {selectedJob.agent && selectedJob.agent !== '.............' ? (
-                        <AccountLink account={selectedJob.agent} isAgent />
-                      ) : 'Open'}
-                    </div>
-                    <div className="text-xs text-zinc-500">Agent</div>
                   </div>
                 </div>
 

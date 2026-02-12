@@ -107,6 +107,8 @@ When delivering a job, ALWAYS:
    **Text & Documents:**
    - \`store_deliverable\` with content_type "text/markdown" — rich Markdown (default)
    - \`store_deliverable\` with content_type "application/pdf" — write Markdown, auto-generates PDF
+     - Use ![alt text](https://image-url) to embed images — they are downloaded and embedded in the PDF
+     - Write CLEAN Markdown only — no HTML tags, no <cite> tags, no raw HTML
    - \`store_deliverable\` with content_type "text/csv" — structured data
 
    **Images (AI-generated) — IMPORTANT:**
@@ -709,11 +711,57 @@ async function downloadFromUrl(url: string): Promise<{ buffer: Buffer; mimeType:
 
 // Generate PDF from markdown content using pdfkit
 function stripMarkdownInline(text: string): string {
+  // Strip <cite> tags from web search results (e.g. <cite index="10-15">text</cite>)
+  text = text.replace(/<cite[^>]*>([\s\S]*?)<\/cite>/g, '$1');
+  // Strip any remaining HTML tags
+  text = text.replace(/<[^>]+>/g, '');
   return text.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`([^`]+)`/g, '$1').replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1');
+}
+
+// Extract markdown image references from text: ![alt](url)
+function extractImages(text: string): { alt: string; url: string }[] {
+  const matches: { alt: string; url: string }[] = [];
+  const re = /!\[([^\]]*)\]\((https?:\/\/[^\)]+)\)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    matches.push({ alt: m[1], url: m[2] });
+  }
+  return matches;
+}
+
+// Download an image and return its buffer + detected type
+async function downloadImage(url: string): Promise<{ buffer: Buffer; type: string } | null> {
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!resp.ok) return null;
+    const ct = (resp.headers.get('content-type') || '').split(';')[0].trim();
+    if (!ct.startsWith('image/')) return null;
+    const buf = Buffer.from(await resp.arrayBuffer());
+    if (buf.length < 100) return null; // too small, probably an error
+    // PDFKit supports JPEG and PNG natively
+    const type = ct.includes('png') ? 'png' : ct.includes('jpeg') || ct.includes('jpg') ? 'jpeg' : '';
+    if (!type) return null;
+    return { buffer: buf, type };
+  } catch {
+    return null;
+  }
 }
 
 async function generatePdfFromMarkdown(content: string): Promise<Buffer> {
   const PDFDocument = require('pdfkit');
+
+  // Pre-download all images referenced in the markdown
+  const allImages = extractImages(content);
+  const imageCache = new Map<string, { buffer: Buffer; type: string }>();
+  if (allImages.length > 0) {
+    const downloads = await Promise.allSettled(
+      allImages.slice(0, 10).map(async (img) => { // max 10 images
+        const data = await downloadImage(img.url);
+        if (data) imageCache.set(img.url, data);
+      })
+    );
+  }
+
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ size: 'A4', margin: 50 });
@@ -722,11 +770,49 @@ async function generatePdfFromMarkdown(content: string): Promise<Buffer> {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
+      const pageWidth = 595.28 - 100; // A4 width minus margins
       const lines = content.split('\n');
       let inCodeBlock = false;
       for (const line of lines) {
         if (line.startsWith('```')) { inCodeBlock = !inCodeBlock; doc.moveDown(0.3); continue; }
         if (inCodeBlock) { doc.fontSize(9).font('Courier').text(line); continue; }
+
+        // Check for image lines: ![alt](url)
+        const imgMatch = line.match(/^!\[([^\]]*)\]\((https?:\/\/[^\)]+)\)\s*$/);
+        if (imgMatch) {
+          const imgData = imageCache.get(imgMatch[2]);
+          if (imgData) {
+            try {
+              // Fit image within page width, max height 300
+              doc.moveDown(0.3);
+              doc.image(imgData.buffer, { fit: [pageWidth, 300], align: 'center' });
+              doc.moveDown(0.3);
+              if (imgMatch[1]) {
+                doc.fontSize(9).font('Helvetica').fillColor('#666666')
+                  .text(imgMatch[1], { align: 'center' }).fillColor('#000000');
+              }
+              doc.moveDown(0.3);
+            } catch {
+              // Image embedding failed, show as text caption
+              doc.fontSize(9).font('Helvetica').fillColor('#666666')
+                .text(`[Image: ${imgMatch[1] || imgMatch[2]}]`, { align: 'center' }).fillColor('#000000');
+            }
+          } else {
+            doc.fontSize(9).font('Helvetica').fillColor('#666666')
+              .text(`[Image: ${imgMatch[1] || imgMatch[2]}]`, { align: 'center' }).fillColor('#000000');
+          }
+          continue;
+        }
+
+        // Horizontal rule
+        if (/^---+$/.test(line.trim())) {
+          doc.moveDown(0.3);
+          const y = doc.y;
+          doc.moveTo(50, y).lineTo(545, y).strokeColor('#cccccc').lineWidth(0.5).stroke();
+          doc.moveDown(0.5);
+          continue;
+        }
+
         if (line.startsWith('# ')) {
           doc.moveDown(0.5).fontSize(22).font('Helvetica-Bold').text(stripMarkdownInline(line.slice(2))).moveDown(0.3);
         } else if (line.startsWith('## ')) {
@@ -818,7 +904,9 @@ tools.push({
     'Store job deliverable content before delivering on-chain. Call this BEFORE xpr_deliver_job.',
     'Routes by content_type:',
     '  text/markdown (default) — stores as JSON on IPFS',
-    '  application/pdf — generates PDF from your Markdown, uploads binary to IPFS',
+    '  application/pdf — generates PDF from your Markdown, uploads binary to IPFS.',
+    '    Images referenced as ![alt](url) in the Markdown are downloaded and embedded in the PDF.',
+    '    Do NOT include <cite> or other HTML tags in the content — use clean Markdown only.',
     '  image/*, audio/*, video/* — downloads source_url and uploads binary to IPFS',
     '  text/csv, text/plain, text/html — stores as JSON on IPFS',
   ].join('\n'),
