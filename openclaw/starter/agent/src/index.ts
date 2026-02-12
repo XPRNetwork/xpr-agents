@@ -76,11 +76,21 @@ const creativeSkill = loadBuiltinSkill(creativeSkillDir, tools);
 const webScrapingSkillDir = path.resolve(__dirname, '../skills/web-scraping');
 const webScrapingSkill = loadBuiltinSkill(webScrapingSkillDir, tools);
 
-// 3. External skills from AGENT_SKILLS env var
+// 3. Built-in code-sandbox skill (always loaded — JS execution in sandboxed VM)
+const codeSandboxSkillDir = path.resolve(__dirname, '../skills/code-sandbox');
+const codeSandboxSkill = loadBuiltinSkill(codeSandboxSkillDir, tools);
+
+// 4. Built-in structured-data skill (always loaded — CSV/JSON/chart tools)
+const structuredDataSkillDir = path.resolve(__dirname, '../skills/structured-data');
+const structuredDataSkill = loadBuiltinSkill(structuredDataSkillDir, tools);
+
+// 5. External skills from AGENT_SKILLS env var
 const skillResult: SkillLoadResult = loadSkills(tools);
 const allSkillCapabilities: string[] = [
   ...(creativeSkill?.manifest.capabilities || []),
   ...(webScrapingSkill?.manifest.capabilities || []),
+  ...(codeSandboxSkill?.manifest.capabilities || []),
+  ...(structuredDataSkill?.manifest.capabilities || []),
   ...skillResult.capabilities,
 ];
 
@@ -179,6 +189,12 @@ if (creativeSkill?.promptSection) {
 }
 if (webScrapingSkill?.promptSection) {
   systemPrompt += `\n\n## Skill: ${webScrapingSkill.manifest.name}\n${webScrapingSkill.promptSection}`;
+}
+if (codeSandboxSkill?.promptSection) {
+  systemPrompt += `\n\n## Skill: ${codeSandboxSkill.manifest.name}\n${codeSandboxSkill.promptSection}`;
+}
+if (structuredDataSkill?.promptSection) {
+  systemPrompt += `\n\n## Skill: ${structuredDataSkill.manifest.name}\n${structuredDataSkill.promptSection}`;
 }
 for (const section of skillResult.promptSections) {
   systemPrompt += `\n\n${section}`;
