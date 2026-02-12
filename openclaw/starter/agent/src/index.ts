@@ -896,7 +896,6 @@ const POLL_TIMEOUT = 120_000; // 2 minutes max per poll cycle
 
 async function pollOnChain(): Promise<void> {
   if (shuttingDown) return;
-  console.log(`[poller] Poll cycle starting...`);
 
   try {
     await Promise.race([
@@ -905,7 +904,6 @@ async function pollOnChain(): Promise<void> {
         setTimeout(() => reject(new Error('Poll cycle timed out after 120s')), POLL_TIMEOUT)
       ),
     ]);
-    console.log(`[poller] Poll cycle completed`);
   } catch (err: any) {
     console.error(`[poller] Poll cycle error: ${err.message}`);
   }
@@ -928,9 +926,13 @@ async function pollOnChainInner(): Promise<void> {
 
   try {
     // 1. Check jobs assigned to this agent for state changes
+    //    Fetch up to 100 jobs (secondary index returns oldest first),
+    //    then only track the most recent 50 for state change detection.
     if (listJobs) {
-      const res: any = await listJobs.handler({ agent: account, limit: 50 });
-      const jobs: any[] = res?.items || res || [];
+      const res: any = await listJobs.handler({ agent: account, limit: 100 });
+      const allJobs: any[] = res?.items || res || [];
+      // Only care about the most recent 50 — old completed jobs won't change
+      const jobs: any[] = allJobs.length > 50 ? allJobs.slice(-50) : allJobs;
       for (const job of jobs) {
         if (!job || job.id == null) continue;
         const prevState = knownJobStates.get(job.id);
