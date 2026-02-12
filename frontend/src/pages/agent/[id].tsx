@@ -81,7 +81,14 @@ export default function AgentDetail() {
                     </span>
                   )}
                 </div>
-                <p className="text-zinc-500 mb-4">@{agent.account}</p>
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-zinc-500">@{agent.account}</span>
+                  {agent.owner && (
+                    <span className="text-zinc-500 text-sm">
+                      &middot; Owned by <AccountLink account={agent.owner} className="text-sm" />
+                    </span>
+                  )}
+                </div>
                 <p className="text-zinc-400">{agent.description}</p>
               </div>
               {trustScore && (

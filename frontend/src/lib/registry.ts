@@ -23,6 +23,7 @@ export const rpc = new JsonRpc(NETWORK.rpc);
 // Types
 export interface Agent {
   account: string;
+  owner: string | null;
   name: string;
   description: string;
   endpoint: string;
@@ -82,8 +83,10 @@ export async function getAgents(limit = 100): Promise<Agent[]> {
   return result.rows.map((row: any) => {
     let capabilities: string[] = [];
     try { capabilities = JSON.parse(row.capabilities || '[]'); } catch { /* malformed */ }
+    const ownerRaw = row.owner || '';
     return {
       account: row.account,
+      owner: ownerRaw && ownerRaw !== '.............' ? ownerRaw : null,
       name: row.name,
       description: row.description,
       endpoint: row.endpoint,
@@ -113,8 +116,10 @@ export async function getAgent(account: string): Promise<Agent | null> {
   const row = result.rows[0];
   let capabilities: string[] = [];
   try { capabilities = JSON.parse(row.capabilities || '[]'); } catch { /* malformed */ }
+  const ownerRaw = row.owner || '';
   return {
     account: row.account,
+    owner: ownerRaw && ownerRaw !== '.............' ? ownerRaw : null,
     name: row.name,
     description: row.description,
     endpoint: row.endpoint,
@@ -180,7 +185,16 @@ export async function getAgentFeedback(agent: string, limit = 50): Promise<Feedb
     }));
 }
 
-export async function getKycLevel(account: string): Promise<number> {
+export async function getKycLevel(account: string, ownerAccount?: string | null): Promise<number> {
+  // If an owner is set, check their KYC first (bots can't complete KYC but their human owner can)
+  if (ownerAccount) {
+    const ownerKyc = await fetchKycLevel(ownerAccount);
+    if (ownerKyc > 0) return ownerKyc;
+  }
+  return fetchKycLevel(account);
+}
+
+async function fetchKycLevel(account: string): Promise<number> {
   try {
     const result = await rpc.get_table_rows({
       json: true,
@@ -221,6 +235,41 @@ export async function getSystemStake(account: string): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+export interface AgentClaimInfo {
+  exists: boolean;
+  owner: string | null;
+  pending_owner: string | null;
+  claim_deposit: number;
+  name: string;
+}
+
+export async function getAgentClaimInfo(agentAccount: string): Promise<AgentClaimInfo> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_CORE,
+    scope: CONTRACTS.AGENT_CORE,
+    table: 'agents',
+    lower_bound: agentAccount,
+    upper_bound: agentAccount,
+    limit: 1,
+  });
+
+  if (result.rows.length === 0) {
+    return { exists: false, owner: null, pending_owner: null, claim_deposit: 0, name: '' };
+  }
+
+  const row = result.rows[0];
+  const ownerRaw = row.owner || '';
+  const pendingRaw = row.pending_owner || '';
+  return {
+    exists: true,
+    owner: ownerRaw && ownerRaw !== '.............' ? ownerRaw : null,
+    pending_owner: pendingRaw && pendingRaw !== '.............' ? pendingRaw : null,
+    claim_deposit: parseInt(row.claim_deposit) || 0,
+    name: row.name || agentAccount,
+  };
 }
 
 export function calculateTrustScore(
@@ -552,7 +601,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     activeAgents.map(async (agent) => {
       const [agentScore, kycLevel, earnings, systemStake] = await Promise.all([
         getAgentScore(agent.account).catch(() => null),
-        getKycLevel(agent.account).catch(() => 0),
+        getKycLevel(agent.account, agent.owner).catch(() => 0),
         getAgentEarnings(agent.account).catch(() => ({ total: 0, completedJobs: 0 })),
         getSystemStake(agent.account).catch(() => 0),
       ]);

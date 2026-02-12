@@ -39,13 +39,15 @@ export function useAgent(account: string | undefined): UseAgentResult {
     setError(null);
 
     try {
-      const [agentData, scoreData, feedbackData, kyc, stake] = await Promise.all([
+      const [agentData, scoreData, feedbackData, stake] = await Promise.all([
         getAgent(account),
         getAgentScore(account),
         getAgentFeedback(account),
-        getKycLevel(account),
         getSystemStake(account),
       ]);
+
+      // Fetch KYC after we know the owner (owner's KYC is checked first)
+      const kyc = await getKycLevel(account, agentData?.owner);
 
       // Populate agent.stake from system staking (agentcore table has no stake column)
       if (agentData) {

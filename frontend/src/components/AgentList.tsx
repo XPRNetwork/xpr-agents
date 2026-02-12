@@ -30,11 +30,11 @@ export function AgentList() {
         const agentsWithTrust = await Promise.all(
           agentList.map(async (agent) => {
             try {
-              const [score, kycLevel, systemStake] = await Promise.all([
+              const [score, systemStake] = await Promise.all([
                 getAgentScore(agent.account),
-                getKycLevel(agent.account),
                 getSystemStake(agent.account),
               ]);
+              const kycLevel = await getKycLevel(agent.account, agent.owner);
               // Populate agent.stake from system staking (agentcore table has no stake column)
               agent.stake = systemStake;
               return {
