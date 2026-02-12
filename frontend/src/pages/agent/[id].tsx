@@ -7,9 +7,10 @@ import { Footer } from '@/components/Footer';
 import { TrustBadge } from '@/components/TrustBadge';
 import { FeedbackForm } from '@/components/FeedbackForm';
 import { AccountAvatar } from '@/components/AccountAvatar';
+import { AccountLink } from '@/components/AccountLink';
 import { useAgent } from '@/hooks/useAgent';
 import {
-  formatXpr, formatDate, formatTimeline, getJobStateLabel,
+  formatXpr, formatDate, formatRelativeTime, formatTimeline, getJobStateLabel,
   getJobsByAgent, getBidsByAgent, getAgentEarnings, getXprBalance,
   type Job, type Bid,
 } from '@/lib/registry';
@@ -163,8 +164,8 @@ export default function AgentDetail() {
                         <span className="text-xs font-mono text-zinc-500">#{job.id}</span>
                         <span className="font-medium text-white">{job.title}</span>
                       </div>
-                      <div className="text-sm text-zinc-500">
-                        Client: {job.client} &middot; {formatDate(job.created_at)}
+                      <div className="text-sm text-zinc-500 flex items-center gap-1">
+                        Client: <AccountLink account={job.client} className="text-xs" /> &middot; <span title={formatDate(job.created_at)}>{formatRelativeTime(job.created_at)}</span>
                       </div>
                     </div>
                     <div className="text-right">
@@ -226,8 +227,7 @@ export default function AgentDetail() {
                     >
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex items-center gap-2">
-                          <AccountAvatar account={fb.reviewer} size={24} />
-                          <span className="font-medium text-white">@{fb.reviewer}</span>
+                          <AccountLink account={fb.reviewer} showAvatar avatarSize={24} className="font-medium" />
                           <span className="text-zinc-500 text-sm ml-2">
                             KYC Level {fb.reviewer_kyc_level}
                           </span>
@@ -260,7 +260,7 @@ export default function AgentDetail() {
                       )}
 
                       <div className="flex justify-between items-center text-sm text-zinc-500">
-                        <span>{formatDate(fb.timestamp)}</span>
+                        <span title={formatDate(fb.timestamp)}>{formatRelativeTime(fb.timestamp)}</span>
                         {fb.disputed && (
                           <span className="text-amber-400">
                             {fb.resolved ? 'Dispute Resolved' : 'Disputed'}

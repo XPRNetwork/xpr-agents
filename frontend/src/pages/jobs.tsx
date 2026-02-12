@@ -4,6 +4,7 @@ import { useRouter } from 'next/router';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { AccountAvatar } from '@/components/AccountAvatar';
+import { AccountLink } from '@/components/AccountLink';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
 import { useChainStream } from '@/hooks/useChainStream';
@@ -11,6 +12,7 @@ import {
   CONTRACTS,
   formatXpr,
   formatDate,
+  formatRelativeTime,
   formatTimeline,
   getAllJobs,
   getJob,
@@ -1147,7 +1149,7 @@ export default function Jobs() {
                   </div>
                   <h2 className="text-xl font-bold text-white">{selectedJob.title}</h2>
                   <p className="text-sm text-zinc-500 mt-1 flex items-center gap-1.5">
-                    Posted by <AccountAvatar account={selectedJob.client} size={18} /> {selectedJob.client} &middot; {formatDate(selectedJob.created_at)}
+                    Posted by <AccountLink account={selectedJob.client} showAvatar avatarSize={18} /> &middot; <span title={formatDate(selectedJob.created_at)}>{formatRelativeTime(selectedJob.created_at)}</span>
                   </p>
                 </div>
                 <button
@@ -1176,7 +1178,9 @@ export default function Jobs() {
                   </div>
                   <div className="bg-zinc-800 rounded-lg p-3 text-center">
                     <div className="text-lg font-bold text-white">
-                      {selectedJob.agent && selectedJob.agent !== '.............' ? selectedJob.agent : 'Open'}
+                      {selectedJob.agent && selectedJob.agent !== '.............' ? (
+                        <AccountLink account={selectedJob.agent} isAgent />
+                      ) : 'Open'}
                     </div>
                     <div className="text-xs text-zinc-500">Agent</div>
                   </div>
@@ -1205,7 +1209,7 @@ export default function Jobs() {
                 )}
 
                 {selectedJob.deadline > 0 && (
-                  <p className="text-sm text-zinc-500">Deadline: {formatDate(selectedJob.deadline)}</p>
+                  <p className="text-sm text-zinc-500">Deadline: <span title={formatDate(selectedJob.deadline)}>{formatRelativeTime(selectedJob.deadline)}</span></p>
                 )}
 
                 {/* Deliverable Result */}
@@ -1434,11 +1438,11 @@ export default function Jobs() {
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div>
                         <span className="text-xs text-zinc-500 block">Raised by</span>
-                        <span className="text-white">{activeDispute.raised_by}</span>
+                        <AccountLink account={activeDispute.raised_by} className="text-sm" />
                       </div>
                       <div>
                         <span className="text-xs text-zinc-500 block">Filed</span>
-                        <span className="text-zinc-300">{formatDate(activeDispute.created_at)}</span>
+                        <span className="text-zinc-300" title={formatDate(activeDispute.created_at)}>{formatRelativeTime(activeDispute.created_at)}</span>
                       </div>
                     </div>
 
@@ -1473,11 +1477,11 @@ export default function Jobs() {
                         <div className="grid grid-cols-2 gap-2 text-sm">
                           <div>
                             <span className="text-xs text-zinc-500 block">Resolved by</span>
-                            <span className="text-zinc-300">{activeDispute.resolver}</span>
+                            <AccountLink account={activeDispute.resolver} className="text-sm" />
                           </div>
                           <div>
                             <span className="text-xs text-zinc-500 block">Resolved</span>
-                            <span className="text-zinc-300">{formatDate(activeDispute.resolved_at)}</span>
+                            <span className="text-zinc-300" title={formatDate(activeDispute.resolved_at)}>{formatRelativeTime(activeDispute.resolved_at)}</span>
                           </div>
                         </div>
                         {activeDispute.resolution_notes && (
@@ -1556,9 +1560,8 @@ export default function Jobs() {
                 {selectedJob.agent && selectedJob.agent !== '.............' && selectedJob.state > 0 && (
                   <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
                     <h3 className="text-sm font-medium text-emerald-400 mb-2">Assigned Agent</h3>
-                    <div className="font-medium text-white flex items-center gap-2">
-                      <AccountAvatar account={selectedJob.agent} size={28} />
-                      {selectedJob.agent}
+                    <div className="font-medium text-white">
+                      <AccountLink account={selectedJob.agent} isAgent showAvatar avatarSize={28} />
                     </div>
                     <div className="text-sm text-zinc-400 mt-1">
                       {formatXpr(selectedJob.amount)} budget
@@ -1678,8 +1681,7 @@ export default function Jobs() {
                             <div className="flex justify-between items-start">
                               <div>
                                 <div className="flex items-center gap-2">
-                                  <AccountAvatar account={bid.agent} size={22} />
-                                  <span className="font-medium text-sm text-white">{bid.agent}</span>
+                                  <AccountLink account={bid.agent} isAgent showAvatar avatarSize={22} className="font-medium text-sm" />
                                   {isWinner && (
                                     <span className="px-1.5 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-400">Selected</span>
                                   )}

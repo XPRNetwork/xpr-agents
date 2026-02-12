@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
+import { AccountLink } from '@/components/AccountLink';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
 import {
   CONTRACTS,
   formatXpr,
   formatDate,
+  formatRelativeTime,
   getValidators,
   getValidator,
   getValidationsByValidator,
@@ -512,7 +514,7 @@ export default function Validators() {
               {selectedValidator && (
                 <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
                   <div className="flex justify-between items-start mb-4">
-                    <h3 className="font-bold text-white text-lg">{selectedValidator.account}</h3>
+                    <h3 className="font-bold text-lg"><AccountLink account={selectedValidator.account} /></h3>
                     <button onClick={() => setSelectedValidator(null)} className="text-zinc-500 hover:text-zinc-300 text-sm">Close</button>
                   </div>
                   <div className="grid grid-cols-2 gap-3 mb-4">
@@ -537,7 +539,7 @@ export default function Validators() {
                   </div>
                   <div className="text-sm text-zinc-400 mb-1"><span className="text-zinc-500">Method:</span> {selectedValidator.method || 'Not specified'}</div>
                   <div className="text-sm text-zinc-400 mb-1"><span className="text-zinc-500">Pending Challenges:</span> {selectedValidator.pending_challenges}</div>
-                  <div className="text-sm text-zinc-400 mb-4"><span className="text-zinc-500">Registered:</span> {formatDate(selectedValidator.registered_at)}</div>
+                  <div className="text-sm text-zinc-400 mb-4"><span className="text-zinc-500">Registered:</span> <span title={formatDate(selectedValidator.registered_at)}>{formatRelativeTime(selectedValidator.registered_at)}</span></div>
 
                   <h4 className="font-medium text-white text-sm mb-2">Recent Validations</h4>
                   {validationsLoading ? (
@@ -549,14 +551,14 @@ export default function Validators() {
                       {recentValidations.map(v => (
                         <div key={v.id} className="p-3 bg-zinc-800 rounded-lg">
                           <div className="flex justify-between items-start">
-                            <div className="text-sm text-white">{v.agent}</div>
+                            <AccountLink account={v.agent} isAgent className="text-sm" />
                             <span className={`px-1.5 py-0.5 rounded text-xs ${RESULT_COLORS[v.result] || ''}`}>
                               {VALIDATION_RESULT_LABELS[v.result]}
                             </span>
                           </div>
                           <div className="flex gap-3 text-xs text-zinc-500 mt-1">
                             <span>Confidence: {v.confidence}%</span>
-                            <span>{formatDate(v.timestamp)}</span>
+                            <span title={formatDate(v.timestamp)}>{formatRelativeTime(v.timestamp)}</span>
                             {v.challenged && <span className="text-yellow-400">Challenged</span>}
                           </div>
                           {session && !v.challenged && (
@@ -732,8 +734,8 @@ export default function Validators() {
                                 <div className="flex justify-between items-start">
                                   <div>
                                     <div className="text-sm font-medium text-white">{job.title}</div>
-                                    <div className="text-xs text-zinc-500 mt-0.5">
-                                      Agent: {job.agent || 'unassigned'} &middot; {getJobStateLabel(job.state)} &middot; {formatXpr(job.amount)}
+                                    <div className="text-xs text-zinc-500 mt-0.5 flex items-center gap-1 flex-wrap">
+                                      Agent: {job.agent && job.agent !== '.............' ? <AccountLink account={job.agent} isAgent className="text-xs" /> : 'unassigned'} &middot; {getJobStateLabel(job.state)} &middot; {formatXpr(job.amount)}
                                     </div>
                                   </div>
                                   {validateJob?.id !== job.id && (

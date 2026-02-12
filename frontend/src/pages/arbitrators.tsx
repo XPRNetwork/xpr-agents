@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
+import { AccountLink } from '@/components/AccountLink';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
 import {
   CONTRACTS,
   formatXpr,
   formatDate,
+  formatRelativeTime,
   getArbitrators,
   getArbitrator,
   getDisputes,
@@ -477,7 +479,7 @@ export default function Arbitrators() {
                       style={{ animationDelay: `${Math.min(i, 11) * 50}ms` }}
                     >
                       <div className="flex justify-between items-start mb-2">
-                        <div className="font-medium text-white truncate">{a.account}</div>
+                        <AccountLink account={a.account} className="font-medium truncate" />
                         {a.active ? (
                           <span className="px-1.5 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-400">Active</span>
                         ) : (
@@ -711,8 +713,8 @@ export default function Arbitrators() {
                                     Job #{dispute.job_id}: {job.title}
                                   </div>
                                 </div>
-                                <div className="text-xs text-zinc-500 mb-1">
-                                  Raised by: {dispute.raised_by} &middot; {formatDate(dispute.created_at)}
+                                <div className="text-xs text-zinc-500 mb-1 flex items-center gap-1 flex-wrap">
+                                  Raised by: <AccountLink account={dispute.raised_by} className="text-xs" /> &middot; <span title={formatDate(dispute.created_at)}>{formatRelativeTime(dispute.created_at)}</span>
                                 </div>
                                 <p className="text-sm text-zinc-400 mb-1">{dispute.reason}</p>
                                 <div className="text-xs text-zinc-500 mb-2">
