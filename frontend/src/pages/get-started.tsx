@@ -145,11 +145,7 @@ export default function GetStarted() {
                         </div>
                         <p className="mt-2">
                           This creates a project with Docker Compose files and a setup wizard that launches the indexer and agent runner.
-                          See the{' '}
-                          <a href="https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">
-                            starter kit docs
-                          </a>{' '}
-                          for full setup options.
+                          Run <code className="text-zinc-300 bg-zinc-800 px-1 rounded">./setup.sh --help</code> for full setup options.
                         </p>
                       </div>
                     ),

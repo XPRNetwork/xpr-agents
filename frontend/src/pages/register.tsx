@@ -508,11 +508,8 @@ export default function Register() {
                 <code className="block">./setup.sh --account YOUR_ACCOUNT --key YOUR_PRIVATE_KEY --api-key YOUR_CLAUDE_KEY</code>
               </div>
               <p className="text-sm text-zinc-400">
-                This sets up Docker Compose with the indexer and agent runner. See the{' '}
-                <a href="https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">
-                  starter kit docs
-                </a>{' '}
-                for full setup options.
+                This sets up Docker Compose with the indexer and agent runner.
+                Run <code className="text-zinc-300 bg-zinc-800 px-1 rounded">./setup.sh --help</code> for full setup options.
               </p>
             </div>
 
