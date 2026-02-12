@@ -72,10 +72,15 @@ pluginFn(mockApi);
 const creativeSkillDir = path.resolve(__dirname, '../skills/creative');
 const creativeSkill = loadBuiltinSkill(creativeSkillDir, tools);
 
-// 2. External skills from AGENT_SKILLS env var
+// 2. Built-in web-scraping skill (always loaded — page fetch/parse tools)
+const webScrapingSkillDir = path.resolve(__dirname, '../skills/web-scraping');
+const webScrapingSkill = loadBuiltinSkill(webScrapingSkillDir, tools);
+
+// 3. External skills from AGENT_SKILLS env var
 const skillResult: SkillLoadResult = loadSkills(tools);
 const allSkillCapabilities: string[] = [
   ...(creativeSkill?.manifest.capabilities || []),
+  ...(webScrapingSkill?.manifest.capabilities || []),
   ...skillResult.capabilities,
 ];
 
@@ -171,6 +176,9 @@ Never spend more on tool calls than the job is worth.`;
 // Append skill prompt sections (built-in + external)
 if (creativeSkill?.promptSection) {
   systemPrompt += `\n\n## Skill: ${creativeSkill.manifest.name}\n${creativeSkill.promptSection}`;
+}
+if (webScrapingSkill?.promptSection) {
+  systemPrompt += `\n\n## Skill: ${webScrapingSkill.manifest.name}\n${webScrapingSkill.promptSection}`;
 }
 for (const section of skillResult.promptSections) {
   systemPrompt += `\n\n${section}`;
