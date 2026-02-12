@@ -1,0 +1,24 @@
+{
+  "name": "defi",
+  "version": "1.0.0",
+  "description": "Read-only DeFi queries (prices, pools, NFTs) and multisig proposal management on XPR Network",
+  "author": "xpr-agents",
+  "category": "defi",
+  "tags": ["defi", "swap", "nft", "msig", "price", "amm", "multisig"],
+  "capabilities": ["defi-queries", "token-prices", "swap-rates", "nft-listings", "msig-proposals"],
+  "tools": [
+    "defi_get_token_price",
+    "defi_list_markets",
+    "defi_get_swap_rate",
+    "defi_list_pools",
+    "defi_get_nft_listing",
+    "defi_search_nft_sales",
+    "msig_propose",
+    "msig_approve",
+    "msig_cancel",
+    "msig_list_proposals"
+  ],
+  "requires": {
+    "env": []
+  }
+}

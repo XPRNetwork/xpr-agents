@@ -84,13 +84,18 @@ const codeSandboxSkill = loadBuiltinSkill(codeSandboxSkillDir, tools);
 const structuredDataSkillDir = path.resolve(__dirname, '../skills/structured-data');
 const structuredDataSkill = loadBuiltinSkill(structuredDataSkillDir, tools);
 
-// 5. External skills from AGENT_SKILLS env var
+// 5. Built-in defi skill (always loaded — DeFi queries + msig proposals)
+const defiSkillDir = path.resolve(__dirname, '../skills/defi');
+const defiSkill = loadBuiltinSkill(defiSkillDir, tools);
+
+// 6. External skills from AGENT_SKILLS env var
 const skillResult: SkillLoadResult = loadSkills(tools);
 const allSkillCapabilities: string[] = [
   ...(creativeSkill?.manifest.capabilities || []),
   ...(webScrapingSkill?.manifest.capabilities || []),
   ...(codeSandboxSkill?.manifest.capabilities || []),
   ...(structuredDataSkill?.manifest.capabilities || []),
+  ...(defiSkill?.manifest.capabilities || []),
   ...skillResult.capabilities,
 ];
 
@@ -196,6 +201,9 @@ if (codeSandboxSkill?.promptSection) {
 if (structuredDataSkill?.promptSection) {
   systemPrompt += `\n\n## Skill: ${structuredDataSkill.manifest.name}\n${structuredDataSkill.promptSection}`;
 }
+if (defiSkill?.promptSection) {
+  systemPrompt += `\n\n## Skill: ${defiSkill.manifest.name}\n${defiSkill.promptSection}`;
+}
 for (const section of skillResult.promptSections) {
   systemPrompt += `\n\n${section}`;
 }
@@ -232,7 +240,7 @@ const a2aAuthConfig: A2AAuthConfig = {
 
 // A2A tool sandboxing
 const a2aToolMode = (process.env.A2A_TOOL_MODE || 'full') as 'full' | 'readonly';
-const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health');
+const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_'));
 function getReadonlyAnthropicTools(): Anthropic.Messages.Tool[] {
   return [
     { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Messages.Tool,
