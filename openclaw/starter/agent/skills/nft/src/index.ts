@@ -754,7 +754,7 @@ export default function nftSkill(api: SkillApi): void {
         const session = await getNftSession();
         const data: Array<{ key: string; value: [string, any] }> = [];
         if (display_name) data.push({ key: 'name', value: ['string', display_name] });
-        if (image) data.push({ key: 'img', value: ['string', image] });
+        if (image) data.push({ key: 'image', value: ['string', image] });
         if (description) data.push({ key: 'description', value: ['string', description] });
 
         const result = await session.api.transact({
@@ -793,7 +793,7 @@ export default function nftSkill(api: SkillApi): void {
         schema_name: { type: 'string', description: 'Schema name (1-12 chars, a-z1-5)' },
         schema_format: {
           type: 'array',
-          description: 'Array of {name, type} attribute definitions. E.g. [{"name":"name","type":"string"},{"name":"img","type":"image"},{"name":"rarity","type":"string"}]',
+          description: 'Array of {name, type} attribute definitions. E.g. [{"name":"name","type":"string"},{"name":"image","type":"image"},{"name":"rarity","type":"string"}]',
         },
         confirmed: { type: 'boolean', description: 'Must be true to proceed' },
       },
@@ -842,7 +842,7 @@ export default function nftSkill(api: SkillApi): void {
       properties: {
         collection_name: { type: 'string', description: 'Collection name' },
         schema_name: { type: 'string', description: 'Schema name within the collection' },
-        immutable_data: { type: 'object', description: 'Key-value pairs matching schema attributes. E.g. {"name":"Cool NFT","img":"QmHash"}' },
+        immutable_data: { type: 'object', description: 'Key-value pairs matching schema attributes. E.g. {"name":"Cool NFT","image":"QmHash"}' },
         max_supply: { type: 'number', description: 'Maximum supply (0 = unlimited, default 0)' },
         transferable: { type: 'boolean', description: 'Can assets be transferred (default true)' },
         burnable: { type: 'boolean', description: 'Can assets be burned (default true)' },

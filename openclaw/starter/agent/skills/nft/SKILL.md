@@ -14,15 +14,15 @@ Collection → Schema → Template → Asset
 ```
 
 - **Collection**: Top-level grouping (1-12 char name, permanent). Has an author, authorized accounts, and market fee.
-- **Schema**: Defines attribute names and types (e.g. `name: string`, `img: image`, `rarity: string`).
+- **Schema**: Defines attribute names and types (e.g. `name: string`, `image: image`, `rarity: string`).
 - **Template**: Immutable data blueprint within a schema. Sets the unchangeable attributes for all assets minted from it.
 - **Asset**: Individual NFT minted from a template. Can have additional mutable data.
 
 ### Creating NFTs (Full Lifecycle)
 
 1. **Create collection** with `nft_create_collection` — choose a 1-12 char name (a-z, 1-5, permanent!), set market_fee (e.g. 0.05 = 5%)
-2. **Create schema** with `nft_create_schema` — define attribute names + types (e.g. `[{name: "name", type: "string"}, {name: "img", type: "image"}]`)
-3. **Create template** with `nft_create_template` — set immutable data matching the schema (e.g. `{name: "Cool NFT", img: "QmHash"}`)
+2. **Create schema** with `nft_create_schema` — define attribute names + types (e.g. `[{name: "name", type: "string"}, {name: "image", type: "image"}]`)
+3. **Create template** with `nft_create_template` — set immutable data matching the schema (e.g. `{name: "Cool NFT", image: "QmHash"}`)
 4. **Mint** with `nft_mint` — reference the template, optionally add mutable data, send to self or a recipient
 
 ### Selling NFTs
@@ -42,7 +42,7 @@ Collection → Schema → Template → Asset
 
 ### IPFS Integration
 
-Use `generate_image` or `store_deliverable` from the creative skill first to get an IPFS CID, then use it as the `img` attribute when creating templates or minting.
+Use `generate_image` or `store_deliverable` from the creative skill first to get an IPFS CID, then use it as the `image` attribute when creating templates or minting.
 
 ### Price Format
 
