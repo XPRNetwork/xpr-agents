@@ -78,6 +78,7 @@ export default function Jobs() {
   const [bidsLoading, setBidsLoading] = useState(false);
   const [showBidForm, setShowBidForm] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const submittingRef = useRef(false); // synchronous guard for mobile double-tap
 
   // Create job form
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -570,7 +571,8 @@ export default function Jobs() {
 
   async function handleSubmitBid(e: React.FormEvent) {
     e.preventDefault();
-    if (!session || !selectedJob || processing) return;
+    if (!session || !selectedJob || submittingRef.current) return;
+    submittingRef.current = true;
     setProcessing(true);
     try {
       const amount = Math.floor(parseFloat(bidAmount) * 10000);
@@ -599,6 +601,7 @@ export default function Jobs() {
     } catch (e: any) {
       addToast({ type: 'error', message: e.message || 'Failed to submit bid' });
     } finally {
+      submittingRef.current = false;
       setProcessing(false);
     }
   }
@@ -645,7 +648,8 @@ export default function Jobs() {
 
   async function handleCreateJob(e: React.FormEvent) {
     e.preventDefault();
-    if (!session || processing) return;
+    if (!session || submittingRef.current) return;
+    submittingRef.current = true;
     setProcessing(true);
     try {
       const amount = Math.floor(parseFloat(newJob.amount) * 10000);
@@ -679,6 +683,7 @@ export default function Jobs() {
     } catch (e: any) {
       addToast({ type: 'error', message: e.message || 'Failed to create job' });
     } finally {
+      submittingRef.current = false;
       setProcessing(false);
     }
   }
