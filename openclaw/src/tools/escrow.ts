@@ -332,9 +332,9 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
         nft_asset_ids: {
           type: 'array',
           items: { type: 'string' },
-          description: 'AtomicAssets asset IDs to include as NFT deliverable (auto-formats JSON envelope)',
+          description: 'AtomicAssets asset IDs to deliver. REQUIRED when job involves NFTs. Transfers NFTs to client and renders NFT card on frontend.',
         },
-        nft_collection: { type: 'string', description: 'Collection name for the NFT deliverable (used with nft_asset_ids)' },
+        nft_collection: { type: 'string', description: 'Collection name for the NFT deliverable. Use with nft_asset_ids.' },
       },
     },
     handler: async ({ job_id, evidence_uri, nft_asset_ids, nft_collection }: {

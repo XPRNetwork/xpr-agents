@@ -1055,14 +1055,18 @@ export default function nftSkill(api: SkillApi): void {
           } catch { /* non-critical */ }
         }
 
+        const isSelfMint = owner === session.account;
         return {
           transaction_id: txId,
           asset_id,
           collection_name, schema_name, template_id,
           new_asset_owner: owner,
           note: asset_id
-            ? `NFT minted with asset ID ${asset_id}. Use this ID for transfers, sales, or delivery.`
+            ? `NFT minted with asset ID ${asset_id}.`
             : 'NFT minted successfully. Check your assets to find the new asset ID.',
+          ...(isSelfMint && asset_id ? {
+            delivery_hint: `When delivering a job with this NFT, use xpr_deliver_job with nft_asset_ids: ["${asset_id}"] and nft_collection: "${collection_name}". This will transfer the NFT to the client and display it as an NFT card.`,
+          } : {}),
         };
       } catch (err: any) {
         return { error: `Failed to mint NFT: ${err.message}` };
