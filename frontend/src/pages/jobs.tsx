@@ -570,7 +570,7 @@ export default function Jobs() {
 
   async function handleSubmitBid(e: React.FormEvent) {
     e.preventDefault();
-    if (!session || !selectedJob) return;
+    if (!session || !selectedJob || processing) return;
     setProcessing(true);
     try {
       const amount = Math.floor(parseFloat(bidAmount) * 10000);
@@ -645,7 +645,7 @@ export default function Jobs() {
 
   async function handleCreateJob(e: React.FormEvent) {
     e.preventDefault();
-    if (!session) return;
+    if (!session || processing) return;
     setProcessing(true);
     try {
       const amount = Math.floor(parseFloat(newJob.amount) * 10000);
