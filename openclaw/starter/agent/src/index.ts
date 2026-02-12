@@ -733,6 +733,8 @@ const knownOpenJobIds = new Set<number>();           // open job ids already see
 const knownFeedbackIds = new Set<number>();          // feedback ids already seen
 const knownChallengeIds = new Set<number>();         // challenge ids already seen
 const activeJobIds = new Set<number>();              // jobs currently being processed (per-job lock)
+const fundedJobAttempts = new Map<number, number>(); // job_id → number of times agent was invoked
+const MAX_FUNDED_RETRIES = 2;                        // max times to invoke agent for a stuck FUNDED job
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let firstPoll = true;                               // true until first poll completes
 
@@ -744,6 +746,7 @@ interface PollerState {
   knownOpenJobIds: number[];
   knownFeedbackIds: number[];
   knownChallengeIds: number[];
+  fundedJobAttempts?: Record<string, number>;
 }
 
 function savePollerState(): void {
@@ -753,6 +756,7 @@ function savePollerState(): void {
       knownOpenJobIds: [...knownOpenJobIds],
       knownFeedbackIds: [...knownFeedbackIds],
       knownChallengeIds: [...knownChallengeIds],
+      fundedJobAttempts: Object.fromEntries(fundedJobAttempts),
     };
     fs.writeFileSync(POLLER_STATE_PATH, JSON.stringify(state), 'utf-8');
   } catch (err: any) {
@@ -771,6 +775,11 @@ function loadPollerState(): boolean {
     for (const id of state.knownOpenJobIds) knownOpenJobIds.add(id);
     for (const id of state.knownFeedbackIds) knownFeedbackIds.add(id);
     for (const id of state.knownChallengeIds) knownChallengeIds.add(id);
+    if (state.fundedJobAttempts) {
+      for (const [k, v] of Object.entries(state.fundedJobAttempts)) {
+        fundedJobAttempts.set(Number(k), v);
+      }
+    }
     firstPoll = false; // skip seed — we already have state
     console.log(`[poller] Restored state: ${knownJobStates.size} jobs, ${knownOpenJobIds.size} open, ${knownFeedbackIds.size} feedback, ${knownChallengeIds.size} challenges`);
     return true;
@@ -945,8 +954,11 @@ async function pollOnChainInner(): Promise<void> {
         if (prevState === undefined) {
           // But if this is a newly-assigned job (not first poll) in FUNDED state, act on it
           if (!firstPoll && (job.state === 1 || job.state === 'funded')) {
+            const attempts = fundedJobAttempts.get(job.id) || 0;
+            if (attempts >= MAX_FUNDED_RETRIES) continue; // already tried enough
+            fundedJobAttempts.set(job.id, attempts + 1);
             const jobBudgetXpr = (job.amount / 10000).toFixed(4);
-            console.log(`[poller] Newly assigned job #${job.id} in FUNDED state`);
+            console.log(`[poller] Newly assigned job #${job.id} in FUNDED state (attempt ${attempts + 1}/${MAX_FUNDED_RETRIES})`);
             activeJobIds.add(job.id);
             runAgent('poll:job_assigned', {
               job_id: job.id, client: job.client, agent: job.agent,
@@ -958,10 +970,16 @@ async function pollOnChainInner(): Promise<void> {
           continue;
         }
 
-        // Re-evaluate FUNDED jobs on every cycle (in case they were missed on restart)
+        // Re-evaluate FUNDED jobs (in case they were missed on restart), but cap retries
         if (prevState === job.state && (job.state === 1 || job.state === 'funded')) {
+          const attempts = fundedJobAttempts.get(job.id) || 0;
+          if (attempts >= MAX_FUNDED_RETRIES) {
+            // Already tried enough times — skip until state changes on-chain
+            continue;
+          }
           const jobBudgetXpr = (job.amount / 10000).toFixed(4);
-          console.log(`[poller] Re-evaluating FUNDED job #${job.id}`);
+          fundedJobAttempts.set(job.id, attempts + 1);
+          console.log(`[poller] Re-evaluating FUNDED job #${job.id} (attempt ${attempts + 1}/${MAX_FUNDED_RETRIES})`);
           activeJobIds.add(job.id);
           runAgent('poll:job_assigned', {
             job_id: job.id, client: job.client, agent: job.agent,
@@ -972,8 +990,9 @@ async function pollOnChainInner(): Promise<void> {
           continue;
         }
 
-        // State changed — notify the agent
+        // State changed — notify the agent and reset retry counter
         if (prevState !== job.state) {
+          fundedJobAttempts.delete(job.id); // state moved, reset retry counter
           const stateNames = ['CREATED', 'FUNDED', 'ACCEPTED', 'INPROGRESS', 'DELIVERED', 'DISPUTED', 'COMPLETED', 'REFUNDED', 'ARBITRATED'];
           const fromName = stateNames[prevState] || String(prevState);
           const toName = stateNames[job.state] || String(job.state);
