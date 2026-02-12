@@ -896,6 +896,7 @@ const POLL_TIMEOUT = 120_000; // 2 minutes max per poll cycle
 
 async function pollOnChain(): Promise<void> {
   if (shuttingDown) return;
+  console.log(`[poller] Poll cycle starting...`);
 
   try {
     await Promise.race([
@@ -904,6 +905,7 @@ async function pollOnChain(): Promise<void> {
         setTimeout(() => reject(new Error('Poll cycle timed out after 120s')), POLL_TIMEOUT)
       ),
     ]);
+    console.log(`[poller] Poll cycle completed`);
   } catch (err: any) {
     console.error(`[poller] Poll cycle error: ${err.message}`);
   }
