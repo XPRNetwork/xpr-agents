@@ -295,19 +295,16 @@ export default function Jobs() {
         setDeliverableContent('No evidence submitted');
         return;
       }
-      setEvidenceUrl(evidenceUri);
-
-      // NFT deliverable
+      // NFT deliverable — check before setting evidenceUrl (raw JSON isn't a valid link)
       const nftData = parseNftDeliverable(evidenceUri);
       if (nftData) {
         setDeliverableType('nft');
         const assets = await getNftAssets(nftData.asset_ids);
         setNftAssets(assets);
-        if (nftData.evidence) {
-          setDeliverableContent(nftData.evidence);
-        }
         return;
       }
+
+      setEvidenceUrl(evidenceUri);
 
       // Data URI
       if (evidenceUri.startsWith('data:')) {
@@ -1237,7 +1234,7 @@ export default function Jobs() {
                   <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                     <div className="flex justify-between items-center mb-2">
                       <h3 className="text-sm font-medium text-blue-400">Agent Deliverable</h3>
-                      {!deliverableContent && !deliverableMediaUrl && !deliverableLoading && (
+                      {!deliverableContent && !deliverableMediaUrl && !deliverableLoading && !deliverableType && (
                         <button
                           onClick={() => fetchDeliverable(selectedJob.id)}
                           className="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"

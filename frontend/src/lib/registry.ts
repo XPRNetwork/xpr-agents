@@ -1115,33 +1115,41 @@ export function getNftImageUrl(imageField: string | null | undefined): string | 
 
 export function getNftMarketplaceUrl(collection: string, templateId?: string): string {
   if (templateId) {
-    return `${MARKETPLACE_URL}/collection/${collection}/${templateId}`;
+    return `${MARKETPLACE_URL}/${collection}/${templateId}`;
   }
-  return `${MARKETPLACE_URL}/collection/${collection}`;
+  return `${MARKETPLACE_URL}/${collection}`;
 }
+
+const AA_ENDPOINTS = isMainnet
+  ? ['https://aa-xprnetwork-main.saltant.io', 'https://xpr-mainnet-atm-api.bloxprod.io']
+  : ['https://xpr-testnet-atm-api.bloxprod.io', 'https://aa-xprnetwork-test.saltant.io'];
 
 export async function getNftAssets(assetIds: string[]): Promise<NftAsset[]> {
   const assets: NftAsset[] = [];
   for (const id of assetIds) {
-    try {
-      const resp = await fetch(`${ATOMIC_API}/atomicassets/v1/assets/${encodeURIComponent(id)}`);
-      if (!resp.ok) continue;
-      const json = await resp.json();
-      const d = json.data;
-      if (!d) continue;
-      const immData = d.immutable_data || {};
-      const mutData = d.mutable_data || {};
-      const image = immData.image || immData.img || mutData.image || mutData.img || null;
-      assets.push({
-        asset_id: d.asset_id,
-        name: immData.name || mutData.name || `Asset #${d.asset_id}`,
-        collection_name: d.collection?.collection_name || '',
-        schema_name: d.schema?.schema_name || '',
-        template_id: d.template?.template_id || '',
-        image,
-        data: { ...immData, ...mutData },
-      });
-    } catch { /* skip failed asset */ }
+    for (const endpoint of AA_ENDPOINTS) {
+      try {
+        const resp = await fetch(`${endpoint}/atomicassets/v1/assets/${encodeURIComponent(id)}`);
+        if (!resp.ok) continue;
+        const json = await resp.json();
+        const d = json.data;
+        if (!d) continue;
+        const immData = d.immutable_data || {};
+        const mutData = d.mutable_data || {};
+        const tplData = d.template?.immutable_data || {};
+        const image = immData.image || immData.img || tplData.image || tplData.img || mutData.image || mutData.img || null;
+        assets.push({
+          asset_id: d.asset_id,
+          name: immData.name || tplData.name || mutData.name || `Asset #${d.asset_id}`,
+          collection_name: d.collection?.collection_name || '',
+          schema_name: d.schema?.schema_name || '',
+          template_id: d.template?.template_id || '',
+          image,
+          data: { ...tplData, ...immData, ...mutData },
+        });
+        break; // success — don't try next endpoint
+      } catch { /* try next endpoint */ }
+    }
   }
   return assets;
 }

@@ -1,5 +1,10 @@
 import { NftAsset, getNftImageUrl, getNftMarketplaceUrl } from '@/lib/registry';
 
+const FALLBACK_GATEWAYS = [
+  'https://ipfs.io/ipfs/',
+  'https://w3s.link/ipfs/',
+];
+
 interface NftCardProps {
   asset: NftAsset;
   compact?: boolean;
@@ -8,15 +13,15 @@ interface NftCardProps {
 export function NftCard({ asset, compact }: NftCardProps) {
   const imageUrl = getNftImageUrl(asset.image);
   const marketplaceUrl = getNftMarketplaceUrl(asset.collection_name, asset.template_id);
+  // Raw CID for gateway fallback
+  const cid = asset.image && !asset.image.startsWith('http') ? asset.image : null;
 
   return (
     <a
       href={marketplaceUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className={`block rounded-xl border border-zinc-800 bg-zinc-900 hover:border-purple-500/50 transition-all overflow-hidden group ${
-        compact ? '' : ''
-      }`}
+      className="block rounded-xl border border-zinc-800 bg-zinc-900 hover:border-purple-500/50 transition-all overflow-hidden group"
     >
       {/* Image */}
       <div className={`bg-zinc-800 overflow-hidden ${compact ? 'h-36' : 'h-48'}`}>
@@ -25,10 +30,20 @@ export function NftCard({ asset, compact }: NftCardProps) {
             src={imageUrl}
             alt={asset.name}
             loading="lazy"
+            data-gw-idx="0"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-              (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+              const img = e.target as HTMLImageElement;
+              if (cid) {
+                const idx = parseInt(img.dataset.gwIdx || '0', 10);
+                if (idx < FALLBACK_GATEWAYS.length) {
+                  img.dataset.gwIdx = String(idx + 1);
+                  img.src = FALLBACK_GATEWAYS[idx] + cid;
+                  return;
+                }
+              }
+              img.style.display = 'none';
+              img.nextElementSibling?.classList.remove('hidden');
             }}
           />
         ) : null}
