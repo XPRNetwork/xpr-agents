@@ -1026,10 +1026,18 @@ async function pollOnChainInner(): Promise<void> {
     if (listOpenJobs) {
       const res: any = await listOpenJobs.handler({ limit: 20 });
       const jobs: any[] = res?.items || res || [];
+      const MAX_JOB_AGE_SEC = 7 * 24 * 60 * 60; // Skip open jobs older than 7 days
+      const nowSec = Math.floor(Date.now() / 1000);
       for (const job of jobs) {
         if (!job || job.id == null) continue;
         if (knownOpenJobIds.has(job.id)) continue;
         knownOpenJobIds.add(job.id);
+
+        // Skip stale open jobs — they're likely abandoned test data
+        if (job.created_at && (nowSec - job.created_at) > MAX_JOB_AGE_SEC) {
+          console.log(`[poller] Skipping stale open job #${job.id} (${Math.floor((nowSec - job.created_at) / 86400)}d old)`);
+          continue;
+        }
 
         const budgetXpr = (job.amount / 10000).toFixed(4);
         console.log(`[poller] ${firstPoll ? 'Existing' : 'New'} open job #${job.id}: "${job.title}" (${budgetXpr} XPR)`);
