@@ -390,13 +390,13 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
       // Auto-detect: if agent owns NFTs, remind to include nft_asset_ids
       try {
-        const assetRows = await config.rpc.get_table_rows({
-          json: true,
-          code: 'atomicassets',
-          scope: agent,
-          table: 'assets',
-          limit: 5,
+        const rpcUrl = (config.rpc as any).endpoint || process.env.XPR_RPC_ENDPOINT || 'https://tn1.protonnz.com';
+        const resp = await fetch(`${rpcUrl}/v1/chain/get_table_rows`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: 'atomicassets', scope: agent, table: 'assets', json: true, limit: 5 }),
         });
+        const assetRows: any = await resp.json();
         if (assetRows.rows && assetRows.rows.length > 0) {
           const ownedAssets = assetRows.rows.map((r: any) => ({
             asset_id: String(r.asset_id),
@@ -409,7 +409,9 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
             example: `xpr_deliver_job({ job_id: ${job_id}, evidence_uri: "${evidence_uri}", nft_asset_ids: ["${ownedAssets[0].asset_id}"], nft_collection: "${ownedAssets[0].collection}" })`,
           };
         }
-      } catch { /* non-critical — fall through to normal delivery */ }
+      } catch (err: any) {
+        console.error('[xpr_deliver_job] NFT auto-detect failed:', err.message);
+      }
 
       validateUrl(evidence_uri, 'evidence_uri');
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
