@@ -388,6 +388,29 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
         return { ...result, nft_transferred_to: job.client, nft_asset_ids };
       }
 
+      // Auto-detect: if agent owns NFTs, remind to include nft_asset_ids
+      try {
+        const assetRows = await config.rpc.get_table_rows({
+          json: true,
+          code: 'atomicassets',
+          scope: agent,
+          table: 'assets',
+          limit: 5,
+        });
+        if (assetRows.rows && assetRows.rows.length > 0) {
+          const ownedAssets = assetRows.rows.map((r: any) => ({
+            asset_id: String(r.asset_id),
+            collection: r.collection_name,
+            template_id: r.template_id,
+          }));
+          return {
+            error: 'You own NFT assets but did not include nft_asset_ids. Please re-call xpr_deliver_job with nft_asset_ids and nft_collection to transfer the NFTs to the client and display them on the frontend.',
+            your_nft_assets: ownedAssets,
+            example: `xpr_deliver_job({ job_id: ${job_id}, evidence_uri: "${evidence_uri}", nft_asset_ids: ["${ownedAssets[0].asset_id}"], nft_collection: "${ownedAssets[0].collection}" })`,
+          };
+        }
+      } catch { /* non-critical — fall through to normal delivery */ }
+
       validateUrl(evidence_uri, 'evidence_uri');
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.deliverJob(job_id, evidence_uri);
