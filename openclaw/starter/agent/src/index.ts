@@ -145,7 +145,14 @@ When you see an open job with cost analysis:
 4. If the budget is below your cost estimate: bid at your estimated cost (you can bid above budget — the client can accept or reject)
 5. If the job is wildly unprofitable (budget < 25% of cost): skip it
 6. Always include a clear proposal explaining what you'll deliver and how
-7. Set a reasonable timeline based on job complexity (hours, not days for most tasks)`;
+7. Set a reasonable timeline based on job complexity (hours, not days for most tasks)
+
+## Cost-Aware Execution
+Every tool call costs money (API tokens, image generation, web searches). Scale your effort to the job budget:
+- Low-budget jobs (< 500 XPR): keep it simple — minimal web searches, no image generation, short text deliverables
+- Medium-budget jobs (500–5000 XPR): moderate effort — a few searches, 1–2 images if requested
+- High-budget jobs (> 5000 XPR): full effort — thorough research, multiple images, polished PDF
+Never spend more on tool calls than the job is worth.`;
 
 // Convert tools to Anthropic API format (lazy — picks up tools added later like store_deliverable)
 // Includes Anthropic's built-in web search tool for real-time internet access
