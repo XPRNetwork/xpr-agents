@@ -9,9 +9,8 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "declaration": false
+    "declaration": true
   },
   "include": ["src"],
-  "exclude": ["node_modules", "dist", "skills"]
+  "exclude": ["node_modules", "dist"]
 }

@@ -8,7 +8,9 @@ RUN apk add --no-cache python3 make g++
 # Copy agent runner package files and install from npm
 COPY package.json tsconfig.json ./
 COPY src ./src
-RUN npm install && npm run build
+COPY skills ./skills
+RUN npm install && npm run build \
+  && npx tsc --outDir skills/creative/dist --rootDir skills/creative/src skills/creative/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020
 
 RUN mkdir -p /data && chown node:node /data
 

@@ -19,6 +19,10 @@ import { registerIndexerTools } from './tools/indexer';
 import { registerA2ATools } from './tools/a2a';
 import type { PluginApi, PluginConfig } from './types';
 
+// Re-export skill types for skill package authors
+export type { SkillManifest, SkillApi, LoadedSkill } from './skill-types';
+export type { ToolDefinition, PluginApi } from './types';
+
 export default function xprAgentsPlugin(api: PluginApi): void {
   const rawConfig = api.getConfig();
 

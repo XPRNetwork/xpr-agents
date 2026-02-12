@@ -1,0 +1,22 @@
+{
+  "name": "@xpr-agents/skill-example",
+  "version": "1.0.0",
+  "description": "Example XPR Agent skill module — copy and customize",
+  "main": "dist/index.js",
+  "xprSkill": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["xpr-agents", "skill", "ai-agent"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "peerDependencies": {
+    "@xpr-agents/openclaw": ">=0.2.0"
+  }
+}

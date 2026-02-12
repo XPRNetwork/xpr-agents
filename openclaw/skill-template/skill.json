@@ -1,0 +1,13 @@
+{
+  "name": "example-skill",
+  "version": "1.0.0",
+  "description": "An example skill that demonstrates the skill module format",
+  "author": "your-name",
+  "category": "compute",
+  "tags": ["example", "template"],
+  "capabilities": ["example-capability"],
+  "tools": ["example_tool"],
+  "requires": {
+    "env": []
+  }
+}
