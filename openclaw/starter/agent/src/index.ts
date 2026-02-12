@@ -892,8 +892,30 @@ async function estimateJobCost(title: string, description: string, deliverables:
   return { estimated_usd: totalWithMargin, estimated_xpr: estimatedXpr, breakdown, job_type: jobType, xpr_price_usd: xprPrice };
 }
 
+const POLL_TIMEOUT = 120_000; // 2 minutes max per poll cycle
+
 async function pollOnChain(): Promise<void> {
   if (shuttingDown) return;
+
+  try {
+    await Promise.race([
+      pollOnChainInner(),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('Poll cycle timed out after 120s')), POLL_TIMEOUT)
+      ),
+    ]);
+  } catch (err: any) {
+    console.error(`[poller] Poll cycle error: ${err.message}`);
+  }
+
+  // ALWAYS schedule next poll — even if this cycle hung or errored
+  if (!shuttingDown) {
+    pollTimer = setTimeout(pollOnChain, POLL_INTERVAL);
+    pollTimer.unref();
+  }
+}
+
+async function pollOnChainInner(): Promise<void> {
   const account = process.env.XPR_ACCOUNT;
   if (!account) return;
 
@@ -1064,12 +1086,6 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
 
   // Persist state after each poll cycle
   savePollerState();
-
-  // Schedule next poll
-  if (!shuttingDown) {
-    pollTimer = setTimeout(pollOnChain, POLL_INTERVAL);
-    pollTimer.unref();
-  }
 }
 
 function startPoller(): void {
