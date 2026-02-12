@@ -88,7 +88,11 @@ const structuredDataSkill = loadBuiltinSkill(structuredDataSkillDir, tools);
 const defiSkillDir = path.resolve(__dirname, '../skills/defi');
 const defiSkill = loadBuiltinSkill(defiSkillDir, tools);
 
-// 6. External skills from AGENT_SKILLS env var
+// 6. Built-in nft skill (always loaded — AtomicAssets/AtomicMarket lifecycle)
+const nftSkillDir = path.resolve(__dirname, '../skills/nft');
+const nftSkill = loadBuiltinSkill(nftSkillDir, tools);
+
+// 7. External skills from AGENT_SKILLS env var
 const skillResult: SkillLoadResult = loadSkills(tools);
 const allSkillCapabilities: string[] = [
   ...(creativeSkill?.manifest.capabilities || []),
@@ -96,6 +100,7 @@ const allSkillCapabilities: string[] = [
   ...(codeSandboxSkill?.manifest.capabilities || []),
   ...(structuredDataSkill?.manifest.capabilities || []),
   ...(defiSkill?.manifest.capabilities || []),
+  ...(nftSkill?.manifest.capabilities || []),
   ...skillResult.capabilities,
 ];
 
@@ -204,6 +209,9 @@ if (structuredDataSkill?.promptSection) {
 if (defiSkill?.promptSection) {
   systemPrompt += `\n\n## Skill: ${defiSkill.manifest.name}\n${defiSkill.promptSection}`;
 }
+if (nftSkill?.promptSection) {
+  systemPrompt += `\n\n## Skill: ${nftSkill.manifest.name}\n${nftSkill.promptSection}`;
+}
 for (const section of skillResult.promptSections) {
   systemPrompt += `\n\n${section}`;
 }
@@ -240,7 +248,7 @@ const a2aAuthConfig: A2AAuthConfig = {
 
 // A2A tool sandboxing
 const a2aToolMode = (process.env.A2A_TOOL_MODE || 'full') as 'full' | 'readonly';
-const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_'));
+const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_') || t.name.startsWith('nft_get_') || t.name.startsWith('nft_list_') || t.name.startsWith('nft_search_'));
 function getReadonlyAnthropicTools(): Anthropic.Messages.Tool[] {
   return [
     { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Messages.Tool,

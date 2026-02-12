@@ -5,7 +5,7 @@ description: Read-only DeFi queries and multisig proposal management on XPR Netw
 
 ## DeFi Queries
 
-You have read-only DeFi tools for querying prices, swap rates, liquidity pools, and NFT listings. These are free (no gas, no signing) and safe to use at any time.
+You have read-only DeFi tools for querying prices, swap rates, and liquidity pools. These are free (no gas, no signing) and safe to use at any time.
 
 **Token prices (Metal X DEX):**
 - `defi_get_token_price` — get current price, bid/ask, 24h volume/change for a trading pair (e.g. `"XPR_XUSDC"`)
@@ -16,10 +16,6 @@ You have read-only DeFi tools for querying prices, swap rates, liquidity pools, 
   - Token format: `"PRECISION,SYMBOL,CONTRACT"` (e.g. `"4,XPR,eosio.token"`, `"6,XUSDC,xtokens"`)
   - Returns expected output, rate, price impact, and pool info
 - `defi_list_pools` — list all AMM liquidity pools with reserves and fees
-
-**NFT listings (atomicmarket):**
-- `defi_get_nft_listing` — get details of a specific NFT sale by ID
-- `defi_search_nft_sales` — search active NFT sales by collection or price range
 
 **Best practices:**
 - Use `defi_get_token_price` for quick price checks; use `defi_get_swap_rate` when someone asks about swapping

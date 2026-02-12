@@ -14,7 +14,8 @@ RUN npm install && npm run build \
   && npx tsc --outDir skills/web-scraping/dist --rootDir skills/web-scraping/src skills/web-scraping/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
   && npx tsc --outDir skills/code-sandbox/dist --rootDir skills/code-sandbox/src skills/code-sandbox/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
   && npx tsc --outDir skills/structured-data/dist --rootDir skills/structured-data/src skills/structured-data/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
-  && npx tsc --outDir skills/defi/dist --rootDir skills/defi/src skills/defi/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020
+  && npx tsc --outDir skills/defi/dist --rootDir skills/defi/src skills/defi/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
+  && npx tsc --outDir skills/nft/dist --rootDir skills/nft/src skills/nft/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020
 
 RUN mkdir -p /data && chown node:node /data
 
