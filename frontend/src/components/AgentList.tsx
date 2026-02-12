@@ -35,6 +35,8 @@ export function AgentList() {
                 getKycLevel(agent.account),
                 getSystemStake(agent.account),
               ]);
+              // Populate agent.stake from system staking (agentcore table has no stake column)
+              agent.stake = systemStake;
               return {
                 agent,
                 trustScore: calculateTrustScore(agent, score, kycLevel, systemStake),

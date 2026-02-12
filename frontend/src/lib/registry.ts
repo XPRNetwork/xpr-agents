@@ -89,7 +89,7 @@ export async function getAgents(limit = 100): Promise<Agent[]> {
       endpoint: row.endpoint,
       protocol: row.protocol,
       capabilities,
-      stake: parseInt(row.stake) || 0,
+      stake: 0, // populated later from eosio::voters via getSystemStake()
       total_jobs: parseInt(row.total_jobs) || 0,
       registered_at: parseInt(row.registered_at) || 0,
       active: row.active === 1,
@@ -120,7 +120,7 @@ export async function getAgent(account: string): Promise<Agent | null> {
     endpoint: row.endpoint,
     protocol: row.protocol,
     capabilities,
-    stake: parseInt(row.stake) || 0,
+    stake: 0, // populated later from eosio::voters via getSystemStake()
     total_jobs: parseInt(row.total_jobs) || 0,
     registered_at: parseInt(row.registered_at) || 0,
     active: row.active === 1,
@@ -557,6 +557,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
         getSystemStake(agent.account).catch(() => 0),
       ]);
 
+      agent.stake = systemStake;
       const trustScore = calculateTrustScore(agent, agentScore, kycLevel, systemStake);
 
       return {

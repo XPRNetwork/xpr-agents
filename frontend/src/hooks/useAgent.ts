@@ -47,6 +47,10 @@ export function useAgent(account: string | undefined): UseAgentResult {
         getSystemStake(account),
       ]);
 
+      // Populate agent.stake from system staking (agentcore table has no stake column)
+      if (agentData) {
+        agentData.stake = stake;
+      }
       setAgent(agentData);
       setScore(scoreData);
       setFeedback(feedbackData);
