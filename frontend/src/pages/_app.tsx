@@ -1,5 +1,6 @@
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
+import { Analytics } from '@vercel/analytics/react';
 import { ProtonProvider } from '@/contexts/ProtonContext';
 import { ToastProvider } from '@/contexts/ToastContext';
 import '../styles/globals.css';
@@ -20,6 +21,7 @@ export default function App({ Component, pageProps }: AppProps) {
           <meta name="twitter:image" content={`${SITE_URL}/og-image.png`} />
         </Head>
         <Component {...pageProps} />
+        <Analytics />
       </ToastProvider>
     </ProtonProvider>
   );
