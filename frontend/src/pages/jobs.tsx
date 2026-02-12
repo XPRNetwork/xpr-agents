@@ -5,6 +5,7 @@ import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { AccountAvatar } from '@/components/AccountAvatar';
 import { AccountLink } from '@/components/AccountLink';
+import { NftCard } from '@/components/NftCard';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
 import { useChainStream } from '@/hooks/useChainStream';
@@ -23,9 +24,12 @@ import {
   getDisputesForJob,
   getEscrowConfig,
   DISPUTE_RESOLUTION_LABELS,
+  parseNftDeliverable,
+  getNftAssets,
   type Job,
   type Bid,
   type Dispute,
+  type NftAsset,
 } from '@/lib/registry';
 
 const STATE_COLORS: Record<number, string> = {
@@ -90,6 +94,7 @@ export default function Jobs() {
   const [deliverableMediaUrl, setDeliverableMediaUrl] = useState<string | null>(null);
   const [deliverableLoading, setDeliverableLoading] = useState(false);
   const [evidenceUrl, setEvidenceUrl] = useState<string | null>(null);
+  const [nftAssets, setNftAssets] = useState<NftAsset[]>([]);
 
   // Rating modal
   const [showRating, setShowRating] = useState(false);
@@ -240,6 +245,7 @@ export default function Jobs() {
     setDeliverableType(null);
     setDeliverableMediaUrl(null);
     setEvidenceUrl(null);
+    setNftAssets([]);
     setActiveDispute(null);
     setShowResolve(false);
     setShowDispute(false);
@@ -282,6 +288,7 @@ export default function Jobs() {
     setDeliverableContent(null);
     setDeliverableType(null);
     setDeliverableMediaUrl(null);
+    setNftAssets([]);
     try {
       const evidenceUri = await getJobEvidence(jobId);
       if (!evidenceUri) {
@@ -289,6 +296,18 @@ export default function Jobs() {
         return;
       }
       setEvidenceUrl(evidenceUri);
+
+      // NFT deliverable
+      const nftData = parseNftDeliverable(evidenceUri);
+      if (nftData) {
+        setDeliverableType('nft');
+        const assets = await getNftAssets(nftData.asset_ids);
+        setNftAssets(assets);
+        if (nftData.evidence) {
+          setDeliverableContent(nftData.evidence);
+        }
+        return;
+      }
 
       // Data URI
       if (evidenceUri.startsWith('data:')) {
@@ -1234,6 +1253,22 @@ export default function Jobs() {
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                         </svg>
                         <span className="text-sm text-zinc-400">Fetching from IPFS...</span>
+                      </div>
+                    )}
+
+                    {/* NFT deliverable */}
+                    {deliverableType === 'nft' && nftAssets.length > 0 && (
+                      <div>
+                        <div className={`grid gap-3 ${
+                          nftAssets.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
+                        }`}>
+                          {nftAssets.map((asset) => (
+                            <NftCard key={asset.asset_id} asset={asset} compact={nftAssets.length > 2} />
+                          ))}
+                        </div>
+                        {deliverableContent && (
+                          <p className="text-sm text-zinc-400 mt-3">{deliverableContent}</p>
+                        )}
                       </div>
                     )}
 

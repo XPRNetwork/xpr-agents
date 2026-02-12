@@ -12,7 +12,8 @@ import { useAgent } from '@/hooks/useAgent';
 import {
   formatXpr, formatDate, formatRelativeTime, formatTimeline, getJobStateLabel,
   getJobsByAgent, getBidsByAgent, getAgentEarnings, getXprBalance,
-  type Job, type Bid,
+  getCollectionsByAuthor, getNftImageUrl, getNftMarketplaceUrl,
+  type Job, type Bid, type NftCollection,
 } from '@/lib/registry';
 
 export default function AgentDetail() {
@@ -25,6 +26,7 @@ export default function AgentDetail() {
   const [agentBids, setAgentBids] = useState<Bid[]>([]);
   const [totalEarnings, setTotalEarnings] = useState(0);
   const [walletBalance, setWalletBalance] = useState(0);
+  const [nftCollections, setNftCollections] = useState<NftCollection[]>([]);
 
   useEffect(() => {
     if (id && typeof id === 'string') {
@@ -32,6 +34,7 @@ export default function AgentDetail() {
       getBidsByAgent(id).then(setAgentBids).catch(() => {});
       getAgentEarnings(id).then(e => setTotalEarnings(e.total)).catch(() => {});
       getXprBalance(id).then(setWalletBalance).catch(() => {});
+      getCollectionsByAuthor(id).then(setNftCollections).catch(() => {});
     }
   }, [id]);
 
@@ -207,6 +210,48 @@ export default function AgentDetail() {
                     </div>
                     <p className="text-xs text-zinc-500 mt-1 truncate">{bid.proposal}</p>
                   </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* NFT Collections */}
+          {nftCollections.length > 0 && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
+              <h2 className="text-xl font-bold text-white mb-4">NFT Collections ({nftCollections.length})</h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {nftCollections.map((col) => (
+                  <a
+                    key={col.collection_name}
+                    href={getNftMarketplaceUrl(col.collection_name)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded-xl border border-zinc-800 bg-zinc-800 hover:border-purple-500/50 transition-all overflow-hidden group"
+                  >
+                    <div className="h-32 bg-zinc-700 overflow-hidden">
+                      {col.img ? (
+                        <img
+                          src={getNftImageUrl(col.img) || ''}
+                          alt={col.name}
+                          loading="lazy"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-zinc-600">
+                          <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-3">
+                      <h4 className="font-semibold text-white text-sm group-hover:text-purple-400 transition-colors truncate">
+                        {col.name}
+                      </h4>
+                      <span className="text-xs text-zinc-500">{col.collection_name}</span>
+                    </div>
+                  </a>
                 ))}
               </div>
             </div>

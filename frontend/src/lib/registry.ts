@@ -1,7 +1,7 @@
 import { JsonRpc } from '@proton/js';
 
 // Network configuration — default to testnet; set NEXT_PUBLIC_NETWORK=mainnet for production
-const isMainnet = process.env.NEXT_PUBLIC_NETWORK === 'mainnet';
+export const isMainnet = process.env.NEXT_PUBLIC_NETWORK === 'mainnet';
 const NETWORK = {
   rpc: process.env.NEXT_PUBLIC_RPC_URL || (isMainnet ? 'https://proton.eosusa.io' : 'https://tn1.protonnz.com'),
   chainId: process.env.NEXT_PUBLIC_CHAIN_ID || (isMainnet
@@ -1056,4 +1056,111 @@ export async function getNetworkEarnings(): Promise<number> {
   return jobs
     .filter(j => j.state === 6 || j.state === 8)
     .reduce((sum, j) => sum + j.amount, 0);
+}
+
+// ============== ATOMICASSETS / NFT ==============
+
+export const ATOMIC_API = isMainnet
+  ? 'https://aa-xprnetwork-main.saltant.io'
+  : 'https://xpr-testnet-atm-api.bloxprod.io';
+
+export const IPFS_GATEWAY = 'https://proton.mypinata.cloud/ipfs/';
+
+export const MARKETPLACE_URL = isMainnet
+  ? 'https://nft.xprnetwork.org'
+  : 'https://testnet.nft.xprnetwork.org';
+
+export interface NftDeliverable {
+  type: 'nft';
+  asset_ids: string[];
+  collection?: string;
+  evidence?: string;
+}
+
+export interface NftAsset {
+  asset_id: string;
+  name: string;
+  collection_name: string;
+  schema_name: string;
+  template_id: string;
+  image: string | null;
+  data: Record<string, unknown>;
+}
+
+export interface NftCollection {
+  collection_name: string;
+  name: string;
+  author: string;
+  img: string | null;
+  created_at_time: string;
+}
+
+export function parseNftDeliverable(evidenceUri: string): NftDeliverable | null {
+  if (!evidenceUri || !evidenceUri.startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(evidenceUri);
+    if (parsed.type === 'nft' && Array.isArray(parsed.asset_ids) && parsed.asset_ids.length > 0) {
+      return parsed as NftDeliverable;
+    }
+  } catch { /* not JSON */ }
+  return null;
+}
+
+export function getNftImageUrl(imageField: string | null | undefined): string | null {
+  if (!imageField) return null;
+  if (imageField.startsWith('http://') || imageField.startsWith('https://')) return imageField;
+  // Treat as IPFS CID
+  return `${IPFS_GATEWAY}${imageField}`;
+}
+
+export function getNftMarketplaceUrl(collection: string, templateId?: string): string {
+  if (templateId) {
+    return `${MARKETPLACE_URL}/collection/${collection}/${templateId}`;
+  }
+  return `${MARKETPLACE_URL}/collection/${collection}`;
+}
+
+export async function getNftAssets(assetIds: string[]): Promise<NftAsset[]> {
+  const assets: NftAsset[] = [];
+  for (const id of assetIds) {
+    try {
+      const resp = await fetch(`${ATOMIC_API}/atomicassets/v1/assets/${encodeURIComponent(id)}`);
+      if (!resp.ok) continue;
+      const json = await resp.json();
+      const d = json.data;
+      if (!d) continue;
+      const immData = d.immutable_data || {};
+      const mutData = d.mutable_data || {};
+      const image = immData.image || immData.img || mutData.image || mutData.img || null;
+      assets.push({
+        asset_id: d.asset_id,
+        name: immData.name || mutData.name || `Asset #${d.asset_id}`,
+        collection_name: d.collection?.collection_name || '',
+        schema_name: d.schema?.schema_name || '',
+        template_id: d.template?.template_id || '',
+        image,
+        data: { ...immData, ...mutData },
+      });
+    } catch { /* skip failed asset */ }
+  }
+  return assets;
+}
+
+export async function getCollectionsByAuthor(author: string): Promise<NftCollection[]> {
+  try {
+    const resp = await fetch(
+      `${ATOMIC_API}/atomicassets/v1/collections?author=${encodeURIComponent(author)}&limit=50`
+    );
+    if (!resp.ok) return [];
+    const json = await resp.json();
+    return (json.data || []).map((c: any) => ({
+      collection_name: c.collection_name,
+      name: c.name || c.collection_name,
+      author: c.author,
+      img: c.img || c.data?.img || null,
+      created_at_time: c.created_at_time || '',
+    }));
+  } catch {
+    return [];
+  }
 }

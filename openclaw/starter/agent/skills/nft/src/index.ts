@@ -55,9 +55,10 @@ function getAtomicApiEndpoints(network: string): string[] {
       'https://xpr-mainnet-atm-api.bloxprod.io',
     ];
   }
+  // BloxProd first — Saltant testnet indexer is unreliable / often behind
   return [
-    'https://aa-xprnetwork-test.saltant.io',
     'https://xpr-testnet-atm-api.bloxprod.io',
+    'https://aa-xprnetwork-test.saltant.io',
   ];
 }
 
@@ -375,8 +376,29 @@ export default function nftSkill(api: SkillApi): void {
           is_burnable: data.is_burnable,
           created_at_time: data.created_at_time,
         };
-      } catch (err: any) {
-        return { error: `Failed to get template: ${err.message}` };
+      } catch {
+        // Fallback: read directly from chain
+        try {
+          const rows = await getTableRows(rpcEndpoint, {
+            code: 'atomicassets', scope: collection_name, table: 'templates',
+            lower_bound: template_id, upper_bound: template_id, limit: 1,
+          });
+          if (rows.length === 0) return { error: `Template "${template_id}" not found in collection "${collection_name}"` };
+          const t = rows[0];
+          return {
+            template_id: t.template_id,
+            collection_name,
+            schema_name: t.schema_name,
+            max_supply: t.max_supply,
+            issued_supply: t.issued_supply,
+            is_transferable: t.transferable === 1,
+            is_burnable: t.burnable === 1,
+            source: 'rpc',
+            note: 'Data from RPC (immutable_data is serialized binary)',
+          };
+        } catch (rpcErr: any) {
+          return { error: `Failed to get template: ${rpcErr.message}` };
+        }
       }
     },
   });
@@ -411,20 +433,45 @@ export default function nftSkill(api: SkillApi): void {
       try {
         const data = await atomicGet(atomicEndpoints, '/atomicassets/v1/templates', params);
         const templates = Array.isArray(data) ? data : [];
-        return {
-          templates: templates.map((t: any) => ({
-            template_id: t.template_id,
-            schema_name: t.schema?.schema_name,
-            immutable_data: t.immutable_data,
-            max_supply: t.max_supply,
-            issued_supply: t.issued_supply,
-            is_transferable: t.is_transferable,
-            is_burnable: t.is_burnable,
-          })),
-          total: templates.length,
-        };
-      } catch (err: any) {
-        return { error: `Failed to list templates: ${err.message}` };
+        if (templates.length > 0) {
+          return {
+            templates: templates.map((t: any) => ({
+              template_id: t.template_id,
+              schema_name: t.schema?.schema_name,
+              immutable_data: t.immutable_data,
+              max_supply: t.max_supply,
+              issued_supply: t.issued_supply,
+              is_transferable: t.is_transferable,
+              is_burnable: t.is_burnable,
+            })),
+            total: templates.length,
+          };
+        }
+        // AA API returned empty — fall through to RPC
+        throw new Error('AA API returned no templates, trying RPC');
+      } catch {
+        // Fallback: read directly from chain
+        try {
+          const rows = await getTableRows(rpcEndpoint, {
+            code: 'atomicassets', scope: collection_name, table: 'templates',
+            limit: Math.min(Math.max(limit || 20, 1), 100),
+          });
+          return {
+            templates: rows.map((t: any) => ({
+              template_id: t.template_id,
+              schema_name: t.schema_name,
+              max_supply: t.max_supply === '0' ? '0' : t.max_supply,
+              issued_supply: t.issued_supply,
+              is_transferable: t.transferable === 1,
+              is_burnable: t.burnable === 1,
+              note: 'Data from RPC (immutable_data is serialized binary)',
+            })),
+            total: rows.length,
+            source: 'rpc',
+          };
+        } catch (rpcErr: any) {
+          return { error: `Failed to list templates: ${rpcErr.message}` };
+        }
       }
     },
   });
@@ -881,11 +928,37 @@ export default function nftSkill(api: SkillApi): void {
           }],
         }, { blocksBehind: 3, expireSeconds: 30 });
 
+        const txId = result.transaction_id || result.processed?.id;
+
+        // Read template_id from on-chain table (AA API is too slow for newly created templates)
+        let template_id: number | undefined;
+        try {
+          const rows = await getTableRows(rpcEndpoint, {
+            code: 'atomicassets', scope: collection_name, table: 'templates',
+            limit: 1, key_type: undefined, index_position: undefined,
+          });
+          // Templates table uses template_id as primary key — get the highest one (most recent)
+          if (rows.length > 0) {
+            // Read in reverse to get highest template_id
+            const allRows = await getTableRows(rpcEndpoint, {
+              code: 'atomicassets', scope: collection_name, table: 'templates',
+              limit: 100, key_type: undefined, index_position: undefined,
+            });
+            if (allRows.length > 0) {
+              template_id = allRows[allRows.length - 1].template_id;
+            }
+          }
+        } catch { /* non-critical — template_id is a convenience */ }
+
         return {
-          transaction_id: result.transaction_id || result.processed?.id,
+          transaction_id: txId,
+          template_id,
           collection_name, schema_name,
           immutable_data,
           max_supply: max_supply || 0,
+          note: template_id
+            ? `Template created with ID ${template_id}. Use this ID for nft_mint.`
+            : 'Template created. Read the templates table to get the template_id.',
         };
       } catch (err: any) {
         return { error: `Failed to create template: ${err.message}` };
@@ -950,10 +1023,46 @@ export default function nftSkill(api: SkillApi): void {
           }],
         }, { blocksBehind: 3, expireSeconds: 30 });
 
+        const txId = result.transaction_id || result.processed?.id;
+
+        // Extract new asset_id from the transaction traces (logmint inline action)
+        let asset_id: string | undefined;
+        try {
+          const traces = result.processed?.action_traces || [];
+          for (const trace of traces) {
+            const inlines = trace.inline_traces || [];
+            for (const inl of inlines) {
+              if (inl.act?.name === 'logmint' && inl.act?.data?.asset_id) {
+                asset_id = String(inl.act.data.asset_id);
+                break;
+              }
+            }
+            if (asset_id) break;
+          }
+        } catch { /* non-critical */ }
+
+        // Fallback: read the assets table for this owner scoped by collection
+        if (!asset_id) {
+          try {
+            // The global config table holds the next asset_id counter
+            const configRows = await getTableRows(rpcEndpoint, {
+              code: 'atomicassets', scope: 'atomicassets', table: 'config', limit: 1,
+            });
+            if (configRows.length > 0 && configRows[0].asset_counter) {
+              // The asset just minted has ID = counter - 1
+              asset_id = String(Number(configRows[0].asset_counter) - 1);
+            }
+          } catch { /* non-critical */ }
+        }
+
         return {
-          transaction_id: result.transaction_id || result.processed?.id,
+          transaction_id: txId,
+          asset_id,
           collection_name, schema_name, template_id,
           new_asset_owner: owner,
+          note: asset_id
+            ? `NFT minted with asset ID ${asset_id}. Use this ID for transfers, sales, or delivery.`
+            : 'NFT minted successfully. Check your assets to find the new asset ID.',
         };
       } catch (err: any) {
         return { error: `Failed to mint NFT: ${err.message}` };

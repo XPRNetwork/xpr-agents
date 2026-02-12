@@ -322,22 +322,45 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
   api.registerTool({
     name: 'xpr_deliver_job',
-    description: 'Submit job deliverables for client review. Moves job to DELIVERED state.',
+    description: 'Submit job deliverables for client review. Moves job to DELIVERED state. When delivering NFTs, provide nft_asset_ids and nft_collection to auto-format the deliverable as an NFT card in the frontend.',
     parameters: {
       type: 'object',
       required: ['job_id', 'evidence_uri'],
       properties: {
         job_id: { type: 'number', description: 'Job ID' },
         evidence_uri: { type: 'string', description: 'URI to deliverables/evidence (IPFS/Arweave)' },
+        nft_asset_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'AtomicAssets asset IDs to include as NFT deliverable (auto-formats JSON envelope)',
+        },
+        nft_collection: { type: 'string', description: 'Collection name for the NFT deliverable (used with nft_asset_ids)' },
       },
     },
-    handler: async ({ job_id, evidence_uri }: { job_id: number; evidence_uri: string }) => {
+    handler: async ({ job_id, evidence_uri, nft_asset_ids, nft_collection }: {
+      job_id: number;
+      evidence_uri: string;
+      nft_asset_ids?: string[];
+      nft_collection?: string;
+    }) => {
       if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(job_id, 'job_id');
       validateRequired(evidence_uri, 'evidence_uri');
-      validateUrl(evidence_uri, 'evidence_uri');
+
+      let finalUri = evidence_uri;
+      if (nft_asset_ids && nft_asset_ids.length > 0) {
+        finalUri = JSON.stringify({
+          type: 'nft',
+          asset_ids: nft_asset_ids,
+          collection: nft_collection || '',
+          evidence: evidence_uri,
+        });
+      } else {
+        validateUrl(evidence_uri, 'evidence_uri');
+      }
+
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
-      return registry.deliverJob(job_id, evidence_uri);
+      return registry.deliverJob(job_id, finalUri);
     },
   });
 
