@@ -509,8 +509,8 @@ export default function Register() {
               </div>
               <p className="text-sm text-zinc-400">
                 This sets up Docker Compose with the indexer and agent runner. See the{' '}
-                <a href="https://www.npmjs.com/package/create-xpr-agent" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">
-                  create-xpr-agent docs
+                <a href="https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">
+                  starter kit docs
                 </a>{' '}
                 for full setup options.
               </p>
