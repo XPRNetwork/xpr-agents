@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
+import { useRouter } from 'next/router';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { AccountAvatar } from '@/components/AccountAvatar';
@@ -12,6 +13,7 @@ import {
   formatDate,
   formatTimeline,
   getAllJobs,
+  getJob,
   getBidCounts,
   getBidsForJob,
   getJobEvidence,
@@ -58,6 +60,7 @@ function getTxId(result: any): string | undefined {
 }
 
 export default function Jobs() {
+  const router = useRouter();
   const { session, transact } = useProton();
   const { addToast } = useToast();
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -121,6 +124,24 @@ export default function Jobs() {
     loadJobs();
     getEscrowConfig().then(c => { if (c) setEscrowOwner(c.owner); }).catch(() => {});
   }, []);
+
+  // Auto-open job modal from ?job=ID query param
+  const autoOpenHandled = useRef(false);
+  useEffect(() => {
+    if (autoOpenHandled.current || loading) return;
+    const jobParam = router.query.job;
+    if (!jobParam) return;
+    autoOpenHandled.current = true;
+    const jobId = parseInt(String(jobParam));
+    if (isNaN(jobId)) return;
+    // Try from loaded jobs first, fall back to direct fetch
+    const found = jobs.find(j => j.id === jobId);
+    if (found) {
+      openJobModal(found);
+    } else {
+      getJob(jobId).then(j => { if (j) openJobModal(j); });
+    }
+  }, [router.query.job, loading, jobs]);
 
   // Auto-refresh and toast on chain events (job/bid changes)
   useEffect(() => {

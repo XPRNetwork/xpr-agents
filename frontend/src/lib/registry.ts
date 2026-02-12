@@ -967,6 +967,23 @@ export async function getRecentCompletedJobs(limit = 5): Promise<Job[]> {
     .slice(0, limit);
 }
 
+export async function getXprBalance(account: string): Promise<number> {
+  try {
+    const result = await rpc.get_table_rows({
+      json: true,
+      code: 'eosio.token',
+      scope: account,
+      table: 'accounts',
+      limit: 10,
+    });
+    const xprRow = result.rows.find((r: any) => (r.balance || '').includes('XPR'));
+    if (!xprRow) return 0;
+    return Math.floor(parseFloat(xprRow.balance) * 10000);
+  } catch {
+    return 0;
+  }
+}
+
 export async function getNetworkEarnings(): Promise<number> {
   const jobs = await getAllJobs(500);
   return jobs

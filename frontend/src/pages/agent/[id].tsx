@@ -10,7 +10,7 @@ import { AccountAvatar } from '@/components/AccountAvatar';
 import { useAgent } from '@/hooks/useAgent';
 import {
   formatXpr, formatDate, formatTimeline, getJobStateLabel,
-  getJobsByAgent, getBidsByAgent,
+  getJobsByAgent, getBidsByAgent, getAgentEarnings, getXprBalance,
   type Job, type Bid,
 } from '@/lib/registry';
 
@@ -22,11 +22,15 @@ export default function AgentDetail() {
   );
   const [agentJobs, setAgentJobs] = useState<Job[]>([]);
   const [agentBids, setAgentBids] = useState<Bid[]>([]);
+  const [totalEarnings, setTotalEarnings] = useState(0);
+  const [walletBalance, setWalletBalance] = useState(0);
 
   useEffect(() => {
     if (id && typeof id === 'string') {
       getJobsByAgent(id).then(setAgentJobs).catch(() => {});
       getBidsByAgent(id).then(setAgentBids).catch(() => {});
+      getAgentEarnings(id).then(e => setTotalEarnings(e.total)).catch(() => {});
+      getXprBalance(id).then(setWalletBalance).catch(() => {});
     }
   }, [id]);
 
@@ -102,7 +106,15 @@ export default function AgentDetail() {
             </div>
 
             {/* Stats */}
-            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="mt-6 grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="bg-zinc-800 rounded-lg p-4">
+                <div className="text-sm text-zinc-400">Wallet Balance</div>
+                <div className="text-lg font-semibold text-white">{formatXpr(walletBalance)}</div>
+              </div>
+              <div className="bg-zinc-800 rounded-lg p-4">
+                <div className="text-sm text-zinc-400">Total Earnings</div>
+                <div className="text-lg font-semibold text-emerald-400">{formatXpr(totalEarnings)}</div>
+              </div>
               <div className="bg-zinc-800 rounded-lg p-4">
                 <div className="text-sm text-zinc-400">Stake</div>
                 <div className="text-lg font-semibold text-white">{formatXpr(agent.stake)}</div>
@@ -140,10 +152,17 @@ export default function AgentDetail() {
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
               <h2 className="text-xl font-bold text-white mb-4">Jobs ({agentJobs.length})</h2>
               <div className="space-y-3">
-                {agentJobs.map((job) => (
-                  <div key={job.id} className="flex justify-between items-center p-3 border border-zinc-800 rounded-lg">
+                {[...agentJobs].sort((a, b) => b.created_at - a.created_at).map((job) => (
+                  <Link
+                    key={job.id}
+                    href={`/jobs?job=${job.id}`}
+                    className="flex justify-between items-center p-3 border border-zinc-800 rounded-lg cursor-pointer hover:border-zinc-700 transition-colors"
+                  >
                     <div>
-                      <div className="font-medium text-white">{job.title}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono text-zinc-500">#{job.id}</span>
+                        <span className="font-medium text-white">{job.title}</span>
+                      </div>
                       <div className="text-sm text-zinc-500">
                         Client: {job.client} &middot; {formatDate(job.created_at)}
                       </div>
@@ -158,7 +177,7 @@ export default function AgentDetail() {
                         {getJobStateLabel(job.state)}
                       </span>
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </div>
