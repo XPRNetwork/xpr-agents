@@ -1,9 +1,9 @@
 /**
- * Agent Core tools (10 tools)
+ * Agent Core tools (11 tools)
  * Reads: xpr_get_agent, xpr_list_agents, xpr_get_trust_score,
  *        xpr_get_agent_plugins, xpr_list_plugins, xpr_get_core_config
  * Writes: xpr_register_agent, xpr_update_agent, xpr_set_agent_status,
- *         xpr_manage_plugin
+ *         xpr_manage_plugin, xpr_approve_claim
  */
 
 import { AgentRegistry } from '@xpr-agents/sdk';
@@ -292,6 +292,24 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
         default:
           throw new Error(`Unknown action: ${params.action}`);
       }
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_approve_claim',
+    description: 'Approve a KYC-verified human to claim ownership of this agent. The human can then complete the claim on the frontend or via the SDK. This links their KYC level to the agent\'s trust score (up to 30 bonus points).',
+    parameters: {
+      type: 'object',
+      required: ['new_owner'],
+      properties: {
+        new_owner: { type: 'string', description: 'Account name of the KYC-verified human to approve as owner' },
+      },
+    },
+    handler: async ({ new_owner }: { new_owner: string }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      validateAccountName(new_owner);
+      const registry = new AgentRegistry(config.rpc, config.session, contracts.agentcore);
+      return registry.approveClaim(new_owner);
     },
   });
 }

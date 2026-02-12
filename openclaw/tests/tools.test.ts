@@ -51,10 +51,10 @@ function createConfig(overrides: Partial<PluginConfig> = {}): PluginConfig {
 }
 
 describe('Tool Registration', () => {
-  it('registers 10 agent tools', () => {
+  it('registers 11 agent tools', () => {
     const api = createMockApi();
     registerAgentTools(api, createConfig());
-    expect(api.tools.size).toBe(10);
+    expect(api.tools.size).toBe(11);
     expect(api.tools.has('xpr_get_agent')).toBe(true);
     expect(api.tools.has('xpr_list_agents')).toBe(true);
     expect(api.tools.has('xpr_get_trust_score')).toBe(true);
@@ -65,6 +65,7 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_update_agent')).toBe(true);
     expect(api.tools.has('xpr_set_agent_status')).toBe(true);
     expect(api.tools.has('xpr_manage_plugin')).toBe(true);
+    expect(api.tools.has('xpr_approve_claim')).toBe(true);
   });
 
   it('registers 7 feedback tools', () => {
@@ -151,7 +152,7 @@ describe('Tool Registration', () => {
     registerEscrowTools(api, config);
     registerIndexerTools(api, config);
     registerA2ATools(api, config);
-    expect(api.tools.size).toBe(55);
+    expect(api.tools.size).toBe(56);
   });
 });
 
