@@ -48,13 +48,20 @@ async function getNftSession(): Promise<{ api: any; account: string; permission:
 
 const API_TIMEOUT = 15000;
 
-function getAtomicApiBase(network: string): string {
-  return network === 'mainnet'
-    ? 'https://aa-xprnetwork-main.saltant.io'
-    : 'https://aa-xprnetwork-test.saltant.io';
+function getAtomicApiEndpoints(network: string): string[] {
+  if (network === 'mainnet') {
+    return [
+      'https://aa-xprnetwork-main.saltant.io',
+      'https://xpr-mainnet-atm-api.bloxprod.io',
+    ];
+  }
+  return [
+    'https://aa-xprnetwork-test.saltant.io',
+    'https://xpr-testnet-atm-api.bloxprod.io',
+  ];
 }
 
-async function atomicGet(base: string, path: string, params?: Record<string, string>): Promise<any> {
+async function atomicGetSingle(base: string, path: string, params?: Record<string, string>): Promise<any> {
   const url = new URL(path, base);
   if (params) {
     Object.entries(params).forEach(([k, v]) => {
@@ -75,6 +82,19 @@ async function atomicGet(base: string, path: string, params?: Record<string, str
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function atomicGet(endpoints: string[], path: string, params?: Record<string, string>): Promise<any> {
+  let lastError: Error | null = null;
+  for (const base of endpoints) {
+    try {
+      return await atomicGetSingle(base, path, params);
+    } catch (err: any) {
+      lastError = err;
+      // Try next endpoint
+    }
+  }
+  throw lastError || new Error(`All AtomicAssets API endpoints failed for ${path}`);
 }
 
 // ── RPC Fallback Helper ─────────────────────────
@@ -178,7 +198,7 @@ export default function nftSkill(api: SkillApi): void {
   const config = api.getConfig();
   const rpcEndpoint = (config.rpcEndpoint as string) || process.env.XPR_RPC_ENDPOINT || '';
   const network = (config.network as string) || process.env.XPR_NETWORK || 'testnet';
-  const atomicBase = getAtomicApiBase(network);
+  const atomicEndpoints = getAtomicApiEndpoints(network);
 
   // ════════════════════════════════════════════════
   // READ-ONLY TOOLS (11)
@@ -198,7 +218,7 @@ export default function nftSkill(api: SkillApi): void {
     handler: async ({ collection_name }: { collection_name: string }) => {
       if (!collection_name) return { error: 'collection_name is required' };
       try {
-        const data = await atomicGet(atomicBase, `/atomicassets/v1/collections/${encodeURIComponent(collection_name)}`);
+        const data = await atomicGet(atomicEndpoints, `/atomicassets/v1/collections/${encodeURIComponent(collection_name)}`);
         return {
           collection_name: data.collection_name,
           author: data.author,
@@ -251,7 +271,7 @@ export default function nftSkill(api: SkillApi): void {
       if (match) params.match = match;
 
       try {
-        const data = await atomicGet(atomicBase, '/atomicassets/v1/collections', params);
+        const data = await atomicGet(atomicEndpoints, '/atomicassets/v1/collections', params);
         const collections = Array.isArray(data) ? data : [];
         return {
           collections: collections.map((c: any) => ({
@@ -284,7 +304,7 @@ export default function nftSkill(api: SkillApi): void {
     handler: async ({ collection_name, schema_name }: { collection_name: string; schema_name: string }) => {
       if (!collection_name || !schema_name) return { error: 'collection_name and schema_name are required' };
       try {
-        const data = await atomicGet(atomicBase, `/atomicassets/v1/schemas/${encodeURIComponent(collection_name)}/${encodeURIComponent(schema_name)}`);
+        const data = await atomicGet(atomicEndpoints, `/atomicassets/v1/schemas/${encodeURIComponent(collection_name)}/${encodeURIComponent(schema_name)}`);
         return {
           schema_name: data.schema_name,
           collection_name: data.collection?.collection_name || collection_name,
@@ -312,7 +332,7 @@ export default function nftSkill(api: SkillApi): void {
     handler: async ({ collection_name, template_id }: { collection_name: string; template_id: string }) => {
       if (!collection_name || !template_id) return { error: 'collection_name and template_id are required' };
       try {
-        const data = await atomicGet(atomicBase, `/atomicassets/v1/templates/${encodeURIComponent(collection_name)}/${encodeURIComponent(template_id)}`);
+        const data = await atomicGet(atomicEndpoints, `/atomicassets/v1/templates/${encodeURIComponent(collection_name)}/${encodeURIComponent(template_id)}`);
         return {
           template_id: data.template_id,
           collection_name: data.collection?.collection_name || collection_name,
@@ -358,7 +378,7 @@ export default function nftSkill(api: SkillApi): void {
       if (schema_name) params.schema_name = schema_name;
 
       try {
-        const data = await atomicGet(atomicBase, '/atomicassets/v1/templates', params);
+        const data = await atomicGet(atomicEndpoints, '/atomicassets/v1/templates', params);
         const templates = Array.isArray(data) ? data : [];
         return {
           templates: templates.map((t: any) => ({
@@ -392,7 +412,7 @@ export default function nftSkill(api: SkillApi): void {
     handler: async ({ asset_id }: { asset_id: string }) => {
       if (!asset_id) return { error: 'asset_id is required' };
       try {
-        const data = await atomicGet(atomicBase, `/atomicassets/v1/assets/${encodeURIComponent(asset_id)}`);
+        const data = await atomicGet(atomicEndpoints, `/atomicassets/v1/assets/${encodeURIComponent(asset_id)}`);
         return {
           asset_id: data.asset_id,
           owner: data.owner,
@@ -448,7 +468,7 @@ export default function nftSkill(api: SkillApi): void {
       if (schema_name) params.schema_name = schema_name;
 
       try {
-        const data = await atomicGet(atomicBase, '/atomicassets/v1/assets', params);
+        const data = await atomicGet(atomicEndpoints, '/atomicassets/v1/assets', params);
         const assets = Array.isArray(data) ? data : [];
         return {
           assets: assets.map((a: any) => ({
@@ -483,7 +503,7 @@ export default function nftSkill(api: SkillApi): void {
     handler: async ({ sale_id }: { sale_id: string }) => {
       if (!sale_id) return { error: 'sale_id is required' };
       try {
-        const data = await atomicGet(atomicBase, `/atomicmarket/v1/sales/${encodeURIComponent(sale_id)}`);
+        const data = await atomicGet(atomicEndpoints, `/atomicmarket/v1/sales/${encodeURIComponent(sale_id)}`);
         return {
           sale_id: data.sale_id,
           seller: data.seller,
@@ -554,7 +574,7 @@ export default function nftSkill(api: SkillApi): void {
       if (max_price) params.max_price = max_price;
 
       try {
-        const data = await atomicGet(atomicBase, '/atomicmarket/v1/sales', params);
+        const data = await atomicGet(atomicEndpoints, '/atomicmarket/v1/sales', params);
         const sales = Array.isArray(data) ? data : [];
         return {
           sales: sales.map((s: any) => ({
@@ -606,7 +626,7 @@ export default function nftSkill(api: SkillApi): void {
       if (seller) params.seller = seller;
 
       try {
-        const data = await atomicGet(atomicBase, '/atomicmarket/v1/auctions', params);
+        const data = await atomicGet(atomicEndpoints, '/atomicmarket/v1/auctions', params);
         const auctions = Array.isArray(data) ? data : [];
         return {
           auctions: auctions.map((a: any) => ({
@@ -646,7 +666,7 @@ export default function nftSkill(api: SkillApi): void {
     handler: async ({ auction_id }: { auction_id: string }) => {
       if (!auction_id) return { error: 'auction_id is required' };
       try {
-        const data = await atomicGet(atomicBase, `/atomicmarket/v1/auctions/${encodeURIComponent(auction_id)}`);
+        const data = await atomicGet(atomicEndpoints, `/atomicmarket/v1/auctions/${encodeURIComponent(auction_id)}`);
         return {
           auction_id: data.auction_id,
           seller: data.seller,
@@ -808,7 +828,7 @@ export default function nftSkill(api: SkillApi): void {
 
       try {
         // Fetch schema to get attribute types
-        const schemaData = await atomicGet(atomicBase, `/atomicassets/v1/schemas/${encodeURIComponent(collection_name)}/${encodeURIComponent(schema_name)}`);
+        const schemaData = await atomicGet(atomicEndpoints, `/atomicassets/v1/schemas/${encodeURIComponent(collection_name)}/${encodeURIComponent(schema_name)}`);
         const schemaFormat: Array<{ name: string; type: string }> = schemaData.format || [];
         if (schemaFormat.length === 0) return { error: 'Schema has no attributes defined' };
 
@@ -879,7 +899,7 @@ export default function nftSkill(api: SkillApi): void {
 
         if (mutable_data && Object.keys(mutable_data).length > 0) {
           // Fetch schema to map types
-          const schemaData = await atomicGet(atomicBase, `/atomicassets/v1/schemas/${encodeURIComponent(collection_name)}/${encodeURIComponent(schema_name)}`);
+          const schemaData = await atomicGet(atomicEndpoints, `/atomicassets/v1/schemas/${encodeURIComponent(collection_name)}/${encodeURIComponent(schema_name)}`);
           const schemaFormat: Array<{ name: string; type: string }> = schemaData.format || [];
           mutable_data_map = buildAttributeMap(mutable_data, schemaFormat);
         }
