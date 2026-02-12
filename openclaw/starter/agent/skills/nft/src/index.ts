@@ -1068,20 +1068,10 @@ export default function nftSkill(api: SkillApi): void {
         const session = await getNftSession();
         const numericAssetIds = asset_ids.map(id => Number(id));
 
+        // announcesale MUST come before createoffer — when createoffer notifies
+        // atomicmarket, it checks that a sale was already announced for these assets.
         const result = await session.api.transact({
           actions: [
-            {
-              account: 'atomicassets',
-              name: 'createoffer',
-              authorization: [{ actor: session.account, permission: session.permission }],
-              data: {
-                sender: session.account,
-                recipient: 'atomicmarket',
-                sender_asset_ids: numericAssetIds,
-                recipient_asset_ids: [],
-                memo: 'sale',
-              },
-            },
             {
               account: 'atomicmarket',
               name: 'announcesale',
@@ -1092,6 +1082,18 @@ export default function nftSkill(api: SkillApi): void {
                 listing_price: `${parsed.amount} ${parsed.symbol}`,
                 settlement_symbol: `${parsed.precision},${parsed.symbol}`,
                 maker_marketplace: marketplace || '',
+              },
+            },
+            {
+              account: 'atomicassets',
+              name: 'createoffer',
+              authorization: [{ actor: session.account, permission: session.permission }],
+              data: {
+                sender: session.account,
+                recipient: 'atomicmarket',
+                sender_asset_ids: numericAssetIds,
+                recipient_asset_ids: [],
+                memo: 'sale',
               },
             },
           ],
@@ -1228,19 +1230,10 @@ export default function nftSkill(api: SkillApi): void {
         const session = await getNftSession();
         const numericAssetIds = asset_ids.map(id => Number(id));
 
+        // announceauct MUST come before transfer — when atomicmarket receives the
+        // assets via transfer notification, it checks for a previously announced auction.
         const result = await session.api.transact({
           actions: [
-            {
-              account: 'atomicassets',
-              name: 'transfer',
-              authorization: [{ actor: session.account, permission: session.permission }],
-              data: {
-                from: session.account,
-                to: 'atomicmarket',
-                asset_ids: numericAssetIds,
-                memo: 'auction',
-              },
-            },
             {
               account: 'atomicmarket',
               name: 'announceauct',
@@ -1251,6 +1244,17 @@ export default function nftSkill(api: SkillApi): void {
                 starting_bid: `${parsed.amount} ${parsed.symbol}`,
                 duration: duration_seconds,
                 maker_marketplace: marketplace || '',
+              },
+            },
+            {
+              account: 'atomicassets',
+              name: 'transfer',
+              authorization: [{ actor: session.account, permission: session.permission }],
+              data: {
+                from: session.account,
+                to: 'atomicmarket',
+                asset_ids: numericAssetIds,
+                memo: 'auction',
               },
             },
           ],
