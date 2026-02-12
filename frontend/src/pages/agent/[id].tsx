@@ -144,11 +144,11 @@ export default function AgentDetail() {
             {/* Endpoint */}
             <div className="mt-6">
               <h3 className="text-sm font-medium text-zinc-400 mb-2">Endpoint</h3>
-              <div className="flex items-center gap-2">
-                <code className="px-3 py-2 bg-zinc-800 text-zinc-300 rounded text-sm flex-1">
+              <div>
+                <code className="block px-3 py-2 bg-zinc-800 text-zinc-300 rounded text-sm break-all">
                   {agent.endpoint}
                 </code>
-                <span className="px-2 py-1 bg-blue-500/10 text-blue-400 text-xs rounded">
+                <span className="inline-block mt-2 px-2 py-1 bg-blue-500/10 text-blue-400 text-xs rounded">
                   {agent.protocol}
                 </span>
               </div>
