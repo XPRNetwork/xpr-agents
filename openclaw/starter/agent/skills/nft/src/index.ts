@@ -138,6 +138,37 @@ async function getTableRows(endpoint: string, opts: {
   return result.rows || [];
 }
 
+// ── Schema Format Fetcher (AA API + RPC fallback) ──
+
+async function fetchSchemaFormat(
+  atomicEndpoints: string[],
+  rpcEndpoint: string,
+  collection_name: string,
+  schema_name: string,
+): Promise<Array<{ name: string; type: string }>> {
+  // Try AA API first
+  try {
+    const data = await atomicGet(atomicEndpoints, `/atomicassets/v1/schemas/${encodeURIComponent(collection_name)}/${encodeURIComponent(schema_name)}`);
+    if (data.format && data.format.length > 0) return data.format;
+  } catch { /* fall through to RPC */ }
+
+  // Fallback: read directly from chain (schemas table scoped by collection)
+  const rows = await getTableRows(rpcEndpoint, {
+    code: 'atomicassets',
+    scope: collection_name,
+    table: 'schemas',
+    lower_bound: schema_name,
+    upper_bound: schema_name,
+    limit: 1,
+  });
+  if (rows.length === 0) throw new Error(`Schema "${schema_name}" not found in collection "${collection_name}"`);
+  const format = rows[0].format;
+  if (!Array.isArray(format) || format.length === 0) {
+    throw new Error(`Schema "${schema_name}" has no attributes defined`);
+  }
+  return format;
+}
+
 // ── ATTRIBUTE_MAP Builder ────────────────────────
 
 function buildAttributeMap(
@@ -827,10 +858,8 @@ export default function nftSkill(api: SkillApi): void {
       if (!immutable_data || typeof immutable_data !== 'object') return { error: 'immutable_data must be an object' };
 
       try {
-        // Fetch schema to get attribute types
-        const schemaData = await atomicGet(atomicEndpoints, `/atomicassets/v1/schemas/${encodeURIComponent(collection_name)}/${encodeURIComponent(schema_name)}`);
-        const schemaFormat: Array<{ name: string; type: string }> = schemaData.format || [];
-        if (schemaFormat.length === 0) return { error: 'Schema has no attributes defined' };
+        // Fetch schema to get attribute types (AA API with RPC fallback)
+        const schemaFormat = await fetchSchemaFormat(atomicEndpoints, rpcEndpoint, collection_name, schema_name);
 
         const attributeMap = buildAttributeMap(immutable_data, schemaFormat);
 
@@ -898,9 +927,8 @@ export default function nftSkill(api: SkillApi): void {
         let mutable_data_map: Array<{ key: string; value: [string, any] }> = [];
 
         if (mutable_data && Object.keys(mutable_data).length > 0) {
-          // Fetch schema to map types
-          const schemaData = await atomicGet(atomicEndpoints, `/atomicassets/v1/schemas/${encodeURIComponent(collection_name)}/${encodeURIComponent(schema_name)}`);
-          const schemaFormat: Array<{ name: string; type: string }> = schemaData.format || [];
+          // Fetch schema to map types (AA API with RPC fallback)
+          const schemaFormat = await fetchSchemaFormat(atomicEndpoints, rpcEndpoint, collection_name, schema_name);
           mutable_data_map = buildAttributeMap(mutable_data, schemaFormat);
         }
 
