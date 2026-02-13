@@ -322,25 +322,49 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
   api.registerTool({
     name: 'xpr_deliver_job',
-    description: 'Submit job deliverables for client review. Moves job to DELIVERED state. For most jobs, just provide job_id and evidence_uri. The optional nft_asset_ids/nft_collection params are ONLY needed when the deliverable is an NFT that must be transferred to the client.',
+    description: 'Submit job deliverables for client review. Moves job to DELIVERED state. Provide job_id and evidence_uri (IPFS link to the deliverable). Do NOT use this for NFT delivery — use xpr_deliver_job_nft instead.',
     parameters: {
       type: 'object',
       required: ['job_id', 'evidence_uri'],
       properties: {
         job_id: { type: 'number', description: 'Job ID' },
         evidence_uri: { type: 'string', description: 'URI to deliverables/evidence (IPFS/Arweave)' },
+      },
+    },
+    handler: async ({ job_id, evidence_uri }: {
+      job_id: number;
+      evidence_uri: string;
+    }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      validatePositiveInt(job_id, 'job_id');
+      validateRequired(evidence_uri, 'evidence_uri');
+      validateUrl(evidence_uri, 'evidence_uri');
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.deliverJob(job_id, evidence_uri);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_deliver_job_nft',
+    description: 'Deliver a job where the deliverable is an NFT. Transfers the NFT(s) to the client and marks the job as delivered. Only use this when the job specifically requires NFT creation/transfer.',
+    parameters: {
+      type: 'object',
+      required: ['job_id', 'evidence_uri', 'nft_asset_ids'],
+      properties: {
+        job_id: { type: 'number', description: 'Job ID' },
+        evidence_uri: { type: 'string', description: 'URI to evidence (IPFS link to the NFT or related content)' },
         nft_asset_ids: {
           type: 'array',
           items: { type: 'string' },
-          description: 'AtomicAssets asset IDs to include as NFT deliverable (auto-formats JSON envelope)',
+          description: 'AtomicAssets asset IDs to transfer to the client',
         },
-        nft_collection: { type: 'string', description: 'Collection name for the NFT deliverable (used with nft_asset_ids)' },
+        nft_collection: { type: 'string', description: 'Collection name for the NFT deliverable' },
       },
     },
     handler: async ({ job_id, evidence_uri, nft_asset_ids, nft_collection }: {
       job_id: number;
       evidence_uri: string;
-      nft_asset_ids?: string[];
+      nft_asset_ids: string[];
       nft_collection?: string;
     }) => {
       if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
@@ -350,47 +374,40 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       const agent = config.session.auth.actor;
       const permission = config.session.auth.permission;
 
-      if (nft_asset_ids && nft_asset_ids.length > 0) {
-        // Look up the job to find the client (recipient for NFT transfer)
-        const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
-        const job = await registry.getJob(job_id);
-        if (!job) throw new Error(`Job #${job_id} not found`);
-
-        const finalUri = JSON.stringify({
-          type: 'nft',
-          asset_ids: nft_asset_ids,
-          collection: nft_collection || '',
-          evidence: evidence_uri,
-        });
-
-        // Multi-action: transfer NFTs to client + deliver job
-        const result = await config.session.link.transact({
-          actions: [
-            {
-              account: 'atomicassets',
-              name: 'transfer',
-              authorization: [{ actor: agent, permission }],
-              data: {
-                from: agent,
-                to: job.client,
-                asset_ids: nft_asset_ids.map(id => parseInt(id, 10)),
-                memo: `Job #${job_id} NFT deliverable`,
-              },
-            },
-            {
-              account: contracts.agentescrow,
-              name: 'deliver',
-              authorization: [{ actor: agent, permission }],
-              data: { agent, job_id, evidence_uri: finalUri },
-            },
-          ],
-        });
-        return { ...result, nft_transferred_to: job.client, nft_asset_ids };
-      }
-
-      validateUrl(evidence_uri, 'evidence_uri');
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
-      return registry.deliverJob(job_id, evidence_uri);
+      const job = await registry.getJob(job_id);
+      if (!job) throw new Error(`Job #${job_id} not found`);
+
+      const finalUri = JSON.stringify({
+        type: 'nft',
+        asset_ids: nft_asset_ids,
+        collection: nft_collection || '',
+        evidence: evidence_uri,
+      });
+
+      // Multi-action: transfer NFTs to client + deliver job
+      const result = await config.session.link.transact({
+        actions: [
+          {
+            account: 'atomicassets',
+            name: 'transfer',
+            authorization: [{ actor: agent, permission }],
+            data: {
+              from: agent,
+              to: job.client,
+              asset_ids: nft_asset_ids.map(id => parseInt(id, 10)),
+              memo: `Job #${job_id} NFT deliverable`,
+            },
+          },
+          {
+            account: contracts.agentescrow,
+            name: 'deliver',
+            authorization: [{ actor: agent, permission }],
+            data: { agent, job_id, evidence_uri: finalUri },
+          },
+        ],
+      });
+      return { ...result, nft_transferred_to: job.client, nft_asset_ids };
     },
   });
 
