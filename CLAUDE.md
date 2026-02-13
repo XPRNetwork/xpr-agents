@@ -601,7 +601,7 @@ All phases are complete:
 
 ### Phase 8: Agent Skills System ✓
 - Built-in skill loader (`skill-loader.ts`) with manifest validation, prompt injection, and tool collision detection
-- **7 built-in skills** always loaded by the agent runner:
+- **8 built-in skills** always loaded by the agent runner:
 
 | Skill | Tools | Description |
 |-------|-------|-------------|
@@ -610,12 +610,13 @@ All phases are complete:
 | `code-sandbox` | 2 | Sandboxed JavaScript execution in VM |
 | `structured-data` | 3 | CSV/JSON parsing, chart generation |
 | `defi` | 8 | Token prices (Metal X), AMM swap rates, liquidity pools, msig proposals |
+| `lending` | 15 | LOAN Protocol (lending.loan) — supply, borrow, repay, redeem, APY/TVL, rewards |
 | `nft` | 23 | Full AtomicAssets/AtomicMarket lifecycle (see below) |
 | `xpr-agent-operator` | — | System prompt defining agent behavior and responsibilities |
 
 - External skills via `AGENT_SKILLS` env var (npm packages or local paths)
 - Each skill provides: `skill.json` manifest, `SKILL.md` prompt section, `src/index.ts` tool handlers
-- A2A sandbox: read-only tools (`nft_get_*`, `nft_list_*`, `nft_search_*`, `defi_*`) exposed in readonly mode
+- A2A sandbox: read-only tools (`nft_get_*`, `nft_list_*`, `nft_search_*`, `defi_*`, `loan_list_*`, `loan_get_*`) exposed in readonly mode
 
 ### NFT Skill (AtomicAssets/AtomicMarket) ✓
 - **23 tools**: 11 read-only + 12 write (all write ops require `confirmed: true`)
@@ -718,10 +719,11 @@ xpr-agents/
 │   │           ├── code-sandbox/ # Sandboxed JS execution
 │   │           ├── structured-data/ # CSV/JSON parsing, charts
 │   │           ├── defi/        # Token prices, swap rates, pools, msig proposals
+│   │           ├── lending/     # LOAN Protocol supply, borrow, repay, rewards (13 tools)
 │   │           └── nft/         # AtomicAssets/AtomicMarket NFT lifecycle (23 tools)
 │   │               ├── skill.json   # Manifest
 │   │               ├── SKILL.md     # Agent prompt section
-│   │               └── src/index.ts # All 23 tool handlers
+│   │               └── src/index.ts # Tool handlers
 │   └── tests/
 │       ├── tools.test.ts
 │       ├── confirm.test.ts

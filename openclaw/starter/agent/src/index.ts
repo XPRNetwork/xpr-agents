@@ -96,7 +96,11 @@ const nftSkill = loadBuiltinSkill(nftSkillDir, tools);
 const taxSkillDir = path.resolve(__dirname, '../skills/tax');
 const taxSkill = loadBuiltinSkill(taxSkillDir, tools);
 
-// 8. External skills from AGENT_SKILLS env var
+// 8. Built-in lending skill (always loaded — LOAN Protocol supply/borrow/repay)
+const lendingSkillDir = path.resolve(__dirname, '../skills/lending');
+const lendingSkill = loadBuiltinSkill(lendingSkillDir, tools);
+
+// 9. External skills from AGENT_SKILLS env var
 const skillResult: SkillLoadResult = loadSkills(tools);
 const allSkillCapabilities: string[] = [
   ...(creativeSkill?.manifest.capabilities || []),
@@ -106,6 +110,7 @@ const allSkillCapabilities: string[] = [
   ...(defiSkill?.manifest.capabilities || []),
   ...(nftSkill?.manifest.capabilities || []),
   ...(taxSkill?.manifest.capabilities || []),
+  ...(lendingSkill?.manifest.capabilities || []),
   ...skillResult.capabilities,
 ];
 
@@ -256,7 +261,7 @@ const a2aAuthConfig: A2AAuthConfig = {
 
 // A2A tool sandboxing
 const a2aToolMode = (process.env.A2A_TOOL_MODE || 'full') as 'full' | 'readonly';
-const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_') || t.name.startsWith('nft_get_') || t.name.startsWith('nft_list_') || t.name.startsWith('nft_search_') || t.name.startsWith('tax_'));
+const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_') || t.name.startsWith('nft_get_') || t.name.startsWith('nft_list_') || t.name.startsWith('nft_search_') || t.name.startsWith('tax_') || t.name.startsWith('loan_list_') || t.name.startsWith('loan_get_'));
 function getReadonlyAnthropicTools(): Anthropic.Messages.Tool[] {
   return [
     { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Messages.Tool,
