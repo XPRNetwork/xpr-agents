@@ -1114,24 +1114,23 @@ export default function taxSkill(api: SkillApi): void {
       const stableSymbols = symbols.filter(s => STABLECOINS.has(s.toUpperCase()));
       const cryptoSymbols = symbols.filter(s => !STABLECOINS.has(s.toUpperCase()));
 
-      // 1. Handle stablecoins via forex rate (USD → local)
-      if (stableSymbols.length > 0) {
+      // Get USD → local forex rate upfront (needed for stablecoins AND USD fallback)
+      let forexRate = 1;
+      if (currency !== 'usd') {
         try {
-          let forexRate: number;
-          if (currency === 'usd') {
-            forexRate = 1;
-          } else {
-            const forexData = await cgFetch(`/simple/price?ids=usd-coin&vs_currencies=${currency}`);
-            forexRate = forexData['usd-coin']?.[currency] || 1;
-          }
-
-          const dk = date ? dateKey(date) : 'current';
-          for (const sym of stableSymbols) {
-            const key = `${sym.toUpperCase()}:${dk}`;
-            rates[key] = forexRate;
-          }
+          const forexData = await cgFetch(`/simple/price?ids=usd-coin&vs_currencies=${currency}`);
+          forexRate = forexData['usd-coin']?.[currency] || 1;
         } catch (err: any) {
           errors.push(`Forex rate error: ${err.message}`);
+        }
+      }
+
+      // 1. Handle stablecoins via forex rate (USD → local)
+      if (stableSymbols.length > 0) {
+        const dk = date ? dateKey(date) : 'current';
+        for (const sym of stableSymbols) {
+          const key = `${sym.toUpperCase()}:${dk}`;
+          rates[key] = forexRate;
         }
       }
 
@@ -1159,8 +1158,12 @@ export default function taxSkill(api: SkillApi): void {
 
             try {
               const histData = await cgFetch(`/coins/${cgId}/history?date=${ddMmYyyy}`);
-              const price = histData?.market_data?.current_price?.[currency]
-                || histData?.market_data?.current_price?.usd || 0;
+              // Prefer local currency price; if unavailable, use USD × forex rate
+              let price = histData?.market_data?.current_price?.[currency] || 0;
+              if (!price) {
+                const usdPrice = histData?.market_data?.current_price?.usd || 0;
+                price = usdPrice * forexRate;
+              }
               rates[cacheKey] = price;
               rateCache.set(cacheKey, price);
             } catch (err: any) {
@@ -1183,7 +1186,11 @@ export default function taxSkill(api: SkillApi): void {
                 const upper = sym.toUpperCase();
                 const cgId = TOKEN_TO_COINGECKO[upper];
                 if (!cgId) continue;
-                const price = batchData[cgId]?.[currency] || batchData[cgId]?.usd || 0;
+                // Prefer local currency; if unavailable, use USD × forex rate
+                let price = batchData[cgId]?.[currency] || 0;
+                if (!price) {
+                  price = (batchData[cgId]?.usd || 0) * forexRate;
+                }
                 rates[`${upper}:current`] = price;
               }
             } catch (err: any) {
@@ -1557,8 +1564,12 @@ export default function taxSkill(api: SkillApi): void {
 
             try {
               const histData = await cgFetch(`/coins/${cgId}/history?date=${ddMmYyyy}`);
-              const price = histData?.market_data?.current_price?.[currency]
-                || histData?.market_data?.current_price?.usd || 0;
+              // Prefer local currency; if unavailable, use USD × forex rate
+              let price = histData?.market_data?.current_price?.[currency] || 0;
+              if (!price) {
+                const usdPrice = histData?.market_data?.current_price?.usd || 0;
+                price = usdPrice * forexRate;
+              }
               if (price > 0) {
                 rates[key] = price;
                 rateCache.set(key, price);

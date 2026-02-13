@@ -50,6 +50,7 @@ services:
       - GITHUB_OWNER=${GITHUB_OWNER:-}
       - AGENT_PUBLIC_URL=${AGENT_PUBLIC_URL:-}
       - COST_MARGIN=${COST_MARGIN:-2.0}
+      - COINGECKO_API_KEY=${COINGECKO_API_KEY:-}
     volumes:
       - agent-data:/data
     ports:
