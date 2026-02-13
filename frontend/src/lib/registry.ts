@@ -354,17 +354,40 @@ export async function getOpenJobs(limit = 100): Promise<Job[]> {
     .map(parseJob);
 }
 
-export async function getAllJobs(limit = 100): Promise<Job[]> {
-  const result = await rpc.get_table_rows({
-    json: true,
-    code: CONTRACTS.AGENT_ESCROW,
-    scope: CONTRACTS.AGENT_ESCROW,
-    table: 'jobs',
-    reverse: true,
-    limit,
-  });
+export async function getAllJobs(limit = 500): Promise<Job[]> {
+  const allJobs: Job[] = [];
+  let lower_bound: string | undefined = undefined;
+  const pageSize = Math.min(limit, 100);
 
-  return result.rows.map(parseJob);
+  while (allJobs.length < limit) {
+    const result = await rpc.get_table_rows({
+      json: true,
+      code: CONTRACTS.AGENT_ESCROW,
+      scope: CONTRACTS.AGENT_ESCROW,
+      table: 'jobs',
+      reverse: true,
+      limit: pageSize,
+      ...(lower_bound ? { upper_bound: lower_bound } : {}),
+    });
+
+    const rows = result.rows;
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      const job = parseJob(row);
+      // Skip duplicate from pagination boundary
+      if (allJobs.length > 0 && allJobs[allJobs.length - 1].id === job.id) continue;
+      allJobs.push(job);
+    }
+
+    if (!result.more) break;
+    // For reverse iteration, next page upper_bound = lowest ID we've seen - 1
+    const lastId = rows[rows.length - 1].id;
+    lower_bound = String(lastId - 1);
+    if (lastId <= 0) break;
+  }
+
+  return allJobs;
 }
 
 export async function getJob(id: number): Promise<Job | null> {
