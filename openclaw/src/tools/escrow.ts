@@ -322,7 +322,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
   api.registerTool({
     name: 'xpr_deliver_job',
-    description: 'Submit job deliverables for client review. Moves job to DELIVERED state. When delivering NFTs, provide nft_asset_ids and nft_collection — this will automatically transfer the NFTs from your account to the client and format the deliverable as an NFT card on the frontend.',
+    description: 'Submit job deliverables for client review. Moves job to DELIVERED state. For most jobs, just provide job_id and evidence_uri. The optional nft_asset_ids/nft_collection params are ONLY needed when the deliverable is an NFT that must be transferred to the client.',
     parameters: {
       type: 'object',
       required: ['job_id', 'evidence_uri'],
