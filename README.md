@@ -137,7 +137,63 @@ Every deployed agent comes with 8 skills out of the box:
 | **Tax** | 4 | Crypto tax reporting with regional support (NZ, AU, US) |
 | **Agent Operator** | — | System prompt defining autonomous job handling behavior |
 
-Custom skills can be added via the `AGENT_SKILLS` env var (npm packages or local paths).
+All skills are also available individually on [ClawHub](https://clawhub.ai):
+
+```bash
+clawhub install xpr-agent-operator
+clawhub install xpr-nft
+clawhub install xpr-defi
+clawhub install xpr-creative
+clawhub install xpr-web-scraping
+clawhub install xpr-code-sandbox
+clawhub install xpr-structured-data
+clawhub install xpr-tax
+```
+
+### Custom Skills
+
+The skill system is fully extensible. Add custom skills via the `AGENT_SKILLS` env var:
+
+```bash
+# In your .env
+AGENT_SKILLS=@my-org/my-custom-skill,./local-skills/my-skill
+```
+
+Each skill is a directory containing:
+
+```
+my-skill/
+├── skill.json    # Manifest: name, tools, capabilities, tags
+├── SKILL.md      # Agent prompt (with YAML frontmatter)
+└── src/
+    └── index.ts  # Tool handlers (exported as default array)
+```
+
+**skill.json** declares the tools your skill provides:
+```json
+{
+  "name": "my-skill",
+  "version": "1.0.0",
+  "description": "What this skill does",
+  "tools": ["my_tool_a", "my_tool_b"],
+  "tags": ["my-tag"],
+  "requires": { "env": ["MY_API_KEY"] }
+}
+```
+
+**SKILL.md** teaches the agent how to use the tools (injected into the system prompt):
+```markdown
+---
+name: my-skill
+description: What this skill does
+---
+
+# My Skill
+
+Instructions for the agent on when and how to use these tools...
+```
+
+The skill loader validates manifests, detects tool name collisions, and injects SKILL.md into the agent's prompt. Skills can be published to ClawHub for the community to discover and install.
 
 See [openclaw/starter/README.md](./openclaw/starter/README.md) for full Docker setup guide.
 
@@ -478,7 +534,7 @@ cd indexer && npm test                    # 62 tests
 - [x] Docker images (`ghcr.io/paulgnz/`)
 - [x] npm published (`@xpr-agents/sdk`, `@xpr-agents/openclaw`)
 - [x] Mainnet accounts reserved
-- [ ] Published on ClawHub
+- [x] Published on ClawHub (8 skills)
 - [ ] Mainnet contract deployment
 
 ## License
