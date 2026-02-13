@@ -152,7 +152,106 @@ async function generatePdfFromMarkdown(content: string): Promise<Buffer> {
       const pageWidth = 595.28 - 100;
       const lines = content.split('\n');
       let inCodeBlock = false;
-      for (const line of lines) {
+
+      // ── Table rendering helper ──
+      function renderTable(tableLines: string[]): void {
+        // Parse rows, skip separator rows (|---|---|)
+        const rows: string[][] = [];
+        let headerIdx = -1;
+        for (let i = 0; i < tableLines.length; i++) {
+          const raw = tableLines[i].trim();
+          // Separator row
+          if (/^\|[\s:]*-{2,}[\s:|-]*\|?\s*$/.test(raw)) {
+            headerIdx = i - 1;
+            continue;
+          }
+          const cells = raw.replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => stripMarkdownInline(c.trim()));
+          rows.push(cells);
+        }
+        if (rows.length === 0) return;
+
+        const numCols = Math.max(...rows.map(r => r.length));
+        const fontSize = numCols > 5 ? 8 : 9;
+        const cellPadding = 4;
+        const rowHeight = fontSize + cellPadding * 2 + 2;
+
+        // Measure column widths — proportional based on max content width
+        doc.fontSize(fontSize).font('Helvetica');
+        const colMaxWidths: number[] = new Array(numCols).fill(0);
+        for (const row of rows) {
+          for (let c = 0; c < numCols; c++) {
+            const text = row[c] || '';
+            const w = doc.widthOfString(text);
+            if (w > colMaxWidths[c]) colMaxWidths[c] = w;
+          }
+        }
+        // Scale columns to fit page width
+        const totalMaxWidth = colMaxWidths.reduce((s, w) => s + w, 0);
+        const availableWidth = pageWidth - (numCols * cellPadding * 2);
+        const colWidths = colMaxWidths.map(w => {
+          const scaled = totalMaxWidth > 0 ? (w / totalMaxWidth) * availableWidth : availableWidth / numCols;
+          return Math.max(scaled, 30); // min 30pt per column
+        });
+        const tableWidth = colWidths.reduce((s, w) => s + cellPadding * 2 + w, 0);
+
+        doc.moveDown(0.3);
+        const startX = 50;
+
+        for (let r = 0; r < rows.length; r++) {
+          const isHeader = (headerIdx >= 0 && r === 0);
+
+          // Page break check
+          if (doc.y + rowHeight > 780) {
+            doc.addPage();
+          }
+
+          const y = doc.y;
+          let x = startX;
+
+          // Background for header
+          if (isHeader) {
+            doc.rect(x, y, tableWidth, rowHeight).fillColor('#f0f0f0').fill().fillColor('#000000');
+          }
+
+          // Draw cells
+          for (let c = 0; c < numCols; c++) {
+            const cellWidth = colWidths[c] + cellPadding * 2;
+            const text = rows[r][c] || '';
+            // Cell border
+            doc.rect(x, y, cellWidth, rowHeight).strokeColor('#cccccc').lineWidth(0.5).stroke();
+            // Cell text
+            doc.fontSize(fontSize).font(isHeader ? 'Helvetica-Bold' : 'Helvetica').fillColor('#000000');
+            doc.text(text, x + cellPadding, y + cellPadding, {
+              width: colWidths[c],
+              height: rowHeight - cellPadding,
+              ellipsis: true,
+              lineBreak: false,
+            });
+            x += cellWidth;
+          }
+          doc.y = y + rowHeight;
+        }
+        doc.moveDown(0.3);
+      }
+
+      // ── Process lines ──
+      let tableBuffer: string[] = [];
+      for (let li = 0; li <= lines.length; li++) {
+        const line = li < lines.length ? lines[li] : '';
+        const isTableLine = li < lines.length && /^\s*\|/.test(line);
+
+        // Flush buffered table when we hit a non-table line
+        if (!isTableLine && tableBuffer.length > 0) {
+          renderTable(tableBuffer);
+          tableBuffer = [];
+        }
+        if (li >= lines.length) break;
+
+        if (isTableLine) {
+          tableBuffer.push(line);
+          continue;
+        }
+
         if (line.startsWith('```')) { inCodeBlock = !inCodeBlock; doc.moveDown(0.3); continue; }
         if (inCodeBlock) { doc.fontSize(9).font('Courier').text(line); continue; }
 
@@ -185,6 +284,16 @@ async function generatePdfFromMarkdown(content: string): Promise<Buffer> {
           const y = doc.y;
           doc.moveTo(50, y).lineTo(545, y).strokeColor('#cccccc').lineWidth(0.5).stroke();
           doc.moveDown(0.5);
+          continue;
+        }
+
+        // Blockquote
+        if (line.startsWith('> ')) {
+          doc.moveDown(0.2);
+          doc.fontSize(10).font('Helvetica-Oblique').fillColor('#555555')
+            .text(stripMarkdownInline(line.slice(2)), { indent: 15 })
+            .fillColor('#000000');
+          doc.moveDown(0.2);
           continue;
         }
 

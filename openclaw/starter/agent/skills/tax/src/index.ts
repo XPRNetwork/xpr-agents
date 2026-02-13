@@ -1541,7 +1541,7 @@ export default function taxSkill(api: SkillApi): void {
         const now = Date.now();
         const oneYearMs = 365 * 24 * 60 * 60 * 1000;
         let cgFetches = 0;
-        const MAX_CG_FETCHES = cgConfig.hasKey ? 200 : 30;
+        const MAX_CG_FETCHES = cgConfig.hasKey ? 2000 : 30;
         const CG_DELAY = cgConfig.hasKey ? 100 : 200;
 
         for (const d of sortedDates) {
@@ -1578,6 +1578,64 @@ export default function taxSkill(api: SkillApi): void {
             } catch { /* skip */ }
 
             await sleep(CG_DELAY);
+          }
+        }
+
+        // Forward-fill again after CoinGecko to cover remaining gaps
+        for (const sym of symbolsNeedingRates) {
+          const upper = sym.toUpperCase();
+          let lastKnownRate = 0;
+          for (const d of sortedDates) {
+            const key = `${upper}:${d}`;
+            if (rates[key] && rates[key] > 0) {
+              lastKnownRate = rates[key];
+            } else if (lastKnownRate > 0) {
+              rates[key] = lastKnownRate;
+            }
+          }
+          // Also backward-fill: if the first few dates had no rate but later ones do
+          let firstKnownRate = 0;
+          for (let i = sortedDates.length - 1; i >= 0; i--) {
+            const d = sortedDates[i];
+            const key = `${upper}:${d}`;
+            if (rates[key] && rates[key] > 0) {
+              firstKnownRate = rates[key];
+            } else if (firstKnownRate > 0) {
+              rates[key] = firstKnownRate;
+            }
+          }
+        }
+
+        // Final fallback: fetch current rate for any symbols still missing
+        const missingSymbols = symbolsNeedingRates.filter(sym => {
+          const upper = sym.toUpperCase();
+          return sortedDates.some(d => !rates[`${upper}:${d}`] || rates[`${upper}:${d}`] === 0);
+        });
+        if (missingSymbols.length > 0) {
+          const cgIds = missingSymbols.map(s => TOKEN_TO_COINGECKO[s.toUpperCase()]).filter(Boolean);
+          if (cgIds.length > 0) {
+            try {
+              const currentData = await cgFetch(`/simple/price?ids=${cgIds.join(',')}&vs_currencies=${currency},usd`);
+              for (const sym of missingSymbols) {
+                const upper = sym.toUpperCase();
+                const cgId = TOKEN_TO_COINGECKO[upper];
+                if (!cgId || !currentData[cgId]) continue;
+                let price = currentData[cgId][currency] || 0;
+                if (!price) {
+                  price = (currentData[cgId].usd || 0) * forexRate;
+                }
+                if (price > 0) {
+                  // Apply to all dates that still have no rate
+                  for (const d of sortedDates) {
+                    const key = `${upper}:${d}`;
+                    if (!rates[key] || rates[key] === 0) {
+                      rates[key] = price;
+                    }
+                  }
+                  rates[`${upper}:current`] = price;
+                }
+              }
+            } catch { /* skip */ }
           }
         }
 
