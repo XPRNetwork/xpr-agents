@@ -166,7 +166,7 @@ export default function AgentDetail() {
                 {[...agentJobs].sort((a, b) => b.created_at - a.created_at).map((job) => (
                   <Link
                     key={job.id}
-                    href={`/jobs?job=${job.id}`}
+                    href={`/jobs/${job.id}`}
                     className="flex justify-between items-center p-3 border border-zinc-800 rounded-lg cursor-pointer hover:border-zinc-700 transition-colors"
                   >
                     <div>

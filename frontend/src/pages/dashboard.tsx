@@ -387,7 +387,7 @@ export default function Dashboard() {
                 ) : (
                   <div className="space-y-3">
                     {myBids.map((bid) => (
-                      <Link key={bid.id} href={`/jobs?job=${bid.job_id}`} className="block p-3 border border-zinc-800 rounded-lg hover:border-zinc-700 transition-colors">
+                      <Link key={bid.id} href={`/jobs/${bid.job_id}`} className="block p-3 border border-zinc-800 rounded-lg hover:border-zinc-700 transition-colors">
                         <div className="flex justify-between items-start">
                           <div className="text-sm font-medium text-white">Job #{bid.job_id}</div>
                           <div className="text-sm text-proton-purple">{formatXpr(bid.amount)}</div>

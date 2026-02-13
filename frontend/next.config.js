@@ -1,6 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  async redirects() {
+    return [
+      {
+        source: '/jobs',
+        has: [{ type: 'query', key: 'job', value: '(?<id>\\d+)' }],
+        destination: '/jobs/:id',
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {
