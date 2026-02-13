@@ -80,11 +80,11 @@ function getTaxYearDates(taxYear: number, region: RegionConfig): { start: string
 
 const HTTP_TIMEOUT = 20000;
 
-async function httpGet(url: string): Promise<any> {
+async function httpGet(url: string, headers?: Record<string, string>): Promise<any> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT);
   try {
-    const resp = await fetch(url, { signal: controller.signal });
+    const resp = await fetch(url, { signal: controller.signal, headers });
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       throw new Error(`HTTP GET ${url} failed (${resp.status}): ${text.slice(0, 200)}`);
@@ -95,8 +95,8 @@ async function httpGet(url: string): Promise<any> {
   }
 }
 
-async function httpGetJson(url: string): Promise<any> {
-  const resp = await httpGet(url);
+async function httpGetJson(url: string, headers?: Record<string, string>): Promise<any> {
+  const resp = await httpGet(url, headers);
   return resp.json();
 }
 
@@ -111,7 +111,29 @@ function sleep(ms: number): Promise<void> {
 
 // ── CoinGecko ────────────────────────────────────
 
-const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
+// Auto-detect API key tier: Pro key starts with "CG-", Demo key otherwise
+function getCoinGeckoConfig(): { baseUrl: string; headers: Record<string, string>; hasKey: boolean } {
+  const apiKey = process.env.COINGECKO_API_KEY || '';
+  if (!apiKey) {
+    return { baseUrl: 'https://api.coingecko.com/api/v3', headers: {}, hasKey: false };
+  }
+  if (apiKey.startsWith('CG-')) {
+    // Pro API key
+    return {
+      baseUrl: 'https://pro-api.coingecko.com/api/v3',
+      headers: { 'x-cg-pro-api-key': apiKey },
+      hasKey: true,
+    };
+  }
+  // Demo API key (free tier with key)
+  return {
+    baseUrl: 'https://api.coingecko.com/api/v3',
+    headers: { 'x-cg-demo-api-key': apiKey },
+    hasKey: true,
+  };
+}
+
+const COINGECKO_BASE = getCoinGeckoConfig().baseUrl;
 
 const TOKEN_TO_COINGECKO: Record<string, string> = {
   XPR: 'proton',
@@ -129,6 +151,12 @@ const TOKEN_TO_COINGECKO: Record<string, string> = {
 };
 
 const STABLECOINS = new Set(['XUSDC', 'XMD', 'USDT']);
+
+// CoinGecko fetch with API key headers
+async function cgFetch(path: string): Promise<any> {
+  const cg = getCoinGeckoConfig();
+  return httpGetJson(`${cg.baseUrl}${path}`, cg.headers);
+}
 
 // Simple in-memory rate cache: "SYMBOL:YYYY-MM-DD" → rate
 const rateCache = new Map<string, number>();
@@ -223,6 +251,11 @@ function categorizeTransfer(
     return 'escrow';
   }
 
+  // Burned tokens — disposal at zero value = realized loss
+  if (to === 'eosio.null') {
+    return 'burn';
+  }
+
   return 'transfer';
 }
 
@@ -298,11 +331,17 @@ function getRate(rates: RateMap, symbol: string, date: string): number {
   return rates[key] || rates[`${symbol}:current`] || 0;
 }
 
+// Income categories: these incoming transfers are taxable income
 const INCOME_CATEGORIES = new Set([
-  'staking_reward', 'lending_interest', 'swap_withdrawal', 'nft_sale',
-  'long_unstake', 'loan_unstake',
+  'staking_reward', 'lending_interest', 'nft_sale',
 ]);
 
+// Long staking is special: only the EXCESS over what was staked is income.
+// We track deposits and only count the surplus on unstake.
+// Same for loan staking.
+const LONG_STAKE_INCOME = new Set(['long_unstake', 'loan_unstake']);
+
+// DeFi movements: not taxable events (moving between own wallets/protocols)
 const DEFI_MOVE_CATEGORIES = new Set([
   'lending_deposit', 'lending_withdrawal',
   'swap_deposit', 'swap_withdrawal',
@@ -322,6 +361,9 @@ function calculateGainsFIFO(
   const lots: Record<string, Array<{ amount: number; cost_per_unit: number; date: string }>> = {};
   const disposals: Disposal[] = [];
   const incomeEvents: IncomeEvent[] = [];
+
+  // Track long staking / loan staking deposits per symbol to compute excess on unstake
+  const stakeDeposits: Record<string, number> = {}; // "long:SYMBOL" or "loan:SYMBOL" → total staked
 
   function addLot(asset: string, amount: number, costPerUnit: number, date: string): void {
     if (!lots[asset]) lots[asset] = [];
@@ -388,7 +430,6 @@ function calculateGainsFIFO(
       else totalLosses += Math.abs(gainLoss);
 
       // Acquisition of buy currency
-      const acquisitionCost = trade.buy_amount * buyRate;
       addLot(trade.buy_currency, trade.buy_amount, buyRate, trade.date);
 
     } else {
@@ -409,6 +450,32 @@ function calculateGainsFIFO(
           });
           totalIncome += value;
           addLot(xfer.symbol, xfer.amount, rate, xfer.date);
+
+        } else if (LONG_STAKE_INCOME.has(xfer.category)) {
+          // Long staking / loan staking unstake — only the EXCESS over deposits is income
+          // (e.g. stake 100 XPR, unstake 150 XPR → income of 50 XPR)
+          const stakeKey = xfer.category === 'long_unstake' ? `long:${xfer.symbol}` : `loan:${xfer.symbol}`;
+          const deposited = stakeDeposits[stakeKey] || 0;
+          const excess = Math.max(0, xfer.amount - deposited);
+
+          // Reduce tracked deposits by the principal portion returned
+          stakeDeposits[stakeKey] = Math.max(0, deposited - (xfer.amount - excess));
+
+          if (excess > 0) {
+            const value = excess * rate;
+            incomeEvents.push({
+              date: xfer.date,
+              category: xfer.category === 'long_unstake' ? 'long_staking_reward' : 'loan_staking_reward',
+              asset: xfer.symbol,
+              amount: excess,
+              value_local: value,
+              tx_id: xfer.tx_id,
+            });
+            totalIncome += value;
+          }
+          // Full amount returns as cost basis (principal at original cost, excess at current rate)
+          addLot(xfer.symbol, xfer.amount, rate, xfer.date);
+
         } else if (!DEFI_MOVE_CATEGORIES.has(xfer.category)) {
           // Regular incoming transfer — cost basis acquisition
           addLot(xfer.symbol, xfer.amount, rate, xfer.date);
@@ -416,7 +483,32 @@ function calculateGainsFIFO(
         // DeFi moves (deposit/withdrawal) are not taxable events
       } else {
         // Outgoing transfer
-        if (!DEFI_MOVE_CATEGORIES.has(xfer.category)) {
+
+        // Track long staking / loan staking deposits for excess calculation
+        if (xfer.category === 'long_stake') {
+          const key = `long:${xfer.symbol}`;
+          stakeDeposits[key] = (stakeDeposits[key] || 0) + xfer.amount;
+        } else if (xfer.category === 'loan_stake') {
+          const key = `loan:${xfer.symbol}`;
+          stakeDeposits[key] = (stakeDeposits[key] || 0) + xfer.amount;
+        }
+
+        // Burn = disposal at zero proceeds (realized loss)
+        if (xfer.category === 'burn') {
+          const costBasis = consumeLots(xfer.symbol, xfer.amount);
+          disposals.push({
+            date: xfer.date,
+            asset: xfer.symbol,
+            amount: xfer.amount,
+            proceeds_local: 0,
+            cost_basis_local: costBasis,
+            gain_loss_local: -costBasis,
+            method: 'fifo',
+            tx_id: xfer.tx_id,
+          });
+          totalCostBasis += costBasis;
+          totalLosses += costBasis;
+        } else if (!DEFI_MOVE_CATEGORIES.has(xfer.category)) {
           // Disposal (sending to someone else)
           const proceeds = xfer.amount * rate;
           const costBasis = consumeLots(xfer.symbol, xfer.amount);
@@ -470,6 +562,9 @@ function calculateGainsAverage(
   const holdings: Record<string, { total_amount: number; total_cost: number }> = {};
   const disposals: Disposal[] = [];
   const incomeEvents: IncomeEvent[] = [];
+
+  // Track long staking / loan staking deposits per symbol to compute excess on unstake
+  const stakeDeposits: Record<string, number> = {};
 
   function addHolding(asset: string, amount: number, cost: number): void {
     if (!holdings[asset]) holdings[asset] = { total_amount: 0, total_cost: 0 };
@@ -551,11 +646,55 @@ function calculateGainsAverage(
           });
           totalIncome += value;
           addHolding(xfer.symbol, xfer.amount, value);
+
+        } else if (LONG_STAKE_INCOME.has(xfer.category)) {
+          // Long staking / loan staking unstake — only the EXCESS over deposits is income
+          const stakeKey = xfer.category === 'long_unstake' ? `long:${xfer.symbol}` : `loan:${xfer.symbol}`;
+          const deposited = stakeDeposits[stakeKey] || 0;
+          const excess = Math.max(0, xfer.amount - deposited);
+          stakeDeposits[stakeKey] = Math.max(0, deposited - (xfer.amount - excess));
+
+          if (excess > 0) {
+            const value = excess * rate;
+            incomeEvents.push({
+              date: xfer.date,
+              category: xfer.category === 'long_unstake' ? 'long_staking_reward' : 'loan_staking_reward',
+              asset: xfer.symbol,
+              amount: excess,
+              value_local: value,
+              tx_id: xfer.tx_id,
+            });
+            totalIncome += value;
+          }
+          addHolding(xfer.symbol, xfer.amount, xfer.amount * rate);
+
         } else if (!DEFI_MOVE_CATEGORIES.has(xfer.category)) {
           addHolding(xfer.symbol, xfer.amount, xfer.amount * rate);
         }
       } else {
-        if (!DEFI_MOVE_CATEGORIES.has(xfer.category)) {
+        // Track staking deposits
+        if (xfer.category === 'long_stake') {
+          stakeDeposits[`long:${xfer.symbol}`] = (stakeDeposits[`long:${xfer.symbol}`] || 0) + xfer.amount;
+        } else if (xfer.category === 'loan_stake') {
+          stakeDeposits[`loan:${xfer.symbol}`] = (stakeDeposits[`loan:${xfer.symbol}`] || 0) + xfer.amount;
+        }
+
+        // Burn = disposal at zero proceeds (realized loss)
+        if (xfer.category === 'burn') {
+          const costBasis = consumeAvg(xfer.symbol, xfer.amount);
+          disposals.push({
+            date: xfer.date,
+            asset: xfer.symbol,
+            amount: xfer.amount,
+            proceeds_local: 0,
+            cost_basis_local: costBasis,
+            gain_loss_local: -costBasis,
+            method: 'average',
+            tx_id: xfer.tx_id,
+          });
+          totalCostBasis += costBasis;
+          totalLosses += costBasis;
+        } else if (!DEFI_MOVE_CATEGORIES.has(xfer.category)) {
           const proceeds = xfer.amount * rate;
           const costBasis = consumeAvg(xfer.symbol, xfer.amount);
           const gainLoss = proceeds - costBasis;
@@ -788,18 +927,21 @@ export default function taxSkill(api: SkillApi): void {
         }
 
         // Map CSV columns to trade objects
-        // Expected columns: Type, Buy Amount, Buy Currency, Sell Amount, Sell Currency, Fee, Fee Currency, Date, TxId
-        let trades = rows.map(row => ({
-          type: row['Type'] || row['type'] || '',
-          buy_amount: parseFloat(row['Buy Amount'] || row['buy_amount'] || '0'),
-          buy_currency: row['Buy Currency'] || row['buy_currency'] || '',
-          sell_amount: parseFloat(row['Sell Amount'] || row['sell_amount'] || '0'),
-          sell_currency: row['Sell Currency'] || row['sell_currency'] || '',
-          fee: parseFloat(row['Fee'] || row['fee'] || '0'),
-          fee_currency: row['Fee Currency'] || row['fee_currency'] || '',
-          date: row['Date'] || row['date'] || '',
-          tx_id: row['TxId'] || row['txid'] || row['tx_id'] || '',
-        }));
+        // Expected columns: Type, Buy Amount, Buy Currency, Sell Amount, Sell Currency, Fee, Fee Currency, Date, Tx-ID
+        // Filter to only "Trade" rows — Withdrawal/Income/Deposit are handled by tax_get_transfers
+        let trades = rows
+          .filter(row => (row['Type'] || row['type'] || '').toLowerCase() === 'trade')
+          .map(row => ({
+            type: row['Type'] || row['type'] || '',
+            buy_amount: parseFloat(row['Buy Amount'] || row['buy_amount'] || '0'),
+            buy_currency: row['Buy Currency'] || row['buy_currency'] || '',
+            sell_amount: parseFloat(row['Sell Amount'] || row['sell_amount'] || '0'),
+            sell_currency: row['Sell Currency'] || row['sell_currency'] || '',
+            fee: parseFloat(row['Fee'] || row['fee'] || '0'),
+            fee_currency: row['Fee Currency'] || row['fee_currency'] || '',
+            date: row['Date'] || row['date'] || '',
+            tx_id: row['Tx-ID'] || row['TxId'] || row['txid'] || row['tx_id'] || '',
+          }));
 
         // Client-side date filtering
         if (start_date) {
@@ -839,7 +981,7 @@ export default function taxSkill(api: SkillApi): void {
 
   api.registerTool({
     name: 'tax_get_transfers',
-    description: 'Get on-chain transfer history with automatic categorization. Categories: staking_reward, lending_deposit/withdrawal/interest, swap_deposit/withdrawal, long_stake/unstake, loan_stake/unstake, dex_deposit/withdrawal, nft_sale/purchase, escrow, transfer. Paginated from Hyperion.',
+    description: 'Get on-chain transfer history with automatic categorization. Categories: staking_reward, lending_deposit/withdrawal/interest, swap_deposit/withdrawal, long_stake/unstake, loan_stake/unstake, dex_deposit/withdrawal, nft_sale/purchase, burn, escrow, transfer. Paginated from Hyperion.',
     parameters: {
       type: 'object',
       required: ['account'],
@@ -979,12 +1121,7 @@ export default function taxSkill(api: SkillApi): void {
           if (currency === 'usd') {
             forexRate = 1;
           } else {
-            // CoinGecko doesn't do forex, use a free forex endpoint
-            // Approximate: get BTC price in both USD and target, derive ratio
-            // Or: use a direct forex API
-            // Simple approach: CoinGecko price of USDC in target currency
-            const forexUrl = `${COINGECKO_BASE}/simple/price?ids=usd-coin&vs_currencies=${currency}`;
-            const forexData = await httpGetJson(forexUrl);
+            const forexData = await cgFetch(`/simple/price?ids=usd-coin&vs_currencies=${currency}`);
             forexRate = forexData['usd-coin']?.[currency] || 1;
           }
 
@@ -1021,8 +1158,7 @@ export default function taxSkill(api: SkillApi): void {
             }
 
             try {
-              const histUrl = `${COINGECKO_BASE}/coins/${cgId}/history?date=${ddMmYyyy}`;
-              const histData = await httpGetJson(histUrl);
+              const histData = await cgFetch(`/coins/${cgId}/history?date=${ddMmYyyy}`);
               const price = histData?.market_data?.current_price?.[currency]
                 || histData?.market_data?.current_price?.usd || 0;
               rates[cacheKey] = price;
@@ -1031,7 +1167,7 @@ export default function taxSkill(api: SkillApi): void {
               errors.push(`CoinGecko history error for ${upper}: ${err.message}`);
             }
 
-            await sleep(200); // Rate limit
+            await sleep(getCoinGeckoConfig().hasKey ? 100 : 200); // Rate limit (faster with key)
           }
         } else {
           // Current: batch request
@@ -1041,8 +1177,7 @@ export default function taxSkill(api: SkillApi): void {
 
           if (cgIds.length > 0) {
             try {
-              const batchUrl = `${COINGECKO_BASE}/simple/price?ids=${cgIds.join(',')}&vs_currencies=${currency},usd`;
-              const batchData = await httpGetJson(batchUrl);
+              const batchData = await cgFetch(`/simple/price?ids=${cgIds.join(',')}&vs_currencies=${currency},usd`);
 
               for (const sym of cryptoSymbols) {
                 const upper = sym.toUpperCase();
@@ -1223,17 +1358,19 @@ export default function taxSkill(api: SkillApi): void {
             const csvText = await httpGetText(url);
             const rows = parseCSV(csvText);
 
-            tradeData = rows.map(row => ({
-              type: row['Type'] || row['type'] || '',
-              buy_amount: parseFloat(row['Buy Amount'] || row['buy_amount'] || '0'),
-              buy_currency: row['Buy Currency'] || row['buy_currency'] || '',
-              sell_amount: parseFloat(row['Sell Amount'] || row['sell_amount'] || '0'),
-              sell_currency: row['Sell Currency'] || row['sell_currency'] || '',
-              fee: parseFloat(row['Fee'] || row['fee'] || '0'),
-              fee_currency: row['Fee Currency'] || row['fee_currency'] || '',
-              date: row['Date'] || row['date'] || '',
-              tx_id: row['TxId'] || row['txid'] || row['tx_id'] || '',
-            }));
+            tradeData = rows
+              .filter(row => (row['Type'] || row['type'] || '').toLowerCase() === 'trade')
+              .map(row => ({
+                type: row['Type'] || row['type'] || '',
+                buy_amount: parseFloat(row['Buy Amount'] || row['buy_amount'] || '0'),
+                buy_currency: row['Buy Currency'] || row['buy_currency'] || '',
+                sell_amount: parseFloat(row['Sell Amount'] || row['sell_amount'] || '0'),
+                sell_currency: row['Sell Currency'] || row['sell_currency'] || '',
+                fee: parseFloat(row['Fee'] || row['fee'] || '0'),
+                fee_currency: row['Fee Currency'] || row['fee_currency'] || '',
+                date: row['Date'] || row['date'] || '',
+                tx_id: row['Tx-ID'] || row['TxId'] || row['txid'] || row['tx_id'] || '',
+              }));
 
             // Filter to tax year
             const startMs = new Date(start).getTime();
@@ -1302,76 +1439,134 @@ export default function taxSkill(api: SkillApi): void {
           }
         }
 
-        // Step 5: Collect unique symbols and dates for rates
-        steps.push('Fetching conversion rates...');
-        const symbolDatePairs = new Set<string>();
+        // Step 5: Build conversion rates
+        // Strategy: DEX trades give us direct price ratios (primary source),
+        // stablecoins use forex rate, CoinGecko as fallback for recent dates only
+        steps.push('Building conversion rates...');
+        const rates: Record<string, number> = {};
         const allSymbols = new Set<string>();
+        const uniqueDates = new Set<string>();
 
         for (const t of (tradeData || [])) {
-          if (t.buy_currency) { allSymbols.add(t.buy_currency); symbolDatePairs.add(`${t.buy_currency}:${dateKey(t.date)}`); }
-          if (t.sell_currency) { allSymbols.add(t.sell_currency); symbolDatePairs.add(`${t.sell_currency}:${dateKey(t.date)}`); }
+          if (t.buy_currency) { allSymbols.add(t.buy_currency); uniqueDates.add(dateKey(t.date)); }
+          if (t.sell_currency) { allSymbols.add(t.sell_currency); uniqueDates.add(dateKey(t.date)); }
         }
         for (const t of (transferData || []) as CategorizedTransfer[]) {
-          if (t.symbol) { allSymbols.add(t.symbol); symbolDatePairs.add(`${t.symbol}:${dateKey(t.timestamp)}`); }
+          if (t.symbol) { allSymbols.add(t.symbol); uniqueDates.add(dateKey(t.timestamp)); }
         }
 
-        // Fetch rates — group by unique dates
-        const rates: Record<string, number> = {};
-        const uniqueDates = new Set<string>();
-        for (const pair of symbolDatePairs) {
-          uniqueDates.add(pair.split(':')[1]);
-        }
-
-        // For each unique date, fetch all symbols
-        const symbolArray = [...allSymbols];
-        const stableSymbols = symbolArray.filter(s => STABLECOINS.has(s.toUpperCase()));
-        const cryptoSymbols = symbolArray.filter(s => !STABLECOINS.has(s.toUpperCase()));
-
-        // Get forex rate for stablecoins (one call)
+        // Get USD→local forex rate (stablecoins and XMD are pegged to USD)
         let forexRate = 1;
-        if (stableSymbols.length > 0 && currency !== 'usd') {
+        if (currency !== 'usd') {
           try {
-            const forexUrl = `${COINGECKO_BASE}/simple/price?ids=usd-coin&vs_currencies=${currency}`;
-            const forexData = await httpGetJson(forexUrl);
+            const forexData = await cgFetch(`/simple/price?ids=usd-coin&vs_currencies=${currency}`);
             forexRate = forexData['usd-coin']?.[currency] || 1;
           } catch { /* use 1 */ }
         }
 
-        // Set stablecoin rates for all dates
-        for (const sym of stableSymbols) {
-          for (const d of uniqueDates) {
-            rates[`${sym.toUpperCase()}:${d}`] = forexRate;
+        // Set stablecoin/XMD rates for all dates (they're pegged to USD)
+        for (const sym of allSymbols) {
+          const upper = sym.toUpperCase();
+          if (STABLECOINS.has(upper) || upper === 'XMD') {
+            for (const d of uniqueDates) {
+              rates[`${upper}:${d}`] = forexRate;
+            }
+            rates[`${upper}:current`] = forexRate;
           }
-          rates[`${sym.toUpperCase()}:current`] = forexRate;
         }
 
-        // Fetch historical crypto rates per date
-        for (const d of uniqueDates) {
-          const dateObj = new Date(d + 'T00:00:00Z');
-          if (isNaN(dateObj.getTime())) continue;
-          const ddMmYyyy = `${String(dateObj.getUTCDate()).padStart(2, '0')}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${dateObj.getUTCFullYear()}`;
+        // Derive token rates from DEX trades (primary source — no API limits)
+        // Most trades are TOKEN→XMD, so rate = buy_xmd / sell_token * forexRate
+        const dexRatesByDate: Record<string, number> = {}; // "SYMBOL:date" → local rate
+        for (const t of (tradeData || [])) {
+          if (!t.date || !t.sell_currency || !t.buy_currency) continue;
+          const d = dateKey(t.date);
 
-          for (const sym of cryptoSymbols) {
-            const upper = sym.toUpperCase();
-            const cacheKey = `${upper}:${d}`;
-            if (rates[cacheKey] || rateCache.has(cacheKey)) {
-              if (rateCache.has(cacheKey) && !rates[cacheKey]) rates[cacheKey] = rateCache.get(cacheKey)!;
-              continue;
+          // TOKEN → XMD: sell token, buy XMD → token price = (buy_xmd / sell_token) * forex
+          if ((t.buy_currency === 'XMD' || STABLECOINS.has(t.buy_currency.toUpperCase())) && t.sell_amount > 0 && t.buy_amount > 0) {
+            const tokenRate = (t.buy_amount / t.sell_amount) * forexRate;
+            const key = `${t.sell_currency.toUpperCase()}:${d}`;
+            // Use last trade of the day (overwrites earlier)
+            dexRatesByDate[key] = tokenRate;
+          }
+          // XMD → TOKEN: sell XMD, buy token → token price = (sell_xmd / buy_token) * forex
+          if ((t.sell_currency === 'XMD' || STABLECOINS.has(t.sell_currency.toUpperCase())) && t.buy_amount > 0 && t.sell_amount > 0) {
+            const tokenRate = (t.sell_amount / t.buy_amount) * forexRate;
+            const key = `${t.buy_currency.toUpperCase()}:${d}`;
+            dexRatesByDate[key] = tokenRate;
+          }
+        }
+
+        // Apply DEX-derived rates
+        for (const [key, rate] of Object.entries(dexRatesByDate)) {
+          if (!rates[key]) {
+            rates[key] = rate;
+            rateCache.set(key, rate);
+          }
+        }
+
+        // Fill gaps: for dates without a DEX trade, use nearest available DEX rate
+        const symbolsNeedingRates = [...allSymbols].filter(s => {
+          const upper = s.toUpperCase();
+          return !STABLECOINS.has(upper) && upper !== 'XMD';
+        });
+        const sortedDates = [...uniqueDates].sort();
+
+        for (const sym of symbolsNeedingRates) {
+          const upper = sym.toUpperCase();
+          let lastKnownRate = 0;
+
+          for (const d of sortedDates) {
+            const key = `${upper}:${d}`;
+            if (rates[key] && rates[key] > 0) {
+              lastKnownRate = rates[key];
+            } else if (lastKnownRate > 0) {
+              // Forward-fill from last known rate
+              rates[key] = lastKnownRate;
             }
+          }
+        }
+
+        // Fallback: CoinGecko for dates where we still have no rate
+        // With API key: no date limit, higher rate limits, more fetches allowed
+        // Without key: limited to 365 days, max 30 fetches
+        const cgConfig = getCoinGeckoConfig();
+        const now = Date.now();
+        const oneYearMs = 365 * 24 * 60 * 60 * 1000;
+        let cgFetches = 0;
+        const MAX_CG_FETCHES = cgConfig.hasKey ? 200 : 30;
+        const CG_DELAY = cgConfig.hasKey ? 100 : 200;
+
+        for (const d of sortedDates) {
+          const dateMs = new Date(d + 'T00:00:00Z').getTime();
+          if (isNaN(dateMs)) continue;
+          // Without API key, skip dates beyond 365 days (CoinGecko free limit)
+          if (!cgConfig.hasKey && (now - dateMs) > oneYearMs) continue;
+
+          for (const sym of symbolsNeedingRates) {
+            const upper = sym.toUpperCase();
+            const key = `${upper}:${d}`;
+            if (rates[key] && rates[key] > 0) continue;
+            if (cgFetches >= MAX_CG_FETCHES) continue;
 
             const cgId = TOKEN_TO_COINGECKO[upper];
             if (!cgId) continue;
 
+            const dateObj = new Date(d + 'T00:00:00Z');
+            const ddMmYyyy = `${String(dateObj.getUTCDate()).padStart(2, '0')}-${String(dateObj.getUTCMonth() + 1).padStart(2, '0')}-${dateObj.getUTCFullYear()}`;
+
             try {
-              const histUrl = `${COINGECKO_BASE}/coins/${cgId}/history?date=${ddMmYyyy}`;
-              const histData = await httpGetJson(histUrl);
+              const histData = await cgFetch(`/coins/${cgId}/history?date=${ddMmYyyy}`);
               const price = histData?.market_data?.current_price?.[currency]
                 || histData?.market_data?.current_price?.usd || 0;
-              rates[cacheKey] = price;
-              rateCache.set(cacheKey, price);
+              if (price > 0) {
+                rates[key] = price;
+                rateCache.set(key, price);
+              }
+              cgFetches++;
             } catch { /* skip */ }
 
-            await sleep(200);
+            await sleep(CG_DELAY);
           }
         }
 

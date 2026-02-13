@@ -30,9 +30,9 @@ Or use `tax_generate_report` directly for a one-shot report that orchestrates al
 ### Data Sources (Mainnet Only)
 
 - **Saltant API** — historical balance snapshots (liquid, staked, lending, yield farm)
-- **Metal X API** — DEX trade history in CSV format
+- **Metal X API** — DEX trade history in CSV format (only filled trades)
 - **Hyperion API** — raw on-chain transfer/action history
-- **CoinGecko API** — historical and current crypto prices
+- **CoinGecko API** — historical and current crypto prices (set `COINGECKO_API_KEY` in .env for full historical access)
 
 ### Transfer Categories
 
@@ -54,12 +54,27 @@ Transfers are auto-categorized by sender/receiver:
 | `dex_withdrawal` | from `dex` or `metalx` |
 | `nft_sale` | from `atomicmarket` |
 | `nft_purchase` | to `atomicmarket` |
+| `burn` | to `eosio.null` (token burn = realized loss) |
 | `escrow` | to/from `agentescrow` |
 | `transfer` | everything else |
+
+### Staking Income Rules
+
+- **Block producer rewards** (`staking_reward`): Full amount is income at time of receipt
+- **Long staking** (XPR via `longstaking`): Only the **excess** over the staked amount is income. E.g. stake 100 XPR, unstake 150 XPR → income of 50 XPR
+- **LOAN staking** (via `lock.token`/`yield.farms`): Same excess-only rule as long staking
+- **Lending interest**: Full amount from `lending.loan` with interest memo is income
 
 ### Stablecoin Handling
 
 XUSDC and XMD are pegged to USD — their local currency value uses forex rates (USD/NZD) directly, without CoinGecko. This is more accurate than market-based pricing for stablecoins.
+
+### Rate Sources (Priority Order)
+
+1. **DEX trades** — derives token prices from TOKEN/XMD trade ratios (most accurate, no API limits)
+2. **Forward-fill** — gaps between DEX trade dates use nearest prior known rate
+3. **CoinGecko** — fallback for dates with no DEX data. Without API key: limited to 365 days. With `COINGECKO_API_KEY`: unlimited history
+4. **Forex** — stablecoins use USD→NZD conversion rate
 
 ### Delivering the Report
 
@@ -70,10 +85,18 @@ XUSDC and XMD are pegged to USD — their local currency value uses forex rates 
 
 The report also includes `csv_exports.disposals` and `csv_exports.income` — raw CSV strings the user can save for record-keeping. You can deliver these as separate `text/csv` deliverables if requested.
 
+### Known Limitations
+
+- Only **filled DEX trades** are included (not pending orders)
+- NFT: only buy/sell supported (not auctions)
+- Liquidations on Metal Lending are not supported
+- Escrow payments are tracked but not fully categorized
+- Historical pricing accuracy depends on DEX trade activity and CoinGecko data availability
+
 ### Important Notes
 
 - Always include the **disclaimer** from the report — this is not tax advice
 - Suggest users **save CSV exports** for the IRD 7-year record requirement
 - The `region` parameter defaults to `"NZ"` on all tools — pass a different region code when other regions are added
-- CoinGecko rate-limits apply — historical rates have a 200ms delay between requests
-- For tokens not on CoinGecko, the tool attempts DEX-based pricing from Metal X trade ratios
+- Set `COINGECKO_API_KEY` in .env for best historical pricing (free Demo key removes 365-day limit)
+- For tokens not on CoinGecko, the tool derives prices from Metal X DEX trade ratios
