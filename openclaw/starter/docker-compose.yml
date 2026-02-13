@@ -51,6 +51,7 @@ services:
       - AGENT_PUBLIC_URL=${AGENT_PUBLIC_URL:-}
       - COST_MARGIN=${COST_MARGIN:-2.0}
       - COINGECKO_API_KEY=${COINGECKO_API_KEY:-}
+      - RATE_CACHE_PATH=/data/rate-cache.json
     volumes:
       - agent-data:/data
     ports:

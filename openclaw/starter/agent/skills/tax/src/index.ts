@@ -158,8 +158,51 @@ async function cgFetch(path: string): Promise<any> {
   return httpGetJson(`${cg.baseUrl}${path}`, cg.headers);
 }
 
-// Simple in-memory rate cache: "SYMBOL:YYYY-MM-DD" → rate
+// Persistent rate cache: "SYMBOL:YYYY-MM-DD" → rate
+// Historical prices are immutable — once fetched they never change.
+// Stored as JSON file so rates survive container restarts.
+import * as fs from 'fs';
+import * as path from 'path';
+
+const RATE_CACHE_FILE = process.env.RATE_CACHE_PATH || path.join(process.cwd(), 'data', 'rate-cache.json');
 const rateCache = new Map<string, number>();
+let rateCacheDirty = false;
+
+function loadRateCache(): void {
+  try {
+    if (fs.existsSync(RATE_CACHE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(RATE_CACHE_FILE, 'utf-8'));
+      for (const [k, v] of Object.entries(data)) {
+        if (typeof v === 'number' && v > 0) rateCache.set(k, v);
+      }
+      console.log(`[tax] Loaded ${rateCache.size} cached rates from ${RATE_CACHE_FILE}`);
+    }
+  } catch { /* start fresh */ }
+}
+
+function saveRateCache(): void {
+  if (!rateCacheDirty) return;
+  try {
+    const dir = path.dirname(RATE_CACHE_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const obj: Record<string, number> = {};
+    for (const [k, v] of rateCache) obj[k] = v;
+    fs.writeFileSync(RATE_CACHE_FILE, JSON.stringify(obj));
+    rateCacheDirty = false;
+  } catch (err) {
+    console.error(`[tax] Failed to save rate cache:`, err);
+  }
+}
+
+function cacheRate(key: string, rate: number): void {
+  // Only cache historical date rates (not "current")
+  if (key.includes(':current') || rate <= 0) return;
+  rateCache.set(key, rate);
+  rateCacheDirty = true;
+}
+
+// Load on startup
+loadRateCache();
 
 // ── CSV Parser ───────────────────────────────────
 
@@ -205,8 +248,8 @@ function categorizeTransfer(
   const isIncoming = to === account;
   const counterparty = isIncoming ? from : to;
 
-  // Staking rewards
-  if (isIncoming && (from === 'eosio' || from === 'eosio.vpay' || from === 'eosio.bpay')) {
+  // Staking rewards (block production + community fund)
+  if (isIncoming && (from === 'eosio' || from === 'eosio.vpay' || from === 'eosio.bpay' || from === 'cfund.proton')) {
     return 'staking_reward';
   }
 
@@ -1165,7 +1208,7 @@ export default function taxSkill(api: SkillApi): void {
                 price = usdPrice * forexRate;
               }
               rates[cacheKey] = price;
-              rateCache.set(cacheKey, price);
+              cacheRate(cacheKey, price);
             } catch (err: any) {
               errors.push(`CoinGecko history error for ${upper}: ${err.message}`);
             }
@@ -1207,6 +1250,8 @@ export default function taxSkill(api: SkillApi): void {
           }
         }
       }
+
+      saveRateCache();
 
       return {
         rates,
@@ -1462,6 +1507,21 @@ export default function taxSkill(api: SkillApi): void {
           if (t.symbol) { allSymbols.add(t.symbol); uniqueDates.add(dateKey(t.timestamp)); }
         }
 
+        // Pre-populate rates from persistent cache (historical prices are immutable)
+        let cacheHits = 0;
+        for (const sym of allSymbols) {
+          const upper = sym.toUpperCase();
+          for (const d of uniqueDates) {
+            const key = `${upper}:${d}`;
+            const cached = rateCache.get(key);
+            if (cached && cached > 0) {
+              rates[key] = cached;
+              cacheHits++;
+            }
+          }
+        }
+        if (cacheHits > 0) steps.push(`Loaded ${cacheHits} rates from cache`);
+
         // Get USD→local forex rate (stablecoins and XMD are pegged to USD)
         let forexRate = 1;
         if (currency !== 'usd') {
@@ -1508,7 +1568,7 @@ export default function taxSkill(api: SkillApi): void {
         for (const [key, rate] of Object.entries(dexRatesByDate)) {
           if (!rates[key]) {
             rates[key] = rate;
-            rateCache.set(key, rate);
+            cacheRate(key, rate);
           }
         }
 
@@ -1572,7 +1632,7 @@ export default function taxSkill(api: SkillApi): void {
               }
               if (price > 0) {
                 rates[key] = price;
-                rateCache.set(key, price);
+                cacheRate(key, price);
               }
               cgFetches++;
             } catch { /* skip */ }
@@ -1638,6 +1698,9 @@ export default function taxSkill(api: SkillApi): void {
             } catch { /* skip */ }
           }
         }
+
+        // Persist rate cache to disk
+        saveRateCache();
 
         // Step 6: Calculate gains
         steps.push('Calculating gains...');
