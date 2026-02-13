@@ -1118,6 +1118,23 @@ export interface NftCollection {
   created_at_time: string;
 }
 
+/** Parse comma-separated deliverable URLs. Returns primary URL first (prefers PDF), rest as additional. */
+export function parseDeliverableUrls(evidenceUri: string): { primary: string; additional: string[] } {
+  // Don't split JSON objects, data URIs, or single URLs
+  if (evidenceUri.startsWith('{') || evidenceUri.startsWith('data:') || !evidenceUri.includes(',http')) {
+    return { primary: evidenceUri, additional: [] };
+  }
+  const urls = evidenceUri.split(',').map(u => u.trim()).filter(u => u.length > 0);
+  if (urls.length <= 1) return { primary: evidenceUri, additional: [] };
+  // Prefer PDF as primary — find first URL with .pdf or pdf in path
+  const pdfIdx = urls.findIndex(u => /\.pdf($|\?)/i.test(u));
+  if (pdfIdx > 0) {
+    const [pdf] = urls.splice(pdfIdx, 1);
+    return { primary: pdf, additional: urls };
+  }
+  return { primary: urls[0], additional: urls.slice(1) };
+}
+
 export function parseNftDeliverable(evidenceUri: string): NftDeliverable | null {
   if (!evidenceUri || !evidenceUri.startsWith('{')) return null;
   try {

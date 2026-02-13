@@ -24,6 +24,7 @@ import {
   getDisputesForJob,
   getEscrowConfig,
   DISPUTE_RESOLUTION_LABELS,
+  parseDeliverableUrls,
   parseNftDeliverable,
   getNftAssets,
   type Job,
@@ -94,6 +95,7 @@ export default function Jobs() {
   const [deliverableMediaUrl, setDeliverableMediaUrl] = useState<string | null>(null);
   const [deliverableLoading, setDeliverableLoading] = useState(false);
   const [evidenceUrl, setEvidenceUrl] = useState<string | null>(null);
+  const [additionalUrls, setAdditionalUrls] = useState<string[]>([]);
   const [nftAssets, setNftAssets] = useState<NftAsset[]>([]);
 
   // Rating modal
@@ -288,15 +290,16 @@ export default function Jobs() {
     setDeliverableContent(null);
     setDeliverableType(null);
     setDeliverableMediaUrl(null);
+    setAdditionalUrls([]);
     setNftAssets([]);
     try {
-      const evidenceUri = await getJobEvidence(jobId);
-      if (!evidenceUri) {
+      const rawEvidenceUri = await getJobEvidence(jobId);
+      if (!rawEvidenceUri) {
         setDeliverableContent('No evidence submitted');
         return;
       }
       // NFT deliverable — check before setting evidenceUrl (raw JSON isn't a valid link)
-      const nftData = parseNftDeliverable(evidenceUri);
+      const nftData = parseNftDeliverable(rawEvidenceUri);
       if (nftData) {
         setDeliverableType('nft');
         const assets = await getNftAssets(nftData.asset_ids);
@@ -304,6 +307,9 @@ export default function Jobs() {
         return;
       }
 
+      // Parse comma-separated URLs (primary + additional)
+      const { primary: evidenceUri, additional } = parseDeliverableUrls(rawEvidenceUri);
+      setAdditionalUrls(additional);
       setEvidenceUrl(evidenceUri);
 
       // Data URI
@@ -1356,6 +1362,25 @@ export default function Jobs() {
                         </svg>
                         View raw on IPFS
                       </a>
+                    )}
+
+                    {/* Additional deliverable files */}
+                    {additionalUrls.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <p className="text-xs text-zinc-500">Additional files:</p>
+                        {additionalUrls.map((url, i) => {
+                          const filename = url.split('/').pop()?.split('?')[0] || `File ${i + 2}`;
+                          return (
+                            <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                              className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1">
+                              <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              {filename}
+                            </a>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
                 )}

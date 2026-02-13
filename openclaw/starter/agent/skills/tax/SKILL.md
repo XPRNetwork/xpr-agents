@@ -81,9 +81,10 @@ XUSDC and XMD are pegged to USD — their local currency value uses forex rates 
 `tax_generate_report` returns a `report_markdown` field — a pre-formatted Markdown document with balance sheets, trading summary, income breakdown, tax brackets, and disclaimer. To deliver it:
 
 1. Pass `report_markdown` to `store_deliverable` with `content_type: "application/pdf"` for a downloadable PDF, or `"text/markdown"` for rich rendered text
-2. Use the returned URL as `evidence_uri` in `xpr_deliver_job`
+2. If the user also wants CSVs, upload `csv_exports.disposals` and `csv_exports.income` as separate `text/csv` deliverables via `store_deliverable`
+3. Use `xpr_deliver_job` with comma-separated URLs — put the PDF first (primary), then CSVs. Example: `"https://ipfs.io/ipfs/QmPDF...,https://ipfs.io/ipfs/QmDisposals...,https://ipfs.io/ipfs/QmIncome..."`
 
-The report also includes `csv_exports.disposals` and `csv_exports.income` — raw CSV strings the user can save for record-keeping. You can deliver these as separate `text/csv` deliverables if requested.
+The frontend will display the primary file (PDF) prominently and list additional files as download links.
 
 ### Known Limitations
 

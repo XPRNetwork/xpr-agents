@@ -322,13 +322,13 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
   api.registerTool({
     name: 'xpr_deliver_job',
-    description: 'Submit job deliverables for client review. Moves job to DELIVERED state. Provide job_id and evidence_uri (IPFS link to the deliverable). Do NOT use this for NFT delivery — use xpr_deliver_job_nft instead.',
+    description: 'Submit job deliverables for client review. Moves job to DELIVERED state. Provide job_id and evidence_uri (IPFS link to the deliverable). For multiple deliverables (e.g. PDF report + CSV data), provide comma-separated URLs with the primary file first (prefer PDF). Do NOT use this for NFT delivery — use xpr_deliver_job_nft instead.',
     parameters: {
       type: 'object',
       required: ['job_id', 'evidence_uri'],
       properties: {
         job_id: { type: 'number', description: 'Job ID' },
-        evidence_uri: { type: 'string', description: 'URI to deliverables/evidence (IPFS/Arweave)' },
+        evidence_uri: { type: 'string', description: 'URI(s) to deliverables/evidence. For multiple files, use comma-separated URLs with the primary file first (e.g. "https://ipfs.io/ipfs/QmPDF...,https://ipfs.io/ipfs/QmCSV...")' },
       },
     },
     handler: async ({ job_id, evidence_uri }: {
@@ -338,7 +338,11 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
       validatePositiveInt(job_id, 'job_id');
       validateRequired(evidence_uri, 'evidence_uri');
-      validateUrl(evidence_uri, 'evidence_uri');
+      // Validate each URL when comma-separated
+      const urls = evidence_uri.split(',').map(u => u.trim()).filter(u => u.length > 0);
+      for (const url of urls) {
+        validateUrl(url, 'evidence_uri');
+      }
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.deliverJob(job_id, evidence_uri);
     },
