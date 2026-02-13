@@ -1,0 +1,231 @@
+"use strict";
+/**
+ * Validation tools (9 tools)
+ * Reads: xpr_get_validator, xpr_list_validators, xpr_get_validation,
+ *        xpr_list_agent_validations, xpr_get_challenge
+ * Writes: xpr_register_validator, xpr_submit_validation,
+ *         xpr_challenge_validation, xpr_stake_validator
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.registerValidationTools = registerValidationTools;
+const sdk_1 = require("@xpr-agents/sdk");
+const validate_1 = require("../util/validate");
+const confirm_1 = require("../util/confirm");
+function registerValidationTools(api, config) {
+    const contracts = config.contracts;
+    // ---- READ TOOLS ----
+    api.registerTool({
+        name: 'xpr_get_validator',
+        description: 'Get details for a validator including stake, accuracy score, and specializations.',
+        parameters: {
+            type: 'object',
+            required: ['account'],
+            properties: {
+                account: { type: 'string', description: 'Validator account name' },
+            },
+        },
+        handler: async ({ account }) => {
+            (0, validate_1.validateAccountName)(account);
+            const registry = new sdk_1.ValidationRegistry(config.rpc, undefined, contracts.agentvalid);
+            const validator = await registry.getValidator(account);
+            if (!validator) {
+                return { error: `Validator '${account}' not found` };
+            }
+            return validator;
+        },
+    });
+    api.registerTool({
+        name: 'xpr_list_validators',
+        description: 'List registered validators with optional filtering by active status, minimum stake, and accuracy.',
+        parameters: {
+            type: 'object',
+            properties: {
+                limit: { type: 'number', description: 'Max results (default 20, max 100)' },
+                active_only: { type: 'boolean', description: 'Only active validators (default true)' },
+                min_stake: { type: 'number', description: 'Minimum stake in XPR smallest units' },
+                min_accuracy: { type: 'number', description: 'Minimum accuracy score (0-10000)' },
+            },
+        },
+        handler: async ({ limit = 20, active_only = true, min_stake, min_accuracy }) => {
+            const registry = new sdk_1.ValidationRegistry(config.rpc, undefined, contracts.agentvalid);
+            const validators = await registry.listValidators({
+                limit: Math.min(limit, 100),
+                active_only,
+                min_stake,
+                min_accuracy,
+            });
+            return { validators, count: validators.length };
+        },
+    });
+    api.registerTool({
+        name: 'xpr_get_validation',
+        description: 'Get a specific validation record by ID.',
+        parameters: {
+            type: 'object',
+            required: ['id'],
+            properties: {
+                id: { type: 'number', description: 'Validation ID' },
+            },
+        },
+        handler: async ({ id }) => {
+            (0, validate_1.validatePositiveInt)(id, 'id');
+            const registry = new sdk_1.ValidationRegistry(config.rpc, undefined, contracts.agentvalid);
+            const validation = await registry.getValidation(id);
+            if (!validation) {
+                return { error: `Validation #${id} not found` };
+            }
+            return validation;
+        },
+    });
+    api.registerTool({
+        name: 'xpr_list_agent_validations',
+        description: 'List all validations for a specific agent.',
+        parameters: {
+            type: 'object',
+            required: ['agent'],
+            properties: {
+                agent: { type: 'string', description: 'Agent account name' },
+                limit: { type: 'number', description: 'Max results (default 20, max 100)' },
+            },
+        },
+        handler: async ({ agent, limit = 20 }) => {
+            (0, validate_1.validateAccountName)(agent);
+            const registry = new sdk_1.ValidationRegistry(config.rpc, undefined, contracts.agentvalid);
+            const validations = await registry.listValidationsForAgent(agent, Math.min(limit, 100));
+            return { validations, count: validations.length };
+        },
+    });
+    api.registerTool({
+        name: 'xpr_get_challenge',
+        description: 'Get details of a validation challenge by ID, including status, stake, and resolution.',
+        parameters: {
+            type: 'object',
+            required: ['id'],
+            properties: {
+                id: { type: 'number', description: 'Challenge ID' },
+            },
+        },
+        handler: async ({ id }) => {
+            (0, validate_1.validatePositiveInt)(id, 'id');
+            const registry = new sdk_1.ValidationRegistry(config.rpc, undefined, contracts.agentvalid);
+            const challenge = await registry.getChallenge(id);
+            if (!challenge) {
+                return { error: `Challenge #${id} not found` };
+            }
+            return challenge;
+        },
+    });
+    // ---- WRITE TOOLS ----
+    api.registerTool({
+        name: 'xpr_register_validator',
+        description: 'Register as a validator. Requires staking separately via xpr_stake_validator.',
+        parameters: {
+            type: 'object',
+            required: ['method', 'specializations'],
+            properties: {
+                method: { type: 'string', description: 'Validation method description' },
+                specializations: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'List of specialization areas (e.g., ["code-review", "data-analysis"])',
+                },
+            },
+        },
+        handler: async ({ method, specializations }) => {
+            if (!config.session)
+                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+            (0, validate_1.validateRequired)(method, 'method');
+            const registry = new sdk_1.ValidationRegistry(config.rpc, config.session, contracts.agentvalid);
+            return registry.registerValidator(method, specializations);
+        },
+    });
+    api.registerTool({
+        name: 'xpr_submit_validation',
+        description: 'Submit a validation result for an agent\'s job output.',
+        parameters: {
+            type: 'object',
+            required: ['agent', 'job_hash', 'result', 'confidence'],
+            properties: {
+                agent: { type: 'string', description: 'Agent account being validated' },
+                job_hash: { type: 'string', description: 'Hash of the job being validated' },
+                result: { type: 'string', enum: ['fail', 'pass', 'partial'], description: 'Validation result' },
+                confidence: { type: 'number', description: 'Confidence level 0-100' },
+                evidence_uri: { type: 'string', description: 'URI to validation evidence' },
+                fee_amount: { type: 'number', description: 'Validation fee in XPR' },
+            },
+        },
+        handler: async (params) => {
+            if (!config.session)
+                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+            (0, validate_1.validateAccountName)(params.agent, 'agent');
+            (0, validate_1.validateRequired)(params.job_hash, 'job_hash');
+            (0, validate_1.validateValidationResult)(params.result);
+            (0, validate_1.validateConfidence)(params.confidence);
+            if (params.evidence_uri)
+                (0, validate_1.validateUrl)(params.evidence_uri, 'evidence_uri');
+            if (params.fee_amount) {
+                (0, validate_1.validateAmount)((0, validate_1.xprToSmallestUnits)(params.fee_amount), config.maxTransferAmount);
+            }
+            const registry = new sdk_1.ValidationRegistry(config.rpc, config.session, contracts.agentvalid);
+            const data = {
+                agent: params.agent,
+                job_hash: params.job_hash,
+                result: params.result,
+                confidence: params.confidence,
+                evidence_uri: params.evidence_uri,
+            };
+            if (params.fee_amount) {
+                return registry.validateWithFee(data, `${params.fee_amount.toFixed(4)} XPR`);
+            }
+            return registry.validate(data);
+        },
+    });
+    api.registerTool({
+        name: 'xpr_challenge_validation',
+        description: 'Challenge a validation result. Must be funded separately via token transfer with memo "challenge:CHALLENGE_ID".',
+        parameters: {
+            type: 'object',
+            required: ['validation_id', 'reason'],
+            properties: {
+                validation_id: { type: 'number', description: 'ID of the validation to challenge' },
+                reason: { type: 'string', description: 'Reason for the challenge' },
+                evidence_uri: { type: 'string', description: 'URI to supporting evidence' },
+            },
+        },
+        handler: async ({ validation_id, reason, evidence_uri }) => {
+            if (!config.session)
+                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+            (0, validate_1.validatePositiveInt)(validation_id, 'validation_id');
+            (0, validate_1.validateRequired)(reason, 'reason');
+            if (evidence_uri)
+                (0, validate_1.validateUrl)(evidence_uri, 'evidence_uri');
+            const registry = new sdk_1.ValidationRegistry(config.rpc, config.session, contracts.agentvalid);
+            return registry.challenge(validation_id, reason, evidence_uri);
+        },
+    });
+    api.registerTool({
+        name: 'xpr_stake_validator',
+        description: 'Stake XPR as a validator. Staked tokens are slashable if validations are successfully challenged.',
+        parameters: {
+            type: 'object',
+            required: ['amount'],
+            properties: {
+                amount: { type: 'number', description: 'Amount to stake in XPR (e.g., 1000.0)' },
+                confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+            },
+        },
+        handler: async ({ amount, confirmed }) => {
+            if (!config.session)
+                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+            if (amount <= 0)
+                throw new Error('amount must be positive');
+            (0, validate_1.validateAmount)((0, validate_1.xprToSmallestUnits)(amount), config.maxTransferAmount);
+            const confirmation = (0, confirm_1.needsConfirmation)(config.confirmHighRisk, confirmed, 'Stake Validator', { amount: `${amount} XPR`, note: 'Staked tokens are slashable' }, `Stake ${amount} XPR as validator collateral (slashable if challenged successfully)`);
+            if (confirmation)
+                return confirmation;
+            const registry = new sdk_1.ValidationRegistry(config.rpc, config.session, contracts.agentvalid);
+            return registry.stake(`${amount.toFixed(4)} XPR`);
+        },
+    });
+}
+//# sourceMappingURL=validation.js.map
