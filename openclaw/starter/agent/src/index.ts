@@ -100,7 +100,15 @@ const taxSkill = loadBuiltinSkill(taxSkillDir, tools);
 const lendingSkillDir = path.resolve(__dirname, '../skills/lending');
 const lendingSkill = loadBuiltinSkill(lendingSkillDir, tools);
 
-// 9. External skills from AGENT_SKILLS env var
+// 9. Built-in governance skill (always loaded — proposals, voting, communities)
+const governanceSkillDir = path.resolve(__dirname, '../skills/governance');
+const governanceSkill = loadBuiltinSkill(governanceSkillDir, tools);
+
+// 10. Built-in xmd skill (always loaded — Metal Dollar mint/redeem/analytics)
+const xmdSkillDir = path.resolve(__dirname, '../skills/xmd');
+const xmdSkill = loadBuiltinSkill(xmdSkillDir, tools);
+
+// 11. External skills from AGENT_SKILLS env var
 const skillResult: SkillLoadResult = loadSkills(tools);
 const allSkillCapabilities: string[] = [
   ...(creativeSkill?.manifest.capabilities || []),
@@ -111,6 +119,8 @@ const allSkillCapabilities: string[] = [
   ...(nftSkill?.manifest.capabilities || []),
   ...(taxSkill?.manifest.capabilities || []),
   ...(lendingSkill?.manifest.capabilities || []),
+  ...(governanceSkill?.manifest.capabilities || []),
+  ...(xmdSkill?.manifest.capabilities || []),
   ...skillResult.capabilities,
 ];
 
@@ -261,7 +271,7 @@ const a2aAuthConfig: A2AAuthConfig = {
 
 // A2A tool sandboxing
 const a2aToolMode = (process.env.A2A_TOOL_MODE || 'full') as 'full' | 'readonly';
-const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_') || t.name.startsWith('nft_get_') || t.name.startsWith('nft_list_') || t.name.startsWith('nft_search_') || t.name.startsWith('tax_') || t.name.startsWith('loan_list_') || t.name.startsWith('loan_get_'));
+const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_') || t.name.startsWith('nft_get_') || t.name.startsWith('nft_list_') || t.name.startsWith('nft_search_') || t.name.startsWith('tax_') || t.name.startsWith('loan_list_') || t.name.startsWith('loan_get_') || t.name.startsWith('gov_list_') || t.name.startsWith('gov_get_') || t.name.startsWith('xmd_get_') || t.name.startsWith('xmd_list_'));
 function getReadonlyAnthropicTools(): Anthropic.Messages.Tool[] {
   return [
     { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Messages.Tool,

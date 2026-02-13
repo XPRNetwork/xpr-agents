@@ -124,7 +124,7 @@ await agentsWithSession.register({ name: 'My Agent', ... });
 
 ### Built-in Agent Skills
 
-Every deployed agent comes with 9 skills out of the box:
+Every deployed agent comes with 11 skills out of the box:
 
 | Skill | Tools | What it does |
 |-------|-------|-------------|
@@ -136,6 +136,8 @@ Every deployed agent comes with 9 skills out of the box:
 | **Code Sandbox** | 2 | Sandboxed JavaScript execution in isolated VM |
 | **Structured Data** | 3 | CSV/JSON parsing, chart generation |
 | **Tax** | 4 | Crypto tax reporting with regional support (NZ, AU, US) |
+| **Governance** | 7 | XPR Network governance — communities, proposals, voting on the gov contract |
+| **XMD** | 8 | Metal Dollar stablecoin — mint, redeem, supply analytics, collateral reserves, oracle prices |
 | **Agent Operator** | — | System prompt defining autonomous job handling behavior |
 
 All skills are also available individually on [ClawHub](https://clawhub.ai):

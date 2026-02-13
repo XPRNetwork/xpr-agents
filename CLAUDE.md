@@ -601,7 +601,7 @@ All phases are complete:
 
 ### Phase 8: Agent Skills System ✓
 - Built-in skill loader (`skill-loader.ts`) with manifest validation, prompt injection, and tool collision detection
-- **8 built-in skills** always loaded by the agent runner:
+- **10 built-in skills** always loaded by the agent runner:
 
 | Skill | Tools | Description |
 |-------|-------|-------------|
@@ -612,11 +612,13 @@ All phases are complete:
 | `defi` | 8 | Token prices (Metal X), AMM swap rates, liquidity pools, msig proposals |
 | `lending` | 15 | LOAN Protocol (lending.loan) — supply, borrow, repay, redeem, APY/TVL, rewards |
 | `nft` | 23 | Full AtomicAssets/AtomicMarket lifecycle (see below) |
+| `governance` | 7 | XPR Network governance — communities, proposals, voting (gov contract) |
+| `xmd` | 8 | Metal Dollar (XMD) stablecoin — mint, redeem, supply analytics, collateral reserves, oracle prices |
 | `xpr-agent-operator` | — | System prompt defining agent behavior and responsibilities |
 
 - External skills via `AGENT_SKILLS` env var (npm packages or local paths)
 - Each skill provides: `skill.json` manifest, `SKILL.md` prompt section, `src/index.ts` tool handlers
-- A2A sandbox: read-only tools (`nft_get_*`, `nft_list_*`, `nft_search_*`, `defi_*`, `loan_list_*`, `loan_get_*`) exposed in readonly mode
+- A2A sandbox: read-only tools (`nft_get_*`, `nft_list_*`, `nft_search_*`, `defi_*`, `loan_list_*`, `loan_get_*`, `gov_list_*`, `gov_get_*`, `xmd_get_*`, `xmd_list_*`) exposed in readonly mode
 
 ### NFT Skill (AtomicAssets/AtomicMarket) ✓
 - **23 tools**: 11 read-only + 12 write (all write ops require `confirmed: true`)
@@ -719,7 +721,9 @@ xpr-agents/
 │   │           ├── code-sandbox/ # Sandboxed JS execution
 │   │           ├── structured-data/ # CSV/JSON parsing, charts
 │   │           ├── defi/        # Token prices, swap rates, pools, msig proposals
-│   │           ├── lending/     # LOAN Protocol supply, borrow, repay, rewards (13 tools)
+│   │           ├── lending/     # LOAN Protocol supply, borrow, repay, rewards (15 tools)
+│   │           ├── governance/  # XPR Network governance — proposals, voting (7 tools)
+│   │           └── xmd/         # Metal Dollar stablecoin — mint, redeem, analytics (8 tools)
 │   │           └── nft/         # AtomicAssets/AtomicMarket NFT lifecycle (23 tools)
 │   │               ├── skill.json   # Manifest
 │   │               ├── SKILL.md     # Agent prompt section
