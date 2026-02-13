@@ -50,6 +50,24 @@ const REGIONS: Record<string, RegionConfig> = {
     ],
     disclaimer: 'Estimate only. Consult a NZ tax professional. IRD requires 7 years of records.',
   },
+  US: {
+    name: 'United States',
+    code: 'US',
+    currency: 'USD',
+    tax_year: { start_month: 1, start_day: 1 },
+    cost_basis_methods: ['fifo', 'average'],
+    has_capital_gains: true,
+    brackets: [
+      { limit: 11600, rate: 0.10 },
+      { limit: 47150, rate: 0.12 },
+      { limit: 100525, rate: 0.22 },
+      { limit: 191950, rate: 0.24 },
+      { limit: 243725, rate: 0.32 },
+      { limit: 609350, rate: 0.35 },
+      { limit: Infinity, rate: 0.37 },
+    ],
+    disclaimer: 'Estimate only — uses 2024 Single filer federal brackets. Does not include state taxes, NIIT (3.8%), or long-term capital gains rates. Short-term gains (<1 year hold) are taxed as ordinary income. Consult a US CPA or tax professional. IRS requires records for 3+ years.',
+  },
 };
 
 function getRegion(code?: string): RegionConfig {
@@ -1138,7 +1156,7 @@ export default function taxSkill(api: SkillApi): void {
           description: 'Array of token symbols to get rates for, e.g. ["XPR", "XUSDC", "XBTC"]',
         },
         date: { type: 'string', description: 'ISO date for historical rate (default: current). E.g. "2025-03-31"' },
-        region: { type: 'string', description: 'Region code for local currency (default "NZ" → NZD)' },
+        region: { type: 'string', description: 'Region code: "NZ" (default, NZD) or "US" (USD)' },
       },
     },
     handler: async ({ symbols, date, region }: {
@@ -1286,7 +1304,7 @@ export default function taxSkill(api: SkillApi): void {
           description: 'Rate map from tax_get_rates: {"SYMBOL:YYYY-MM-DD": rate}',
         },
         method: { type: 'string', description: '"fifo" (default) or "average"' },
-        region: { type: 'string', description: 'Region code (default "NZ")' },
+        region: { type: 'string', description: 'Region code: "NZ" (default) or "US"' },
       },
     },
     handler: async ({ trades, transfers, rates, method, region }: {
@@ -1344,9 +1362,9 @@ export default function taxSkill(api: SkillApi): void {
       required: ['account', 'tax_year'],
       properties: {
         account: { type: 'string', description: 'XPR Network account name' },
-        tax_year: { type: 'number', description: 'Tax year number, e.g. 2025 = Apr 2024–Mar 2025 for NZ' },
+        tax_year: { type: 'number', description: 'Tax year number. NZ: 2025 = Apr 2024–Mar 2025. US: 2024 = Jan 2024–Dec 2024' },
         method: { type: 'string', description: '"fifo" (default) or "average"' },
-        region: { type: 'string', description: 'Region code (default "NZ")' },
+        region: { type: 'string', description: 'Region code: "NZ" (default) or "US"' },
         balances_opening: { type: 'object', description: 'Pre-computed opening balances (skip API call)' },
         balances_closing: { type: 'object', description: 'Pre-computed closing balances (skip API call)' },
         trades: { type: 'array', description: 'Pre-computed trades array (skip API call)' },

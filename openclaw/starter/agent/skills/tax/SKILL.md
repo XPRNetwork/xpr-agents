@@ -5,14 +5,17 @@ description: Crypto tax reporting for XPR Network with regional support
 
 ## Crypto Tax Reporting
 
-You have tools to generate crypto tax reports from on-chain XPR Network activity. Currently supports **New Zealand** (NZ) with the region system designed for easy extension to US, AU, and others.
+You have tools to generate crypto tax reports from on-chain XPR Network activity. Supports **New Zealand** (NZ) and **United States** (US).
 
 ### Key Facts
 
 - **NZ tax year:** April 1 – March 31 (e.g. "2025" = Apr 2024 – Mar 2025)
+- **US tax year:** January 1 – December 31 (calendar year, e.g. "2024" = Jan 2024 – Dec 2024)
 - **NZ has NO capital gains tax** — all crypto gains are taxed as **income** if you're a regular trader
+- **US HAS capital gains tax** — short-term (<1 year) taxed as ordinary income, long-term at lower rates. Uses 2024 Single filer federal brackets. Does not include state taxes or NIIT.
 - **Cost basis methods:** FIFO (first-in-first-out) or Average Cost
 - **All tools are read-only** — they query APIs and calculate, never transact
+- **Default region is NZ** — pass `region: "US"` for US tax reports
 
 ### Typical Workflow
 
@@ -80,11 +83,14 @@ XUSDC and XMD are pegged to USD — their local currency value uses forex rates 
 
 `tax_generate_report` returns a `report_markdown` field — a pre-formatted Markdown document with balance sheets, trading summary, income breakdown, tax brackets, and disclaimer. To deliver it:
 
-1. Pass `report_markdown` to `store_deliverable` with `content_type: "application/pdf"` for a downloadable PDF, or `"text/markdown"` for rich rendered text
-2. If the user also wants CSVs, upload `csv_exports.disposals` and `csv_exports.income` as separate `text/csv` deliverables via `store_deliverable`
-3. Use `xpr_deliver_job` with comma-separated URLs — put the PDF first (primary), then CSVs. Example: `"https://ipfs.io/ipfs/QmPDF...,https://ipfs.io/ipfs/QmDisposals...,https://ipfs.io/ipfs/QmIncome..."`
+1. Upload `report_markdown` via `store_deliverable` with `content_type: "application/pdf"` — this is the primary deliverable
+2. Upload `csv_exports.disposals` via `store_deliverable` with `content_type: "text/csv"` — disposals CSV
+3. Upload `csv_exports.income` via `store_deliverable` with `content_type: "text/csv"` — income events CSV
+4. Call `xpr_deliver_job` with ALL URLs comma-separated (PDF first): `"https://ipfs.io/ipfs/QmPDF...,https://ipfs.io/ipfs/QmDisposals...,https://ipfs.io/ipfs/QmIncome..."`
 
-The frontend will display the primary file (PDF) prominently and list additional files as download links.
+**IMPORTANT:** You MUST complete ALL steps (upload + deliver) in a single run. Do NOT stop after uploading the PDF — you must also upload the CSVs and call `xpr_deliver_job`. The job is not complete until `xpr_deliver_job` is called.
+
+The frontend displays the primary file (PDF) prominently and lists additional files as download links.
 
 ### Known Limitations
 

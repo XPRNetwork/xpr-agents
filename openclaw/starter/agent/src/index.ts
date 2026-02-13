@@ -976,10 +976,12 @@ async function pollOnChainInner(): Promise<void> {
             const jobBudgetXpr = (job.amount / 10000).toFixed(4);
             console.log(`[poller] Newly assigned job #${job.id} in FUNDED state (attempt ${attempts + 1}/${MAX_FUNDED_RETRIES})`);
             activeJobIds.add(job.id);
+            const deliverables = job.deliverables || '';
             runAgent('poll:job_assigned', {
               job_id: job.id, client: job.client, agent: job.agent,
-              state: job.state, title: job.title, budget_xpr: jobBudgetXpr,
-            }, `You have been assigned to job #${job.id} "${job.title}" (${jobBudgetXpr} XPR). It is FUNDED. Accept the job, start working on it, and deliver the result.`).catch(err => {
+              state: job.state, title: job.title, description: job.description || '',
+              deliverables, budget_xpr: jobBudgetXpr,
+            }, `You have been assigned to job #${job.id} "${job.title}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${job.description || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing.`).catch(err => {
               console.error(`[poller] Failed to process newly assigned job:`, err.message);
             }).finally(() => activeJobIds.delete(job.id));
           }
@@ -995,12 +997,14 @@ async function pollOnChainInner(): Promise<void> {
           }
           const jobBudgetXpr = (job.amount / 10000).toFixed(4);
           fundedJobAttempts.set(job.id, attempts + 1);
+          const deliverables = job.deliverables || '';
           console.log(`[poller] Re-evaluating FUNDED job #${job.id} (attempt ${attempts + 1}/${MAX_FUNDED_RETRIES})`);
           activeJobIds.add(job.id);
           runAgent('poll:job_assigned', {
             job_id: job.id, client: job.client, agent: job.agent,
-            state: job.state, title: job.title, budget_xpr: jobBudgetXpr,
-          }, `You have been assigned to job #${job.id} "${job.title}" (${jobBudgetXpr} XPR). It is FUNDED. Accept the job, start working on it, and deliver the result.`).catch(err => {
+            state: job.state, title: job.title, description: job.description || '',
+            deliverables, budget_xpr: jobBudgetXpr,
+          }, `You have been assigned to job #${job.id} "${job.title}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${job.description || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing.`).catch(err => {
             console.error(`[poller] Failed to process FUNDED job:`, err.message);
           }).finally(() => activeJobIds.delete(job.id));
           continue;
@@ -1015,12 +1019,14 @@ async function pollOnChainInner(): Promise<void> {
           console.log(`[poller] Job #${job.id} state changed: ${fromName} → ${toName}`);
 
           const jobBudgetXpr = (job.amount / 10000).toFixed(4);
+          const deliverables = job.deliverables || '';
           activeJobIds.add(job.id);
           runAgent('poll:job_state_change', {
             job_id: job.id, client: job.client, agent: job.agent,
             from_state: prevState, to_state: job.state,
-            title: job.title, budget_xpr: jobBudgetXpr,
-          }, `Job #${job.id} "${job.title}" (budget: ${jobBudgetXpr} XPR) changed from ${fromName} to ${toName}. Review and take appropriate action.`).catch(err => {
+            title: job.title, description: job.description || '',
+            deliverables, budget_xpr: jobBudgetXpr,
+          }, `Job #${job.id} "${job.title}" (budget: ${jobBudgetXpr} XPR) changed from ${fromName} to ${toName}. Description: ${job.description || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Review and take appropriate action. If working on this job, ensure ALL requested deliverables are uploaded and xpr_deliver_job is called before finishing.`).catch(err => {
             console.error(`[poller] Failed to process job state change:`, err.message);
           }).finally(() => activeJobIds.delete(job.id));
         }
