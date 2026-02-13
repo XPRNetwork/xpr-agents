@@ -20,26 +20,30 @@ Collection → Schema → Template → Asset
 
 ### Creating NFTs (Full Lifecycle)
 
-1. **Create collection** with `nft_create_collection` — choose a 1-12 char name (a-z, 1-5, permanent!), set market_fee (e.g. 0.05 = 5%)
-2. **Create schema** with `nft_create_schema` — define attribute names + types (e.g. `[{name: "name", type: "string"}, {name: "image", type: "image"}]`)
-3. **Create template** with `nft_create_template` — set immutable data matching the schema (e.g. `{name: "Cool NFT", image: "QmHash"}`)
-4. **Mint** with `nft_mint` — reference the template, optionally add mutable data. **Mint to yourself** (your own account), NOT the client.
+1. **Use existing collection** if you have one (e.g. `charlieart12` with schema `artwork`). Check with `nft_list_collections` first. Only create a new collection if needed.
+2. **Create template** with `nft_create_template` — set immutable data matching the schema (e.g. `{name: "Cool NFT", image: "QmHash"}`)
+3. **MINT the asset** with `nft_mint` — this is REQUIRED. Creating a template alone does NOT create an NFT. You must call `nft_mint` with the template_id to produce an actual asset. **Mint to yourself** (your own account), NOT the client.
+4. **Verify the mint** with `nft_list_assets` to get the asset ID.
 
 ### Delivering NFTs via Jobs
 
-When a job requires creating NFTs as deliverables:
-1. Mint the NFT to **your own account** (not the client's)
-2. Use `xpr_deliver_job` with the `nft_asset_ids` and `nft_collection` parameters
-3. The tool will **automatically transfer** the NFTs to the client and format the deliverable as an NFT card on the frontend
-4. This ensures the client only receives the NFT when you deliver — not before
+When a job requires creating/delivering NFTs, you MUST follow this exact flow:
+
+1. Generate the image (e.g. `generate_image`) and upload to IPFS (`store_deliverable`)
+2. Create a template with the IPFS image
+3. **MINT the asset** with `nft_mint` — do NOT skip this step!
+4. Use `xpr_deliver_job_nft` (NOT `xpr_deliver_job`) with `nft_asset_ids` and `nft_collection`
+5. The tool will **automatically transfer** the NFTs to the client and mark the job as delivered
+
+**IMPORTANT:** Use `xpr_deliver_job_nft` for NFT deliveries, NOT `xpr_deliver_job`. The NFT tool handles the transfer automatically.
 
 Example:
 ```
-xpr_deliver_job({
+xpr_deliver_job_nft({
   job_id: 94,
   evidence_uri: "https://gateway.ipfs.io/ipfs/QmHash...",
   nft_asset_ids: ["4398046587277"],
-  nft_collection: "myartcoll"
+  nft_collection: "charlieart12"
 })
 ```
 
