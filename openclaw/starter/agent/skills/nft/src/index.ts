@@ -139,6 +139,41 @@ async function getTableRows(endpoint: string, opts: {
   return result.rows || [];
 }
 
+// ── Auto RAM Management ─────────────────────────
+
+const MIN_RAM_FREE_BYTES = 32768; // 32 KB threshold
+const RAM_BUY_AMOUNT = '50.0000 XPR'; // Buy 50 XPR worth of RAM (~500KB)
+
+async function ensureRam(session: { api: any; account: string; permission: string }): Promise<void> {
+  const rpcEndpoint = process.env.XPR_RPC_ENDPOINT;
+  if (!rpcEndpoint) return; // Can't check without RPC
+
+  try {
+    const acctInfo = await rpcPost(rpcEndpoint, '/v1/chain/get_account', { account_name: session.account });
+    const free = (acctInfo.ram_quota || 0) - (acctInfo.ram_usage || 0);
+
+    if (free < MIN_RAM_FREE_BYTES) {
+      console.log(`[nft] Low RAM: ${free} bytes free (threshold: ${MIN_RAM_FREE_BYTES}). Buying more...`);
+      await session.api.transact({
+        actions: [{
+          account: 'eosio',
+          name: 'buyram',
+          authorization: [{ actor: session.account, permission: session.permission }],
+          data: {
+            payer: session.account,
+            receiver: session.account,
+            quant: RAM_BUY_AMOUNT,
+          },
+        }],
+      }, { blocksBehind: 3, expireSeconds: 30 });
+      console.log(`[nft] Bought ${RAM_BUY_AMOUNT} worth of RAM for ${session.account}`);
+    }
+  } catch (err: any) {
+    // Non-fatal — log and continue, the actual NFT tx will fail with a clearer error if RAM is truly out
+    console.warn(`[nft] RAM check failed (non-fatal): ${err.message}`);
+  }
+}
+
 // ── Schema Format Fetcher (AA API + RPC fallback) ──
 
 async function fetchSchemaFormat(
@@ -799,6 +834,7 @@ export default function nftSkill(api: SkillApi): void {
 
       try {
         const session = await getNftSession();
+        await ensureRam(session);
         const data: Array<{ key: string; value: [string, any] }> = [];
         if (display_name) data.push({ key: 'name', value: ['string', display_name] });
         if (image) data.push({ key: 'image', value: ['string', image] });
@@ -858,6 +894,7 @@ export default function nftSkill(api: SkillApi): void {
 
       try {
         const session = await getNftSession();
+        await ensureRam(session);
         const result = await session.api.transact({
           actions: [{
             account: 'atomicassets',
@@ -911,6 +948,7 @@ export default function nftSkill(api: SkillApi): void {
         const attributeMap = buildAttributeMap(immutable_data, schemaFormat);
 
         const session = await getNftSession();
+        await ensureRam(session);
         const result = await session.api.transact({
           actions: [{
             account: 'atomicassets',
@@ -993,6 +1031,7 @@ export default function nftSkill(api: SkillApi): void {
 
       try {
         const session = await getNftSession();
+        await ensureRam(session);
         const owner = new_asset_owner || session.account;
 
         // Build mutable data attribute map if provided
@@ -1093,6 +1132,7 @@ export default function nftSkill(api: SkillApi): void {
 
       try {
         const session = await getNftSession();
+        await ensureRam(session);
         const result = await session.api.transact({
           actions: [{
             account: 'atomicassets',
@@ -1132,6 +1172,7 @@ export default function nftSkill(api: SkillApi): void {
 
       try {
         const session = await getNftSession();
+        await ensureRam(session);
         const result = await session.api.transact({
           actions: [{
             account: 'atomicassets',
@@ -1175,6 +1216,7 @@ export default function nftSkill(api: SkillApi): void {
       try {
         const parsed = parsePrice(price);
         const session = await getNftSession();
+        await ensureRam(session);
         const numericAssetIds = asset_ids.map(id => Number(id));
 
         // announcesale MUST come before createoffer — when createoffer notifies
@@ -1233,6 +1275,7 @@ export default function nftSkill(api: SkillApi): void {
 
       try {
         const session = await getNftSession();
+        await ensureRam(session);
         const result = await session.api.transact({
           actions: [{
             account: 'atomicmarket',
@@ -1275,6 +1318,7 @@ export default function nftSkill(api: SkillApi): void {
       try {
         const parsed = parsePrice(price);
         const session = await getNftSession();
+        await ensureRam(session);
 
         const result = await session.api.transact({
           actions: [
@@ -1337,6 +1381,7 @@ export default function nftSkill(api: SkillApi): void {
       try {
         const parsed = parsePrice(starting_bid);
         const session = await getNftSession();
+        await ensureRam(session);
         const numericAssetIds = asset_ids.map(id => Number(id));
 
         // announceauct MUST come before transfer — when atomicmarket receives the
@@ -1403,6 +1448,7 @@ export default function nftSkill(api: SkillApi): void {
       try {
         const parsed = parsePrice(bid_amount);
         const session = await getNftSession();
+        await ensureRam(session);
 
         const result = await session.api.transact({
           actions: [
@@ -1454,6 +1500,7 @@ export default function nftSkill(api: SkillApi): void {
 
       try {
         const session = await getNftSession();
+        await ensureRam(session);
 
         // auctclaimbuy claims assets for the buyer, auctclaimsell claims proceeds for the seller
         // Try both — only the relevant one will succeed
