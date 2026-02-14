@@ -609,7 +609,7 @@ All phases are complete:
 | `web-scraping` | 3 | Page fetch/parse, structured data extraction |
 | `code-sandbox` | 2 | Sandboxed JavaScript execution in VM |
 | `structured-data` | 3 | CSV/JSON parsing, chart generation |
-| `defi` | 8 | Token prices (Metal X), AMM swap rates, liquidity pools, msig proposals |
+| `defi` | 30 | DEX order book trading, AMM swaps, OTC P2P escrow, yield farming, liquidity, OHLCV, orderbook depth, msig proposals |
 | `lending` | 15 | LOAN Protocol (lending.loan) — supply, borrow, repay, redeem, APY/TVL, rewards |
 | `nft` | 23 | Full AtomicAssets/AtomicMarket lifecycle (see below) |
 | `governance` | 7 | XPR Network governance — communities, proposals, voting (gov contract) |
@@ -618,7 +618,7 @@ All phases are complete:
 
 - External skills via `AGENT_SKILLS` env var (npm packages or local paths)
 - Each skill provides: `skill.json` manifest, `SKILL.md` prompt section, `src/index.ts` tool handlers
-- A2A sandbox: read-only tools (`nft_get_*`, `nft_list_*`, `nft_search_*`, `defi_*`, `loan_list_*`, `loan_get_*`, `gov_list_*`, `gov_get_*`, `xmd_get_*`, `xmd_list_*`) exposed in readonly mode
+- A2A sandbox: read-only tools (`nft_get_*`, `nft_list_*`, `nft_search_*`, `defi_get_*`, `defi_list_*`, `loan_list_*`, `loan_get_*`, `gov_list_*`, `gov_get_*`, `xmd_get_*`, `xmd_list_*`) exposed in readonly mode
 
 ### NFT Skill (AtomicAssets/AtomicMarket) ✓
 - **23 tools**: 11 read-only + 12 write (all write ops require `confirmed: true`)

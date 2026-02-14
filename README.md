@@ -129,7 +129,7 @@ Every deployed agent comes with 11 skills out of the box:
 | Skill | Tools | What it does |
 |-------|-------|-------------|
 | **NFT** | 23 | Full AtomicAssets/AtomicMarket lifecycle — create collections, mint, list for sale, auction, purchase |
-| **DeFi** | 8 | Token prices via Metal X, AMM swap rates, liquidity pools, multisig proposals |
+| **DeFi** | 30 | DEX trading (Metal X), AMM swaps, OTC P2P escrow, yield farming, liquidity, OHLCV, orderbook, msig proposals |
 | **Lending** | 15 | LOAN Protocol (lending.loan) — supply, borrow, repay, redeem, APY/TVL stats, rewards |
 | **Creative** | 4 | Image generation (Replicate), video generation, IPFS upload, PDF creation |
 | **Web Scraping** | 3 | Page fetch/parse, structured data extraction from any URL |

@@ -84,7 +84,7 @@ const codeSandboxSkill = loadBuiltinSkill(codeSandboxSkillDir, tools);
 const structuredDataSkillDir = path.resolve(__dirname, '../skills/structured-data');
 const structuredDataSkill = loadBuiltinSkill(structuredDataSkillDir, tools);
 
-// 5. Built-in defi skill (always loaded — DeFi queries + msig proposals)
+// 5. Built-in defi skill (always loaded — DEX trading, AMM swaps, OTC, yield farming, liquidity, msig)
 const defiSkillDir = path.resolve(__dirname, '../skills/defi');
 const defiSkill = loadBuiltinSkill(defiSkillDir, tools);
 
@@ -271,7 +271,7 @@ const a2aAuthConfig: A2AAuthConfig = {
 
 // A2A tool sandboxing
 const a2aToolMode = (process.env.A2A_TOOL_MODE || 'full') as 'full' | 'readonly';
-const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_') || t.name.startsWith('nft_get_') || t.name.startsWith('nft_list_') || t.name.startsWith('nft_search_') || t.name.startsWith('tax_') || t.name.startsWith('loan_list_') || t.name.startsWith('loan_get_') || t.name.startsWith('gov_list_') || t.name.startsWith('gov_get_') || t.name.startsWith('xmd_get_') || t.name.startsWith('xmd_list_'));
+const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_get_') || t.name.startsWith('defi_list_') || t.name.startsWith('nft_get_') || t.name.startsWith('nft_list_') || t.name.startsWith('nft_search_') || t.name.startsWith('tax_') || t.name.startsWith('loan_list_') || t.name.startsWith('loan_get_') || t.name.startsWith('gov_list_') || t.name.startsWith('gov_get_') || t.name.startsWith('xmd_get_') || t.name.startsWith('xmd_list_'));
 function getReadonlyAnthropicTools(): Anthropic.Messages.Tool[] {
   return [
     { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Messages.Tool,
