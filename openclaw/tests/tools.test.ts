@@ -6,6 +6,7 @@ import { registerValidationTools } from '../src/tools/validation';
 import { registerEscrowTools } from '../src/tools/escrow';
 import { registerIndexerTools } from '../src/tools/indexer';
 import { registerA2ATools } from '../src/tools/a2a';
+import { resetTransferTracking } from '../src/util/validate';
 
 // Mock PluginApi that collects registered tools
 function createMockApi(): PluginApi & { tools: Map<string, ToolDefinition> } {
@@ -96,10 +97,10 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_stake_validator')).toBe(true);
   });
 
-  it('registers 20 escrow tools', () => {
+  it('registers 21 escrow tools', () => {
     const api = createMockApi();
     registerEscrowTools(api, createConfig());
-    expect(api.tools.size).toBe(20);
+    expect(api.tools.size).toBe(21);
     expect(api.tools.has('xpr_get_job')).toBe(true);
     expect(api.tools.has('xpr_list_jobs')).toBe(true);
     expect(api.tools.has('xpr_get_milestones')).toBe(true);
@@ -113,6 +114,8 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_raise_dispute')).toBe(true);
     expect(api.tools.has('xpr_submit_milestone')).toBe(true);
     expect(api.tools.has('xpr_arbitrate')).toBe(true);
+    expect(api.tools.has('xpr_start_job')).toBe(true);
+    expect(api.tools.has('xpr_deliver_job_nft')).toBe(true);
     expect(api.tools.has('xpr_resolve_timeout')).toBe(true);
     // Bidding tools
     expect(api.tools.has('xpr_list_open_jobs')).toBe(true);
@@ -143,7 +146,7 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_a2a_delegate_job')).toBe(true);
   });
 
-  it('registers 55 total tools', () => {
+  it('registers 57 total tools', () => {
     const api = createMockApi();
     const config = createConfig();
     registerAgentTools(api, config);
@@ -152,7 +155,7 @@ describe('Tool Registration', () => {
     registerEscrowTools(api, config);
     registerIndexerTools(api, config);
     registerA2ATools(api, config);
-    expect(api.tools.size).toBe(56);
+    expect(api.tools.size).toBe(57);
   });
 });
 
@@ -288,6 +291,7 @@ describe('maxTransferAmount Enforcement', () => {
 
   beforeEach(() => {
     api = createMockApi();
+    resetTransferTracking(); // Reset aggregate transfer tracking between tests
   });
 
   it('rejects xpr_register_agent fee exceeding maxTransferAmount', async () => {

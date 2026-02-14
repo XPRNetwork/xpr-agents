@@ -326,6 +326,8 @@ let agentCardCache: { card: unknown; expiresAt: number } | null = null;
 
 // Track active runs to prevent duplicate processing
 const activeRuns = new Set<string>();
+// M13 AUDIT FIX: Cap maximum concurrent agent runs to prevent unbounded resource usage
+const MAX_CONCURRENT_RUNS = parseInt(process.env.MAX_CONCURRENT_RUNS || '5');
 
 interface RunAgentOptions {
   toolSet?: 'full' | 'readonly';
@@ -335,6 +337,11 @@ async function runAgent(eventType: string, data: any, message: string, options?:
   const runKey = `${eventType}:${JSON.stringify(data).slice(0, 100)}`;
   if (activeRuns.has(runKey)) {
     return 'Already processing this event';
+  }
+  // M13 AUDIT FIX: Reject new runs when at concurrency cap
+  if (activeRuns.size >= MAX_CONCURRENT_RUNS) {
+    console.warn(`[agent] Concurrency cap reached (${MAX_CONCURRENT_RUNS}). Dropping event: ${eventType}`);
+    return 'Concurrency limit reached, try again later';
   }
   activeRuns.add(runKey);
 
@@ -442,7 +449,9 @@ async function runAgent(eventType: string, data: any, message: string, options?:
 // Express server
 const app = express();
 // Preserve raw body for A2A signature verification (verify callback runs before parsing)
+// M5 AUDIT FIX: Enforce request body size limit to prevent OOM attacks
 app.use(express.json({
+  limit: '1mb',
   verify: (req: any, _res, buf) => { req.rawBody = buf.toString('utf-8'); },
 }));
 
@@ -770,7 +779,12 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let firstPoll = true;                               // true until first poll completes
 
 // ── Poller state persistence ──
-const POLLER_STATE_PATH = path.resolve(process.env.POLLER_STATE_PATH || './poller-state.json');
+// H10 AUDIT FIX: Validate poller state path is within designated data directory
+const DATA_DIR = path.resolve(process.env.DATA_DIR || '/data');
+const rawPollerPath = path.resolve(process.env.POLLER_STATE_PATH || './poller-state.json');
+const POLLER_STATE_PATH = rawPollerPath.startsWith(DATA_DIR) || rawPollerPath.startsWith(path.resolve('.'))
+  ? rawPollerPath
+  : path.join(DATA_DIR, 'poller-state.json');
 
 interface PollerState {
   knownJobStates: Record<string, number>;

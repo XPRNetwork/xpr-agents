@@ -157,7 +157,13 @@ function loadSingleSkill(
     try {
       const pkg = JSON.parse(fs.readFileSync(path.join(skillDir, 'package.json'), 'utf-8'));
       if (pkg.main) {
-        entryPath = path.join(skillDir, pkg.main);
+        // C6 AUDIT FIX: Validate resolved path stays within skill directory (prevent path traversal)
+        const resolved = path.resolve(skillDir, pkg.main);
+        if (!resolved.startsWith(path.resolve(skillDir) + path.sep) && resolved !== path.resolve(skillDir)) {
+          console.error(`[skill] Path traversal detected in ${skillDir}/package.json main: "${pkg.main}"`);
+          return null;
+        }
+        entryPath = resolved;
       }
     } catch { /* ignore */ }
   }

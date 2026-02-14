@@ -441,6 +441,8 @@ export class AgentEscrowContract extends Contract {
       jobDeadline = currentTimeSec() + (config.default_deadline_days * 86400);
     }
     check(jobDeadline > currentTimeSec(), "Deadline must be in the future");
+    // M9 AUDIT FIX: Enforce minimum deadline of 1 hour to prevent unrealistic deadlines
+    check(jobDeadline >= currentTimeSec() + 3600, "Deadline must be at least 1 hour in the future");
 
     // Validate arbitrator if specified
     if (arbitrator != EMPTY_NAME) {
@@ -707,6 +709,9 @@ export class AgentEscrowContract extends Contract {
 
     check(job.client == client, "Only client can approve");
     check(milestone.state == 1, "Milestone must be submitted");
+
+    // H9 AUDIT FIX: Require evidence before approval
+    check(milestone.evidence_uri.length > 0, "Cannot approve milestone without evidence submission");
 
     // M13 FIX: Enforce milestone order - all prior milestones must be approved first
     let priorMilestone = this.milestonesTable.getBySecondaryU64(milestone.job_id, 0);

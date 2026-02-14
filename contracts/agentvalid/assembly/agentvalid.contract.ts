@@ -597,6 +597,15 @@ export class AgentValidContract extends Contract {
 
     this.challengesTable.store(challengeRecord, this.receiver);
 
+    // C4 AUDIT FIX: Increment pending_challenges on creation (not just funding)
+    // to prevent validator from unstaking during the 24h funding window.
+    // Decremented in: expireunfund (unfunded expired), cancelchal (cancelled), resolve (resolved).
+    const validator = this.validatorsTable.get(validation.validator.N);
+    if (validator != null) {
+      validator.pending_challenges += 1;
+      this.validatorsTable.update(validator, this.receiver);
+    }
+
     print(`Challenge created (ID: ${challengeRecord.id}). Fund within 24 hours with memo 'challenge:${challengeRecord.id}' to activate.`);
   }
 
@@ -616,20 +625,19 @@ export class AgentValidContract extends Contract {
       "Cannot cancel: past grace period but before funding deadline"
     );
 
-    // NOTE: With GRIEFING FIX, unfunded challenges never set validation.challenged=true,
-    // so this is a no-op. Kept for safety in case of edge cases or legacy data.
+    // Reset validation.challenged flag if it was set (only for funded challenges)
     const validation = this.validationsTable.get(challengeRecord.validation_id);
     if (validation != null && validation.challenged) {
       validation.challenged = false;
       this.validationsTable.update(validation, this.receiver);
+    }
 
-      // Decrement pending_challenges counter (only if challenge was funded)
-      if (challengeRecord.stake > 0) {
-        const validator = this.validatorsTable.get(validation.validator.N);
-        if (validator != null && validator.pending_challenges > 0) {
-          validator.pending_challenges -= 1;
-          this.validatorsTable.update(validator, this.receiver);
-        }
+    // C4 AUDIT FIX: Always decrement pending_challenges (incremented at creation for both funded and unfunded)
+    if (validation != null) {
+      const validator = this.validatorsTable.get(validation.validator.N);
+      if (validator != null && validator.pending_challenges > 0) {
+        validator.pending_challenges -= 1;
+        this.validatorsTable.update(validator, this.receiver);
       }
     }
 
@@ -649,12 +657,20 @@ export class AgentValidContract extends Contract {
     check(challengeRecord.stake == 0, "Challenge is funded");
     check(currentTimeSec() > challengeRecord.funding_deadline, "Funding deadline not reached");
 
-    // NOTE: With GRIEFING FIX, unfunded challenges never set validation.challenged=true,
-    // so this is a no-op. Kept for safety in case of edge cases or legacy data.
+    // Reset validation.challenged flag if it was set (safety check for edge cases)
     const validation = this.validationsTable.get(challengeRecord.validation_id);
     if (validation != null && validation.challenged) {
       validation.challenged = false;
       this.validationsTable.update(validation, this.receiver);
+    }
+
+    // C4 AUDIT FIX: Decrement pending_challenges (was incremented at creation)
+    if (validation != null) {
+      const validator = this.validatorsTable.get(validation.validator.N);
+      if (validator != null && validator.pending_challenges > 0) {
+        validator.pending_challenges -= 1;
+        this.validatorsTable.update(validator, this.receiver);
+      }
     }
 
     // Mark challenge as cancelled (expired)
@@ -975,12 +991,9 @@ export class AgentValidContract extends Contract {
       validation!.challenged = true;
       this.validationsTable.update(validation!, this.receiver);
 
-      // Increment pending_challenges counter on the validator
-      const validator = this.validatorsTable.get(validation!.validator.N);
-      if (validator != null) {
-        validator.pending_challenges += 1;
-        this.validatorsTable.update(validator, this.receiver);
-      }
+      // C4 AUDIT FIX: pending_challenges was already incremented at challenge creation.
+      // No need to increment again on funding — the counter tracks all pending challenges
+      // (both funded and unfunded) to prevent unstaking during the funding window.
 
       print(`Challenge ${challengeId} funded. Validation ${challengeRecord.validation_id} is now challenged.`);
     } else {

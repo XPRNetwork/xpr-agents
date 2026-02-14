@@ -67,12 +67,26 @@ describe('validateConfidence', () => {
 describe('validateUrl', () => {
   it('accepts valid URLs', () => {
     expect(() => validateUrl('https://example.com')).not.toThrow();
-    expect(() => validateUrl('http://localhost:3000')).not.toThrow();
+    expect(() => validateUrl('http://api.example.com/webhook')).not.toThrow();
   });
 
   it('rejects invalid URLs', () => {
     expect(() => validateUrl('not-a-url')).toThrow('valid URL');
     expect(() => validateUrl('')).toThrow('required');
+  });
+
+  // H5 AUDIT FIX: SSRF protection tests
+  it('rejects localhost and private IPs', () => {
+    expect(() => validateUrl('http://localhost:3000')).toThrow('localhost');
+    expect(() => validateUrl('http://127.0.0.1:8080')).toThrow('localhost');
+    expect(() => validateUrl('http://10.0.0.1/admin')).toThrow('private');
+    expect(() => validateUrl('http://192.168.1.1')).toThrow('private');
+    expect(() => validateUrl('http://169.254.169.254/metadata')).toThrow('private');
+  });
+
+  it('rejects non-HTTP schemes', () => {
+    expect(() => validateUrl('file:///etc/passwd')).toThrow('http or https');
+    expect(() => validateUrl('ftp://example.com')).toThrow('http or https');
   });
 });
 

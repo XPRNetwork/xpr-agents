@@ -288,21 +288,21 @@ describe('agentvalid', () => {
       expect(validation.challenged).to.equal(true);
     });
 
-    it('should increment pending_challenges on funding', async () => {
+    it('should increment pending_challenges on creation (C4 audit fix)', async () => {
       await agentvalid.actions.challenge([
         'challenger1', 0, 'Invalid', 'ipfs://evidence'
       ]).send('challenger1@active');
 
-      // Before funding
+      // C4 FIX: pending_challenges incremented at creation (not just funding)
       let val = getValidator('validator1');
-      expect(val.pending_challenges).to.equal(0);
+      expect(val.pending_challenges).to.equal(1);
 
-      // Fund
+      // Fund — should NOT increment again
       await eosioToken.actions.transfer([
         'challenger1', 'agentvalid', '5.0000 XPR', 'challenge:0'
       ]).send('challenger1@active');
 
-      // After funding
+      // After funding — still 1 (not 2)
       val = getValidator('validator1');
       expect(val.pending_challenges).to.equal(1);
     });
