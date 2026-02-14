@@ -1,9 +1,8 @@
 {
-  "id": "xpr-agents",
+  "id": "openclaw",
   "name": "XPR Agents",
   "configSchema": {
     "type": "object",
-    "required": ["rpcEndpoint"],
     "properties": {
       "network": {
         "type": "string",
@@ -12,7 +11,8 @@
       },
       "rpcEndpoint": {
         "type": "string",
-        "description": "XPR Network RPC endpoint URL (required)"
+        "description": "XPR Network RPC endpoint URL",
+        "default": "https://tn1.protonnz.com"
       },
       "indexerUrl": {
         "type": "string",

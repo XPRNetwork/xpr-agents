@@ -1,11 +1,11 @@
 /**
  * XPR Agents OpenClaw Plugin
  *
- * Registers 56 tools for interacting with the XPR Network Trustless Agent Registry:
+ * Registers 57 tools for interacting with the XPR Network Trustless Agent Registry:
  * - 11 Agent Core tools (registration, profile, plugins, trust scores, ownership)
  * - 7 Feedback tools (ratings, disputes, scores)
  * - 9 Validation tools (validators, validations, challenges)
- * - 20 Escrow tools (jobs, milestones, disputes, arbitration, bidding)
+ * - 21 Escrow tools (jobs, milestones, disputes, arbitration, bidding)
  * - 4 Indexer tools (search, events, stats, health)
  * - 5 A2A tools (discover, message, task status, cancel, delegate)
  */
@@ -26,10 +26,10 @@ export type { ToolDefinition, PluginApi } from './types';
 export default function xprAgentsPlugin(api: PluginApi): void {
   const rawConfig = api.getConfig();
 
-  const rpcEndpoint = rawConfig.rpcEndpoint as string;
-  if (!rpcEndpoint) {
-    throw new Error('[xpr-agents] rpcEndpoint is required. Set XPR_RPC_ENDPOINT or configure rpcEndpoint in plugin config.');
-  }
+  const network = (rawConfig.network as string) || 'testnet';
+  const defaultRpc = network === 'mainnet' ? 'https://proton.eosusa.io' : 'https://tn1.protonnz.com';
+  const rpcEndpoint = (rawConfig.rpcEndpoint as string) || process.env.XPR_RPC_ENDPOINT || defaultRpc;
+
   const hasCredentials = !!process.env.XPR_PRIVATE_KEY && !!process.env.XPR_ACCOUNT;
 
   // Create RPC connection and optional session
