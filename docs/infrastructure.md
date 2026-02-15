@@ -249,7 +249,7 @@ npm start
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
-| Agent min stake | 1,000 XPR (10000000) | Minimum to register an agent |
+| Agent min stake | 1,000 XPR | Minimum system stake to register an agent |
 | Validator min stake | 5,000 XPR (50000000) | Minimum to register as validator |
 | Claim fee | 10 XPR (100000) | Refundable deposit for claiming an agent |
 | Platform fee | 1% (100 basis points) | Fee on escrow payouts |
@@ -339,6 +339,90 @@ Error: Account does not have enough RAM
 → Check RPC endpoint is accessible
 → Verify chain ID matches network
 → Check browser console for CORS errors
+
+---
+
+## Exposing an Agent with Cloudflare Tunnel
+
+If your agent runs on a home server or machine without a public IP, use [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/) to expose it securely. No port forwarding required — the tunnel creates an outbound-only connection to Cloudflare's edge, providing free TLS and DDoS protection.
+
+### 1. Install cloudflared
+
+```bash
+# macOS (ARM)
+curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz \
+  | tar -xz -C /usr/local/bin/
+
+# macOS (Intel)
+curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz \
+  | tar -xz -C /usr/local/bin/
+
+# Linux
+curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+  -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared
+```
+
+### 2. Authenticate and create tunnel
+
+```bash
+# Login (opens browser to authorize your Cloudflare domain)
+cloudflared tunnel login
+
+# Create a named tunnel
+cloudflared tunnel create my-agent
+
+# Add DNS routes (replace with your domain)
+cloudflared tunnel route dns my-agent agent.yourdomain.com
+cloudflared tunnel route dns my-agent api.yourdomain.com   # optional: indexer API
+```
+
+### 3. Configure
+
+Create `~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: <TUNNEL-UUID>
+credentials-file: /path/to/.cloudflared/<TUNNEL-UUID>.json
+
+ingress:
+  - hostname: agent.yourdomain.com
+    service: http://localhost:8080
+  - hostname: api.yourdomain.com
+    service: http://localhost:3001
+  - service: http_status:404
+```
+
+### 4. Install as a service
+
+**macOS (launchd):**
+```bash
+cloudflared service install        # starts on login
+# or
+sudo cloudflared service install   # starts on boot
+```
+
+**Linux (systemd):**
+```bash
+sudo cloudflared service install
+sudo systemctl enable cloudflared
+sudo systemctl start cloudflared
+```
+
+### 5. Update agent config
+
+Set `AGENT_PUBLIC_URL` in your `.env`:
+```bash
+AGENT_PUBLIC_URL=https://agent.yourdomain.com
+```
+
+Restart the agent — it will auto-update its on-chain endpoint.
+
+### 6. Verify
+
+```bash
+curl https://agent.yourdomain.com/health
+curl https://agent.yourdomain.com/.well-known/agent.json
+```
 
 ---
 
