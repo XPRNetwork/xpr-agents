@@ -113,10 +113,10 @@ fi
 read -p "Initialize contracts? (only for first deployment) (y/n): " init_contracts
 if [ "$init_contracts" == "y" ]; then
     # Initialize agentcore
-    # min_stake: 1000.0000 XPR = 10000000
-    # claim_fee: 10.0000 XPR = 100000
+    # min_stake: 1000 XPR (in XPR units — getSystemStake divides raw by 10000)
+    # claim_fee: 10.0000 XPR = 100000 (in raw units)
     # Requires: feed_contract, valid_contract, escrow_contract
-    proton action $AGENT_CORE init "{\"owner\":\"$AGENT_CORE\",\"min_stake\":10000000,\"claim_fee\":100000,\"feed_contract\":\"$AGENT_FEED\",\"valid_contract\":\"$AGENT_VALID\",\"escrow_contract\":\"$AGENT_ESCROW\"}" $AGENT_CORE
+    proton action $AGENT_CORE init "{\"owner\":\"$AGENT_CORE\",\"min_stake\":1000,\"claim_fee\":100000,\"feed_contract\":\"$AGENT_FEED\",\"valid_contract\":\"$AGENT_VALID\",\"escrow_contract\":\"$AGENT_ESCROW\"}" $AGENT_CORE
     echo -e "${GREEN}✓ agentcore initialized${NC}"
 
     # Initialize agentfeed

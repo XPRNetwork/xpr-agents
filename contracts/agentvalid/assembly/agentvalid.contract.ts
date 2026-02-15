@@ -168,7 +168,7 @@ export class Config extends Table {
   constructor(
     public owner: Name = EMPTY_NAME,
     public core_contract: Name = EMPTY_NAME,
-    public min_stake: u64 = 50000000, // 500.0000 XPR default
+    public min_stake: u64 = 50000000, // 500.0000 XPR default (raw units, 4 decimals)
     public challenge_stake: u64 = 10000000, // 100.0000 XPR
     public unstake_delay: u64 = 604800, // 7 days
     public challenge_window: u64 = 259200, // 3 days

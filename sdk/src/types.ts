@@ -84,7 +84,7 @@ export interface Unstake {
 
 export interface AgentCoreConfig {
   owner: string;
-  min_stake: number;
+  min_stake: number;              // In XPR units (NOT raw) — getSystemStake divides by 10000
   registration_fee: number;
   claim_fee: number;              // Fee to claim an agent (refundable on release)
   feed_contract: string;
@@ -108,7 +108,7 @@ export interface FeedbackConfig {
 export interface ValidationConfig {
   owner: string;
   core_contract: string;
-  min_stake: number;
+  min_stake: number;              // In raw units (4 decimals) — contract-stored stake
   challenge_stake: number;
   unstake_delay: number;
   challenge_window: number;

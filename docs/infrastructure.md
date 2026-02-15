@@ -74,23 +74,27 @@ proton contract:enableinline agentescrow
 Use the init script:
 ```bash
 # Testnet (lower stakes for testing)
-./scripts/init-contracts.sh proton-test agentcore agentfeed agentvalid agentescrow 1000000 5000000 100000 100
+# NOTE: agentcore min_stake is in XPR units (getSystemStake divides raw by 10000)
+#        agentvalid min_stake is in raw units (4 decimal places)
+./scripts/init-contracts.sh proton-test agentcore agentfeed agentvalid agentescrow 100 5000000 100000 100
 
 # Mainnet (production stakes)
-./scripts/init-contracts.sh proton agentcore agentfeed agentvalid agentescrow 10000000 50000000 100000 100
+./scripts/init-contracts.sh proton agentcore agentfeed agentvalid agentescrow 1000 50000000 100000 100
 ```
 
 Or manually:
 ```bash
-# agentcore: min_stake, claim_fee, sibling contracts
-#   Testnet: min_stake=100 XPR (1000000), Mainnet: min_stake=1000 XPR (10000000)
-proton action agentcore init '{"owner":"agentcore","min_stake":10000000,"claim_fee":100000,"feed_contract":"agentfeed","valid_contract":"agentvalid","escrow_contract":"agentescrow"}' agentcore
+# agentcore: min_stake (XPR units!), claim_fee (raw units), sibling contracts
+# IMPORTANT: agentcore min_stake is in XPR, NOT raw units
+#   getSystemStake() divides voter.staked by 10000, so comparison is in XPR
+#   Testnet: min_stake=100 (100 XPR), Mainnet: min_stake=1000 (1000 XPR)
+proton action agentcore init '{"owner":"agentcore","min_stake":1000,"claim_fee":100000,"feed_contract":"agentfeed","valid_contract":"agentvalid","escrow_contract":"agentescrow"}' agentcore
 
 # agentfeed: core_contract
 proton action agentfeed init '{"owner":"agentfeed","core_contract":"agentcore"}' agentfeed
 
-# agentvalid: core_contract, min_stake
-#   Testnet: min_stake=500 XPR (5000000), Mainnet: min_stake=5000 XPR (50000000)
+# agentvalid: core_contract, min_stake (raw units — contract-stored stake)
+#   Testnet: min_stake=500 XPR (5000000 raw), Mainnet: min_stake=5000 XPR (50000000 raw)
 proton action agentvalid init '{"owner":"agentvalid","core_contract":"agentcore","min_stake":50000000}' agentvalid
 
 # agentescrow: core_contract, feed_contract, platform_fee (100 = 1%)

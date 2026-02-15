@@ -220,7 +220,7 @@ export class AgentPlugin extends Table {
 export class Config extends Table {
   constructor(
     public owner: Name = EMPTY_NAME,
-    public min_stake: u64 = 0, // Optional minimum stake requirement (reads from system)
+    public min_stake: u64 = 0, // Minimum system stake in XPR (getSystemStake divides raw by 10000)
     public registration_fee: u64 = 0,
     public claim_fee: u64 = 100000,           // Fee to claim an agent (1.0000 XPR default), refundable on release
     public feed_contract: Name = EMPTY_NAME, // Authorized agentfeed contract
