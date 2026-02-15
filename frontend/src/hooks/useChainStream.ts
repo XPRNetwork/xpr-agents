@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { getNetworkConfig } from '@/lib/networks';
 
-const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || 'https://tn1.protonnz.com';
+const RPC_URL = getNetworkConfig().rpc;
 const POLL_INTERVAL = 5000;
 
 export interface ChainEvent {

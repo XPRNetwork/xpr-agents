@@ -1,13 +1,9 @@
 import { JsonRpc } from '@proton/js';
+import { getSelectedNetwork, getNetworkConfig, NETWORKS } from './networks';
 
-// Network configuration — default to testnet; set NEXT_PUBLIC_NETWORK=mainnet for production
-export const isMainnet = process.env.NEXT_PUBLIC_NETWORK === 'mainnet';
-const NETWORK = {
-  rpc: process.env.NEXT_PUBLIC_RPC_URL || (isMainnet ? 'https://proton.eosusa.io' : 'https://tn1.protonnz.com'),
-  chainId: process.env.NEXT_PUBLIC_CHAIN_ID || (isMainnet
-    ? '384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0'
-    : '71ee83bcf20daefb060b14f72ad1dab3f84b588d12b4571f9b662a13a6f61f82'),
-};
+// Network configuration — reads from localStorage, defaults to mainnet
+const networkConfig = getNetworkConfig();
+export const isMainnet = getSelectedNetwork() === 'mainnet';
 
 // Contract names
 export const CONTRACTS = {
@@ -18,7 +14,7 @@ export const CONTRACTS = {
 };
 
 // Initialize RPC
-export const rpc = new JsonRpc(NETWORK.rpc);
+export const rpc = new JsonRpc(networkConfig.rpc);
 
 // Types
 export interface Agent {

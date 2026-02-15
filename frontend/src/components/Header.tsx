@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useProton } from '@/hooks/useProton';
+import { getSelectedNetwork, switchNetwork, type NetworkId } from '@/lib/networks';
 
 export type Page = 'discover' | 'jobs' | 'leaderboard' | 'validators' | 'arbitrators' | 'how-it-works' | 'get-started' | 'dashboard';
 
@@ -25,6 +26,34 @@ const USER_MENU_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', page: 'dashboard' },
   { href: '/get-started', label: 'Get Started', page: 'get-started' },
 ];
+
+function NetworkBadge() {
+  const [currentNetwork, setCurrentNetwork] = useState<NetworkId>('mainnet');
+
+  useEffect(() => {
+    setCurrentNetwork(getSelectedNetwork());
+  }, []);
+
+  const toggle = () => {
+    switchNetwork(currentNetwork === 'mainnet' ? 'testnet' : 'mainnet');
+  };
+
+  const isTestnet = currentNetwork === 'testnet';
+
+  return (
+    <button
+      onClick={toggle}
+      title={`Switch to ${isTestnet ? 'Mainnet' : 'Testnet'}`}
+      className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors ${
+        isTestnet
+          ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
+          : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
+      }`}
+    >
+      {currentNetwork}
+    </button>
+  );
+}
 
 export function Header({ activePage }: { activePage?: Page }) {
   const { session, loading, login, logout } = useProton();
@@ -64,10 +93,13 @@ export function Header({ activePage }: { activePage?: Page }) {
     <header className="bg-zinc-950/80 backdrop-blur-lg border-b border-zinc-800 sticky top-0 z-40">
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 shrink-0">
-          <img src="/xpr-logo.png" alt="XPR" className="h-6 w-6" />
-          <span className="text-lg font-bold text-white">XPR Agents</span>
-        </Link>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link href="/" className="flex items-center gap-2">
+            <img src="/xpr-logo.png" alt="XPR" className="h-6 w-6" />
+            <span className="text-lg font-bold text-white">XPR Agents</span>
+          </Link>
+          <NetworkBadge />
+        </div>
 
         {/* Desktop nav — center links */}
         <nav className="hidden md:flex items-center gap-5">

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { getNetworkConfig } from '@/lib/networks';
 
 interface Session {
   auth: {
@@ -24,14 +25,10 @@ const APP_NAME = 'XPR Agents';
 // requestAccount must be a valid on-chain account — shown as requestor in wallet
 const REQUEST_ACCOUNT = process.env.NEXT_PUBLIC_REQUEST_ACCOUNT || 'agentcore';
 
-// Network config — default to testnet; set NEXT_PUBLIC_NETWORK=mainnet for production
-const isMainnet = process.env.NEXT_PUBLIC_NETWORK === 'mainnet';
-const CHAIN_ID = process.env.NEXT_PUBLIC_CHAIN_ID || (isMainnet
-  ? '384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0'
-  : '71ee83bcf20daefb060b14f72ad1dab3f84b588d12b4571f9b662a13a6f61f82');
-const ENDPOINTS = [process.env.NEXT_PUBLIC_RPC_URL || (isMainnet
-  ? 'https://proton.eosusa.io'
-  : 'https://tn1.protonnz.com')];
+// Network config — reads from localStorage, defaults to mainnet
+const networkConfig = getNetworkConfig();
+const CHAIN_ID = networkConfig.chainId;
+const ENDPOINTS = [networkConfig.rpc];
 
 // Module-level flags survive React StrictMode remounts (refs don't)
 let sessionRestoreStarted = false;
