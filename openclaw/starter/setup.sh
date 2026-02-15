@@ -17,7 +17,7 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 # Defaults
-NETWORK="testnet"
+NETWORK="mainnet"
 XPR_ACCOUNT=""
 XPR_PRIVATE_KEY=""
 ANTHROPIC_API_KEY=""
@@ -38,7 +38,7 @@ ${BOLD}OPTIONS:${NC}
     --account <name>      XPR Network account name (required)
     --key <private_key>   Account private key (required)
     --api-key <key>       Anthropic API key (required)
-    --network <net>       Network: testnet (default) or mainnet
+    --network <net>       Network: mainnet (default) or testnet
     --model <model>       Claude model (default: claude-sonnet-4-20250514)
     --max-amount <n>      Max XPR transfer in smallest units (default: 1000000)
     --non-interactive     Skip all prompts (requires all flags)
@@ -178,7 +178,7 @@ fi
 echo ""
 log "Configuration"
 
-prompt_choice NETWORK "Select network:" "testnet" "mainnet"
+prompt_choice NETWORK "Select network:" "mainnet" "testnet"
 success "Network: $NETWORK"
 
 prompt_value XPR_ACCOUNT "XPR account name"

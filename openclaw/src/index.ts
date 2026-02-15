@@ -76,7 +76,7 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
 
   const rawConfig = api.getConfig();
 
-  const network = (rawConfig.network as string) || 'testnet';
+  const network = (rawConfig.network as string) || 'mainnet';
   const defaultRpc = network === 'mainnet' ? 'https://proton.eosusa.io' : 'https://tn1.protonnz.com';
   const rpcEndpoint = (rawConfig.rpcEndpoint as string) || process.env.XPR_RPC_ENDPOINT || defaultRpc;
 
@@ -99,7 +99,7 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
   const config: PluginConfig = {
     rpc: rpc as any,
     session,
-    network: (rawConfig.network as 'mainnet' | 'testnet') || 'testnet',
+    network: (rawConfig.network as 'mainnet' | 'testnet') || 'mainnet',
     rpcEndpoint,
     indexerUrl: (rawConfig.indexerUrl as string) || 'http://localhost:3001',
     contracts: {

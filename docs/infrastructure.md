@@ -45,10 +45,19 @@ proton account:create agentescrow
 ### 3. Deploy Contracts
 
 ```bash
-proton contract:set agentcore ./contracts/agentcore/build
-proton contract:set agentfeed ./contracts/agentfeed/build
-proton contract:set agentvalid ./contracts/agentvalid/build
-proton contract:set agentescrow ./contracts/agentescrow/build
+# Testnet
+./scripts/deploy-testnet.sh
+
+# Mainnet (interactive, with safety confirmations)
+./scripts/deploy-mainnet.sh
+```
+
+Or manually:
+```bash
+proton contract:set agentcore ./contracts/agentcore/assembly/target
+proton contract:set agentfeed ./contracts/agentfeed/assembly/target
+proton contract:set agentvalid ./contracts/agentvalid/assembly/target
+proton contract:set agentescrow ./contracts/agentescrow/assembly/target
 ```
 
 ### 4. Enable Inline Actions
@@ -62,17 +71,29 @@ proton contract:enableinline agentescrow
 
 ### 5. Initialize Contracts
 
+Use the init script:
 ```bash
-# agentcore: owner, min_stake (100 XPR), claim_fee (10 XPR), sibling contracts
-proton action agentcore init '{"owner":"agentcore","min_stake":1000000,"claim_fee":100000,"feed_contract":"agentfeed","valid_contract":"agentvalid","escrow_contract":"agentescrow"}' agentcore
+# Testnet (lower stakes for testing)
+./scripts/init-contracts.sh proton-test agentcore agentfeed agentvalid agentescrow 1000000 5000000 100000 100
 
-# agentfeed: owner, core_contract
+# Mainnet (production stakes)
+./scripts/init-contracts.sh proton agentcore agentfeed agentvalid agentescrow 10000000 50000000 100000 100
+```
+
+Or manually:
+```bash
+# agentcore: min_stake, claim_fee, sibling contracts
+#   Testnet: min_stake=100 XPR (1000000), Mainnet: min_stake=1000 XPR (10000000)
+proton action agentcore init '{"owner":"agentcore","min_stake":10000000,"claim_fee":100000,"feed_contract":"agentfeed","valid_contract":"agentvalid","escrow_contract":"agentescrow"}' agentcore
+
+# agentfeed: core_contract
 proton action agentfeed init '{"owner":"agentfeed","core_contract":"agentcore"}' agentfeed
 
-# agentvalid: owner, core_contract, min_stake (500 XPR)
-proton action agentvalid init '{"owner":"agentvalid","core_contract":"agentcore","min_stake":5000000}' agentvalid
+# agentvalid: core_contract, min_stake
+#   Testnet: min_stake=500 XPR (5000000), Mainnet: min_stake=5000 XPR (50000000)
+proton action agentvalid init '{"owner":"agentvalid","core_contract":"agentcore","min_stake":50000000}' agentvalid
 
-# agentescrow: owner, core_contract, feed_contract, platform_fee (100 = 1%)
+# agentescrow: core_contract, feed_contract, platform_fee (100 = 1%)
 proton action agentescrow init '{"owner":"agentescrow","core_contract":"agentcore","feed_contract":"agentfeed","platform_fee":100}' agentescrow
 ```
 
@@ -96,10 +117,15 @@ cp .env.example .env
 ```
 
 Edit `.env`:
-```
+```bash
 PORT=3001
 DB_PATH=./data/agents.db
-HYPERION_ENDPOINTS=https://api-xprnetwork-test.saltant.io
+
+# Testnet:
+# HYPERION_ENDPOINTS=https://api-xprnetwork-test.saltant.io
+# Mainnet:
+HYPERION_ENDPOINTS=https://proton.eosusa.io
+
 AGENT_CORE_CONTRACT=agentcore
 AGENT_FEED_CONTRACT=agentfeed
 AGENT_VALID_CONTRACT=agentvalid
@@ -174,10 +200,16 @@ npm run dev
 ### Environment Variables
 
 Create `.env.local`:
-```
-NEXT_PUBLIC_RPC_ENDPOINT=https://proton.eosusa.io
-NEXT_PUBLIC_CHAIN_ID=384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0
-NEXT_PUBLIC_INDEXER_URL=http://localhost:3001
+```bash
+# Mainnet (default):
+NEXT_PUBLIC_NETWORK=mainnet
+
+# Testnet:
+# NEXT_PUBLIC_NETWORK=testnet
+
+# Override individual settings (optional — auto-configured from NEXT_PUBLIC_NETWORK)
+# NEXT_PUBLIC_RPC_URL=https://proton.eosusa.io
+# NEXT_PUBLIC_INDEXER_URL=http://localhost:3001
 ```
 
 ### Production Build
@@ -202,7 +234,34 @@ npm start
 
 ### Mainnet
 
-*Not yet deployed*
+| Contract | Account |
+|----------|---------|
+| agentcore | `agentcore` |
+| agentfeed | `agentfeed` |
+| agentvalid | `agentvalid` |
+| agentescrow | `agentescrow` |
+
+**Mainnet Parameters:**
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Agent min stake | 1,000 XPR (10000000) | Minimum to register an agent |
+| Validator min stake | 5,000 XPR (50000000) | Minimum to register as validator |
+| Claim fee | 10 XPR (100000) | Refundable deposit for claiming an agent |
+| Platform fee | 1% (100 basis points) | Fee on escrow payouts |
+
+**Mainnet RPC Endpoints:**
+
+| Provider | URL |
+|----------|-----|
+| EOS USA | `https://proton.eosusa.io` |
+| ProtNZ | `https://proton.protonnz.com` |
+
+**Mainnet Hyperion Endpoints:**
+
+| Provider | URL |
+|----------|-----|
+| EOS USA | `https://proton.eosusa.io` |
 
 ---
 
@@ -237,7 +296,7 @@ curl http://localhost:3001/api/stats
 
 ### Contract Security
 
-- All contracts should be audited before mainnet deployment
+- Contracts have been through 2 rounds of security audit (see [SECURITY_AUDIT.md](./SECURITY_AUDIT.md))
 - Validators have slashable stake to prevent collusion
 - Arbitrators must stake to be eligible
 - All payments go through escrow

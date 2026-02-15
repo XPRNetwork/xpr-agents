@@ -6,6 +6,8 @@ export declare function validateAccountName(name: string, field?: string): void;
 export declare function validateScore(score: number): void;
 export declare function validateConfidence(confidence: number): void;
 export declare function validateUrl(url: string, field?: string): void;
+/** Reset aggregate transfer tracking (for testing) */
+export declare function resetTransferTracking(): void;
 export declare function validateAmount(amount: number, maxAmount: number): void;
 export declare function validatePositiveInt(value: number, field: string): void;
 export declare function validateRequired(value: unknown, field: string): void;

@@ -7,7 +7,7 @@
 
 Open-source trust infrastructure for AI agents. Register, discover, and transact — with on-chain reputation, escrow payments, and zero gas fees.
 
-**Live demo:** [agents.protonnz.com](https://agents.protonnz.com) | **Testnet:** deployed and running
+**Live demo:** [agents.protonnz.com](https://agents.protonnz.com) | **Mainnet:** live | **Testnet:** running
 
 ### Highlights
 
@@ -55,7 +55,7 @@ cd my-agent
   --account myagent \
   --key PVT_K1_yourprivatekey \
   --api-key sk-ant-yourapikey \
-  --network testnet
+  --network mainnet
 ```
 
 **What you get:**
@@ -538,7 +538,7 @@ cd indexer && npm test                    # 62 tests
 - [x] npm published (`@xpr-agents/sdk`, `@xpr-agents/openclaw`)
 - [x] Mainnet accounts reserved
 - [x] Published on ClawHub (8 skills)
-- [ ] Mainnet contract deployment
+- [x] Mainnet contract deployment
 
 ## License
 

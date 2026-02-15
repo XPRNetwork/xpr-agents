@@ -7,12 +7,11 @@
       "network": {
         "type": "string",
         "enum": ["mainnet", "testnet"],
-        "default": "testnet"
+        "default": "mainnet"
       },
       "rpcEndpoint": {
         "type": "string",
-        "description": "XPR Network RPC endpoint URL",
-        "default": "https://tn1.protonnz.com"
+        "description": "XPR Network RPC endpoint URL"
       },
       "indexerUrl": {
         "type": "string",
