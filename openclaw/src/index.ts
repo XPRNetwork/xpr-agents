@@ -17,13 +17,63 @@ import { registerValidationTools } from './tools/validation';
 import { registerEscrowTools } from './tools/escrow';
 import { registerIndexerTools } from './tools/indexer';
 import { registerA2ATools } from './tools/a2a';
-import type { PluginApi, PluginConfig } from './types';
+import type { PluginApi, PluginConfig, ToolDefinition } from './types';
 
 // Re-export skill types for skill package authors
 export type { SkillManifest, SkillApi, LoadedSkill } from './skill-types';
 export type { ToolDefinition, PluginApi } from './types';
 
-export default function xprAgentsPlugin(api: PluginApi): void {
+/**
+ * OpenClaw plugin API shape (real runtime API).
+ * Plugins receive this from the OpenClaw gateway.
+ */
+interface OpenClawPluginApi {
+  id: string;
+  name: string;
+  config?: Record<string, unknown>;
+  pluginConfig?: Record<string, unknown>;
+  registerTool(tool: {
+    name: string;
+    description: string;
+    parameters: unknown;
+    execute: (id: string, params: Record<string, unknown>) => Promise<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+  }, opts?: unknown): void;
+  [key: string]: unknown;
+}
+
+/**
+ * Create an adapter that bridges the real OpenClaw API to our internal PluginApi.
+ * This lets all 57 tool registrations work unchanged.
+ */
+function createAdapter(realApi: OpenClawPluginApi): PluginApi {
+  return {
+    registerTool(tool: ToolDefinition): void {
+      realApi.registerTool({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        async execute(_id: string, params: Record<string, unknown>) {
+          const result = await tool.handler(params);
+          const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+          return { content: [{ type: 'text', text }] };
+        },
+      });
+    },
+    getConfig(): Record<string, unknown> {
+      return realApi.pluginConfig || {};
+    },
+  };
+}
+
+export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi): void {
+  // Detect whether we're running inside the real OpenClaw runtime or in tests.
+  // Real OpenClaw API has pluginConfig property; our test mock has getConfig method.
+  const api: PluginApi = typeof (realApi as any).getConfig === 'function'
+    ? realApi as PluginApi
+    : createAdapter(realApi as OpenClawPluginApi);
+
   const rawConfig = api.getConfig();
 
   const network = (rawConfig.network as string) || 'testnet';
