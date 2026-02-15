@@ -24,11 +24,16 @@ MIN_VALIDATOR_STAKE=${7:-5000000}  # 500.0000 XPR (in raw units)
 CLAIM_FEE=${8:-100000}             # 10.0000 XPR (in raw units)
 PLATFORM_FEE=${9:-100}             # 1% (basis points)
 
+# IMPORTANT: Owner receives platform fees from agentescrow.
+# Must NOT be the agentescrow contract itself (causes "cannot transfer to self").
+OWNER=${10:-$AGENT_CORE}
+
 echo "Network: $NETWORK"
 echo "Agent Core: $AGENT_CORE"
 echo "Agent Feed: $AGENT_FEED"
 echo "Agent Valid: $AGENT_VALID"
 echo "Agent Escrow: $AGENT_ESCROW"
+echo "Owner (fee recipient): $OWNER"
 echo ""
 echo "Min Agent Stake: $MIN_AGENT_STAKE XPR (system stake, XPR units)"
 echo "Min Validator Stake: $MIN_VALIDATOR_STAKE raw ($(echo "scale=4; $MIN_VALIDATOR_STAKE/10000" | bc) XPR, contract stake)"
@@ -48,23 +53,24 @@ proton chain:set $NETWORK
 
 # Initialize agentcore
 echo -e "${YELLOW}Initializing agentcore...${NC}"
-proton action $AGENT_CORE init "{\"owner\":\"$AGENT_CORE\",\"min_stake\":$MIN_AGENT_STAKE,\"claim_fee\":$CLAIM_FEE,\"feed_contract\":\"$AGENT_FEED\",\"valid_contract\":\"$AGENT_VALID\",\"escrow_contract\":\"$AGENT_ESCROW\"}" $AGENT_CORE
+proton action $AGENT_CORE init "{\"owner\":\"$OWNER\",\"min_stake\":$MIN_AGENT_STAKE,\"claim_fee\":$CLAIM_FEE,\"feed_contract\":\"$AGENT_FEED\",\"valid_contract\":\"$AGENT_VALID\",\"escrow_contract\":\"$AGENT_ESCROW\"}" $AGENT_CORE
 echo -e "${GREEN}✓ agentcore initialized${NC}"
 
 # Initialize agentfeed
 echo -e "${YELLOW}Initializing agentfeed...${NC}"
-proton action $AGENT_FEED init "{\"owner\":\"$AGENT_FEED\",\"core_contract\":\"$AGENT_CORE\"}" $AGENT_FEED
+proton action $AGENT_FEED init "{\"owner\":\"$OWNER\",\"core_contract\":\"$AGENT_CORE\"}" $AGENT_FEED
 echo -e "${GREEN}✓ agentfeed initialized${NC}"
 
 # Initialize agentvalid
 echo -e "${YELLOW}Initializing agentvalid...${NC}"
-proton action $AGENT_VALID init "{\"owner\":\"$AGENT_VALID\",\"core_contract\":\"$AGENT_CORE\",\"min_stake\":$MIN_VALIDATOR_STAKE}" $AGENT_VALID
+proton action $AGENT_VALID init "{\"owner\":\"$OWNER\",\"core_contract\":\"$AGENT_CORE\",\"min_stake\":$MIN_VALIDATOR_STAKE}" $AGENT_VALID
 echo -e "${GREEN}✓ agentvalid initialized${NC}"
 
 # Initialize agentescrow
 echo -e "${YELLOW}Initializing agentescrow...${NC}"
-proton action $AGENT_ESCROW init "{\"owner\":\"$AGENT_ESCROW\",\"core_contract\":\"$AGENT_CORE\",\"feed_contract\":\"$AGENT_FEED\",\"platform_fee\":$PLATFORM_FEE}" $AGENT_ESCROW
+proton action $AGENT_ESCROW init "{\"owner\":\"$OWNER\",\"core_contract\":\"$AGENT_CORE\",\"feed_contract\":\"$AGENT_FEED\",\"platform_fee\":$PLATFORM_FEE}" $AGENT_ESCROW
 echo -e "${GREEN}✓ agentescrow initialized${NC}"
 
 echo ""
 echo -e "${GREEN}=== Contract Initialization Complete ===${NC}"
+echo -e "${YELLOW}NOTE: After init, use 'setowner' on each contract to transfer ownership if needed.${NC}"

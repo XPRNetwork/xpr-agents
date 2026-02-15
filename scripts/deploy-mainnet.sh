@@ -112,25 +112,31 @@ fi
 # Step 5: Initialize contracts (if first deployment)
 read -p "Initialize contracts? (only for first deployment) (y/n): " init_contracts
 if [ "$init_contracts" == "y" ]; then
+    # Owner receives platform fees — must NOT be agentescrow (causes "cannot transfer to self")
+    read -p "Contract owner / fee recipient account (e.g. protonnz): " OWNER
+    if [ -z "$OWNER" ]; then
+        echo -e "${RED}Owner account is required${NC}"
+        exit 1
+    fi
+
     # Initialize agentcore
     # min_stake: 1000 XPR (in XPR units — getSystemStake divides raw by 10000)
     # claim_fee: 10.0000 XPR = 100000 (in raw units)
-    # Requires: feed_contract, valid_contract, escrow_contract
-    proton action $AGENT_CORE init "{\"owner\":\"$AGENT_CORE\",\"min_stake\":1000,\"claim_fee\":100000,\"feed_contract\":\"$AGENT_FEED\",\"valid_contract\":\"$AGENT_VALID\",\"escrow_contract\":\"$AGENT_ESCROW\"}" $AGENT_CORE
+    proton action $AGENT_CORE init "{\"owner\":\"$OWNER\",\"min_stake\":1000,\"claim_fee\":100000,\"feed_contract\":\"$AGENT_FEED\",\"valid_contract\":\"$AGENT_VALID\",\"escrow_contract\":\"$AGENT_ESCROW\"}" $AGENT_CORE
     echo -e "${GREEN}✓ agentcore initialized${NC}"
 
     # Initialize agentfeed
-    proton action $AGENT_FEED init "{\"owner\":\"$AGENT_FEED\",\"core_contract\":\"$AGENT_CORE\"}" $AGENT_FEED
+    proton action $AGENT_FEED init "{\"owner\":\"$OWNER\",\"core_contract\":\"$AGENT_CORE\"}" $AGENT_FEED
     echo -e "${GREEN}✓ agentfeed initialized${NC}"
 
     # Initialize agentvalid
-    # min_stake: 5000.0000 XPR = 50000000
-    proton action $AGENT_VALID init "{\"owner\":\"$AGENT_VALID\",\"core_contract\":\"$AGENT_CORE\",\"min_stake\":50000000}" $AGENT_VALID
+    # min_stake: 5000.0000 XPR = 50000000 (raw units)
+    proton action $AGENT_VALID init "{\"owner\":\"$OWNER\",\"core_contract\":\"$AGENT_CORE\",\"min_stake\":50000000}" $AGENT_VALID
     echo -e "${GREEN}✓ agentvalid initialized${NC}"
 
     # Initialize agentescrow
     # platform_fee: 100 = 1%
-    proton action $AGENT_ESCROW init "{\"owner\":\"$AGENT_ESCROW\",\"core_contract\":\"$AGENT_CORE\",\"feed_contract\":\"$AGENT_FEED\",\"platform_fee\":100}" $AGENT_ESCROW
+    proton action $AGENT_ESCROW init "{\"owner\":\"$OWNER\",\"core_contract\":\"$AGENT_CORE\",\"feed_contract\":\"$AGENT_FEED\",\"platform_fee\":100}" $AGENT_ESCROW
     echo -e "${GREEN}✓ agentescrow initialized${NC}"
 fi
 
