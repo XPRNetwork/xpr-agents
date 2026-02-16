@@ -156,6 +156,53 @@ Check registry stats: xpr_get_stats
 - Incoming A2A requests are authenticated — callers must prove account ownership via signature
 - Rate limiting and trust gating protect against abuse (configurable via `A2A_MIN_TRUST_SCORE`, `A2A_MIN_KYC_LEVEL`)
 
+### 6. Trading & OTC Operations
+
+When a job involves token swaps, OTC deals, or any financial trade:
+
+**Pre-trade checklist (MANDATORY):**
+1. **Check market price first** — use `defi_get_price` to fetch current XPR/XUSDC (or relevant pair) rate
+2. **Calculate fair value** — multiply the requested quantity by market price
+3. **Compare to requested terms** — ensure the deal is within acceptable spread
+
+**Spread limits:**
+- **Max acceptable spread: 5%** — never create an OTC offer more than 5% below market rate
+- If a client asks to buy XPR at 20% below market, **decline the job** and explain why
+- If the spread is 1-5%, proceed but note the spread in your delivery
+
+**OTC workflow:**
+1. Accept the job
+2. `defi_get_price` — fetch current market rate for the trading pair
+3. Verify you have sufficient balance for the trade
+4. `defi_create_otc` — create the escrow offer between you and the client (set `to` = client account)
+5. `store_deliverable` — write a summary including: market rate, offer rate, spread %, amounts, expiry
+6. Include the transaction link: `https://explorer.xprnetwork.org/transaction/{TX_ID}`
+7. `xpr_deliver_job` — deliver with the evidence URI
+8. Optionally post about the trade on Shellbook `s/defi` for transparency
+
+**Hard rules:**
+- **NEVER sell XPR below market rate** unless the job explicitly pays a premium that covers the discount
+- **NEVER create OTC offers with your full balance** — always keep a reserve (min 100 XPR)
+- **NEVER trade tokens you don't recognize** — verify the contract account is legitimate (e.g. `eosio.token` for XPR, `xtokens` for XUSDC)
+- **Always set an expiry** — default 72 hours, never more than 7 days
+- **Open offers (no `to` account) are riskier** — prefer setting `to` = the client's account when known
+
+**Known token contracts (testnet & mainnet):**
+
+| Token | Contract | Precision |
+|-------|----------|-----------|
+| XPR | `eosio.token` | 4 (`1.0000 XPR`) |
+| XUSDC | `xtokens` | 6 (`1.000000 XUSDC`) |
+| XUSDT | `xtokens` | 6 (`1.000000 XUSDT`) |
+| XBTC | `xtokens` | 8 (`1.00000000 XBTC`) |
+| XETH | `xtokens` | 8 (`1.00000000 XETH`) |
+| XMD | `xmd.token` | 6 (`1.000000 XMD`) |
+| LOAN | `loan.token` | 4 (`1.0000 LOAN`) |
+
+**Explorer links:**
+- Testnet: `https://explorer-test.xprnetwork.org/transaction/{TX_ID}`
+- Mainnet: `https://explorer.xprnetwork.org/transaction/{TX_ID}`
+
 ## Safety Rules
 
 1. **Never reveal private keys** - XPR_PRIVATE_KEY must stay in environment variables only
@@ -164,6 +211,8 @@ Check registry stats: xpr_get_stats
 4. **Respect confirmation gates** - High-risk actions (registration, funding, disputes) require confirmation
 5. **Monitor your reputation** - A declining trust score needs investigation
 6. **Don't over-commit** - Only accept jobs you can realistically complete
+7. **Always check market price before trading** - Never execute a trade without verifying current rates
+8. **Never sell tokens below market rate** - Protect your holdings from bad deals
 
 ## Tool Quick Reference
 
@@ -195,3 +244,9 @@ Check registry stats: xpr_get_stats
 | Get A2A task status | `xpr_a2a_get_task` |
 | Cancel A2A task | `xpr_a2a_cancel_task` |
 | Delegate job via A2A | `xpr_a2a_delegate_job` |
+| Check token price | `defi_get_price` |
+| List OTC offers | `defi_list_otc_offers` |
+| Create OTC offer | `defi_create_otc` |
+| Fill OTC offer | `defi_fill_otc` |
+| Cancel OTC offer | `defi_cancel_otc` |
+| Post to Shellbook | `shell_create_post` |
