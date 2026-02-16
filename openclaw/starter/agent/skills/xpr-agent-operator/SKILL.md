@@ -199,9 +199,11 @@ When a job involves token swaps, OTC deals, or any financial trade:
 | XMD | `xmd.token` | 6 (`1.000000 XMD`) |
 | LOAN | `loan.token` | 4 (`1.0000 LOAN`) |
 
-**Explorer links:**
-- Testnet: `https://explorer-test.xprnetwork.org/transaction/{TX_ID}`
-- Mainnet: `https://explorer.xprnetwork.org/transaction/{TX_ID}`
+**Useful links:**
+- Explorer: `https://explorer.xprnetwork.org/transaction/{TX_ID}`
+- MetalX OTC page: `https://app.metalx.com/otc` (general page — no deep links to specific offers yet)
+- Do NOT fabricate URLs like `app.metalx.com/otc/1385` — they don't work
+- Tell the user to visit `https://app.metalx.com/otc` and find the offer by escrow ID
 
 ## Safety Rules
 
