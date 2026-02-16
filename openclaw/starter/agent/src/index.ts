@@ -138,16 +138,16 @@ const allSkillCapabilities: string[] = [
 // Resolve from npm package or repo-relative paths for local dev
 function findSkillCandidates(): string[] {
   const candidates: string[] = [];
-  // npm install: find package root via require.resolve, then locate skill
-  try {
-    const pkgPath = require.resolve('@xpr-agents/openclaw/package.json');
-    candidates.push(path.resolve(path.dirname(pkgPath), 'skills/xpr-agent-operator/SKILL.md'));
-  } catch { /* not installed via npm */ }
-  // Co-located in skills/ dir (Docker image — highest priority after npm)
+  // Co-located in skills/ dir (Docker image — highest priority, always up to date with repo)
   candidates.push(path.resolve(__dirname, '../skills/xpr-agent-operator/SKILL.md'));
   // Local dev paths (running from openclaw/starter/agent/dist)
   candidates.push(path.resolve(__dirname, '../../../../skills/xpr-agent-operator/SKILL.md'));
   candidates.push(path.resolve(__dirname, '../../../skills/xpr-agent-operator/SKILL.md'));
+  // Fallback: npm package
+  try {
+    const pkgPath = require.resolve('@xpr-agents/openclaw/package.json');
+    candidates.push(path.resolve(path.dirname(pkgPath), 'skills/xpr-agent-operator/SKILL.md'));
+  } catch { /* not installed via npm */ }
   return candidates;
 }
 const skillCandidates = findSkillCandidates();
