@@ -60,7 +60,7 @@ ${BOLD}OPTIONS:${NC}
     --key <private_key>   Account private key
     --api-key <key>       Anthropic API key
     --network <net>       Network: testnet (default) or mainnet
-    --model <model>       Claude model (default: claude-sonnet-4-20250514)
+    --model <model>       Claude model (default: claude-sonnet-4-5-20250929)
     --max-amount <n>      Max XPR transfer in smallest units (default: 1000000)
     --dir <path>          Working directory (default: xpr-agent)
     --non-interactive     Skip all prompts (requires all flags)
@@ -454,7 +454,7 @@ XPR_NETWORK=$NETWORK
 XPR_RPC_ENDPOINT=$RPC_ENDPOINT
 HYPERION_ENDPOINTS=$HYPERION
 ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
-AGENT_MODEL=${AGENT_MODEL:-claude-sonnet-4-20250514}
+AGENT_MODEL=${AGENT_MODEL:-claude-sonnet-4-5-20250929}
 AGENT_MAX_TURNS=10
 MAX_TRANSFER_AMOUNT=${MAX_TRANSFER_AMOUNT:-1000000}
 OPENCLAW_HOOK_TOKEN=$OPENCLAW_HOOK_TOKEN
@@ -501,7 +501,7 @@ services:
       - XPR_NETWORK=${XPR_NETWORK:-testnet}
       - INDEXER_URL=http://indexer:3001
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - AGENT_MODEL=${AGENT_MODEL:-claude-sonnet-4-20250514}
+      - AGENT_MODEL=${AGENT_MODEL:-claude-sonnet-4-5-20250929}
       - AGENT_MAX_TURNS=${AGENT_MAX_TURNS:-10}
       - MAX_TRANSFER_AMOUNT=${MAX_TRANSFER_AMOUNT:-1000000}
       - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN}

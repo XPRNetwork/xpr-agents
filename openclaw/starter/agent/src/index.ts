@@ -274,7 +274,7 @@ function getAnthropicTools(): Anthropic.Messages.Tool[] {
 
 const anthropic = new Anthropic();
 const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '20');
-const MODEL = process.env.AGENT_MODEL || 'claude-sonnet-4-20250514';
+const MODEL = process.env.AGENT_MODEL || 'claude-sonnet-4-5-20250929';
 
 // A2A authentication config
 const a2aAuthConfig: A2AAuthConfig = {
