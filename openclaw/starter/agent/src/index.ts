@@ -143,6 +143,8 @@ function findSkillCandidates(): string[] {
     const pkgPath = require.resolve('@xpr-agents/openclaw/package.json');
     candidates.push(path.resolve(path.dirname(pkgPath), 'skills/xpr-agent-operator/SKILL.md'));
   } catch { /* not installed via npm */ }
+  // Co-located in skills/ dir (Docker image — highest priority after npm)
+  candidates.push(path.resolve(__dirname, '../skills/xpr-agent-operator/SKILL.md'));
   // Local dev paths (running from openclaw/starter/agent/dist)
   candidates.push(path.resolve(__dirname, '../../../../skills/xpr-agent-operator/SKILL.md'));
   candidates.push(path.resolve(__dirname, '../../../skills/xpr-agent-operator/SKILL.md'));
