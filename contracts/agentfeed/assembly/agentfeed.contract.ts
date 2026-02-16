@@ -402,22 +402,48 @@ export class AgentRef extends Table {
   }
 }
 
+// Structs matching eosio.proton ABI for binary-correct cross-contract reads
+@packer
+export class TupleNameName {
+  constructor(
+    public field_0: Name = EMPTY_NAME,
+    public field_1: Name = EMPTY_NAME
+  ) {}
+}
+
+@packer
+export class TupleNameString {
+  constructor(
+    public field_0: Name = EMPTY_NAME,
+    public field_1: string = ""
+  ) {}
+}
+
+@packer
+export class KycProv {
+  constructor(
+    public kyc_provider: Name = EMPTY_NAME,
+    public kyc_level: string = "",       // Claims string e.g. "metal.kyc:address,metal.kyc:selfie,..."
+    public kyc_date: u64 = 0
+  ) {}
+}
+
 // External table reference for KYC lookup
-// CRITICAL: Schema must match eosio.proton::usersinfo exactly
+// CRITICAL: Schema must match eosio.proton::usersinfo exactly (positional binary serialization)
 @table("usersinfo", "eosio.proton")
 export class UserInfo extends Table {
   constructor(
     public acc: Name = EMPTY_NAME,
     public name: string = "",
     public avatar: string = "",
-    public verified: u8 = 0,              // 0 = unverified, 1 = verified (must be u8, not boolean)
+    public verified: boolean = false,    // bool on-chain
     public date: u64 = 0,
     public verifiedon: u64 = 0,
     public verifier: Name = EMPTY_NAME,
     public raccs: Name[] = [],
-    public aacts: string[] = [],
-    public ac: u64[] = [],
-    public kyc: u8[] = []                 // KYC levels array
+    public aacts: TupleNameName[] = [],  // tuple_name_name[]
+    public ac: TupleNameString[] = [],   // tuple_name_string[]
+    public kyc: KycProv[] = []           // kyc_prov[] — NOT u8[]
   ) {
     super();
   }
@@ -1686,16 +1712,23 @@ export class AgentFeedContract extends Contract {
     const userInfo = this.userInfoTable.get(account.N);
 
     if (userInfo == null) return 0;
-
-    // KYC array contains levels for different types
-    // We use the highest level achieved
     if (userInfo.kyc.length == 0) return 0;
 
+    // kyc is KycProv[] — each entry has kyc_provider, kyc_level (claims string), kyc_date
+    // Derive numeric level from number of claims in the kyc_level string
+    // No entries = 0, 1-2 claims = 1, 3-4 = 2, 5+ = 3
     let maxLevel: u8 = 0;
     for (let i = 0; i < userInfo.kyc.length; i++) {
-      if (userInfo.kyc[i] > maxLevel) {
-        maxLevel = userInfo.kyc[i];
+      const claims = userInfo.kyc[i].kyc_level;
+      if (claims.length == 0) continue;
+      let count: u8 = 1;
+      for (let j = 0; j < claims.length; j++) {
+        if (claims.charCodeAt(j) == 44) count++; // 44 = ','
       }
+      let level: u8 = 1;
+      if (count >= 5) level = 3;
+      else if (count >= 3) level = 2;
+      if (level > maxLevel) maxLevel = level;
     }
 
     // Cap at level 3
