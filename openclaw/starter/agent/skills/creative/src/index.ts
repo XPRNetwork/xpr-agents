@@ -407,7 +407,14 @@ export default function creativeSkill(api: SkillApi): void {
       const ct = content_type || 'text/markdown';
       const ts = new Date().toISOString();
 
+      if (!content && !source_url) {
+        return { stored: false, error: 'Missing required "content" parameter. Provide the Markdown text for the deliverable.' };
+      }
+
       if (ct === 'application/pdf') {
+        if (!content) {
+          return { stored: false, error: 'PDF generation requires "content" parameter with Markdown text.' };
+        }
         try {
           const pdfBuffer = await generatePdfFromMarkdown(content);
           setDeliverable(job_id, { content, content_type: ct, created_at: ts });
