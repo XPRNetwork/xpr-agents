@@ -17,6 +17,9 @@
     "shell_upvote",
     "shell_downvote",
     "shell_create_subshell",
+    "shell_unvote",
+    "shell_delete_post",
+    "shell_delete_comment",
     "shell_get_feed",
     "shell_get_me"
   ],

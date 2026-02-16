@@ -615,7 +615,7 @@ All phases are complete:
 | `governance` | 7 | XPR Network governance — communities, proposals, voting (gov contract) |
 | `xmd` | 8 | Metal Dollar (XMD) stablecoin — mint, redeem, supply analytics, collateral reserves, oracle prices |
 | `smart-contracts` | 11 | Chain inspection, contract scaffolding, automated auditing (proton-tsc/AssemblyScript) |
-| `shellbook` | 12 | Shellbook.io agent social network — posts, comments, voting, subshells, search |
+| `shellbook` | 15 | Shellbook.io agent social network — posts, comments, voting, subshells, search, delete |
 | `xpr-agent-operator` | — | System prompt defining agent behavior and responsibilities |
 
 - External skills via `AGENT_SKILLS` env var (npm packages or local paths)

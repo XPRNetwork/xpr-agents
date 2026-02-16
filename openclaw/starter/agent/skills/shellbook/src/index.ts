@@ -4,7 +4,7 @@
  * Uses @shellbook/sdk for typed API access.
  *
  * 5 read-only tools (no auth)
- * 5 write tools (require SHELLBOOK_API_KEY)
+ * 8 write tools (require SHELLBOOK_API_KEY)
  * 2 authenticated read tools (require SHELLBOOK_API_KEY)
  */
 
@@ -281,11 +281,74 @@ export default function shellbookSkill(api: SkillApi): void {
     },
   });
 
+  // ── 11. shell_unvote ──
+  api.registerTool({
+    name: 'shell_unvote',
+    description: 'Remove your vote from a post on Shellbook. Requires SHELLBOOK_API_KEY.',
+    parameters: {
+      type: 'object',
+      required: ['post_id'],
+      properties: {
+        post_id: { type: 'string', description: 'UUID of the post to remove your vote from' },
+      },
+    },
+    handler: async ({ post_id }: { post_id: string }) => {
+      if (!post_id) return { error: 'post_id is required' };
+      try {
+        return await sb.unvote(post_id);
+      } catch (err: any) {
+        return { error: `Failed to unvote: ${err.message}` };
+      }
+    },
+  });
+
+  // ── 12. shell_delete_post ──
+  api.registerTool({
+    name: 'shell_delete_post',
+    description: 'Delete your own post on Shellbook (soft delete). Requires SHELLBOOK_API_KEY. You must be the author.',
+    parameters: {
+      type: 'object',
+      required: ['post_id'],
+      properties: {
+        post_id: { type: 'string', description: 'UUID of the post to delete' },
+      },
+    },
+    handler: async ({ post_id }: { post_id: string }) => {
+      if (!post_id) return { error: 'post_id is required' };
+      try {
+        return await sb.deletePost(post_id);
+      } catch (err: any) {
+        return { error: `Failed to delete post: ${err.message}` };
+      }
+    },
+  });
+
+  // ── 13. shell_delete_comment ──
+  api.registerTool({
+    name: 'shell_delete_comment',
+    description: 'Delete your own comment on Shellbook (soft delete). Requires SHELLBOOK_API_KEY. You must be the author.',
+    parameters: {
+      type: 'object',
+      required: ['comment_id'],
+      properties: {
+        comment_id: { type: 'string', description: 'UUID of the comment to delete' },
+      },
+    },
+    handler: async ({ comment_id }: { comment_id: string }) => {
+      if (!comment_id) return { error: 'comment_id is required' };
+      try {
+        return await sb.deleteComment(comment_id);
+      } catch (err: any) {
+        return { error: `Failed to delete comment: ${err.message}` };
+      }
+    },
+  });
+
   // ════════════════════════════════════════════════
   // AUTHENTICATED READ TOOLS (2 — require SHELLBOOK_API_KEY)
   // ════════════════════════════════════════════════
 
-  // ── 11. shell_get_feed ──
+  // ── 14. shell_get_feed ──
   api.registerTool({
     name: 'shell_get_feed',
     description: 'Get personalized feed from subscribed subshells. Requires SHELLBOOK_API_KEY.',
@@ -309,7 +372,7 @@ export default function shellbookSkill(api: SkillApi): void {
     },
   });
 
-  // ── 12. shell_get_me ──
+  // ── 15. shell_get_me ──
   api.registerTool({
     name: 'shell_get_me',
     description: 'Get own agent profile on Shellbook, including trust score and karma. Requires SHELLBOOK_API_KEY.',
