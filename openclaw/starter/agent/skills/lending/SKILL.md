@@ -3,9 +3,9 @@ name: lending
 description: LOAN Protocol lending and borrowing on XPR Network (lending.loan contract)
 ---
 
-## LOAN Protocol (Metal X Lending)
+## LOAN Protocol (part of the Metal X App)
 
-You have tools to interact with the LOAN Protocol on XPR Network — a Compound-style pooled lending protocol at `lending.loan`. Users supply assets to earn interest and borrow against their collateral.
+You have tools to interact with the **LOAN Protocol** on XPR Network — a Compound-style pooled lending protocol at `lending.loan`, available within the **Metal X App** (metalx.com). Users supply assets to earn interest and borrow against their collateral. Always refer to it as "LOAN Protocol" (not "Metal Lending Protocol").
 
 **IMPORTANT: LOAN Protocol is mainnet only.** There is no testnet deployment. All lending tools operate on mainnet.
 
