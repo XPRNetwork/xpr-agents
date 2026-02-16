@@ -1,0 +1,25 @@
+{
+  "name": "smart-contracts",
+  "version": "1.0.0",
+  "description": "XPR Network smart contract development — chain inspection, code scaffolding, and automated auditing",
+  "author": "xpr-agents",
+  "category": "development",
+  "tags": ["smart-contracts", "proton-tsc", "assemblyscript", "wasm", "eosio", "audit"],
+  "capabilities": ["chain-inspection", "contract-scaffolding", "contract-auditing", "table-queries"],
+  "tools": [
+    "sc_get_abi",
+    "sc_get_table_schema",
+    "sc_read_table",
+    "sc_get_account_info",
+    "sc_get_chain_info",
+    "sc_get_action_history",
+    "sc_scaffold_contract",
+    "sc_scaffold_table",
+    "sc_scaffold_action",
+    "sc_scaffold_test",
+    "sc_audit_contract"
+  ],
+  "requires": {
+    "env": []
+  }
+}

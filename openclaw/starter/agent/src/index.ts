@@ -108,7 +108,11 @@ const governanceSkill = loadBuiltinSkill(governanceSkillDir, tools);
 const xmdSkillDir = path.resolve(__dirname, '../skills/xmd');
 const xmdSkill = loadBuiltinSkill(xmdSkillDir, tools);
 
-// 11. External skills from AGENT_SKILLS env var
+// 11. Built-in smart-contracts skill (always loaded — chain inspection, scaffolding, auditing)
+const smartContractsSkillDir = path.resolve(__dirname, '../skills/smart-contracts');
+const smartContractsSkill = loadBuiltinSkill(smartContractsSkillDir, tools);
+
+// 12. External skills from AGENT_SKILLS env var
 const skillResult: SkillLoadResult = loadSkills(tools);
 const allSkillCapabilities: string[] = [
   ...(creativeSkill?.manifest.capabilities || []),
@@ -121,6 +125,7 @@ const allSkillCapabilities: string[] = [
   ...(lendingSkill?.manifest.capabilities || []),
   ...(governanceSkill?.manifest.capabilities || []),
   ...(xmdSkill?.manifest.capabilities || []),
+  ...(smartContractsSkill?.manifest.capabilities || []),
   ...skillResult.capabilities,
 ];
 
@@ -235,6 +240,9 @@ if (nftSkill?.promptSection) {
 if (taxSkill?.promptSection) {
   systemPrompt += `\n\n## Skill: ${taxSkill.manifest.name}\n${taxSkill.promptSection}`;
 }
+if (smartContractsSkill?.promptSection) {
+  systemPrompt += `\n\n## Skill: ${smartContractsSkill.manifest.name}\n${smartContractsSkill.promptSection}`;
+}
 for (const section of skillResult.promptSections) {
   systemPrompt += `\n\n${section}`;
 }
@@ -271,7 +279,7 @@ const a2aAuthConfig: A2AAuthConfig = {
 
 // A2A tool sandboxing
 const a2aToolMode = (process.env.A2A_TOOL_MODE || 'full') as 'full' | 'readonly';
-const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_get_') || t.name.startsWith('defi_list_') || t.name.startsWith('nft_get_') || t.name.startsWith('nft_list_') || t.name.startsWith('nft_search_') || t.name.startsWith('tax_') || t.name.startsWith('loan_list_') || t.name.startsWith('loan_get_') || t.name.startsWith('gov_list_') || t.name.startsWith('gov_get_') || t.name.startsWith('xmd_get_') || t.name.startsWith('xmd_list_'));
+const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_get_') || t.name.startsWith('defi_list_') || t.name.startsWith('nft_get_') || t.name.startsWith('nft_list_') || t.name.startsWith('nft_search_') || t.name.startsWith('tax_') || t.name.startsWith('loan_list_') || t.name.startsWith('loan_get_') || t.name.startsWith('gov_list_') || t.name.startsWith('gov_get_') || t.name.startsWith('xmd_get_') || t.name.startsWith('xmd_list_') || t.name.startsWith('sc_get_') || t.name === 'sc_read_table');
 function getReadonlyAnthropicTools(): Anthropic.Messages.Tool[] {
   return [
     { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Messages.Tool,

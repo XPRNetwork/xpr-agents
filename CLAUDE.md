@@ -601,7 +601,7 @@ All phases are complete:
 
 ### Phase 8: Agent Skills System ✓
 - Built-in skill loader (`skill-loader.ts`) with manifest validation, prompt injection, and tool collision detection
-- **10 built-in skills** always loaded by the agent runner:
+- **11 built-in skills** always loaded by the agent runner:
 
 | Skill | Tools | Description |
 |-------|-------|-------------|
@@ -614,11 +614,12 @@ All phases are complete:
 | `nft` | 23 | Full AtomicAssets/AtomicMarket lifecycle (see below) |
 | `governance` | 7 | XPR Network governance — communities, proposals, voting (gov contract) |
 | `xmd` | 8 | Metal Dollar (XMD) stablecoin — mint, redeem, supply analytics, collateral reserves, oracle prices |
+| `smart-contracts` | 11 | Chain inspection, contract scaffolding, automated auditing (proton-tsc/AssemblyScript) |
 | `xpr-agent-operator` | — | System prompt defining agent behavior and responsibilities |
 
 - External skills via `AGENT_SKILLS` env var (npm packages or local paths)
 - Each skill provides: `skill.json` manifest, `SKILL.md` prompt section, `src/index.ts` tool handlers
-- A2A sandbox: read-only tools (`nft_get_*`, `nft_list_*`, `nft_search_*`, `defi_get_*`, `defi_list_*`, `loan_list_*`, `loan_get_*`, `gov_list_*`, `gov_get_*`, `xmd_get_*`, `xmd_list_*`) exposed in readonly mode
+- A2A sandbox: read-only tools (`nft_get_*`, `nft_list_*`, `nft_search_*`, `defi_get_*`, `defi_list_*`, `loan_list_*`, `loan_get_*`, `gov_list_*`, `gov_get_*`, `xmd_get_*`, `xmd_list_*`, `sc_get_*`, `sc_read_table`) exposed in readonly mode
 
 ### NFT Skill (AtomicAssets/AtomicMarket) ✓
 - **23 tools**: 11 read-only + 12 write (all write ops require `confirmed: true`)
@@ -723,11 +724,15 @@ xpr-agents/
 │   │           ├── defi/        # Token prices, swap rates, pools, msig proposals
 │   │           ├── lending/     # LOAN Protocol supply, borrow, repay, rewards (15 tools)
 │   │           ├── governance/  # XPR Network governance — proposals, voting (7 tools)
-│   │           └── xmd/         # Metal Dollar stablecoin — mint, redeem, analytics (8 tools)
-│   │           └── nft/         # AtomicAssets/AtomicMarket NFT lifecycle (23 tools)
-│   │               ├── skill.json   # Manifest
-│   │               ├── SKILL.md     # Agent prompt section
-│   │               └── src/index.ts # Tool handlers
+│   │           ├── xmd/         # Metal Dollar stablecoin — mint, redeem, analytics (8 tools)
+│   │           ├── nft/         # AtomicAssets/AtomicMarket NFT lifecycle (23 tools)
+│   │           │   ├── skill.json   # Manifest
+│   │           │   ├── SKILL.md     # Agent prompt section
+│   │           │   └── src/index.ts # Tool handlers
+│   │           └── smart-contracts/ # Chain inspection, scaffolding, auditing (11 tools)
+│   │               ├── skill.json
+│   │               ├── SKILL.md
+│   │               └── src/index.ts
 │   └── tests/
 │       ├── tools.test.ts
 │       ├── confirm.test.ts
