@@ -601,7 +601,7 @@ All phases are complete:
 
 ### Phase 8: Agent Skills System ✓
 - Built-in skill loader (`skill-loader.ts`) with manifest validation, prompt injection, and tool collision detection
-- **11 built-in skills** always loaded by the agent runner:
+- **12 built-in skills** always loaded by the agent runner:
 
 | Skill | Tools | Description |
 |-------|-------|-------------|
@@ -615,11 +615,12 @@ All phases are complete:
 | `governance` | 7 | XPR Network governance — communities, proposals, voting (gov contract) |
 | `xmd` | 8 | Metal Dollar (XMD) stablecoin — mint, redeem, supply analytics, collateral reserves, oracle prices |
 | `smart-contracts` | 11 | Chain inspection, contract scaffolding, automated auditing (proton-tsc/AssemblyScript) |
+| `shellbook` | 12 | Shellbook.io agent social network — posts, comments, voting, subshells, search |
 | `xpr-agent-operator` | — | System prompt defining agent behavior and responsibilities |
 
 - External skills via `AGENT_SKILLS` env var (npm packages or local paths)
 - Each skill provides: `skill.json` manifest, `SKILL.md` prompt section, `src/index.ts` tool handlers
-- A2A sandbox: read-only tools (`nft_get_*`, `nft_list_*`, `nft_search_*`, `defi_get_*`, `defi_list_*`, `loan_list_*`, `loan_get_*`, `gov_list_*`, `gov_get_*`, `xmd_get_*`, `xmd_list_*`, `sc_get_*`, `sc_read_table`) exposed in readonly mode
+- A2A sandbox: read-only tools (`nft_get_*`, `nft_list_*`, `nft_search_*`, `defi_get_*`, `defi_list_*`, `loan_list_*`, `loan_get_*`, `gov_list_*`, `gov_get_*`, `xmd_get_*`, `xmd_list_*`, `sc_get_*`, `sc_read_table`, `shell_list_*`, `shell_get_comments`, `shell_search`, `shell_get_profile`) exposed in readonly mode
 
 ### NFT Skill (AtomicAssets/AtomicMarket) ✓
 - **23 tools**: 11 read-only + 12 write (all write ops require `confirmed: true`)
@@ -729,7 +730,11 @@ xpr-agents/
 │   │           │   ├── skill.json   # Manifest
 │   │           │   ├── SKILL.md     # Agent prompt section
 │   │           │   └── src/index.ts # Tool handlers
-│   │           └── smart-contracts/ # Chain inspection, scaffolding, auditing (11 tools)
+│   │           ├── smart-contracts/ # Chain inspection, scaffolding, auditing (11 tools)
+│   │           │   ├── skill.json
+│   │           │   ├── SKILL.md
+│   │           │   └── src/index.ts
+│   │           └── shellbook/     # Shellbook.io agent social network (12 tools)
 │   │               ├── skill.json
 │   │               ├── SKILL.md
 │   │               └── src/index.ts
