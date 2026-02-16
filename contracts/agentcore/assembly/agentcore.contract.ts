@@ -63,21 +63,48 @@ export class VoterInfo extends Table {
   }
 }
 
+// Structs matching eosio.proton ABI for binary-correct cross-contract reads
+@packer
+export class TupleNameName {
+  constructor(
+    public field_0: Name = EMPTY_NAME,
+    public field_1: Name = EMPTY_NAME
+  ) {}
+}
+
+@packer
+export class TupleNameString {
+  constructor(
+    public field_0: Name = EMPTY_NAME,
+    public field_1: string = ""
+  ) {}
+}
+
+@packer
+export class KycProv {
+  constructor(
+    public kyc_provider: Name = EMPTY_NAME,
+    public kyc_level: string = "",       // Claims string e.g. "metal.kyc:address,metal.kyc:selfie,..."
+    public kyc_date: u64 = 0
+  ) {}
+}
+
 // Read KYC info from eosio.proton::usersinfo table
+// CRITICAL: Schema must match eosio.proton ABI exactly (positional binary serialization)
 @table("usersinfo", noabigen)
 export class UserInfo extends Table {
   constructor(
     public acc: Name = EMPTY_NAME,
     public name: string = "",
     public avatar: string = "",
-    public verified: u8 = 0,             // 0 = unverified, 1 = verified
+    public verified: boolean = false,    // bool on-chain
     public date: u64 = 0,
     public verifiedon: u64 = 0,
     public verifier: Name = EMPTY_NAME,
     public raccs: Name[] = [],
-    public aacts: string[] = [],
-    public ac: u64[] = [],
-    public kyc: u8[] = []                // KYC levels array
+    public aacts: TupleNameName[] = [],  // tuple_name_name[]
+    public ac: TupleNameString[] = [],   // tuple_name_string[]
+    public kyc: KycProv[] = []           // kyc_prov[] — NOT u8[]
   ) {
     super();
   }
@@ -310,12 +337,22 @@ export class AgentCoreContract extends Contract {
     if (user == null) {
       return 0;
     }
-    // Return max KYC level from array, or 0 if empty
+    // kyc is KycProv[] — each entry has kyc_provider, kyc_level (claims string), kyc_date
+    // Derive numeric level from number of claims in the kyc_level string
+    // No entries = 0, 1-2 claims = 1, 3-4 = 2, 5+ = 3
     let maxLevel: u8 = 0;
     for (let i = 0; i < user.kyc.length; i++) {
-      if (user.kyc[i] > maxLevel) {
-        maxLevel = user.kyc[i];
+      const claims = user.kyc[i].kyc_level;
+      if (claims.length == 0) continue;
+      // Count comma-separated claims
+      let count: u8 = 1;
+      for (let j = 0; j < claims.length; j++) {
+        if (claims.charCodeAt(j) == 44) count++; // 44 = ','
       }
+      let level: u8 = 1;
+      if (count >= 5) level = 3;
+      else if (count >= 3) level = 2;
+      if (level > maxLevel) maxLevel = level;
     }
     return maxLevel;
   }

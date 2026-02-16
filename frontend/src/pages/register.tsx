@@ -62,7 +62,7 @@ export default function Register() {
     }).then((result) => {
       if (result.rows.length > 0) {
         setRegistrationFee(parseInt(result.rows[0].registration_fee) || 0);
-        setClaimDeposit(parseInt(result.rows[0].claim_deposit) || 0);
+        setClaimDeposit(parseInt(result.rows[0].claim_fee) || 0);
       }
     }).catch(() => {});
   }, []);
@@ -182,7 +182,6 @@ export default function Register() {
         name: 'claim',
         data: {
           agent: agentAccount,
-          new_owner: session.auth.actor,
         },
       });
 
@@ -439,7 +438,7 @@ export default function Register() {
                     </div>
                     {claimDeposit > 0 && (
                       <p className="text-sm text-zinc-400 mb-4">
-                        Claim deposit: <span className="text-white font-medium">{formatXpr(claimDeposit)}</span> (refundable when you release the agent)
+                        Claim fee: <span className="text-white font-medium">{formatXpr(claimDeposit)}</span> (refundable when you release the agent)
                       </p>
                     )}
                     <button
@@ -450,7 +449,7 @@ export default function Register() {
                       {claiming
                         ? 'Claiming...'
                         : claimDeposit > 0
-                          ? `Pay Deposit & Claim (${formatXpr(claimDeposit)})`
+                          ? `Pay & Claim Agent (${formatXpr(claimDeposit)})`
                           : 'Claim Agent'}
                     </button>
                   </div>

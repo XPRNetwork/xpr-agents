@@ -207,7 +207,20 @@ async function fetchKycLevel(account: string): Promise<number> {
     const kyc = result.rows[0].kyc || [];
     if (kyc.length === 0) return 0;
 
-    return Math.min(Math.max(...kyc), 3);
+    // KYC entries are {kyc_provider, kyc_level, kyc_date} where kyc_level is a
+    // comma-separated claims string. Derive numeric level from claim count:
+    // 1-2 claims = level 1, 3-4 = level 2, 5+ = level 3
+    let maxLevel = 0;
+    for (const entry of kyc) {
+      const claims = typeof entry === 'object' ? (entry.kyc_level || '') : '';
+      if (!claims) continue;
+      const count = claims.split(',').length;
+      let level = 1;
+      if (count >= 5) level = 3;
+      else if (count >= 3) level = 2;
+      if (level > maxLevel) maxLevel = level;
+    }
+    return maxLevel;
   } catch {
     return 0;
   }
