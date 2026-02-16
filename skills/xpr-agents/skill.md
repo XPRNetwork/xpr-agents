@@ -724,6 +724,148 @@ proton action eosio voteproducer '{"voter":"myagent","proxy":"","producers":["ca
 
 ---
 
+## Account Creation
+
+Creating XPR accounts programmatically for agents or platform accounts.
+
+### Creating an Account
+
+```typescript
+const { JsonRpc, Api, JsSignatureProvider, Key } = require('@proton/js');
+
+const rpc = new JsonRpc('https://proton.eosusa.io');
+const signatureProvider = new JsSignatureProvider([creatorPrivateKey]);
+const api = new Api({ rpc, signatureProvider });
+
+// Generate a new key pair
+const newPrivKey = Key.PrivateKey.generate('K1');
+const newPubKey = newPrivKey.getPublicKey().toLegacyString();
+
+await api.transact({
+  actions: [
+    {
+      account: 'eosio',
+      name: 'newaccount',
+      authorization: [{ actor: 'creatoracct', permission: 'active' }],
+      data: {
+        creator: 'creatoracct',
+        name: 'newaccount',
+        owner: {
+          threshold: 1,
+          keys: [{ key: newPubKey, weight: 1 }],
+          accounts: [
+            // Optional: add a backup account to owner permission
+            { permission: { actor: 'backupacct', permission: 'active' }, weight: 1 }
+          ],
+          waits: []
+        },
+        active: {
+          threshold: 1,
+          keys: [{ key: newPubKey, weight: 1 }],
+          accounts: [],
+          waits: []
+        }
+      }
+    },
+    {
+      account: 'eosio',
+      name: 'buyrambytes',
+      authorization: [{ actor: 'creatoracct', permission: 'active' }],
+      data: {
+        payer: 'creatoracct',
+        receiver: 'newaccount',
+        bytes: 4096  // Minimum RAM
+      }
+    }
+  ]
+}, { blocksBehind: 3, expireSeconds: 30 });
+```
+
+### Registering for Free Network Resources (CRITICAL)
+
+After creating an account with `eosio::newaccount`, the account will have **zero CPU and NET** and cannot transact. You **must** call `eosio.proton::newaccres` to register the account for XPR Network's free resource allocation.
+
+```typescript
+// CRITICAL: Without this, the account cannot send any transactions!
+await api.transact({
+  actions: [{
+    account: 'eosio.proton',
+    name: 'newaccres',
+    authorization: [{ actor: 'newaccount', permission: 'active' }],
+    data: { account: 'newaccount' }
+  }]
+}, { blocksBehind: 3, expireSeconds: 30 });
+```
+
+**Problem:** The new account has 0 CPU/NET, so it can't even call `newaccres`. Use the **bootstrap pattern** — have an existing account as the first authorizer to pay for resources:
+
+```typescript
+// Bootstrap: existing account pays for the tx resources
+await api.transact({
+  actions: [
+    {
+      // First action: existing account pays CPU/NET
+      account: 'eosio.token',
+      name: 'transfer',
+      authorization: [{ actor: 'existingacct', permission: 'active' }],
+      data: {
+        from: 'existingacct',
+        to: 'newaccount',
+        quantity: '0.0001 XPR',
+        memo: 'bootstrap resources'
+      }
+    },
+    {
+      // Second action: register for free resources
+      account: 'eosio.proton',
+      name: 'newaccres',
+      authorization: [{ actor: 'newaccount', permission: 'active' }],
+      data: { account: 'newaccount' }
+    }
+  ]
+}, { blocksBehind: 3, expireSeconds: 30 });
+// Both private keys must be in the signatureProvider
+```
+
+After `newaccres`, the account gets free CPU and NET from the network — **no staking required for basic transactions**.
+
+### Setting Display Name
+
+```typescript
+await api.transact({
+  actions: [{
+    account: 'eosio.proton',
+    name: 'setusername',
+    authorization: [{ actor: 'newaccount', permission: 'active' }],
+    data: { acc: 'newaccount', name: 'Display Name' }
+  }]
+}, { blocksBehind: 3, expireSeconds: 30 });
+```
+
+### Via CLI
+
+```bash
+# Create account
+proton account:create newaccount
+
+# If created manually, register for free resources
+proton action eosio.proton newaccres '{"account":"newaccount"}' newaccount
+
+# Set display name
+proton action eosio.proton setusername '{"acc":"newaccount","name":"Display Name"}' newaccount
+```
+
+### Key Points
+
+- **`newaccres` is mandatory** — without it, accounts created via `eosio::newaccount` have 0 CPU/NET and are effectively frozen
+- **Normal account creation** (via wallet/CLI `account:create`) handles this automatically
+- **Programmatic creation** via raw `newaccount` action skips this step — you must call it yourself
+- **Bootstrap pattern** — use an existing account as first authorizer when the new account has no resources
+- **Account names** — 1-12 characters, lowercase a-z and 1-5 only
+- **RAM** — minimum ~4KB needed, creator pays
+
+---
+
 ## Installation
 
 ```bash
