@@ -96,19 +96,20 @@ export function handleFeedbackAction(db: Database.Database, action: StreamAction
 }
 
 function handleSubmit(db: Database.Database, data: any, timestamp: string): void {
-  const feedbackStmt = db.prepare(`
-    INSERT INTO feedback (id, agent, reviewer, reviewer_kyc_level, score, tags, job_hash, evidence_uri, amount_paid, timestamp, disputed, resolved)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
-  `);
+  const ts = Math.floor(new Date(timestamp).getTime() / 1000);
 
   // Generate ID based on existing count
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM feedback');
   const result = countStmt.get() as { max_id: number | null };
   const id = (result.max_id || 0) + 1;
 
-  const ts = Math.floor(new Date(timestamp).getTime() / 1000);
+  // INSERT OR IGNORE prevents duplicates when sync + poller process the same action
+  const feedbackStmt = db.prepare(`
+    INSERT OR IGNORE INTO feedback (id, agent, reviewer, reviewer_kyc_level, score, tags, job_hash, evidence_uri, amount_paid, timestamp, disputed, resolved)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+  `);
 
-  feedbackStmt.run(
+  const changes = feedbackStmt.run(
     id,
     data.agent,
     data.reviewer,
@@ -124,6 +125,11 @@ function handleSubmit(db: Database.Database, data: any, timestamp: string): void
     data.amount_paid || 0,
     ts
   );
+
+  if (changes.changes === 0) {
+    console.log(`Feedback skipped (duplicate): ${data.reviewer} -> ${data.agent}`);
+    return;
+  }
 
   // Update agent score
   updateAgentScore(db, data.agent);

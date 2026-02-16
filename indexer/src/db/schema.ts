@@ -58,6 +58,7 @@ export function initDatabase(dbPath: string): Database.Database {
       resolved INTEGER DEFAULT 0,
       FOREIGN KEY (agent) REFERENCES agents(account)
     );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_dedup ON feedback(agent, reviewer, timestamp);
 
     -- Feedback Disputes table (maps dispute_id -> feedback_id)
     CREATE TABLE IF NOT EXISTS feedback_disputes (
