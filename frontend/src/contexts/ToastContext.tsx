@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { getNetworkConfig } from '../lib/networks';
 
 export interface Toast {
   id: number;
@@ -15,10 +16,9 @@ interface ToastContextType {
 
 const ToastContext = createContext<ToastContextType | null>(null);
 
-const isMainnet = process.env.NEXT_PUBLIC_NETWORK === 'mainnet';
-const EXPLORER_URL = isMainnet
-  ? 'https://explorer.xprnetwork.org/transaction'
-  : 'https://testnet.explorer.xprnetwork.org/transaction';
+function getExplorerTxUrl() {
+  return `${getNetworkConfig().explorer}/transaction`;
+}
 
 let nextId = 0;
 
@@ -87,7 +87,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 </p>
                 {toast.txId && (
                   <a
-                    href={`${EXPLORER_URL}/${toast.txId}`}
+                    href={`${getExplorerTxUrl()}/${toast.txId}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 mt-1.5 text-xs text-zinc-400 hover:text-white transition-colors group"

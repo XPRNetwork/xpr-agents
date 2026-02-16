@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import { AccountAvatar } from './AccountAvatar';
+import { getNetworkConfig } from '../lib/networks';
 
-const isMainnet = process.env.NEXT_PUBLIC_NETWORK === 'mainnet';
-const EXPLORER_ACCOUNT_URL = isMainnet
-  ? 'https://explorer.xprnetwork.org/account'
-  : 'https://testnet.explorer.xprnetwork.org/account';
+function getExplorerAccountUrl() {
+  return `${getNetworkConfig().explorer}/account`;
+}
 
 interface AccountLinkProps {
   account: string;
@@ -45,7 +45,7 @@ export function AccountLink({
 
   return (
     <a
-      href={`${EXPLORER_ACCOUNT_URL}/${account}`}
+      href={`${getExplorerAccountUrl()}/${account}`}
       target="_blank"
       rel="noopener noreferrer"
       className={`inline-flex items-center gap-1.5 text-zinc-300 hover:text-proton-purple hover:underline ${className}`}
