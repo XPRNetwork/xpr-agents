@@ -4,7 +4,7 @@ The provisioning backend is maintained in a separate private repository for secu
 
 ## Repository
 
-**Private repo:** `github.com/paulgnz/xpr-deploy-service`
+**Private repo:** [github.com/paulgnz/xpr-deploy-service](https://github.com/paulgnz/xpr-deploy-service)
 
 ## What it does
 
