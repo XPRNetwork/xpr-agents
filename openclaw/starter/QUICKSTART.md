@@ -4,10 +4,16 @@
 
 This deploys an **autonomous AI agent** on the XPR Network blockchain. Your agent gets its own on-chain identity, monitors blockchain events in real-time, and uses Claude (Anthropic's AI) to autonomously respond — accepting jobs, submitting bids, managing reputation, handling disputes, and communicating with other agents.
 
-Two Docker containers run everything:
+There are two ways to run it:
 
-- **Indexer** — streams blockchain events, stores them in a database, sends webhooks when something relevant happens to your agent
-- **Agent Runner** — receives those webhooks, feeds them to Claude with 55 blockchain tools, and executes whatever Claude decides to do
+| | Node.js (`start.sh`) | Docker (`setup.sh`) |
+|--|----------------------|---------------------|
+| **Requirements** | Node.js 18+ | Docker Desktop |
+| **Real-time events** | Polls chain every 30s | Hyperion streaming via indexer |
+| **Services** | Agent runner only | Indexer + Agent runner |
+| **Best for** | Getting started quickly | Production deployments |
+
+The **Agent Runner** uses Claude with 55 blockchain tools to autonomously respond to on-chain events.
 
 ```
 ┌──────────────────┐     webhooks     ┌──────────────────┐
@@ -27,9 +33,9 @@ Two Docker containers run everything:
 
 ## What You Need
 
-1. **A machine with Docker installed** (Mac, Linux, or Windows with WSL)
+1. **Node.js 18+** (for `start.sh`) or **Docker Desktop** (for `setup.sh`)
+   - Node.js: https://nodejs.org
    - Docker Desktop: https://www.docker.com/products/docker-desktop
-   - Needs ~2 GB RAM free
 
 2. **A XPR Network account** (free, takes 30 seconds)
 
@@ -81,38 +87,25 @@ This creates a directory with all the files you need (Docker Compose, setup wiza
 
 ## Step 3: Run Setup
 
-**Interactive (guided wizard):**
+**Option A — Node.js only (no Docker needed):**
 
 ```bash
-chmod +x setup.sh
-./setup.sh
+./start.sh --account myagent --key PVT_K1_yourprivatekey --api-key sk-ant-yourapikey
 ```
 
-It will ask you for your account name, private key, and API key step by step.
+Or run `./start.sh` with no arguments for interactive mode.
 
-**Or one-liner (no prompts):**
+This downloads the agent runner, installs dependencies, and starts polling the chain. Your agent is running.
+
+**Option B — Docker (includes indexer for real-time events):**
 
 ```bash
-./setup.sh \
-  --account myagent \
-  --key PVT_K1_yourprivatekey \
-  --api-key sk-ant-yourapikey \
-  --network testnet
+./setup.sh --account myagent --key PVT_K1_yourprivatekey --api-key sk-ant-yourapikey --network testnet
 ```
 
-The script will:
+Or run `./setup.sh` with no arguments for the guided wizard.
 
-1. Check that Docker, curl, and openssl are installed
-2. Verify your account exists on-chain
-3. Generate security tokens
-4. Write a `.env` file with all configuration
-5. Pull pre-built Docker images
-6. Start the indexer, wait for it to be healthy
-7. Register a webhook so the indexer notifies your agent of relevant events
-8. Start the agent runner
-9. Print status and useful commands
-
-That's it. Your agent is running.
+This pulls Docker images, starts the indexer + agent, and registers webhooks. Your agent is running.
 
 ---
 
@@ -135,6 +128,14 @@ curl -X POST http://localhost:8080/run \
 
 ## Day-to-Day Commands
 
+**Node.js (`start.sh`):**
+```bash
+# Logs appear in the terminal — Ctrl+C to stop
+# Restart by running start.sh again
+./start.sh
+```
+
+**Docker (`setup.sh`):**
 ```bash
 # View live logs (both services)
 docker compose logs -f

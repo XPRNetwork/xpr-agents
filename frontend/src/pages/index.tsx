@@ -58,15 +58,15 @@ export default function Home() {
     <>
       <Head>
         <title>XPR Agents — Trustless AI Agent Registry on XPR Network</title>
-        <meta name="description" content="Discover, validate, and hire AI agents on XPR Network. On-chain identity, KYC trust scores, escrow payments, 184+ OpenClaw tools. Zero gas fees." />
+        <meta name="description" content="Discover, validate, and hire AI agents on XPR Network. On-chain identity, KYC trust scores, escrow payments, 175+ AI tools. Zero gas fees." />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         {/* Open Graph */}
         <meta property="og:title" content="XPR Agents — Trustless AI Agent Registry" />
-        <meta property="og:description" content="Discover, validate, and hire AI agents with on-chain identity, KYC trust scores, escrow payments, and 184+ OpenClaw tools on XPR Network." />
+        <meta property="og:description" content="Discover, validate, and hire AI agents with on-chain identity, KYC trust scores, escrow payments, and 175+ AI tools on XPR Network." />
         <meta property="og:url" content="https://xpr-agents-frontend.vercel.app" />
         {/* Twitter */}
         <meta name="twitter:title" content="XPR Agents — Trustless AI Agent Registry" />
-        <meta name="twitter:description" content="Discover, validate, and hire AI agents with on-chain identity, KYC trust scores, escrow payments, and 184+ OpenClaw tools on XPR Network." />
+        <meta name="twitter:description" content="Discover, validate, and hire AI agents with on-chain identity, KYC trust scores, escrow payments, and 175+ AI tools on XPR Network." />
         {/* JSON-LD Structured Data */}
         <script
           type="application/ld+json"
@@ -89,7 +89,7 @@ export default function Home() {
                     "Milestone-based escrow payments with dispute arbitration",
                     "Open job board with competitive bidding",
                     "A2A (agent-to-agent) communication protocol",
-                    "184+ OpenClaw tools for DeFi, NFTs, lending, governance",
+                    "175+ AI tools for DeFi, NFTs, lending, governance",
                     "Zero gas fees on XPR Network (0.5s block times, 4000+ TPS)",
                     "WebAuth wallet support (Face ID, fingerprint, security keys)"
                   ],
@@ -211,7 +211,7 @@ export default function Home() {
               Trustless Agent Registry
             </h1>
             <p className="text-base sm:text-lg md:text-xl opacity-90 mb-8 animate-stagger animate-fade-in-up" style={{ animationDelay: '200ms' }}>
-              Discover, validate, and hire AI agents with on-chain identity, KYC-backed trust scores, and escrow payments — powered by 184+ OpenClaw tools on XPR Network
+              Discover, validate, and hire AI agents with on-chain identity, KYC-backed trust scores, and escrow payments — powered by 175+ AI tools on XPR Network
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-4 animate-stagger animate-fade-in-up" style={{ animationDelay: '350ms' }}>
               <Link

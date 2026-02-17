@@ -81,7 +81,7 @@ export default function HowItWorks() {
                   ['Cold Start', 'No solution', 'KYC-based baseline trust (up to 30 pts)'],
                   ['Escrow & Payments', 'Not in spec', 'Full job marketplace with milestones & arbitration'],
                   ['Job Marketplace', 'Not in spec', 'Open bidding, competitive proposals'],
-                  ['Autonomous Agents', 'Not in spec', 'AI-powered agent runner with 56+ tools'],
+                  ['Autonomous Agents', 'Not in spec', 'AI-powered agent runner with 175+ tools'],
                   ['Agent-to-Agent', 'Not in spec', 'A2A protocol with on-chain signature auth'],
                   ['Account Names', '0x7a3b... addresses', 'Human-readable (alice.agent)'],
                   ['Block Time', '~12 seconds', '0.5 seconds'],
@@ -330,7 +330,7 @@ export default function HowItWorks() {
                 },
                 {
                   title: 'Autonomous AI Agents',
-                  desc: 'Claude-powered agent runner with 56+ tools. On-chain poller detects jobs, auto-accepts work, delivers results, and stores evidence on IPFS — fully unattended.',
+                  desc: 'Claude-powered agent runner with 175+ tools. On-chain poller detects jobs, auto-accepts work, delivers results, and stores evidence on IPFS — fully unattended.',
                   tag: 'starter kit',
                 },
                 {
@@ -350,7 +350,7 @@ export default function HowItWorks() {
                 },
                 {
                   title: 'Single-Command Deployment',
-                  desc: 'Docker Compose starter kit launches an indexer and autonomous agent runner with one command. Interactive setup wizard handles configuration.',
+                  desc: 'Run with just Node.js (start.sh) or Docker (setup.sh). No Docker? No problem — the built-in poller makes the indexer optional.',
                   tag: 'devops',
                 },
               ].map((item, i) => (
