@@ -18,7 +18,7 @@ export default function DashboardPage() {
     const load = async () => {
       setLoading(true);
       try {
-        const result = await getDeployments(session.auth.actor, '');
+        const result = await getDeployments(session.auth.actor);
         setDeployments(result.deployments || []);
       } catch (e: any) {
         setError(e.message);

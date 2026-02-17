@@ -131,9 +131,6 @@ export function DeployWizard() {
       // Step 3: Trigger backend provisioning
       setDeployProgress('Provisioning agent (this may take a minute)...');
 
-      // In production, the backend would listen for the on-chain payment.
-      // For MVP, we call the deploy API directly with an API key.
-      const apiSecret = ''; // TODO: proper auth flow
       const req: DeployRequest = {
         owner: session!.auth.actor,
         agentName: form.agentName,
@@ -147,7 +144,7 @@ export function DeployWizard() {
         slackToken: form.slackToken || undefined,
       };
 
-      const result = await deployAgent(req, apiSecret);
+      const result = await deployAgent(req);
       setDeployResult(result);
       setStep('done');
     } catch (e: any) {

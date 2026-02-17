@@ -39,22 +39,17 @@ export interface DeployRequest {
   slackToken?: string;
 }
 
-export async function deployAgent(req: DeployRequest, apiSecret: string) {
+export async function deployAgent(req: DeployRequest) {
   return apiFetch('/api/deploy', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiSecret}` },
     body: JSON.stringify(req),
   });
 }
 
-export async function getAgentStatus(agent: string, apiSecret: string) {
-  return apiFetch(`/api/status/${encodeURIComponent(agent)}`, {
-    headers: { Authorization: `Bearer ${apiSecret}` },
-  });
+export async function getAgentStatus(agent: string) {
+  return apiFetch(`/api/status/${encodeURIComponent(agent)}`);
 }
 
-export async function getDeployments(owner: string, apiSecret: string) {
-  return apiFetch(`/api/deployments?owner=${encodeURIComponent(owner)}`, {
-    headers: { Authorization: `Bearer ${apiSecret}` },
-  });
+export async function getDeployments(owner: string) {
+  return apiFetch(`/api/deployments?owner=${encodeURIComponent(owner)}`);
 }
