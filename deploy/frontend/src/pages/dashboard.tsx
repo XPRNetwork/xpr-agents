@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useProton } from '@/contexts/ProtonContext';
+import { Navbar } from '@/components/Navbar';
 import { getDeployments, getAgentStatus } from '@/lib/deploy-api';
 import { AgentStatus } from '@/components/AgentStatus';
 import { SubscriptionCard } from '@/components/SubscriptionCard';
@@ -101,24 +102,7 @@ export default function DashboardPage() {
       </Head>
 
       <div className="min-h-screen flex flex-col">
-        {/* Nav */}
-        <nav className="flex items-center justify-between px-6 py-4 border-b border-xpr-border shrink-0">
-          <Link href="/" className="text-xl font-bold flex items-center gap-2">
-            <span className="text-2xl">🦞</span>
-            <span><span className="text-xpr-purple">XPR</span> Agent Deploy</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link href="/pricing" className="text-gray-400 hover:text-white transition-colors text-sm">
-              Pricing
-            </Link>
-            <Link href="/deploy" className="btn-primary text-sm py-1.5">
-              🚀 Deploy New
-            </Link>
-            {session && (
-              <span className="text-sm text-gray-400 font-mono">{session.auth.actor}</span>
-            )}
-          </div>
-        </nav>
+        <Navbar />
 
         {/* Main content */}
         <div className="flex-1 flex">

@@ -1,5 +1,6 @@
 import Head from 'next/head';
 import Link from 'next/link';
+import { Navbar } from '@/components/Navbar';
 
 export default function Home() {
   return (
@@ -147,24 +148,7 @@ export default function Home() {
       </Head>
 
       <div className="min-h-screen">
-        {/* Nav */}
-        <nav className="flex items-center justify-between px-6 py-4 border-b border-xpr-border">
-          <Link href="/" className="text-xl font-bold flex items-center gap-2">
-            <span className="text-2xl">🦞</span>
-            <span><span className="text-xpr-purple">XPR</span> Agent Deploy</span>
-          </Link>
-          <div className="flex gap-4 items-center">
-            <Link href="/pricing" className="text-gray-400 hover:text-white transition-colors">
-              Pricing
-            </Link>
-            <Link href="/dashboard" className="text-gray-400 hover:text-white transition-colors">
-              Dashboard
-            </Link>
-            <Link href="/deploy" className="btn-primary text-sm py-1.5">
-              🚀 Deploy Now
-            </Link>
-          </div>
-        </nav>
+        <Navbar />
 
         {/* Hero */}
         <div className="max-w-4xl mx-auto px-6 py-20 text-center">

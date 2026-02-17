@@ -1,5 +1,5 @@
 import Head from 'next/head';
-import Link from 'next/link';
+import { Navbar } from '@/components/Navbar';
 import { DeployWizard } from '@/components/DeployWizard';
 
 export default function DeployPage() {
@@ -10,20 +10,7 @@ export default function DeployPage() {
       </Head>
 
       <div className="min-h-screen">
-        <nav className="flex items-center justify-between px-6 py-4 border-b border-xpr-border">
-          <Link href="/" className="text-xl font-bold flex items-center gap-2">
-            <span className="text-2xl">🦞</span>
-            <span><span className="text-xpr-purple">XPR</span> Agent Deploy</span>
-          </Link>
-          <div className="flex gap-4 items-center">
-            <Link href="/pricing" className="text-gray-400 hover:text-white transition-colors">
-              Pricing
-            </Link>
-            <Link href="/dashboard" className="text-gray-400 hover:text-white transition-colors">
-              Dashboard
-            </Link>
-          </div>
-        </nav>
+        <Navbar />
 
         <div className="max-w-4xl mx-auto px-6 py-12">
           <DeployWizard />
