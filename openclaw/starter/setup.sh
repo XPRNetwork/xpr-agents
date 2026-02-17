@@ -39,7 +39,7 @@ ${BOLD}OPTIONS:${NC}
     --key <private_key>   Account private key (required)
     --api-key <key>       Anthropic API key (required)
     --network <net>       Network: mainnet (default) or testnet
-    --model <model>       Claude model (default: claude-sonnet-4-5-20250929)
+    --model <model>       Claude model (default: claude-sonnet-4-6)
     --max-amount <n>      Max XPR transfer in smallest units (default: 1000000)
     --non-interactive     Skip all prompts (requires all flags)
     --skip-build          Skip Docker build (use existing images)
@@ -233,7 +233,7 @@ XPR_NETWORK=$NETWORK
 XPR_RPC_ENDPOINT=$RPC_ENDPOINT
 HYPERION_ENDPOINTS=$HYPERION
 ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
-AGENT_MODEL=${AGENT_MODEL:-claude-sonnet-4-5-20250929}
+AGENT_MODEL=${AGENT_MODEL:-claude-sonnet-4-6}
 AGENT_MAX_TURNS=10
 MAX_TRANSFER_AMOUNT=${MAX_TRANSFER_AMOUNT:-1000000}
 OPENCLAW_HOOK_TOKEN=$(openssl rand -hex 32)
@@ -323,7 +323,7 @@ echo -e "${BOLD}═════════════════════�
 echo ""
 echo -e "  ${BOLD}Agent:${NC}    $XPR_ACCOUNT"
 echo -e "  ${BOLD}Network:${NC}  $NETWORK"
-echo -e "  ${BOLD}Model:${NC}    ${AGENT_MODEL:-claude-sonnet-4-5-20250929}"
+echo -e "  ${BOLD}Model:${NC}    ${AGENT_MODEL:-claude-sonnet-4-6}"
 echo -e "  ${BOLD}Indexer:${NC}  http://localhost:3001"
 echo -e "  ${BOLD}Agent:${NC}    http://localhost:8080"
 echo ""
