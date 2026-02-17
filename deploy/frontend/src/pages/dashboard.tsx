@@ -11,7 +11,7 @@ import { ConfigPanel } from '@/components/ConfigPanel';
 type Tab = 'status' | 'chat' | 'settings';
 
 export default function DashboardPage() {
-  const { session, login, loading: walletLoading } = useProton();
+  const { session, login, loading: walletLoading, jwtToken } = useProton();
   const [deployments, setDeployments] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -24,14 +24,14 @@ export default function DashboardPage() {
   const [tokens, setTokens] = useState<Record<string, string>>({});
   const [tokenInput, setTokenInput] = useState('');
 
-  // Load deployments when session connects
+  // Load deployments when session connects and JWT is available
   useEffect(() => {
-    if (!session) return;
+    if (!session || !jwtToken) return;
 
     const load = async () => {
       setLoading(true);
       try {
-        const result = await getDeployments(session.auth.actor);
+        const result = await getDeployments(jwtToken);
         const deps = result.deployments || [];
         setDeployments(deps);
 
@@ -55,7 +55,7 @@ export default function DashboardPage() {
     };
 
     load();
-  }, [session]);
+  }, [session, jwtToken]);
 
   // Fetch agent status when selected agent changes
   useEffect(() => {

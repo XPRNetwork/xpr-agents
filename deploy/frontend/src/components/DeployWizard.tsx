@@ -80,7 +80,7 @@ const WIZARD_STEPS: { id: Step; label: string; emoji: string }[] = [
 ];
 
 export function DeployWizard() {
-  const { session, login, transact } = useProton();
+  const { session, login, transact, jwtToken } = useProton();
   const [step, setStep] = useState<Step>('connect');
   const [form, setForm] = useState<FormData>({
     agentName: '',
@@ -193,7 +193,11 @@ export function DeployWizard() {
         slackToken: form.slackToken || undefined,
       };
 
-      const result = await deployAgent(req);
+      if (!jwtToken) {
+        throw new Error('Wallet authentication required. Please reconnect your wallet.');
+      }
+
+      const result = await deployAgent(req, jwtToken);
       setDeployResult(result);
 
       if (result.dashboardToken) {

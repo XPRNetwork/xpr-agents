@@ -18,6 +18,8 @@ async function apiFetch(path: string, options?: RequestInit) {
   return data;
 }
 
+// --- Public endpoints (no auth) ---
+
 export async function checkNameAvailability(name: string): Promise<{ available: boolean; reason?: string }> {
   return apiFetch(`/api/check-name/${encodeURIComponent(name)}`);
 }
@@ -25,6 +27,23 @@ export async function checkNameAvailability(name: string): Promise<{ available: 
 export async function getPricing(): Promise<{ prices: Array<{ token_symbol: string; amount: number; display: string }> }> {
   return apiFetch('/api/pricing');
 }
+
+// --- Wallet auth ---
+
+export async function loginWithProof(proof: {
+  chainId: string;
+  scope: string;
+  expiration: string;
+  signer: { actor: string; permission: string };
+  signature: string;
+}): Promise<{ token: string; account: string; expiresAt: number }> {
+  return apiFetch('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ proof }),
+  });
+}
+
+// --- Wallet-authenticated endpoints ---
 
 export interface DeployRequest {
   owner: string;
@@ -39,21 +58,26 @@ export interface DeployRequest {
   slackToken?: string;
 }
 
-export async function deployAgent(req: DeployRequest) {
+export async function deployAgent(req: DeployRequest, jwtToken: string) {
   return apiFetch('/api/deploy', {
     method: 'POST',
+    headers: { Authorization: `Bearer ${jwtToken}` },
     body: JSON.stringify(req),
   });
 }
+
+export async function getDeployments(jwtToken: string) {
+  return apiFetch('/api/deployments', {
+    headers: { Authorization: `Bearer ${jwtToken}` },
+  });
+}
+
+// --- Dashboard-token-authenticated endpoints ---
 
 export async function getAgentStatus(agent: string, token?: string) {
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   return apiFetch(`/api/status/${encodeURIComponent(agent)}`, { headers });
-}
-
-export async function getDeployments(owner: string) {
-  return apiFetch(`/api/deployments?owner=${encodeURIComponent(owner)}`);
 }
 
 export async function chatWithAgent(agent: string, message: string, token: string) {
