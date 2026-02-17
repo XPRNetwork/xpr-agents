@@ -78,23 +78,19 @@ async function authenticate(
   try {
     console.log('[auth] Requesting signature proof from wallet...');
 
-    // Sign a transfer with broadcast: false — wallet shows biometric
-    // popup, user approves, we get the signature without any on-chain effect
+    // Sign a generateauth action with broadcast: false — wallet shows biometric
+    // popup, user approves, we get the signature without any on-chain effect.
+    // generateauth is a no-op action that proves identity without transferring tokens.
     let result: any;
     try {
       result = await linkSession.transact(
         {
           actions: [
             {
-              account: 'eosio.token',
-              name: 'transfer',
+              account: 'proton.wrap',
+              name: 'generateauth',
               authorization: [{ actor, permission }],
-              data: {
-                from: actor,
-                to: 'protonnz',
-                quantity: '0.0001 XPR',
-                memo: `auth:${Math.floor(Date.now() / 1000)}`,
-              },
+              data: {},
             },
           ],
         },
