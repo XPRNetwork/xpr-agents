@@ -288,7 +288,7 @@ export default function DashboardPage() {
                             agentAccount={selectedAgent}
                             tokenSymbol={selectedDeployment.subscription.token_symbol || 'XMD'}
                             tokenContract="xmd.token"
-                            amount={`15.0000 ${selectedDeployment.subscription.token_symbol || 'XMD'}`}
+                            amount={`15.000000 ${selectedDeployment.subscription.token_symbol || 'XMD'}`}
                             onRenewed={() => {
                               // Refresh status after renewal
                               if (selectedAgent) {

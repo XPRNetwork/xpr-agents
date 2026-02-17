@@ -100,3 +100,45 @@ export async function getAgentLogs(agent: string, token: string) {
     headers: { Authorization: `Bearer ${token}` },
   });
 }
+
+// --- On-chain subscription check (direct RPC read) ---
+
+export async function checkOnChainSubscription(agentName: string): Promise<{
+  exists: boolean;
+  active: boolean;
+  paid_until?: number;
+  owner?: string;
+}> {
+  const { getNetworkConfig } = await import('@/lib/networks');
+  const config = getNetworkConfig();
+  const deployContract = process.env.NEXT_PUBLIC_DEPLOY_CONTRACT || 'agentdeploy';
+
+  const res = await fetch(`${config.rpc}/v1/chain/get_table_rows`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      json: true,
+      code: deployContract,
+      scope: deployContract,
+      table: 'subs',
+      lower_bound: agentName,
+      upper_bound: agentName,
+      limit: 1,
+    }),
+  });
+
+  const data = await res.json();
+  const row = data.rows?.[0];
+
+  if (!row || row.agent !== agentName) {
+    return { exists: false, active: false };
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    exists: true,
+    active: row.state === 0 && row.paid_until > now,
+    paid_until: row.paid_until,
+    owner: row.owner,
+  };
+}

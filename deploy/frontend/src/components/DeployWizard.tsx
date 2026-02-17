@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useProton } from '@/contexts/ProtonContext';
-import { checkNameAvailability, deployAgent, type DeployRequest } from '@/lib/deploy-api';
-import { getNetworkConfig } from '@/lib/networks';
+import { checkNameAvailability, deployAgent, checkOnChainSubscription, type DeployRequest } from '@/lib/deploy-api';
 
 type Step = 'connect' | 'configure' | 'integrations' | 'review' | 'deploying' | 'done';
 
@@ -133,52 +132,64 @@ export function DeployWizard() {
     setError('');
 
     try {
-      setDeployProgress('Creating subscription on-chain...');
+      // Step 1: Check if subscription is already active (prevents double-charge)
+      setDeployProgress('Checking subscription status...');
+      const sub = await checkOnChainSubscription(form.agentName);
 
-      // Step 1: Call subscribe on agentdeploy contract
-      const networkConfig = getNetworkConfig();
-      const deployContract = 'agentdeploy'; // TODO: configurable
+      if (sub.active) {
+        console.log('Subscription already active, skipping payment');
+        setDeployProgress('Subscription active — skipping payment...');
+      } else {
+        // Step 2: Subscribe + pay on-chain
+        setDeployProgress('Subscribe & pay on-chain (1 popup)...');
+        const deployContract = 'agentdeploy';
 
-      try {
-        await transact([
-          {
-            account: deployContract,
-            name: 'subscribe',
-            data: {
-              owner: session!.auth.actor,
-              agent: form.agentName,
-              plan: form.plan,
+        try {
+          await transact([
+            {
+              account: deployContract,
+              name: 'subscribe',
+              data: {
+                owner: session!.auth.actor,
+                agent: form.agentName,
+                plan: form.plan,
+              },
             },
-          },
-        ]);
-      } catch (e: any) {
-        // If contract isn't deployed yet, continue anyway for MVP
-        console.warn('Subscribe tx failed (contract may not be deployed):', e.message);
-      }
-
-      // Step 2: Send payment (XMD transfer with sub: memo)
-      setDeployProgress('Processing payment...');
-
-      try {
-        await transact([
-          {
-            account: 'xmd.token',
-            name: 'transfer',
-            data: {
-              from: session!.auth.actor,
-              to: deployContract,
-              quantity: '15.0000 XMD',
-              memo: `sub:${form.agentName}`,
+            {
+              account: 'xmd.token',
+              name: 'transfer',
+              data: {
+                from: session!.auth.actor,
+                to: deployContract,
+                quantity: '15.000000 XMD',
+                memo: `sub:${form.agentName}`,
+              },
             },
-          },
-        ]);
-      } catch (e: any) {
-        console.warn('Payment tx failed:', e.message);
-        // For MVP/testnet, proceed without payment
+          ]);
+        } catch (e: any) {
+          // If already subscribed but not paid, try payment only
+          if (e.message?.includes('already') || e.message?.includes('exists')) {
+            console.warn('Already subscribed, retrying payment only...');
+            await transact([
+              {
+                account: 'xmd.token',
+                name: 'transfer',
+                data: {
+                  from: session!.auth.actor,
+                  to: deployContract,
+                  quantity: '15.000000 XMD',
+                  memo: `sub:${form.agentName}`,
+                },
+              },
+            ]);
+          } else {
+            throw e;
+          }
+        }
       }
 
       // Step 3: Trigger backend provisioning
-      setDeployProgress('🤖 Provisioning agent (this may take a minute)...');
+      setDeployProgress('Provisioning agent (this may take a minute)...');
 
       const req: DeployRequest = {
         owner: session!.auth.actor,
@@ -272,6 +283,26 @@ export function DeployWizard() {
     return (
       <div className="max-w-2xl mx-auto">
         <StepIndicator current={step} steps={WIZARD_STEPS} />
+
+        {/* Resume guidance for previously failed deploys */}
+        <div className="card mb-4 border-blue-800/30">
+          <details>
+            <summary className="cursor-pointer text-sm text-blue-400 hover:text-blue-300">
+              Resuming a previously failed deploy?
+            </summary>
+            <div className="mt-3 text-sm text-gray-400 space-y-2">
+              <p>
+                If your previous deploy failed after payment, just fill in the <strong className="text-white">same agent name</strong> and
+                your API key below and click <strong className="text-white">Deploy</strong>. The wizard will detect your existing
+                subscription and skip the payment step — you won't be charged twice.
+              </p>
+              <p className="text-xs text-gray-500">
+                If you subscribed but never paid (e.g. token precision error), the wizard will prompt for payment as normal.
+              </p>
+            </div>
+          </details>
+        </div>
+
         <div className="card">
           <h2 className="text-2xl font-bold mb-1">⚙️ Configure Your Agent</h2>
           <p className="text-gray-400 text-sm mb-6">Set up your agent's identity and capabilities.</p>
