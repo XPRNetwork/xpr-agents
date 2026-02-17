@@ -137,55 +137,47 @@ export function DeployWizard() {
       const sub = await checkOnChainSubscription(form.agentName);
 
       if (sub.active) {
-        console.log('Subscription already active, skipping payment');
+        console.log('Subscription already active and paid, skipping payment');
         setDeployProgress('Subscription active — skipping payment...');
+      } else if (sub.exists) {
+        // Subscription exists but unpaid — send payment only (no subscribe)
+        setDeployProgress('Completing payment (1 popup)...');
+        await transact([
+          {
+            account: 'xmd.token',
+            name: 'transfer',
+            data: {
+              from: session!.auth.actor,
+              to: 'agentdeploy',
+              quantity: '15.000000 XMD',
+              memo: `sub:${form.agentName}`,
+            },
+          },
+        ]);
       } else {
-        // Step 2: Subscribe + pay on-chain
+        // New subscription — subscribe + pay in one transaction
         setDeployProgress('Subscribe & pay on-chain (1 popup)...');
-        const deployContract = 'agentdeploy';
-
-        try {
-          await transact([
-            {
-              account: deployContract,
-              name: 'subscribe',
-              data: {
-                owner: session!.auth.actor,
-                agent: form.agentName,
-                plan: form.plan,
-              },
+        await transact([
+          {
+            account: 'agentdeploy',
+            name: 'subscribe',
+            data: {
+              owner: session!.auth.actor,
+              agent: form.agentName,
+              plan: form.plan,
             },
-            {
-              account: 'xmd.token',
-              name: 'transfer',
-              data: {
-                from: session!.auth.actor,
-                to: deployContract,
-                quantity: '15.000000 XMD',
-                memo: `sub:${form.agentName}`,
-              },
+          },
+          {
+            account: 'xmd.token',
+            name: 'transfer',
+            data: {
+              from: session!.auth.actor,
+              to: 'agentdeploy',
+              quantity: '15.000000 XMD',
+              memo: `sub:${form.agentName}`,
             },
-          ]);
-        } catch (e: any) {
-          // If already subscribed but not paid, try payment only
-          if (e.message?.includes('already') || e.message?.includes('exists')) {
-            console.warn('Already subscribed, retrying payment only...');
-            await transact([
-              {
-                account: 'xmd.token',
-                name: 'transfer',
-                data: {
-                  from: session!.auth.actor,
-                  to: deployContract,
-                  quantity: '15.000000 XMD',
-                  memo: `sub:${form.agentName}`,
-                },
-              },
-            ]);
-          } else {
-            throw e;
-          }
-        }
+          },
+        ]);
       }
 
       // Step 3: Trigger backend provisioning
