@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+backend/dist/
+contract/assembly/target/
+frontend/.next/
+frontend/out/
+
+# Environment files
+.env
+.env.local
+
+# Data
+backend/data/
+*.db
+
+# OS
+.DS_Store

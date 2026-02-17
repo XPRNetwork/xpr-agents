@@ -1,0 +1,33 @@
+# XPR Agent Deploy Service — Local Development
+#
+# Usage:
+#   cp backend/.env.example backend/.env
+#   # Edit backend/.env with your credentials
+#   docker compose up
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "3500:3500"
+    volumes:
+      - deploy-data:/app/data
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3600:3000"
+    environment:
+      - NEXT_PUBLIC_DEPLOY_API=http://localhost:3500
+      - NEXT_PUBLIC_NETWORK=testnet
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  deploy-data:
