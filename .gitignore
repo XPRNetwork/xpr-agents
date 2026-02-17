@@ -10,9 +10,12 @@ target/
 *.abi
 *.tsbuildinfo
 
-# IDE
+# IDE & agent tooling
 .idea/
 .vscode/
+.cursor/
+.claude/
+.agents/
 *.swp
 *.swo
 
