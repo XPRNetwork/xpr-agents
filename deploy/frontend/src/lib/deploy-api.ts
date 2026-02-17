@@ -31,11 +31,10 @@ export async function getPricing(): Promise<{ prices: Array<{ token_symbol: stri
 // --- Wallet auth ---
 
 export async function loginWithProof(proof: {
+  account: string;
   chainId: string;
-  scope: string;
-  expiration: string;
-  signer: { actor: string; permission: string };
-  signature: string;
+  serializedTransaction: string;
+  signatures: string[];
 }): Promise<{ token: string; account: string; expiresAt: number }> {
   return apiFetch('/api/auth/login', {
     method: 'POST',

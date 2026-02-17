@@ -33,7 +33,7 @@ const ENDPOINTS = [networkConfig.rpc];
 
 let sessionRestoreStarted = false;
 let loginInProgress = false;
-let identifyInProgress = false;
+let verifyInProgress = false;
 
 /**
  * Check if a JWT is expired by decoding the payload.
@@ -48,46 +48,72 @@ function isJwtExpired(token: string): boolean {
 }
 
 /**
- * Call link.identify() to get a signed IdentityProof, then exchange it
- * for a JWT via POST /api/auth/login.
+ * Convert a Uint8Array to hex string (browser-safe, no Buffer dependency).
  */
-async function authenticate(link: any): Promise<string | null> {
-  if (identifyInProgress) return null;
-  identifyInProgress = true;
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Sign a non-broadcast transaction to prove wallet ownership, then exchange
+ * the signature for a JWT via POST /api/auth/login.
+ *
+ * Uses linkSession.transact({ broadcast: false }) which shows a WebAuth
+ * biometric popup but does NOT send the transaction on-chain.
+ */
+async function authenticate(
+  linkSession: any,
+  actor: string,
+  permission: string,
+): Promise<string | null> {
+  if (verifyInProgress) return null;
+  verifyInProgress = true;
 
   try {
-    const result = await link.identify(null, 'XPR Agent Deploy');
-
-    if (!result?.proof) {
-      console.warn('[auth] link.identify() did not return a proof');
-      return null;
-    }
-
-    const proof = result.proof;
-
-    // Extract proof fields for the backend
-    const proofData = {
-      chainId: String(proof.chainId),
-      scope: String(proof.scope),
-      expiration: String(proof.expiration),
-      signer: {
-        actor: String(proof.signer.actor),
-        permission: String(proof.signer.permission),
+    // Sign a self-transfer with broadcast: false — wallet shows biometric
+    // popup, user approves, we get the signature without any on-chain effect
+    const result = await linkSession.transact(
+      {
+        actions: [
+          {
+            account: 'eosio.token',
+            name: 'transfer',
+            authorization: [{ actor, permission }],
+            data: {
+              from: actor,
+              to: actor,
+              quantity: '0.0001 XPR',
+              memo: `auth:${Math.floor(Date.now() / 1000)}`,
+            },
+          },
+        ],
       },
-      signature: String(proof.signature),
-    };
+      { broadcast: false },
+    );
 
-    const response = await loginWithProof(proofData);
+    // Extract the signed transaction bytes and signature
+    const serializedTransaction = toHex(
+      new Uint8Array(result.resolved.serializedTransaction),
+    );
+    const signatures = result.signatures.map(String);
+
+    const response = await loginWithProof({
+      account: actor,
+      chainId: CHAIN_ID,
+      serializedTransaction,
+      signatures,
+    });
+
     if (response.token) {
       localStorage.setItem(JWT_STORAGE_KEY, response.token);
       return response.token;
     }
     return null;
   } catch (e: any) {
-    console.warn('[auth] Identity verification failed:', e?.message || e);
+    console.warn('[auth] Wallet verification failed:', e?.message || e);
     return null;
   } finally {
-    identifyInProgress = false;
+    verifyInProgress = false;
   }
 }
 
@@ -112,20 +138,19 @@ export function ProtonProvider({ children }: { children: ReactNode }) {
         });
 
         if (restored) {
-          setSession({
-            auth: { actor: restored.auth.actor.toString(), permission: restored.auth.permission.toString() },
-            link,
-            linkSession: restored,
-          });
+          const actor = restored.auth.actor.toString();
+          const permission = restored.auth.permission.toString();
+
+          setSession({ auth: { actor, permission }, link, linkSession: restored });
 
           // Check for existing JWT in localStorage
           const storedJwt = localStorage.getItem(JWT_STORAGE_KEY);
           if (storedJwt && !isJwtExpired(storedJwt)) {
             setJwtToken(storedJwt);
-          } else if (storedJwt) {
-            // JWT expired — re-authenticate (one biometric popup)
-            localStorage.removeItem(JWT_STORAGE_KEY);
-            const newToken = await authenticate(link);
+          } else {
+            // JWT missing or expired — re-authenticate (biometric popup)
+            if (storedJwt) localStorage.removeItem(JWT_STORAGE_KEY);
+            const newToken = await authenticate(restored, actor, permission);
             if (newToken) setJwtToken(newToken);
           }
         }
@@ -152,14 +177,13 @@ export function ProtonProvider({ children }: { children: ReactNode }) {
       });
 
       if (loginSession) {
-        setSession({
-          auth: { actor: loginSession.auth.actor.toString(), permission: loginSession.auth.permission.toString() },
-          link,
-          linkSession: loginSession,
-        });
+        const actor = loginSession.auth.actor.toString();
+        const permission = loginSession.auth.permission.toString();
 
-        // Immediately authenticate for JWT after wallet connect
-        const token = await authenticate(link);
+        setSession({ auth: { actor, permission }, link, linkSession: loginSession });
+
+        // Immediately verify identity for JWT after wallet connect
+        const token = await authenticate(loginSession, actor, permission);
         if (token) setJwtToken(token);
       }
     } catch (e: any) {
@@ -193,11 +217,11 @@ export function ProtonProvider({ children }: { children: ReactNode }) {
             authorization: [{ actor: session.auth.actor, permission: session.auth.permission }],
           })),
         },
-        { broadcast: true }
+        { broadcast: true },
       );
       return result;
     },
-    [session]
+    [session],
   );
 
   return (
