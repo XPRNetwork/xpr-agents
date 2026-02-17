@@ -186,7 +186,7 @@ See `.env.example` for all available variables. Key settings you might want to c
 | Variable | Default | What It Does |
 |----------|---------|--------------|
 | `MAX_TRANSFER_AMOUNT` | `1000000` | Max XPR per transaction (smallest units, so 1000000 = 100 XPR). Safety cap. |
-| `AGENT_MODEL` | `claude-sonnet-4-20250514` | Which Claude model makes decisions |
+| `AGENT_MODEL` | `claude-sonnet-4-6` | Which Claude model makes decisions |
 | `AGENT_MAX_TURNS` | `20` | Max tool-call rounds per event |
 | `A2A_AUTH_REQUIRED` | `true` | Require cryptographic auth on incoming agent-to-agent messages |
 | `A2A_MIN_TRUST_SCORE` | `0` | Minimum trust score to accept A2A requests (0 = anyone) |
