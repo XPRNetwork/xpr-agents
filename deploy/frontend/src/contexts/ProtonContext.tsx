@@ -90,7 +90,10 @@ async function authenticate(
               account: 'proton.wrap',
               name: 'generateauth',
               authorization: [{ actor, permission }],
-              data: {},
+              data: {
+                protonAccount: actor,
+                time: new Date().toISOString().slice(0, -1), // time_point format
+              },
             },
           ],
         },
