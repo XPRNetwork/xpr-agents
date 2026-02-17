@@ -181,7 +181,7 @@ export function DeployWizard() {
       }
 
       // Step 3: Trigger backend provisioning
-      setDeployProgress('Provisioning agent (this may take a minute)...');
+      setDeployProgress('Deploying agent runtime... this may take 2-5 minutes on first deploy');
 
       const req: DeployRequest = {
         owner: session!.auth.actor,
@@ -655,7 +655,7 @@ export function DeployWizard() {
         <div className="animate-spin w-12 h-12 border-4 border-xpr-purple border-t-transparent rounded-full mx-auto mb-4" />
         <h2 className="text-xl font-bold mb-2">🤖 Deploying Your Agent...</h2>
         <p className="text-gray-400">{deployProgress}</p>
-        <p className="text-xs text-gray-600 mt-4">This usually takes 30-60 seconds. Please don't close this page.</p>
+        <p className="text-xs text-gray-600 mt-4">This may take 2-5 minutes on first deploy. Please don't close this page.</p>
       </div>
     );
   }
