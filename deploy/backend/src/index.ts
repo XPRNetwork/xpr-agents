@@ -144,7 +144,7 @@ app.post('/api/deploy', requireAuth, async (req, res) => {
  * Get deployment status for a specific agent
  */
 app.get('/api/status/:agent', requireAuth, async (req, res) => {
-  const { agent } = req.params;
+  const agent = req.params.agent as string;
   const deployment = getDeployment(agent);
 
   if (!deployment) {
@@ -202,7 +202,7 @@ app.get('/api/deployments', requireAuth, async (req, res) => {
  * Get agent logs (proxy to Cloudflare tail)
  */
 app.get('/api/logs/:agent', requireAuth, async (req, res) => {
-  const { agent } = req.params;
+  const agent = req.params.agent as string;
   const deployment = getDeployment(agent);
 
   if (!deployment) {
@@ -225,7 +225,7 @@ app.get('/api/logs/:agent', requireAuth, async (req, res) => {
  * Manually pause a deployment
  */
 app.post('/api/admin/pause/:agent', requireAdmin, async (req, res) => {
-  const { agent } = req.params;
+  const agent = req.params.agent as string;
   const deployment = getDeployment(agent);
 
   if (!deployment) {
@@ -243,7 +243,7 @@ app.post('/api/admin/pause/:agent', requireAdmin, async (req, res) => {
  * Manually resume a deployment
  */
 app.post('/api/admin/resume/:agent', requireAdmin, async (req, res) => {
-  const { agent } = req.params;
+  const agent = req.params.agent as string;
   const deployment = getDeployment(agent);
 
   if (!deployment) {
