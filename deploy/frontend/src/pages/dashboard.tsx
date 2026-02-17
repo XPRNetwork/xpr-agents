@@ -89,9 +89,9 @@ export default function DashboardPage() {
   };
 
   const TAB_ITEMS: { id: Tab; label: string; requiresToken: boolean }[] = [
-    { id: 'status', label: 'Status', requiresToken: false },
-    { id: 'chat', label: 'Chat', requiresToken: true },
-    { id: 'settings', label: 'Settings', requiresToken: true },
+    { id: 'status', label: '📊 Status', requiresToken: false },
+    { id: 'chat', label: '💬 Chat', requiresToken: true },
+    { id: 'settings', label: '⚙️ Settings', requiresToken: true },
   ];
 
   return (
@@ -103,12 +103,16 @@ export default function DashboardPage() {
       <div className="min-h-screen flex flex-col">
         {/* Nav */}
         <nav className="flex items-center justify-between px-6 py-4 border-b border-xpr-border shrink-0">
-          <Link href="/" className="text-xl font-bold">
-            <span className="text-xpr-purple">XPR</span> Agent Deploy
+          <Link href="/" className="text-xl font-bold flex items-center gap-2">
+            <span className="text-2xl">🦞</span>
+            <span><span className="text-xpr-purple">XPR</span> Agent Deploy</span>
           </Link>
           <div className="flex items-center gap-4">
+            <Link href="/pricing" className="text-gray-400 hover:text-white transition-colors text-sm">
+              Pricing
+            </Link>
             <Link href="/deploy" className="btn-primary text-sm py-1.5">
-              Deploy New
+              🚀 Deploy New
             </Link>
             {session && (
               <span className="text-sm text-gray-400 font-mono">{session.auth.actor}</span>
@@ -128,8 +132,14 @@ export default function DashboardPage() {
           {!walletLoading && !session && (
             <div className="flex-1 flex items-center justify-center">
               <div className="card text-center max-w-md">
-                <p className="text-gray-400 mb-4">Connect your wallet to view your deployed agents.</p>
-                <button onClick={login} className="btn-primary">Connect Wallet</button>
+                <div className="text-4xl mb-4">🤖</div>
+                <h2 className="text-xl font-bold mb-2">Agent Dashboard</h2>
+                <p className="text-gray-400 mb-4">
+                  Connect your{' '}
+                  <a href="https://webauth.com" target="_blank" rel="noopener" className="text-xpr-purple hover:underline">WebAuth</a> wallet
+                  to view and manage your deployed agents.
+                </p>
+                <button onClick={login} className="btn-primary">🔗 Connect Wallet</button>
               </div>
             </div>
           )}
@@ -139,7 +149,7 @@ export default function DashboardPage() {
               {/* Sidebar */}
               <aside className="w-64 border-r border-xpr-border p-4 shrink-0 overflow-y-auto">
                 <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">
-                  Your Agents
+                  🤖 Your Agents
                 </h2>
 
                 {loading && (
@@ -154,7 +164,7 @@ export default function DashboardPage() {
                   <div className="text-sm text-gray-500 py-4">
                     <p className="mb-3">No agents deployed yet.</p>
                     <Link href="/deploy" className="btn-primary text-sm py-1.5 px-3">
-                      Deploy Your First Agent
+                      🚀 Deploy Your First Agent
                     </Link>
                   </div>
                 )}

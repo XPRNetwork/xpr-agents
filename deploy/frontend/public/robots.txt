@@ -1,0 +1,32 @@
+# XPR Agent Deploy - robots.txt
+# Allow all search engines and AI bots for maximum discoverability
+
+User-agent: *
+Allow: /
+
+# Explicitly allow AI search engine bots
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+Sitemap: https://deploy.xpragents.com/sitemap.xml

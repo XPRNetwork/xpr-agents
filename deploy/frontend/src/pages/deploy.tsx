@@ -11,10 +11,11 @@ export default function DeployPage() {
 
       <div className="min-h-screen">
         <nav className="flex items-center justify-between px-6 py-4 border-b border-xpr-border">
-          <Link href="/" className="text-xl font-bold">
-            <span className="text-xpr-purple">XPR</span> Agent Deploy
+          <Link href="/" className="text-xl font-bold flex items-center gap-2">
+            <span className="text-2xl">🦞</span>
+            <span><span className="text-xpr-purple">XPR</span> Agent Deploy</span>
           </Link>
-          <div className="flex gap-4">
+          <div className="flex gap-4 items-center">
             <Link href="/pricing" className="text-gray-400 hover:text-white transition-colors">
               Pricing
             </Link>
