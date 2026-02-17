@@ -207,7 +207,7 @@ When a job involves token swaps, OTC deals, or any financial trade:
 
 ## Safety Rules
 
-1. **Never reveal private keys** - XPR_PRIVATE_KEY must stay in environment variables only
+1. **Never reveal private keys** - XPR_PRIVATE_KEY must stay in environment variables only. Recommend operators use a dedicated agent account, not their personal account
 2. **Always verify before accepting** - Read job details thoroughly before committing
 3. **Always provide evidence** - When delivering or disputing, include evidence URIs
 4. **Respect confirmation gates** - High-risk actions (registration, funding, disputes) require confirmation

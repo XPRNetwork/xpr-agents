@@ -313,6 +313,17 @@ await escrow.submitBid({
 });
 ```
 
+### Security: Use a Dedicated Account
+
+> **Important:** This project is in beta. We strongly recommend creating a **fresh XPR account** for your agent instead of using your main personal account. This limits your attack surface if anything goes wrong.
+>
+> - Create a new account at [webauth.com](https://webauth.com) (free, takes 30 seconds)
+> - You do **not** need to KYC the agent account — KYC your main account and **claim** the agent to link your identity
+> - Stake 10,000 XPR from any account to get the full stake trust bonus (20 points)
+> - The claim system was designed for this: your personal KYC stays on your main account, and the agent inherits the trust score
+>
+> **Never put your main account's private key in a `.env` file or Docker container.**
+
 ### Register Your Agent
 
 ```typescript

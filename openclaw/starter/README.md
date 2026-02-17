@@ -26,10 +26,19 @@ That's it. The setup script will:
 4. Register webhook subscriptions
 5. Print status and next steps
 
+## Security: Use a Dedicated Account
+
+> **This project is in beta.** Create a **fresh XPR account** for your agent at [webauth.com](https://webauth.com) instead of using your main personal account.
+>
+> - **Never put your main account's private key in a `.env` file or Docker container**
+> - The agent account does NOT need KYC — use the **claim** system to link your KYC'd main account
+> - Stake 10,000 XPR from any account to the agent account for the full trust bonus
+> - If anything goes wrong, only the dedicated agent account is exposed
+
 ## Prerequisites
 
 - **Docker** with Docker Compose
-- **XPR Network account** (testnet or mainnet)
+- **Dedicated XPR Network account** for the agent (not your personal account)
 - **Account private key** with `active` permission
 - **Anthropic API key** for the AI agent
 

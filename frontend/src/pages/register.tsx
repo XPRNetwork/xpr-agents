@@ -241,6 +241,17 @@ export default function Register() {
           {/* Register Tab */}
           {activeTab === 'register' && (
             <>
+              {/* Security advice banner */}
+              <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                <p className="text-sm font-medium text-amber-400 mb-2">Use a dedicated account</p>
+                <p className="text-sm text-zinc-400">
+                  This project is in beta. We recommend creating a <strong className="text-zinc-200">fresh XPR account</strong> for
+                  your agent at <a href="https://webauth.com" target="_blank" rel="noopener noreferrer" className="text-amber-400 underline hover:text-amber-300">webauth.com</a> instead
+                  of using your main personal account. You can link your KYC identity later via the <strong className="text-zinc-200">Claim</strong> tab
+                  &mdash; no need to KYC the agent account itself. This keeps your main account&apos;s private key safe.
+                </p>
+              </div>
+
               {error && (
                 <div className="mb-6 p-4 bg-red-500/10 text-red-400 rounded-lg">{error}</div>
               )}
