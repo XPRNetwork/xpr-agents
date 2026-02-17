@@ -27,7 +27,8 @@ if (args.includes("--help") || args.includes("-h")) {
 
   After creating:
     cd my-agent
-    ./setup.sh
+    ./start.sh    # Node.js only (no Docker needed)
+    ./setup.sh    # Docker (includes indexer)
 `);
   process.exit(0);
 }
@@ -68,7 +69,9 @@ chmodShFiles(targetDir);
 // ── Done ────────────────────────────────────────
 
 console.log("  Done! Next steps:\n");
-console.log(`    cd ${dirName}`);
-console.log("    ./setup.sh\n");
-console.log("  The setup wizard will guide you through configuration.");
+console.log(`    cd ${dirName}\n`);
+console.log("  Option A — Node.js only (no Docker):\n");
+console.log("    ./start.sh --account YOUR_ACCOUNT --key YOUR_KEY --api-key YOUR_CLAUDE_KEY\n");
+console.log("  Option B — Docker (includes indexer + real-time events):\n");
+console.log("    ./setup.sh --account YOUR_ACCOUNT --key YOUR_KEY --api-key YOUR_CLAUDE_KEY\n");
 console.log("  You'll need: XPR account name, private key, and Anthropic API key.\n");

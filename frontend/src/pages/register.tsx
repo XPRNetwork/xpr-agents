@@ -480,13 +480,30 @@ export default function Register() {
                   Claiming links a KYC-verified human account to a bot agent account. Since bot accounts cannot complete KYC themselves,
                   claiming lets the agent inherit the owner&apos;s KYC level for trust score calculation — up to 30 bonus trust points.
                 </p>
-                <div className="text-sm text-zinc-400">
-                  <p className="font-medium text-zinc-300 mb-1">How it works:</p>
-                  <ol className="list-decimal list-inside space-y-1">
-                    <li>Agent operator calls <code className="text-zinc-300 bg-zinc-800 px-1 rounded">approveclaim</code> to approve your account</li>
-                    <li>You pay the claim deposit and complete the claim here</li>
-                    <li>The agent&apos;s trust score now includes your KYC level</li>
-                  </ol>
+                <div className="text-sm text-zinc-400 space-y-3">
+                  <div>
+                    <p className="font-medium text-zinc-300 mb-1">Step 1: The agent approves you</p>
+                    <p className="mb-2">
+                      The <strong className="text-zinc-300">agent account</strong> (the bot) must call <code className="text-zinc-300 bg-zinc-800 px-1 rounded">approveclaim</code> first.
+                      This is done using the agent&apos;s private key, not your human wallet.
+                    </p>
+                    <p className="mb-1 text-xs text-zinc-500">Via Proton CLI:</p>
+                    <div className="bg-zinc-800 text-zinc-300 text-xs p-2 rounded-lg overflow-x-auto">
+                      <code>proton action agentcore approveclaim {`'{"agent":"myagent","new_owner":"myhuman"}'`} myagent@active</code>
+                    </div>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Or if your agent is running autonomously, you can ask it via <code className="bg-zinc-800 px-1 rounded">/run</code>:{' '}
+                      <em>&quot;Approve myhuman to claim me&quot;</em>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-medium text-zinc-300 mb-1">Step 2: You complete the claim</p>
+                    <p>Connect your <strong className="text-zinc-300">human wallet</strong> above, look up the agent, pay the deposit (refundable), and claim.</p>
+                  </div>
+                  <div>
+                    <p className="font-medium text-zinc-300 mb-1">Step 3: Trust score updated</p>
+                    <p>The agent&apos;s trust score now includes your KYC level (up to +30 points). The deposit is refunded when you release the agent.</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -510,17 +527,22 @@ export default function Register() {
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
               <h3 className="font-medium text-zinc-200 mb-3">Deploy Your Agent</h3>
               <p className="text-sm text-zinc-400 mb-3">
-                Use the starter kit to deploy a full autonomous agent with webhook listener and A2A support:
+                Use the starter kit to deploy a full autonomous agent with 55+ blockchain tools and A2A support:
               </p>
               <div className="bg-zinc-800 text-zinc-300 text-xs p-3 rounded-lg overflow-x-auto space-y-1 mb-3">
                 <code className="block">npx create-xpr-agent my-agent</code>
                 <code className="block">cd my-agent</code>
-                <code className="block">./setup.sh --account YOUR_ACCOUNT --key YOUR_PRIVATE_KEY --api-key YOUR_CLAUDE_KEY</code>
               </div>
-              <p className="text-sm text-zinc-400">
-                This sets up Docker Compose with the indexer and agent runner.
-                Run <code className="text-zinc-300 bg-zinc-800 px-1 rounded">./setup.sh --help</code> for full setup options.
-              </p>
+              <div className="text-sm text-zinc-400 space-y-2">
+                <p>
+                  <strong className="text-zinc-300">Node.js only</strong> (no Docker needed):
+                  <code className="ml-2 text-zinc-300 bg-zinc-800 px-2 py-0.5 rounded text-xs">./start.sh --account X --key X --api-key X</code>
+                </p>
+                <p>
+                  <strong className="text-zinc-300">Docker</strong> (includes indexer for real-time events):
+                  <code className="ml-2 text-zinc-300 bg-zinc-800 px-2 py-0.5 rounded text-xs">./setup.sh --account X --key X --api-key X</code>
+                </p>
+              </div>
             </div>
 
             <div>

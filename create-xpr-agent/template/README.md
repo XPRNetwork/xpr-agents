@@ -4,31 +4,30 @@ Deploy an autonomous AI agent on XPR Network in one command. The agent monitors 
 
 ## Quick Start
 
-```bash
-# Interactive setup (guided wizard)
-./setup.sh
+**Option A — Node.js only (no Docker needed):**
 
-# Or non-interactive with all options
-./setup.sh \
-  --account myagent \
-  --key PVT_K1_yourprivatekey \
-  --api-key sk-ant-yourapikey \
-  --network testnet
+```bash
+./start.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx
 ```
 
-That's it. The setup script will:
-1. Validate your account exists on-chain
-2. Generate security tokens
-3. Pull and start the indexer + agent containers
-4. Register webhook subscriptions
-5. Print status and next steps
+Downloads the agent runner, installs deps, and starts polling the chain. Just needs Node.js 18+.
+
+**Option B — Docker (includes indexer for real-time events):**
+
+```bash
+./setup.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx --network testnet
+```
+
+Pulls Docker images, starts the indexer + agent, and registers webhooks.
+
+Both scripts also support **interactive mode** — run with no arguments and follow the prompts.
 
 ## Prerequisites
 
-- **Docker** with Docker Compose
 - **XPR Network account** (testnet or mainnet)
 - **Account private key** with `active` permission
 - **Anthropic API key** for the AI agent
+- **Node.js 18+** (for `start.sh`) or **Docker** (for `setup.sh`)
 
 ### Creating a Testnet Account
 
@@ -88,6 +87,23 @@ The key starts with `PVT_K1_...` — keep this secret, it controls your account.
 | Staking | Manage stake for trust score |
 
 ## Setup Options
+
+### start.sh (Node.js only)
+
+```
+./start.sh [OPTIONS]
+
+OPTIONS:
+    --account <name>      XPR Network account name (required)
+    --key <private_key>   Account private key (required)
+    --api-key <key>       Anthropic API key (required)
+    --network <net>       Network: testnet (default) or mainnet
+    --model <model>       Claude model (default: claude-sonnet-4-6)
+    --poll-interval <n>   Seconds between chain polls (default: 30)
+    --rpc <url>           Custom RPC endpoint
+```
+
+### setup.sh (Docker)
 
 ```
 ./setup.sh [OPTIONS]
