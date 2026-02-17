@@ -14,8 +14,10 @@ interface Session {
 interface ProtonContextType {
   session: Session | null;
   loading: boolean;
+  verifying: boolean;
   error: string | null;
   jwtToken: string | null;
+  authenticated: boolean;
   login: () => Promise<void>;
   logout: () => Promise<void>;
   transact: (actions: any[]) => Promise<any>;
@@ -24,7 +26,7 @@ interface ProtonContextType {
 const ProtonContext = createContext<ProtonContextType | null>(null);
 
 const APP_NAME = 'XPR Agent Deploy';
-const REQUEST_ACCOUNT = process.env.NEXT_PUBLIC_REQUEST_ACCOUNT || 'agentcore';
+const REQUEST_ACCOUNT = process.env.NEXT_PUBLIC_REQUEST_ACCOUNT || 'agentdeploy';
 const JWT_STORAGE_KEY = 'xpr_deploy_jwt';
 
 const networkConfig = getNetworkConfig();
@@ -61,57 +63,101 @@ function toHex(bytes: Uint8Array): string {
  * Uses linkSession.transact({ broadcast: false }) which shows a WebAuth
  * biometric popup but does NOT send the transaction on-chain.
  */
+/**
+ * Authenticate returns the JWT token on success, or throws an Error with
+ * a user-facing message on failure. Callers should catch and display the error.
+ */
 async function authenticate(
   linkSession: any,
   actor: string,
   permission: string,
-): Promise<string | null> {
-  if (verifyInProgress) return null;
+): Promise<string> {
+  if (verifyInProgress) throw new Error('Verification already in progress');
   verifyInProgress = true;
 
   try {
-    // Sign a self-transfer with broadcast: false — wallet shows biometric
+    console.log('[auth] Requesting signature proof from wallet...');
+
+    // Sign a transfer with broadcast: false — wallet shows biometric
     // popup, user approves, we get the signature without any on-chain effect
-    const result = await linkSession.transact(
-      {
-        actions: [
-          {
-            account: 'eosio.token',
-            name: 'transfer',
-            authorization: [{ actor, permission }],
-            data: {
-              from: actor,
-              to: actor,
-              quantity: '0.0001 XPR',
-              memo: `auth:${Math.floor(Date.now() / 1000)}`,
+    let result: any;
+    try {
+      result = await linkSession.transact(
+        {
+          actions: [
+            {
+              account: 'eosio.token',
+              name: 'transfer',
+              authorization: [{ actor, permission }],
+              data: {
+                from: actor,
+                to: 'protonnz',
+                quantity: '0.0001 XPR',
+                memo: `auth:${Math.floor(Date.now() / 1000)}`,
+              },
             },
-          },
-        ],
-      },
-      { broadcast: false },
-    );
+          ],
+        },
+        { broadcast: false },
+      );
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      if (msg.includes('cancel') || msg.includes('rejected') || msg.includes('denied')) {
+        throw new Error('Signature request was cancelled. You must approve to verify your identity.');
+      }
+      throw new Error(`Wallet signing failed: ${msg}`);
+    }
 
-    // Extract the signed transaction bytes and signature
-    const serializedTransaction = toHex(
-      new Uint8Array(result.resolved.serializedTransaction),
-    );
-    const signatures = result.signatures.map(String);
+    // Extract serialized transaction — try multiple paths
+    const rawTx = result?.serializedTransaction
+      || result?.resolved?.serializedTransaction;
 
-    const response = await loginWithProof({
+    // Extract signatures — try multiple paths
+    const rawSigs = result?.signatures
+      || result?.resolved?.signatures;
+
+    if (!rawTx || !rawSigs?.length) {
+      console.error('[auth] Missing data. Result keys:', Object.keys(result || {}));
+      throw new Error('Wallet returned an incomplete signature. Check browser console for details.');
+    }
+
+    // Handle both hex string and Uint8Array formats
+    let serializedTransaction: string;
+    if (typeof rawTx === 'string') {
+      serializedTransaction = rawTx;
+    } else {
+      serializedTransaction = toHex(rawTx instanceof Uint8Array ? rawTx : new Uint8Array(rawTx));
+    }
+    const signatures = rawSigs.map((s: any) => typeof s === 'string' ? s : s.toString());
+
+    console.log('[auth] Sending to backend:', {
       account: actor,
       chainId: CHAIN_ID,
-      serializedTransaction,
-      signatures,
+      serializedTransaction: serializedTransaction.substring(0, 40) + '...',
+      signatureCount: signatures.length,
+      signaturePrefix: signatures[0]?.substring(0, 20),
     });
 
-    if (response.token) {
-      localStorage.setItem(JWT_STORAGE_KEY, response.token);
-      return response.token;
+    let response: any;
+    try {
+      response = await loginWithProof({
+        account: actor,
+        chainId: CHAIN_ID,
+        serializedTransaction,
+        signatures,
+      });
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      throw new Error(`Server verification failed: ${msg}`);
     }
-    return null;
-  } catch (e: any) {
-    console.warn('[auth] Wallet verification failed:', e?.message || e);
-    return null;
+
+    if (!response.token) {
+      throw new Error('Server did not return an authentication token.');
+    }
+
+    console.log('[auth] JWT issued, identity verified');
+    localStorage.setItem(JWT_STORAGE_KEY, response.token);
+    return response.token;
   } finally {
     verifyInProgress = false;
   }
@@ -120,6 +166,7 @@ async function authenticate(
 export function ProtonProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [jwtToken, setJwtToken] = useState<string | null>(null);
 
@@ -141,17 +188,24 @@ export function ProtonProvider({ children }: { children: ReactNode }) {
           const actor = restored.auth.actor.toString();
           const permission = restored.auth.permission.toString();
 
-          setSession({ auth: { actor, permission }, link, linkSession: restored });
-
           // Check for existing JWT in localStorage
           const storedJwt = localStorage.getItem(JWT_STORAGE_KEY);
           if (storedJwt && !isJwtExpired(storedJwt)) {
+            // Valid JWT exists — restore full session
+            setSession({ auth: { actor, permission }, link, linkSession: restored });
             setJwtToken(storedJwt);
           } else {
             // JWT missing or expired — re-authenticate (biometric popup)
             if (storedJwt) localStorage.removeItem(JWT_STORAGE_KEY);
-            const newToken = await authenticate(restored, actor, permission);
-            if (newToken) setJwtToken(newToken);
+            try {
+              const newToken = await authenticate(restored, actor, permission);
+              setSession({ auth: { actor, permission }, link, linkSession: restored });
+              setJwtToken(newToken);
+            } catch (e: any) {
+              console.warn('[auth] Session restore auth failed:', e?.message);
+              // Can't verify — clear the wallet session
+              try { if (link) await link.removeSession(REQUEST_ACCOUNT, restored.auth, CHAIN_ID); } catch {}
+            }
           }
         }
       } catch (e: any) {
@@ -180,17 +234,25 @@ export function ProtonProvider({ children }: { children: ReactNode }) {
         const actor = loginSession.auth.actor.toString();
         const permission = loginSession.auth.permission.toString();
 
-        setSession({ auth: { actor, permission }, link, linkSession: loginSession });
-
-        // Immediately verify identity for JWT after wallet connect
-        const token = await authenticate(loginSession, actor, permission);
-        if (token) setJwtToken(token);
+        // Verify identity via signed transaction BEFORE setting session
+        // This ensures the user can't appear "logged in" without proving key ownership
+        setVerifying(true);
+        try {
+          const token = await authenticate(loginSession, actor, permission);
+          setSession({ auth: { actor, permission }, link, linkSession: loginSession });
+          setJwtToken(token);
+        } catch (authErr: any) {
+          // Auth failed — disconnect the wallet session, don't leave half-connected
+          try { if (link) await link.removeSession(REQUEST_ACCOUNT, loginSession.auth, CHAIN_ID); } catch {}
+          setError(authErr.message || 'Identity verification failed.');
+        }
       }
     } catch (e: any) {
       setError(e.message || 'Failed to login');
     } finally {
       loginInProgress = false;
       setLoading(false);
+      setVerifying(false);
     }
   }, []);
 
@@ -225,7 +287,7 @@ export function ProtonProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <ProtonContext.Provider value={{ session, loading, error, jwtToken, login, logout, transact }}>
+    <ProtonContext.Provider value={{ session, loading, verifying, error, jwtToken, authenticated: !!jwtToken, login, logout, transact }}>
       {children}
     </ProtonContext.Provider>
   );
