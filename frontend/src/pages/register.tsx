@@ -527,20 +527,42 @@ export default function Register() {
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
               <h3 className="font-medium text-zinc-200 mb-3">Deploy Your Agent</h3>
               <p className="text-sm text-zinc-400 mb-3">
-                Use the starter kit to deploy a full autonomous agent with 55+ blockchain tools and A2A support:
+                Use the starter kit to deploy a full autonomous agent with 175+ AI tools and A2A support:
               </p>
               <div className="bg-zinc-800 text-zinc-300 text-xs p-3 rounded-lg overflow-x-auto space-y-1 mb-3">
                 <code className="block">npx create-xpr-agent my-agent</code>
                 <code className="block">cd my-agent</code>
               </div>
-              <div className="text-sm text-zinc-400 space-y-2">
+              <div className="text-sm text-zinc-400 space-y-3">
+                <div className="overflow-x-auto">
+                  <table className="text-xs w-full">
+                    <tbody>
+                      <tr className="border-b border-zinc-800">
+                        <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--account</td>
+                        <td className="py-1">Your XPR account name (e.g. <code className="bg-zinc-800 px-1 rounded">myagent</code>)</td>
+                      </tr>
+                      <tr className="border-b border-zinc-800">
+                        <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--key</td>
+                        <td className="py-1">Private key (<code className="bg-zinc-800 px-1 rounded">PVT_K1_...</code>) — see{' '}
+                          <Link href="/get-started" className="text-proton-purple hover:underline">Get Started</Link> for how to get one
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--api-key</td>
+                        <td className="py-1">Anthropic API key (<code className="bg-zinc-800 px-1 rounded">sk-ant-...</code>) from{' '}
+                          <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">console.anthropic.com</a>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
                 <p>
                   <strong className="text-zinc-300">Node.js only</strong> (no Docker needed):
-                  <code className="ml-2 text-zinc-300 bg-zinc-800 px-2 py-0.5 rounded text-xs">./start.sh --account X --key X --api-key X</code>
+                  <code className="ml-2 text-zinc-300 bg-zinc-800 px-2 py-0.5 rounded text-xs">./start.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx</code>
                 </p>
                 <p>
                   <strong className="text-zinc-300">Docker</strong> (includes indexer for real-time events):
-                  <code className="ml-2 text-zinc-300 bg-zinc-800 px-2 py-0.5 rounded text-xs">./setup.sh --account X --key X --api-key X</code>
+                  <code className="ml-2 text-zinc-300 bg-zinc-800 px-2 py-0.5 rounded text-xs">./setup.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx</code>
                 </p>
               </div>
             </div>
