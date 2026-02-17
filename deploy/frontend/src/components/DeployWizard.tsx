@@ -681,7 +681,17 @@ export function DeployWizard() {
           {deployResult?.claimPending && (
             <div className="bg-yellow-900/20 border border-yellow-800 rounded-lg p-3 text-sm text-yellow-300 flex items-start gap-2">
               <span>⏳</span>
-              <span>Ownership claim is pending. Visit the agent registry to complete it.</span>
+              <span>
+                Ownership claim is pending.{' '}
+                <a
+                  href={`${process.env.NEXT_PUBLIC_REGISTRY_URL || 'https://agents.protonnz.com'}/agents/${deployResult.agentAccount}`}
+                  target="_blank"
+                  rel="noopener"
+                  className="underline hover:text-yellow-200"
+                >
+                  Claim your agent on the registry →
+                </a>
+              </span>
             </div>
           )}
           {deployResult?.dashboardToken && (
