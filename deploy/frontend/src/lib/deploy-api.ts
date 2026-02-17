@@ -46,10 +46,34 @@ export async function deployAgent(req: DeployRequest) {
   });
 }
 
-export async function getAgentStatus(agent: string) {
-  return apiFetch(`/api/status/${encodeURIComponent(agent)}`);
+export async function getAgentStatus(agent: string, token?: string) {
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return apiFetch(`/api/status/${encodeURIComponent(agent)}`, { headers });
 }
 
 export async function getDeployments(owner: string) {
   return apiFetch(`/api/deployments?owner=${encodeURIComponent(owner)}`);
+}
+
+export async function chatWithAgent(agent: string, message: string, token: string) {
+  return apiFetch(`/api/chat/${encodeURIComponent(agent)}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ message }),
+  });
+}
+
+export async function updateAgentConfig(agent: string, config: Record<string, string>, token: string) {
+  return apiFetch(`/api/config/${encodeURIComponent(agent)}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(config),
+  });
+}
+
+export async function getAgentLogs(agent: string, token: string) {
+  return apiFetch(`/api/logs/${encodeURIComponent(agent)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }

@@ -146,6 +146,11 @@ export function DeployWizard() {
 
       const result = await deployAgent(req);
       setDeployResult(result);
+
+      if (result.dashboardToken) {
+        localStorage.setItem(`dashboard_token_${result.agentAccount}`, result.dashboardToken);
+      }
+
       setStep('done');
     } catch (e: any) {
       setError(e.message || 'Deployment failed');
@@ -466,6 +471,11 @@ export function DeployWizard() {
           {deployResult?.claimPending && (
             <div className="bg-yellow-900/20 border border-yellow-800 rounded-lg p-3 text-sm text-yellow-300">
               Claim is pending. Visit the agent registry to complete ownership claim.
+            </div>
+          )}
+          {deployResult?.dashboardToken && (
+            <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3 text-sm text-blue-300">
+              Your dashboard access token has been saved to this browser. If you clear browser data, you will need to contact support to regenerate it.
             </div>
           )}
         </div>
