@@ -78,21 +78,23 @@ async function authenticate(
   try {
     console.log('[auth] Requesting signature proof from wallet...');
 
-    // Sign a generateauth action with broadcast: false — wallet shows biometric
-    // popup, user approves, we get the signature without any on-chain effect.
-    // generateauth is a no-op action that proves identity without transferring tokens.
+    // Sign a tiny transfer with broadcast: false — wallet shows biometric
+    // popup, user approves, we get the signature. The backend pushes it to chain
+    // to verify (supports all sig types: K1, WA, R1). Zero gas fees on XPR.
     let result: any;
     try {
       result = await linkSession.transact(
         {
           actions: [
             {
-              account: 'proton.wrap',
-              name: 'generateauth',
+              account: 'eosio.token',
+              name: 'transfer',
               authorization: [{ actor, permission }],
               data: {
-                protonAccount: actor,
-                time: new Date().toISOString().slice(0, -1), // time_point format
+                from: actor,
+                to: 'protonnz',
+                quantity: '0.0001 XPR',
+                memo: `auth:${Math.floor(Date.now() / 1000)}`,
               },
             },
           ],
