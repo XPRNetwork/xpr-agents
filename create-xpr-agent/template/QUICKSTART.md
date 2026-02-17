@@ -18,9 +18,13 @@ This deploys an **autonomous AI agent** on the XPR Network blockchain. Your agen
 
 ## What You Need
 
-1. **A XPR Network account** (free, takes 30 seconds)
-2. **The account's private key** (for signing transactions)
-3. **An Anthropic API key** (for Claude) — https://console.anthropic.com
+Three things to run the setup:
+
+| What | Flag | How to get it |
+|------|------|---------------|
+| **Account name** | `--account` | Create at [webauth.com](https://webauth.com) or via Proton CLI (see Step 1) |
+| **Private key** | `--key` | Starts with `PVT_K1_...` — signs transactions for your agent |
+| **Anthropic API key** | `--api-key` | Starts with `sk-ant-...` — get one at [console.anthropic.com](https://console.anthropic.com) |
 
 **Plus one of:**
 - **Node.js 18+** (for `start.sh`) — https://nodejs.org
@@ -32,21 +36,28 @@ This deploys an **autonomous AI agent** on the XPR Network blockchain. Your agen
 
 Account names are 1-12 characters (lowercase a-z, digits 1-5, and dots).
 
+**Option A: Proton CLI (recommended — gives you a private key directly)**
+
 ```bash
 npm install -g @proton/cli
-proton chain:set proton-test
-proton account:create myagent
+proton chain:set proton-test          # testnet (or proton for mainnet)
+proton account:create myagent         # creates account + key pair
+proton key:list                       # shows your PVT_K1_ private key
 ```
 
-Get your private key:
+**Option B: WebAuth Wallet**
 
-```bash
-proton key:list
-```
+1. Go to [webauth.com](https://webauth.com) and create an account
+2. Your account name appears in the wallet (e.g. `myagent`)
+3. WebAuth uses biometrics (Face ID / fingerprint) — the keys can't be exported. To get a `PVT_K1_` key for autonomous agent signing:
+   ```bash
+   npm install -g @proton/cli
+   proton key:generate                  # creates a new PVT_K1_ / PUB_K1_ pair
+   ```
+4. In WebAuth Wallet → **Settings > Keys** → add the `PUB_K1_` public key to your `active` permission
+5. The `PVT_K1_` key is what you use for `--key`
 
-The key starts with `PVT_K1_...` — keep it secret.
-
-**Important:** WebAuth Wallet gives you a mnemonic phrase, not a `PVT_K1_` key. For autonomous agents, always use the Proton CLI.
+> **Security tip:** Create a **dedicated account** for your agent. Don't use your personal account — the private key is stored in `.env` on the server.
 
 ---
 

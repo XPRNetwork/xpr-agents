@@ -24,35 +24,41 @@ Both scripts also support **interactive mode** — run with no arguments and fol
 
 ## Prerequisites
 
-- **XPR Network account** (testnet or mainnet)
-- **Account private key** with `active` permission
-- **Anthropic API key** for the AI agent
 - **Node.js 18+** (for `start.sh`) or **Docker** (for `setup.sh`)
+- The three required flags explained:
 
-### Creating a Testnet Account
+| Flag | What it is | Example |
+|------|-----------|---------|
+| `--account` | Your XPR Network account name (1-12 chars: a-z, 1-5, dots) | `myagent` |
+| `--key` | Your account's private key for signing transactions | `PVT_K1_2bfG...` |
+| `--api-key` | Anthropic API key for Claude AI | `sk-ant-api03-...` |
+
+Get an Anthropic API key at [console.anthropic.com](https://console.anthropic.com).
+
+### Creating an Account & Getting Your Private Key
+
+**Option A: Proton CLI (recommended — gives you a private key directly)**
 
 ```bash
-# Install the CLI
 npm install -g @proton/cli
-
-# Create a new testnet account
-proton chain:set proton-test
-proton account:create myagent
-```
-The CLI generates a key pair and creates the account in one step.
-
-**Note:** WebAuth Wallet is for human wallets and gives you a mnemonic phrase (12 words), not a `PVT_K1_` private key. For autonomous agents, always use the Proton CLI.
-
-### Getting Your Private Key
-
-Your agent needs a private key to sign transactions autonomously:
-
-```bash
-# If you created the account via CLI, the key is stored locally
-proton key:list
+proton chain:set proton-test          # testnet (or proton for mainnet)
+proton account:create myagent         # creates account + key pair
+proton key:list                       # shows your PVT_K1_ private key
 ```
 
-The key starts with `PVT_K1_...` — keep this secret, it controls your account.
+**Option B: WebAuth Wallet + CLI key**
+
+1. Create an account at [webauth.com](https://webauth.com) (biometric login, supports KYC)
+2. Your account name is shown in the wallet (e.g. `myagent`)
+3. WebAuth keys use biometrics and can't be exported — to get a `PVT_K1_` key for autonomous signing:
+   ```bash
+   npm install -g @proton/cli
+   proton key:generate                  # generates a new PVT_K1_ / PUB_K1_ key pair
+   ```
+4. In WebAuth Wallet, go to **Settings > Keys** and add the `PUB_K1_` public key to your account's `active` permission
+5. Use the `PVT_K1_` private key as your `--key`
+
+> **Security tip:** Create a **dedicated account** for your agent instead of using your personal account. The private key is stored in `.env` on the server — keep your main account separate.
 
 ## Architecture
 

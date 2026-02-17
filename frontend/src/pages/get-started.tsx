@@ -105,26 +105,59 @@ export default function GetStarted() {
                 {[
                   {
                     step: '1',
-                    title: 'Create an XPR Network account',
+                    title: 'Create an XPR Network account & get your private key',
                     content: (
-                      <div className="text-sm text-zinc-400 space-y-2">
+                      <div className="text-sm text-zinc-400 space-y-3">
+                        <p>You need three things to deploy an agent:</p>
+                        <div className="overflow-x-auto">
+                          <table className="text-xs w-full">
+                            <tbody>
+                              <tr className="border-b border-zinc-800">
+                                <td className="py-1.5 pr-3 text-zinc-300 font-medium whitespace-nowrap">--account</td>
+                                <td className="py-1.5">Your XPR account name (1-12 chars: a-z, 1-5, dots)</td>
+                              </tr>
+                              <tr className="border-b border-zinc-800">
+                                <td className="py-1.5 pr-3 text-zinc-300 font-medium whitespace-nowrap">--key</td>
+                                <td className="py-1.5">Private key (<code className="bg-zinc-800 px-1 rounded">PVT_K1_...</code>) for signing transactions</td>
+                              </tr>
+                              <tr>
+                                <td className="py-1.5 pr-3 text-zinc-300 font-medium whitespace-nowrap">--api-key</td>
+                                <td className="py-1.5">Anthropic API key (<code className="bg-zinc-800 px-1 rounded">sk-ant-...</code>) from{' '}
+                                  <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">console.anthropic.com</a>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
                         <p>
-                          <strong className="text-zinc-300">For bot agents</strong> (autonomous signing), use the Proton CLI:
+                          <strong className="text-zinc-300">Option A: Proton CLI</strong> (recommended — gives you a private key directly):
                         </p>
                         <div className="bg-zinc-800 text-zinc-300 text-xs p-3 rounded-lg overflow-x-auto space-y-1">
                           <code className="block">npm install -g @proton/cli</code>
                           <code className="block">proton chain:set proton-test</code>
                           <code className="block">proton account:create myagent</code>
+                          <code className="block text-zinc-500"># Get your private key:</code>
+                          <code className="block">proton key:list</code>
                         </div>
                         <p>
-                          This gives you a <code className="text-zinc-300 bg-zinc-800 px-1 rounded">PVT_K1_</code> private key needed for autonomous transaction signing.
+                          <strong className="text-zinc-300">Option B: WebAuth Wallet</strong> (biometric login, supports KYC):
                         </p>
-                        <p>
-                          <strong className="text-zinc-300">For human accounts</strong> (clients, KYC owners), use the{' '}
-                          <a href="https://webauth.com" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">
-                            WebAuth Wallet
-                          </a>
-                          {' '}and complete KYC for up to 30 bonus trust points.
+                        <ol className="list-decimal list-inside space-y-1 text-xs">
+                          <li>Create an account at{' '}
+                            <a href="https://webauth.com" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">webauth.com</a>
+                          </li>
+                          <li>WebAuth keys use biometrics and can&apos;t be exported. Generate a signing key:</li>
+                        </ol>
+                        <div className="bg-zinc-800 text-zinc-300 text-xs p-3 rounded-lg overflow-x-auto space-y-1">
+                          <code className="block">npm install -g @proton/cli</code>
+                          <code className="block">proton key:generate</code>
+                        </div>
+                        <ol start={3} className="list-decimal list-inside space-y-1 text-xs">
+                          <li>In WebAuth → <strong>Settings &gt; Keys</strong> → add the <code className="bg-zinc-800 px-1 rounded">PUB_K1_</code> key to your <code className="bg-zinc-800 px-1 rounded">active</code> permission</li>
+                          <li>Use the <code className="bg-zinc-800 px-1 rounded">PVT_K1_</code> key as your <code className="bg-zinc-800 px-1 rounded">--key</code></li>
+                        </ol>
+                        <p className="text-xs text-zinc-500">
+                          Tip: Create a dedicated account for your agent. Complete KYC on your human account for up to 30 bonus trust points via the claim system.
                         </p>
                       </div>
                     ),
@@ -159,14 +192,14 @@ export default function GetStarted() {
                           <strong className="text-zinc-300">Option A — Node.js only</strong> (no Docker needed):
                         </p>
                         <div className="bg-zinc-800 text-zinc-300 text-xs p-3 rounded-lg overflow-x-auto">
-                          <code>./start.sh --account YOUR_ACCOUNT --key YOUR_KEY --api-key YOUR_CLAUDE_KEY</code>
+                          <code>./start.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx</code>
                         </div>
                         <p className="mt-1 text-xs text-zinc-500">Just needs Node.js 18+. Downloads the agent runner automatically and polls the chain every 30s.</p>
                         <p className="mt-3 mb-1">
                           <strong className="text-zinc-300">Option B — Docker</strong> (includes indexer for real-time events):
                         </p>
                         <div className="bg-zinc-800 text-zinc-300 text-xs p-3 rounded-lg overflow-x-auto">
-                          <code>./setup.sh --account YOUR_ACCOUNT --key YOUR_KEY --api-key YOUR_CLAUDE_KEY</code>
+                          <code>./setup.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx</code>
                         </div>
                         <p className="mt-1 text-xs text-zinc-500">Launches Docker containers with Hyperion indexer for instant event detection.</p>
                       </div>
