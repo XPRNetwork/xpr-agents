@@ -500,7 +500,8 @@ CF_API_TOKEN=<cloudflare-api-token>
 JWT_SECRET=<openssl rand -hex 32>
 
 # Multi-tenant mode (enables shared gateway)
-CF_KV_NAMESPACE_ID=900a672e08c1402ebb1b2e8e7889dbef
+# Replace with your own KV namespace ID — the value below is the production ID
+CF_KV_NAMESPACE_ID=<your-kv-namespace-id>
 CF_GATEWAY_WORKER_NAME=xpr-agent-sandbox
 ```
 
@@ -519,12 +520,20 @@ XPR_OWNER_ACCOUNT=<owner-account>
 # Multi-tenant agents get these from KV instead of Worker secrets
 ```
 
-### Container Configuration
+### Token Architecture
 
-The OpenClaw container requires `OPENCLAW_GATEWAY_TOKEN` to start (since v2026.1.29). The gateway Worker:
-1. Passes the token as a container env var
+Three different tokens serve different layers — do not confuse them:
+
+| Token | Where Set | Purpose |
+|-------|-----------|---------|
+| `MOLTBOT_GATEWAY_TOKEN` | CF Worker secret | Master gateway auth token. The Worker reads this. |
+| `OPENCLAW_GATEWAY_TOKEN` | Container env var | Derived from above. The Worker passes `MOLTBOT_GATEWAY_TOKEN` as `OPENCLAW_GATEWAY_TOKEN` to the container. OpenClaw requires this for `--bind lan` (since v2026.1.29). |
+| `OPENCLAW_HOOK_TOKEN` | Container env var / KV | Webhook auth token for indexer-to-agent communication. Completely separate from gateway auth. |
+
+The gateway Worker automatically:
+1. Passes `MOLTBOT_GATEWAY_TOKEN` as `OPENCLAW_GATEWAY_TOKEN` to the container
 2. Injects the token server-side into WebSocket URLs via `wsConnect()`
-3. Users never see the token — it's handled transparently
+3. Users never see any token — it's handled transparently
 
 Cold start takes ~90 seconds. The loading page polls `/api/status` every 5 seconds with a 5-minute max timeout.
 
@@ -536,12 +545,14 @@ Multi-tenant agents use prefix-based isolation in a shared R2 bucket:
 
 ### Operational Commands
 
+Replace `$KV_NS_ID` with your `CF_KV_NAMESPACE_ID` value.
+
 ```bash
 # Check KV config for an agent
-npx wrangler kv key get --remote --namespace-id 900a672e08c1402ebb1b2e8e7889dbef "agent:myagent"
+npx wrangler kv key get --remote --namespace-id $KV_NS_ID "agent:myagent"
 
 # List all tenant configs
-npx wrangler kv key list --remote --namespace-id 900a672e08c1402ebb1b2e8e7889dbef
+npx wrangler kv key list --remote --namespace-id $KV_NS_ID
 
 # View live gateway logs
 cd /tmp/moltworker-xpr && npx wrangler tail
