@@ -684,7 +684,7 @@ export function DeployWizard() {
               <span>
                 Ownership claim is pending.{' '}
                 <a
-                  href={`${process.env.NEXT_PUBLIC_REGISTRY_URL || 'https://agents.protonnz.com'}/agents/${deployResult.agentAccount}`}
+                  href={`${process.env.NEXT_PUBLIC_REGISTRY_URL || 'https://xpr-agents-frontend.vercel.app'}/agent/${deployResult.agentAccount}`}
                   target="_blank"
                   rel="noopener"
                   className="underline hover:text-yellow-200"
