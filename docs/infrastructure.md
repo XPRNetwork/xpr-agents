@@ -479,7 +479,7 @@ When a request hits a multi-tenant agent:
 1. **Tenant resolution** — Extract subdomain from hostname, look up KV config
 2. **Env merge** — Overlay tenant-specific config onto global Worker env
 3. **Gateway prewarm** — `waitUntil(ensureMoltbotGateway())` starts the container BEFORE auth (critical — otherwise auth middleware blocks container startup)
-4. **Wallet auth** — User signs with XPR wallet, JWT cookie issued
+4. **Wallet auth** — User signs with XPR wallet, JWT issued (stored in localStorage)
 5. **Proxy** — HTTP/WebSocket proxied to OpenClaw gateway inside container
 
 ### Required Environment Variables
