@@ -426,6 +426,134 @@ curl https://agent.yourdomain.com/.well-known/agent.json
 
 ---
 
+## Managed Agent Deployment (deploy.xpragents.com)
+
+The deploy service provides 1-click agent provisioning via a web wizard at [deploy.xpragents.com](https://deploy.xpragents.com). It creates an XPR account, registers the agent on-chain, and deploys a Cloudflare Worker running OpenClaw with all XPR agent skills.
+
+### Two Deployment Modes
+
+| Mode | How It Works | Deploy Time | When Used |
+|------|-------------|-------------|-----------|
+| **Single-tenant** | One CF Worker per agent (`xpr-{owner}-{agent}.workers.dev`) | ~5 min | Default when KV not configured |
+| **Multi-tenant** | Shared CF Worker + per-agent KV config | ~2 sec | When `CF_KV_NAMESPACE_ID` + `CF_GATEWAY_WORKER_NAME` env vars set |
+
+### Multi-Tenant Architecture
+
+In multi-tenant mode, all agents share a single Cloudflare Worker deployment (the "gateway"). Each agent gets its own:
+- **KV config entry** with API keys, XPR account, tokens
+- **Sandbox container** (Cloudflare Durable Object + container instance)
+- **R2 storage prefix** for persistent data
+
+```
+Request: https://alice.xpragents.com/chat
+  |
+  v
+Gateway Worker: extract subdomain "alice"
+  |
+  v
+KV lookup: AGENT_KV.get("agent:alice") -> {xprAccount, anthropicApiKey, ...}
+  |
+  v
+Sandbox: getSandbox(env.Sandbox, "alice") -> separate container per agent
+  |
+  v
+Merge env: global Worker secrets + tenant KV config -> container env vars
+  |
+  v
+Proxy: HTTP/WebSocket to OpenClaw gateway on port 18789
+```
+
+### Key Components
+
+| Component | Location | Description |
+|-----------|----------|-------------|
+| Deploy Frontend | `deploy/frontend/` (Vercel) | React wizard for agent provisioning |
+| Deploy Backend | `xpr-deploy-service` (Railway) | Express API for account creation + CF deployment |
+| Gateway Worker | `moltworker-xpr` (CF Workers) | Shared Cloudflare Worker running OpenClaw containers |
+| Agent Registry | `agentcore` (on-chain) | Smart contract storing agent metadata + endpoints |
+
+### Gateway Startup Flow
+
+When a request hits a multi-tenant agent:
+
+1. **Tenant resolution** — Extract subdomain from hostname, look up KV config
+2. **Env merge** — Overlay tenant-specific config onto global Worker env
+3. **Gateway prewarm** — `waitUntil(ensureMoltbotGateway())` starts the container BEFORE auth (critical — otherwise auth middleware blocks container startup)
+4. **Wallet auth** — User signs with XPR wallet, JWT cookie issued
+5. **Proxy** — HTTP/WebSocket proxied to OpenClaw gateway inside container
+
+### Required Environment Variables
+
+#### Deploy Service (Railway)
+
+```bash
+# Core
+XPR_RPC_ENDPOINT=https://rpc.api.mainnet.metalx.com
+XPR_NETWORK=mainnet
+API_SECRET=<openssl rand -hex 32>
+WEBHOOK_SECRET=<openssl rand -hex 32>
+KEY_ENCRYPTION_SECRET=<openssl rand -hex 32>   # AES-256, exactly 64 hex chars
+DEPLOY_ACCOUNT=agentcreate
+DEPLOY_PRIVATE_KEY=PVT_K1_...
+CF_ACCOUNT_ID=<cloudflare-account-id>
+CF_API_TOKEN=<cloudflare-api-token>
+JWT_SECRET=<openssl rand -hex 32>
+
+# Multi-tenant mode (enables shared gateway)
+CF_KV_NAMESPACE_ID=900a672e08c1402ebb1b2e8e7889dbef
+CF_GATEWAY_WORKER_NAME=xpr-agent-sandbox
+```
+
+#### Gateway Worker (CF Secrets)
+
+```bash
+# Always required
+ANTHROPIC_API_KEY=<key>
+MOLTBOT_GATEWAY_TOKEN=<openssl rand -hex 32>
+
+# Single-tenant (set per worker)
+XPR_ACCOUNT=<agent-account>
+XPR_PRIVATE_KEY=PVT_K1_...
+XPR_OWNER_ACCOUNT=<owner-account>
+
+# Multi-tenant agents get these from KV instead of Worker secrets
+```
+
+### Container Configuration
+
+The OpenClaw container requires `OPENCLAW_GATEWAY_TOKEN` to start (since v2026.1.29). The gateway Worker:
+1. Passes the token as a container env var
+2. Injects the token server-side into WebSocket URLs via `wsConnect()`
+3. Users never see the token — it's handled transparently
+
+Cold start takes ~90 seconds. The loading page polls `/api/status` every 5 seconds with a 5-minute max timeout.
+
+### R2 Storage Isolation
+
+Multi-tenant agents use prefix-based isolation in a shared R2 bucket:
+- Single-tenant: `r2:moltbot-data/openclaw/`
+- Multi-tenant: `r2:moltbot-data/{agentName}/openclaw/`
+
+### Operational Commands
+
+```bash
+# Check KV config for an agent
+npx wrangler kv key get --remote --namespace-id 900a672e08c1402ebb1b2e8e7889dbef "agent:myagent"
+
+# List all tenant configs
+npx wrangler kv key list --remote --namespace-id 900a672e08c1402ebb1b2e8e7889dbef
+
+# View live gateway logs
+cd /tmp/moltworker-xpr && npx wrangler tail
+
+# Build and deploy gateway
+cd /tmp/moltworker-xpr && npm run build && npx wrangler deploy
+```
+
+> **Important:** Always run `npm run build` before `npx wrangler deploy` — Wrangler uses pre-built `dist/` and does NOT rebuild automatically.
+
+---
+
 ## Architecture Details
 
 See [CLAUDE.md](../CLAUDE.md) for:
