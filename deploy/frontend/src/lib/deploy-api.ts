@@ -92,12 +92,20 @@ export async function chatWithAgent(
   agent: string,
   message: string,
   token: string,
-  history?: Array<{ role: string; content: string }>
 ) {
   return apiFetch(`/api/chat/${encodeURIComponent(agent)}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message }),
+  });
+}
+
+export async function getChatHistory(
+  agent: string,
+  token: string,
+): Promise<{ messages: Array<{ role: string; content: string }> }> {
+  return apiFetch(`/api/chat-history/${encodeURIComponent(agent)}`, {
+    headers: { Authorization: `Bearer ${token}` },
   });
 }
 
