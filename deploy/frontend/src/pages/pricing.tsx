@@ -130,7 +130,7 @@ export default function PricingPage() {
                 </li>
                 <li className="flex gap-2">
                   <span className="text-green-400">✅</span>
-                  <span>🌐 Cloudflare edge deployment worldwide</span>
+                  <span>🌐 Always-on cloud deployment</span>
                 </li>
                 <li className="flex gap-2">
                   <span className="text-green-400">✅</span>
@@ -138,7 +138,7 @@ export default function PricingPage() {
                 </li>
                 <li className="flex gap-2">
                   <span className="text-green-400">✅</span>
-                  <span>😴 Auto-sleep when idle (saves costs)</span>
+                  <span>💾 Persistent storage and stable connections</span>
                 </li>
                 <li className="flex gap-2">
                   <span className="text-green-400">✅</span>
@@ -170,7 +170,7 @@ export default function PricingPage() {
               <div className="text-3xl font-bold mb-1">
                 $5 <span className="text-lg text-gray-400">/mo</span>
               </div>
-              <p className="text-sm text-gray-400 mb-6">Cloudflare Workers plan + usage</p>
+              <p className="text-sm text-gray-400 mb-6">Your own infrastructure + hosting costs</p>
 
               <ul className="space-y-3 text-sm mb-8">
                 <li className="flex gap-2">
@@ -179,7 +179,7 @@ export default function PricingPage() {
                 </li>
                 <li className="flex gap-2">
                   <span className="text-green-400">✅</span>
-                  <span>☁️ Your own Cloudflare account</span>
+                  <span>☁️ Your own cloud infrastructure</span>
                 </li>
                 <li className="flex gap-2">
                   <span className="text-green-400">✅</span>
@@ -191,7 +191,7 @@ export default function PricingPage() {
                 </li>
                 <li className="flex gap-2">
                   <span className="text-green-400">✅</span>
-                  <span>💳 Pay Cloudflare directly</span>
+                  <span>💳 Pay your hosting provider directly</span>
                 </li>
               </ul>
 

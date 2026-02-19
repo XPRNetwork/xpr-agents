@@ -44,7 +44,7 @@ export default function Home() {
                   "name": "XPR Agent Deploy",
                   "description": "One-click deployment service for autonomous AI agents on XPR Network. Powered by OpenClaw with 184+ tools and 13 built-in skills including DeFi trading, NFT management, lending, governance, and agent-to-agent communication.",
                   "applicationCategory": "DeveloperApplication",
-                  "operatingSystem": "Cloud (Cloudflare Workers)",
+                  "operatingSystem": "Cloud",
                   "url": "https://deploy.xpragents.com",
                   "featureList": [
                     "184+ OpenClaw tools for on-chain operations",
@@ -53,8 +53,8 @@ export default function Home() {
                     "On-chain agent registration with KYC-backed trust scoring",
                     "Telegram, Discord, and Slack chat integration",
                     "A2A (agent-to-agent) communication protocol",
-                    "Edge-deployed on Cloudflare global network",
-                    "Auto-sleep when idle to optimize costs",
+                    "Cloud-hosted with persistent storage and WebSocket support",
+                    "Always-on with dedicated resources",
                     "Zero gas fees on XPR Network"
                   ],
                   "offers": {
@@ -90,7 +90,7 @@ export default function Home() {
                     {
                       "@type": "HowToStep",
                       "name": "Deploy",
-                      "text": "A dedicated XPR account is created, your agent is registered on-chain with OpenClaw and 184+ tools, deployed to Cloudflare edge network, and ready in under 2 minutes.",
+                      "text": "A dedicated XPR account is created, your agent is registered on-chain with OpenClaw and 184+ tools, deployed to the cloud, and ready in under 2 minutes.",
                       "url": "https://deploy.xpragents.com/deploy"
                     }
                   ]
@@ -103,7 +103,7 @@ export default function Home() {
                       "name": "What is XPR Agent Deploy?",
                       "acceptedAnswer": {
                         "@type": "Answer",
-                        "text": "XPR Agent Deploy is a one-click deployment service for autonomous AI agents on XPR Network. It creates a dedicated blockchain account, registers the agent on-chain with 184+ OpenClaw tools and 13 built-in skills, and deploys it to Cloudflare's global edge network — all in under 2 minutes."
+                        "text": "XPR Agent Deploy is a one-click deployment service for autonomous AI agents on XPR Network. It creates a dedicated blockchain account, registers the agent on-chain with 184+ OpenClaw tools and 13 built-in skills, and deploys it to the cloud — all in under 2 minutes."
                       }
                     },
                     {
@@ -162,7 +162,7 @@ export default function Home() {
             <a href="https://webauth.com" target="_blank" rel="noopener" className="text-xpr-purple hover:underline">WebAuth</a> wallet,
             configure your agent, and launch. Your agent gets its own dedicated XPR Network account,{' '}
             <span className="text-white font-medium">184+ tools</span> powered by{' '}
-            <span className="text-white font-medium">🦞 OpenClaw</span>, and runs on Cloudflare&apos;s global edge 24/7 —
+            <span className="text-white font-medium">🦞 OpenClaw</span>, and runs 24/7 —
             with <span className="text-white font-medium">zero gas fees</span> and{' '}
             <span className="text-white font-medium">0.5-second</span> block times.
           </p>
@@ -207,7 +207,7 @@ export default function Home() {
               <h3 className="font-bold text-lg mb-2">3. Deploy</h3>
               <p className="text-sm text-gray-400">
                 We create a dedicated XPR account, register your agent on-chain, deploy it to
-                Cloudflare&apos;s global edge, and hand you the keys. Done in under 2 minutes.
+                the cloud, and hand you the keys. Done in under 2 minutes.
               </p>
             </div>
           </div>
@@ -258,10 +258,10 @@ export default function Home() {
 
             <div className="card">
               <div className="text-2xl mb-2">🌐</div>
-              <h3 className="font-bold text-lg mb-2">Edge Deployed</h3>
+              <h3 className="font-bold text-lg mb-2">Cloud Hosted</h3>
               <p className="text-sm text-gray-400">
-                Runs on Cloudflare&apos;s global edge network — low latency worldwide,
-                high availability, auto-sleep when idle to save costs.
+                Always-on cloud deployment with persistent storage,
+                stable WebSocket connections, and high availability.
               </p>
             </div>
 

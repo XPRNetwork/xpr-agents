@@ -405,7 +405,7 @@ export function DeployWizard() {
           <div className="mb-6">
             <label className="label flex items-center">
               🏠 Hosting Plan
-              <Tooltip text="Hosted = we run everything for you on Cloudflare's edge network. Self-Hosted = you provide your own Cloudflare account and deploy key." />
+              <Tooltip text="Hosted = we manage everything for you in the cloud. Self-Hosted = you run your own infrastructure." />
             </label>
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -428,8 +428,8 @@ export function DeployWizard() {
                 }`}
               >
                 <div className="font-medium">🔧 Self-Hosted</div>
-                <div className="text-sm text-gray-400 mt-1">Your Cloudflare</div>
-                <div className="text-xs text-gray-500 mt-1">Bring your own CF account & token</div>
+                <div className="text-sm text-gray-400 mt-1">Your infrastructure</div>
+                <div className="text-xs text-gray-500 mt-1">Bring your own hosting</div>
               </button>
             </div>
           </div>
@@ -631,7 +631,7 @@ export function DeployWizard() {
               <li>💳 Your wallet will prompt for payment (~15 XMD first month)</li>
               <li>🏷️ A dedicated XPR account is created for your agent</li>
               <li>📋 Agent registered on-chain with OpenClaw + 184 tools</li>
-              <li>☁️ Deployed to Cloudflare's global edge network</li>
+              <li>☁️ Deployed to the cloud with persistent storage</li>
               <li>🔗 You can claim ownership via the agent registry</li>
             </ol>
           </div>
