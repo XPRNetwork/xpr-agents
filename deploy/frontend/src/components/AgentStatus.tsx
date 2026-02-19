@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { pauseAgent, resumeAgent, getAgentLogs } from '@/lib/deploy-api';
+import { getAgentLogs } from '@/lib/deploy-api';
 
 interface AgentStatusProps {
   deployment: {
@@ -48,34 +48,6 @@ export function AgentStatus({ deployment, subscription, token, onStatusChange }:
   const isExpired = subscription?.paid_until
     ? subscription.paid_until * 1000 < Date.now()
     : false;
-
-  const handlePause = async () => {
-    if (!token) return;
-    setActionLoading('pause');
-    setActionError('');
-    try {
-      await pauseAgent(deployment.agent_account, token);
-      onStatusChange?.();
-    } catch (e: any) {
-      setActionError(e.message || 'Failed to pause');
-    } finally {
-      setActionLoading('');
-    }
-  };
-
-  const handleResume = async () => {
-    if (!token) return;
-    setActionLoading('resume');
-    setActionError('');
-    try {
-      await resumeAgent(deployment.agent_account, token);
-      onStatusChange?.();
-    } catch (e: any) {
-      setActionError(e.message || 'Failed to resume');
-    } finally {
-      setActionLoading('');
-    }
-  };
 
   const handleLogs = async () => {
     if (!token) return;
@@ -153,24 +125,6 @@ export function AgentStatus({ deployment, subscription, token, onStatusChange }:
       )}
 
       <div className="flex gap-2 mt-4 pt-4 border-t border-xpr-border">
-        {deployment.status === 'active' && token && (
-          <button
-            className="btn-secondary text-sm py-1 px-3"
-            onClick={handlePause}
-            disabled={!!actionLoading}
-          >
-            {actionLoading === 'pause' ? 'Pausing...' : 'Pause'}
-          </button>
-        )}
-        {deployment.status === 'paused' && token && (
-          <button
-            className="btn-primary text-sm py-1 px-3"
-            onClick={handleResume}
-            disabled={!!actionLoading}
-          >
-            {actionLoading === 'resume' ? 'Resuming...' : 'Resume'}
-          </button>
-        )}
         {token && (
           <button
             className="btn-secondary text-sm py-1 px-3"
@@ -181,14 +135,9 @@ export function AgentStatus({ deployment, subscription, token, onStatusChange }:
           </button>
         )}
         {!token && (
-          <>
-            <button className="btn-secondary text-sm py-1 px-3 opacity-50 cursor-not-allowed" disabled>
-              Pause
-            </button>
-            <button className="btn-secondary text-sm py-1 px-3 opacity-50 cursor-not-allowed" disabled>
-              View Logs
-            </button>
-          </>
+          <button className="btn-secondary text-sm py-1 px-3 opacity-50 cursor-not-allowed" disabled>
+            View Logs
+          </button>
         )}
         {isExpired && (
           <button className="btn-primary text-sm py-1 px-3">Renew</button>
