@@ -13,13 +13,44 @@ interface ChatPanelProps {
   endpoint: string;
 }
 
+const STORAGE_KEY_PREFIX = 'chat_history_';
+
+function loadMessages(agent: string): Message[] {
+  try {
+    const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}${agent}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return parsed.map((m: any) => ({ ...m, timestamp: new Date(m.timestamp) }));
+  } catch {
+    return [];
+  }
+}
+
+function saveMessages(agent: string, messages: Message[]) {
+  try {
+    // Keep last 100 messages to avoid bloating localStorage
+    const toSave = messages.slice(-100);
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}${agent}`, JSON.stringify(toSave));
+  } catch { /* quota exceeded — ignore */ }
+}
+
 export function ChatPanel({ agent, token, endpoint }: ChatPanelProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() => loadMessages(agent));
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Persist messages to localStorage whenever they change
+  useEffect(() => {
+    saveMessages(agent, messages);
+  }, [agent, messages]);
+
+  // Reload messages when agent changes
+  useEffect(() => {
+    setMessages(loadMessages(agent));
+  }, [agent]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -84,7 +115,10 @@ export function ChatPanel({ agent, token, endpoint }: ChatPanelProps) {
         </div>
         {messages.length > 0 && (
           <button
-            onClick={() => setMessages([])}
+            onClick={() => {
+              setMessages([]);
+              localStorage.removeItem(`${STORAGE_KEY_PREFIX}${agent}`);
+            }}
             className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
           >
             Clear
