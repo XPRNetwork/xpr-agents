@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { chatWithAgent, getChatHistory } from '@/lib/deploy-api';
+import { chatWithAgent } from '@/lib/deploy-api';
 
 interface Message {
   role: 'user' | 'agent';
@@ -14,41 +14,33 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({ agent, token, endpoint }: ChatPanelProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const storageKey = `chat_messages_${agent}`;
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        return JSON.parse(stored).map((m: any) => ({
+          ...m,
+          timestamp: new Date(m.timestamp),
+        }));
+      }
+    } catch {}
+    return [];
+  });
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Load conversation history from gateway on mount / agent change
+  // Persist messages to localStorage whenever they change
   useEffect(() => {
-    let cancelled = false;
-    setHistoryLoading(true);
-    setMessages([]);
-
-    getChatHistory(agent, token)
-      .then((data) => {
-        if (cancelled) return;
-        if (Array.isArray(data.messages) && data.messages.length > 0) {
-          const loaded: Message[] = data.messages.map((m: any) => ({
-            role: m.role === 'user' ? 'user' as const : 'agent' as const,
-            text: m.content || '',
-            timestamp: m.timestamp ? new Date(m.timestamp) : new Date(),
-          }));
-          setMessages(loaded);
-        }
-      })
-      .catch(() => {
-        // Graceful degradation: start with empty chat
-      })
-      .finally(() => {
-        if (!cancelled) setHistoryLoading(false);
-      });
-
-    return () => { cancelled = true; };
-  }, [agent, token]);
+    if (messages.length > 0) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(messages));
+      } catch {}
+    }
+  }, [messages, storageKey]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -108,7 +100,7 @@ export function ChatPanel({ agent, token, endpoint }: ChatPanelProps) {
         </div>
         {messages.length > 0 && (
           <button
-            onClick={() => setMessages([])}
+            onClick={() => { setMessages([]); localStorage.removeItem(storageKey); }}
             className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
           >
             Clear
@@ -118,16 +110,7 @@ export function ChatPanel({ agent, token, endpoint }: ChatPanelProps) {
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto min-h-[300px] max-h-[500px] space-y-3 mb-3">
-        {historyLoading && (
-          <div className="flex items-center justify-center h-full text-gray-500 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="animate-spin w-3.5 h-3.5 border-2 border-xpr-purple border-t-transparent rounded-full" />
-              Loading conversation...
-            </div>
-          </div>
-        )}
-
-        {!historyLoading && messages.length === 0 && (
+        {messages.length === 0 && (
           <div className="flex items-center justify-center h-full text-gray-500 text-sm">
             Send a message to start chatting with your agent.
           </div>
