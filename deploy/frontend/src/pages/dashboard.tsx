@@ -332,8 +332,8 @@ export default function DashboardPage() {
                       </div>
                     )}
 
-                    {activeTab === 'chat' && currentToken && selectedDeployment && (
-                      <div className="card">
+                    {currentToken && selectedDeployment && (
+                      <div className={activeTab === 'chat' ? 'card' : 'hidden'}>
                         <ChatPanel
                           agent={selectedAgent}
                           token={currentToken}
