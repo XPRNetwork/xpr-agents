@@ -37,7 +37,12 @@ export function ChatPanel({ agent, token, endpoint }: ChatPanelProps) {
     setLoading(true);
 
     try {
-      const result = await chatWithAgent(agent, text, token);
+      // Build conversation history for context (convert UI messages to OpenAI format)
+      const history = messages.map((m) => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.text,
+      }));
+      const result = await chatWithAgent(agent, text, token, history);
       const agentMessage: Message = {
         role: 'agent',
         text: result.response || result.message || JSON.stringify(result),
