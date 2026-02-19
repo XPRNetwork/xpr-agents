@@ -329,51 +329,6 @@ export default function DashboardPage() {
                           />
                         )}
 
-                        {/* Additional status info from API */}
-                        {statusLoading && (
-                          <div className="text-sm text-gray-500">Loading detailed status...</div>
-                        )}
-
-                        {agentStatus && !statusLoading && (
-                          <div className="card">
-                            <h3 className="font-medium mb-3">Agent Details</h3>
-                            <div className="grid grid-cols-2 gap-3 text-sm">
-                              {agentStatus.deployment?.endpoint && (
-                                <div>
-                                  <span className="text-gray-400 block">Endpoint</span>
-                                  <a
-                                    href={agentStatus.deployment.endpoint}
-                                    target="_blank"
-                                    rel="noopener"
-                                    className="text-xpr-purple hover:underline font-mono text-xs break-all"
-                                  >
-                                    {agentStatus.deployment.endpoint}
-                                  </a>
-                                </div>
-                              )}
-                              {agentStatus.deployment?.plan && (
-                                <div>
-                                  <span className="text-gray-400 block">Plan</span>
-                                  <span className="capitalize">{agentStatus.deployment.plan}</span>
-                                </div>
-                              )}
-                              {agentStatus.deployment?.status && (
-                                <div>
-                                  <span className="text-gray-400 block">Status</span>
-                                  <span className={agentStatus.deployment.status === 'active' ? 'text-green-400' : 'text-yellow-400'}>
-                                    {agentStatus.deployment.status}
-                                  </span>
-                                </div>
-                              )}
-                              {agentStatus.worker?.updated_at && (
-                                <div>
-                                  <span className="text-gray-400 block">Last Updated</span>
-                                  <span>{new Date(agentStatus.worker.updated_at).toLocaleString()}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     )}
 
