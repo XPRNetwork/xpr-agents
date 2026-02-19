@@ -50,7 +50,7 @@ export interface DeployRequest {
   displayName: string;
   description: string;
   capabilities: string;
-  plan: 'hosted' | 'selfhosted';
+  plan: 'hosted';
   anthropicApiKey: string;
   telegramToken?: string;
   discordToken?: string;

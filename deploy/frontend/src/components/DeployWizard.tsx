@@ -9,7 +9,7 @@ interface FormData {
   displayName: string;
   description: string;
   capabilities: string[];
-  plan: 'hosted' | 'selfhosted';
+  plan: 'hosted';
   anthropicApiKey: string;
   telegramToken: string;
   discordToken: string;
@@ -401,37 +401,13 @@ export function DeployWizard() {
             </p>
           </div>
 
-          {/* Plan */}
-          <div className="mb-6">
-            <label className="label flex items-center">
-              🏠 Hosting Plan
-              <Tooltip text="Hosted = we manage everything for you in the cloud. Self-Hosted = you run your own infrastructure." />
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => setForm({ ...form, plan: 'hosted' })}
-                className={`card text-left cursor-pointer transition-all ${
-                  form.plan === 'hosted' ? 'border-xpr-purple shadow-md shadow-xpr-purple/10' : 'hover:border-gray-600'
-                }`}
-              >
-                <div className="flex items-center gap-2 font-medium">
-                  ☁️ Hosted
-                  <span className="text-[10px] bg-green-900/50 text-green-400 px-1.5 py-0.5 rounded-full">Recommended</span>
-                </div>
-                <div className="text-sm text-gray-400 mt-1">~15 XMD/month</div>
-                <div className="text-xs text-gray-500 mt-1">We manage everything — zero DevOps</div>
-              </button>
-              <button
-                onClick={() => setForm({ ...form, plan: 'selfhosted' })}
-                className={`card text-left cursor-pointer transition-all ${
-                  form.plan === 'selfhosted' ? 'border-xpr-purple shadow-md shadow-xpr-purple/10' : 'hover:border-gray-600'
-                }`}
-              >
-                <div className="font-medium">🔧 Self-Hosted</div>
-                <div className="text-sm text-gray-400 mt-1">Your infrastructure</div>
-                <div className="text-xs text-gray-500 mt-1">Bring your own hosting</div>
-              </button>
+          {/* Plan info */}
+          <div className="mb-6 bg-xpr-dark border border-xpr-border rounded-lg p-4">
+            <div className="flex items-center gap-2 font-medium mb-1">
+              ☁️ Hosted Plan
+              <span className="text-[10px] bg-green-900/50 text-green-400 px-1.5 py-0.5 rounded-full">~15 XMD/mo</span>
             </div>
+            <div className="text-xs text-gray-500">We manage everything — zero DevOps required</div>
           </div>
 
           <div className="flex justify-between">
@@ -586,7 +562,7 @@ export function DeployWizard() {
             </div>
             <div className="flex justify-between py-3 px-4 border-b border-xpr-border">
               <span className="text-gray-400">🏠 Plan</span>
-              <span>{form.plan === 'hosted' ? '☁️ Hosted (~15 XMD/mo)' : '🔧 Self-Hosted'}</span>
+              <span>☁️ Hosted (~15 XMD/mo)</span>
             </div>
             <div className="flex justify-between py-3 px-4 border-b border-xpr-border items-start">
               <span className="text-gray-400">🧰 Capabilities</span>

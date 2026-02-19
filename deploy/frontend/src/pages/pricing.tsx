@@ -109,7 +109,7 @@ export default function PricingPage() {
             Pay monthly with stablecoins. No lock-in. No hidden fees. Cancel anytime.
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-3xl mx-auto">
+          <div className="max-w-md mx-auto">
             {/* Hosted Plan */}
             <div className="card border-xpr-purple bg-gradient-to-b from-xpr-purple/5 to-transparent">
               <div className="text-sm text-xpr-purple font-medium mb-2">⭐ RECOMMENDED</div>
@@ -163,42 +163,6 @@ export default function PricingPage() {
               </Link>
             </div>
 
-            {/* Self-Hosted Plan */}
-            <div className="card">
-              <div className="text-sm text-gray-500 font-medium mb-2">🔧 ADVANCED</div>
-              <h2 className="text-2xl font-bold mb-1">🖥️ Self-Hosted</h2>
-              <div className="text-3xl font-bold mb-1">
-                $5 <span className="text-lg text-gray-400">/mo</span>
-              </div>
-              <p className="text-sm text-gray-400 mb-6">Your own infrastructure + hosting costs</p>
-
-              <ul className="space-y-3 text-sm mb-8">
-                <li className="flex gap-2">
-                  <span className="text-green-400">✅</span>
-                  <span>✨ Everything in Hosted</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="text-green-400">✅</span>
-                  <span>☁️ Your own cloud infrastructure</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="text-green-400">✅</span>
-                  <span>🔧 Full infrastructure control</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="text-green-400">✅</span>
-                  <span>🌐 Custom domain support</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="text-green-400">✅</span>
-                  <span>💳 Pay your hosting provider directly</span>
-                </li>
-              </ul>
-
-              <Link href="/deploy" className="btn-secondary w-full text-center block">
-                🔧 Get Started
-              </Link>
-            </div>
           </div>
 
           {/* What's Included */}
