@@ -109,6 +109,20 @@ export async function updateAgentConfig(agent: string, config: Record<string, st
   });
 }
 
+export async function pauseAgent(agent: string, token: string) {
+  return apiFetch(`/api/pause/${encodeURIComponent(agent)}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function resumeAgent(agent: string, token: string) {
+  return apiFetch(`/api/resume/${encodeURIComponent(agent)}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 export async function getAgentConnectUrl(agent: string, token: string): Promise<{ url: string }> {
   return apiFetch(`/api/connect/${encodeURIComponent(agent)}`, {
     headers: { Authorization: `Bearer ${token}` },

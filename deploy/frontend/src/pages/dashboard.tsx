@@ -301,6 +301,16 @@ export default function DashboardPage() {
                         <AgentStatus
                           deployment={selectedDeployment}
                           subscription={selectedDeployment.subscription}
+                          token={currentToken}
+                          onStatusChange={() => {
+                            // Refresh deployments and status
+                            if (jwtToken) {
+                              getDeployments(jwtToken).then((r) => setDeployments(r.deployments || [])).catch(() => {});
+                            }
+                            if (selectedAgent) {
+                              getAgentStatus(selectedAgent, currentToken).then(setAgentStatus).catch(() => {});
+                            }
+                          }}
                         />
 
                         {selectedDeployment.subscription && (
