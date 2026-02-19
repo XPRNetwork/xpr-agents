@@ -338,37 +338,37 @@ export default function DashboardPage() {
                           <div className="card">
                             <h3 className="font-medium mb-3">Agent Details</h3>
                             <div className="grid grid-cols-2 gap-3 text-sm">
-                              {agentStatus.endpoint && (
+                              {agentStatus.deployment?.endpoint && (
                                 <div>
                                   <span className="text-gray-400 block">Endpoint</span>
                                   <a
-                                    href={agentStatus.endpoint}
+                                    href={agentStatus.deployment.endpoint}
                                     target="_blank"
                                     rel="noopener"
                                     className="text-xpr-purple hover:underline font-mono text-xs break-all"
                                   >
-                                    {agentStatus.endpoint}
+                                    {agentStatus.deployment.endpoint}
                                   </a>
                                 </div>
                               )}
-                              {agentStatus.plan && (
+                              {agentStatus.deployment?.plan && (
                                 <div>
                                   <span className="text-gray-400 block">Plan</span>
-                                  <span className="capitalize">{agentStatus.plan}</span>
+                                  <span className="capitalize">{agentStatus.deployment.plan}</span>
                                 </div>
                               )}
-                              {agentStatus.registeredOnChain !== undefined && (
+                              {agentStatus.deployment?.status && (
                                 <div>
-                                  <span className="text-gray-400 block">On-Chain</span>
-                                  <span className={agentStatus.registeredOnChain ? 'text-green-400' : 'text-gray-500'}>
-                                    {agentStatus.registeredOnChain ? 'Registered' : 'Not registered'}
+                                  <span className="text-gray-400 block">Status</span>
+                                  <span className={agentStatus.deployment.status === 'active' ? 'text-green-400' : 'text-yellow-400'}>
+                                    {agentStatus.deployment.status}
                                   </span>
                                 </div>
                               )}
-                              {agentStatus.uptime && (
+                              {agentStatus.worker?.updated_at && (
                                 <div>
-                                  <span className="text-gray-400 block">Uptime</span>
-                                  <span>{agentStatus.uptime}</span>
+                                  <span className="text-gray-400 block">Last Updated</span>
+                                  <span>{new Date(agentStatus.worker.updated_at).toLocaleString()}</span>
                                 </div>
                               )}
                             </div>
