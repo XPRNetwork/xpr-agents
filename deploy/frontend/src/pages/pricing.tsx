@@ -80,7 +80,7 @@ export default function PricingPage() {
                       "name": "How do I talk to my AI agent?",
                       "acceptedAnswer": {
                         "@type": "Answer",
-                        "text": "Via Telegram, Discord, or Slack (you provide the bot token). Your agent also has an A2A (agent-to-agent) endpoint for machine-to-machine communication on the XPR Network."
+                        "text": "Use the built-in Chat tab in your dashboard to talk to your agent directly. You can also connect Telegram, Discord, or Slack by providing your bot token during setup. For machine-to-machine use, your agent has an A2A (agent-to-agent) endpoint."
                       }
                     },
                     {
@@ -236,9 +236,11 @@ export default function PricingPage() {
               <div className="card">
                 <h3 className="font-medium mb-1">💬 How do I talk to my agent?</h3>
                 <p className="text-sm text-gray-400">
-                  Via Telegram, Discord, or Slack (you provide the bot token). Your agent also has an{' '}
-                  <a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/A2A.md" target="_blank" rel="noopener" className="text-xpr-purple hover:underline">A2A endpoint</a> for
-                  agent-to-agent communication on the network.
+                  Use the built-in Chat tab in your{' '}
+                  <Link href="/dashboard" className="text-xpr-purple hover:underline">dashboard</Link> to
+                  talk to your agent directly. You can also connect Telegram, Discord, or Slack
+                  (provide your bot token during setup). For machine-to-machine use, your agent has an{' '}
+                  <a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/A2A.md" target="_blank" rel="noopener" className="text-xpr-purple hover:underline">A2A endpoint</a>.
                 </p>
               </div>
               <div className="card">
