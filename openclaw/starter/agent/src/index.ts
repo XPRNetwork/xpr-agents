@@ -19,6 +19,7 @@ import { verifyA2ARequest, A2AAuthError } from './a2a-auth';
 import type { A2AAuthConfig } from './a2a-auth';
 import { loadSkills, loadBuiltinSkill } from './skill-loader';
 import type { SkillLoadResult } from './skill-loader';
+import { loadSecurityConfig, scanInbound, scanOutput, getSecurityStats } from './security';
 
 // Tool collection types (matches openclaw PluginApi)
 interface ToolDef {
@@ -133,6 +134,57 @@ const allSkillCapabilities: string[] = [
   ...(shellbookSkill?.manifest.capabilities || []),
   ...skillResult.capabilities,
 ];
+
+// ── Memory tools ─────────────────────────────
+tools.push({
+  name: 'memory_save',
+  description: 'Save a piece of information to persistent memory. Use this to remember important context across conversations: job outcomes, user preferences, lessons learned, key decisions. Keys should be descriptive (e.g., "job_15_outcome", "preferred_bid_style").',
+  parameters: {
+    type: 'object',
+    required: ['key', 'value'],
+    properties: {
+      key: { type: 'string', description: 'Memory key (descriptive identifier)' },
+      value: { type: 'string', description: 'What to remember' },
+      ttl_hours: { type: 'number', description: 'Auto-expire after this many hours (optional, default: permanent)' },
+    },
+  },
+  handler: async ({ key, value, ttl_hours }: { key: string; value: string; ttl_hours?: number }) => {
+    const now = Date.now();
+    // Enforce max entries — evict oldest if at cap
+    const keys = Object.keys(memoryStore);
+    if (keys.length >= MEMORY_MAX_ENTRIES && !memoryStore[key]) {
+      const oldest = keys.sort((a, b) => memoryStore[a].timestamp - memoryStore[b].timestamp)[0];
+      delete memoryStore[oldest];
+    }
+    memoryStore[key] = {
+      value,
+      timestamp: now,
+      expiresAt: ttl_hours ? now + ttl_hours * 3600_000 : undefined,
+    };
+    saveMemory();
+    return { ok: true, message: `Saved memory: "${key}"` };
+  },
+});
+
+tools.push({
+  name: 'memory_delete',
+  description: 'Delete a memory entry by key.',
+  parameters: {
+    type: 'object',
+    required: ['key'],
+    properties: {
+      key: { type: 'string', description: 'Memory key to delete' },
+    },
+  },
+  handler: async ({ key }: { key: string }) => {
+    if (memoryStore[key]) {
+      delete memoryStore[key];
+      saveMemory();
+      return { ok: true, message: `Deleted memory: "${key}"` };
+    }
+    return { ok: false, message: `Memory key "${key}" not found` };
+  },
+});
 
 // Load agent-operator skill as system prompt
 // Resolve from npm package or repo-relative paths for local dev
@@ -256,6 +308,10 @@ if (shellbookSkill?.promptSection) {
 for (const section of skillResult.promptSections) {
   systemPrompt += `\n\n${section}`;
 }
+
+// Memory instructions
+systemPrompt += `\n\n## Memory
+You have persistent memory that survives across conversations. Your memory entries are shown at the start of each message. Use memory_save to record important outcomes, lessons, and context. Use memory_delete to remove outdated entries. Be selective — save what matters, not everything.`;
 
 // Convert tools to Anthropic API format (lazy — picks up tools added later like store_deliverable)
 // Includes Anthropic's built-in web search tool for real-time internet access
@@ -381,7 +437,13 @@ async function runAgent(eventType: string, data: any, message: string, options?:
       `Process this event according to your responsibilities. If no action is needed, explain why briefly.`,
     ].join('\n');
 
-    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userMessage }];
+    // Inject persistent memory context
+    const memoryContext = getMemoryContext();
+    const fullUserMessage = memoryContext
+      ? `${memoryContext}\n\n---\n\n${userMessage}`
+      : userMessage;
+
+    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: fullUserMessage }];
 
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       const response = await anthropic.messages.create({
@@ -436,11 +498,23 @@ async function runAgent(eventType: string, data: any, message: string, options?:
             if (['generate_image', 'generate_video', 'store_deliverable'].includes(block.name)) {
               console.log(`[agent] Tool result (${block.name}): ${resultStr.slice(0, 200)}`);
             }
-            toolResults.push({
-              type: 'tool_result',
-              tool_use_id: block.id,
-              content: resultStr,
-            });
+            // Security scan tool output before feeding back to Claude
+            const outputScan = scanOutput(block.name, resultStr);
+            if (outputScan.action === 'block') {
+              console.warn(`[security] Blocked output from ${block.name}: ${outputScan.flagged.join(', ')}`);
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: block.id,
+                content: JSON.stringify({ error: 'Output blocked by security policy' }),
+                is_error: true,
+              });
+            } else {
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: block.id,
+                content: outputScan.text,
+              });
+            }
           } catch (err: any) {
             console.error(`[agent] Tool error (${block.name}):`, err.message);
             toolResults.push({
@@ -487,11 +561,19 @@ app.post('/hooks/agent', async (req, res) => {
 
   console.log(`[agent] Event received: ${event_type} — ${message || ''}`);
 
+  // Security scan inbound webhook data
+  const scanMsg = scanInbound(message || '', 'webhook');
+  const scanData = scanInbound(JSON.stringify(data || {}), 'webhook');
+  if (scanMsg.action === 'block' || scanData.action === 'block') {
+    console.warn(`[security] Blocked webhook: ${[...scanMsg.flagged, ...scanData.flagged].join(', ')}`);
+    return res.status(400).json({ error: 'Content blocked by security policy' });
+  }
+
   // Process async so we respond quickly to the webhook
   res.json({ ok: true, status: 'processing' });
 
   try {
-    await runAgent(event_type, data || {}, message || event_type);
+    await runAgent(event_type, data || {}, scanMsg.text || event_type);
   } catch (err) {
     console.error(`[agent] Failed to process ${event_type}:`, err);
   }
@@ -643,7 +725,14 @@ app.post('/a2a', async (req, res) => {
         const textParts = message.parts
           .filter((p: any) => p.type === 'text')
           .map((p: any) => p.text);
-        const text = textParts.join('\n') || 'No text content';
+        let text = textParts.join('\n') || 'No text content';
+
+        // Security scan A2A message text
+        const a2aScan = scanInbound(text, 'a2a');
+        if (a2aScan.action === 'block') {
+          return res.json({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Content blocked by security policy' } });
+        }
+        text = a2aScan.text;
 
         // Build context info — use authenticated account, fall back to claimed account
         const callerAccount = authAccount !== 'anonymous' ? authAccount : (params?.['xpr:callerAccount'] || 'unknown');
@@ -775,6 +864,7 @@ app.get('/health', (_req, res) => {
     tools: tools.length,
     model: MODEL,
     active_runs: activeRuns.size,
+    security: getSecurityStats(),
     poller: POLL_ENABLED ? { enabled: true, interval_sec: POLL_INTERVAL / 1000, tracked_jobs: knownJobStates.size } : { enabled: false },
   });
 });
@@ -894,6 +984,53 @@ function loadPollerState(): boolean {
     console.warn(`[poller] Failed to load state (will seed from chain): ${err.message}`);
     return false;
   }
+}
+
+// ── Agent persistent memory ──────────────────
+const AGENT_MEMORY_PATH = path.join(DATA_DIR, 'agent-memory.json');
+const MEMORY_MAX_ENTRIES = parseInt(process.env.MEMORY_MAX_ENTRIES || '100');
+
+interface MemoryEntry {
+  value: string;
+  timestamp: number;
+  expiresAt?: number;  // optional TTL
+}
+
+let memoryStore: Record<string, MemoryEntry> = {};
+
+function loadMemory(): void {
+  try {
+    if (!fs.existsSync(AGENT_MEMORY_PATH)) return;
+    memoryStore = JSON.parse(fs.readFileSync(AGENT_MEMORY_PATH, 'utf-8'));
+    // Prune expired entries on load
+    const now = Date.now();
+    for (const [k, v] of Object.entries(memoryStore)) {
+      if (v.expiresAt && v.expiresAt < now) delete memoryStore[k];
+    }
+    console.log(`[memory] Loaded ${Object.keys(memoryStore).length} entries`);
+  } catch (err: any) {
+    console.warn(`[memory] Failed to load: ${err.message}`);
+    memoryStore = {};
+  }
+}
+
+function saveMemory(): void {
+  try {
+    fs.writeFileSync(AGENT_MEMORY_PATH, JSON.stringify(memoryStore, null, 2), 'utf-8');
+  } catch (err: any) {
+    console.warn(`[memory] Failed to save: ${err.message}`);
+  }
+}
+
+function getMemoryContext(): string {
+  const now = Date.now();
+  const entries = Object.entries(memoryStore)
+    .filter(([, v]) => !v.expiresAt || v.expiresAt > now)
+    .sort(([, a], [, b]) => b.timestamp - a.timestamp)  // newest first
+    .slice(0, 50);  // cap what we inject
+  if (entries.length === 0) return '';
+  const lines = entries.map(([k, v]) => `- **${k}**: ${v.value}`);
+  return `## Your Memory (${entries.length} entries)\n${lines.join('\n')}`;
 }
 
 // ── XPR Price Oracle (mainnet on-chain) ──────
@@ -1069,12 +1206,14 @@ async function pollOnChainInner(): Promise<void> {
             console.log(`[poller] Newly assigned job #${job.id} in FUNDED state (attempt ${attempts + 1}/${MAX_FUNDED_RETRIES})`);
             activeJobIds.add(job.id);
             recordEval();
-            const deliverables = job.deliverables || '';
+            const deliverables = scanInbound(job.deliverables || '', 'poller').text;
+            const safeTitle = scanInbound(job.title || '', 'poller').text;
+            const safeDescription = scanInbound(job.description || '', 'poller').text;
             runAgent('poll:job_assigned', {
               job_id: job.id, client: job.client, agent: job.agent,
-              state: job.state, title: job.title, description: job.description || '',
+              state: job.state, title: safeTitle, description: safeDescription,
               deliverables, budget_xpr: jobBudgetXpr,
-            }, `You have been assigned to job #${job.id} "${job.title}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${job.description || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing.`).catch(err => {
+            }, `You have been assigned to job #${job.id} "${safeTitle}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing.`).catch(err => {
               console.error(`[poller] Failed to process newly assigned job:`, err.message);
             }).finally(() => activeJobIds.delete(job.id));
           }
@@ -1091,15 +1230,17 @@ async function pollOnChainInner(): Promise<void> {
           if (!canSpendCredits(`re-eval FUNDED job #${job.id}`)) continue;
           const jobBudgetXpr = (job.amount / 10000).toFixed(4);
           fundedJobAttempts.set(job.id, attempts + 1);
-          const deliverables = job.deliverables || '';
+          const deliverables = scanInbound(job.deliverables || '', 'poller').text;
+          const safeTitle = scanInbound(job.title || '', 'poller').text;
+          const safeDescription = scanInbound(job.description || '', 'poller').text;
           console.log(`[poller] Re-evaluating FUNDED job #${job.id} (attempt ${attempts + 1}/${MAX_FUNDED_RETRIES})`);
           activeJobIds.add(job.id);
           recordEval();
           runAgent('poll:job_assigned', {
             job_id: job.id, client: job.client, agent: job.agent,
-            state: job.state, title: job.title, description: job.description || '',
+            state: job.state, title: safeTitle, description: safeDescription,
             deliverables, budget_xpr: jobBudgetXpr,
-          }, `You have been assigned to job #${job.id} "${job.title}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${job.description || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing.`).catch(err => {
+          }, `You have been assigned to job #${job.id} "${safeTitle}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing.`).catch(err => {
             console.error(`[poller] Failed to process FUNDED job:`, err.message);
           }).finally(() => activeJobIds.delete(job.id));
           continue;
@@ -1116,15 +1257,17 @@ async function pollOnChainInner(): Promise<void> {
           if (!canSpendCredits(`job #${job.id} state change ${fromName}→${toName}`)) continue;
 
           const jobBudgetXpr = (job.amount / 10000).toFixed(4);
-          const deliverables = job.deliverables || '';
+          const deliverables = scanInbound(job.deliverables || '', 'poller').text;
+          const safeTitle = scanInbound(job.title || '', 'poller').text;
+          const safeDescription = scanInbound(job.description || '', 'poller').text;
           activeJobIds.add(job.id);
           recordEval();
           runAgent('poll:job_state_change', {
             job_id: job.id, client: job.client, agent: job.agent,
             from_state: prevState, to_state: job.state,
-            title: job.title, description: job.description || '',
+            title: safeTitle, description: safeDescription,
             deliverables, budget_xpr: jobBudgetXpr,
-          }, `Job #${job.id} "${job.title}" (budget: ${jobBudgetXpr} XPR) changed from ${fromName} to ${toName}. Description: ${job.description || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Review and take appropriate action. If working on this job, ensure ALL requested deliverables are uploaded and xpr_deliver_job is called before finishing.`).catch(err => {
+          }, `Job #${job.id} "${safeTitle}" (budget: ${jobBudgetXpr} XPR) changed from ${fromName} to ${toName}. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Review and take appropriate action. If working on this job, ensure ALL requested deliverables are uploaded and xpr_deliver_job is called before finishing.`).catch(err => {
             console.error(`[poller] Failed to process job state change:`, err.message);
           }).finally(() => activeJobIds.delete(job.id));
         }
@@ -1166,11 +1309,15 @@ async function pollOnChainInner(): Promise<void> {
 
         console.log(`[poller] ${firstPoll ? 'Existing' : 'New'} open job #${job.id}: "${job.title}" (${budgetXpr} XPR)`);
 
+        // Sanitize on-chain job data before prompt construction
+        const safeTitle = scanInbound(job.title || '', 'poller').text;
+        const safeDescription = scanInbound(job.description || '', 'poller').text;
+
         // Estimate costs before triggering Claude (local computation, zero credits)
-        const cost = await estimateJobCost(job.title, job.description || '', job.deliverables || '');
+        const cost = await estimateJobCost(safeTitle, safeDescription, job.deliverables || '');
         const budgetUsd = (budgetXpr * cost.xpr_price_usd).toFixed(2);
 
-        const prompt = `${firstPoll ? 'Existing' : 'New'} open job #${job.id} "${job.title}" with budget ${budgetXpr} XPR.
+        const prompt = `${firstPoll ? 'Existing' : 'New'} open job #${job.id} "${safeTitle}" with budget ${budgetXpr} XPR.
 
 ## Cost Analysis
 - Job type: ${cost.job_type}
@@ -1187,8 +1334,8 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
 
         recordEval();
         runAgent('poll:new_open_job', {
-          job_id: job.id, client: job.client, title: job.title,
-          description: job.description, budget_xpr: budgetXpr.toFixed(4), deadline: job.deadline,
+          job_id: job.id, client: job.client, title: safeTitle,
+          description: safeDescription, budget_xpr: budgetXpr.toFixed(4), deadline: job.deadline,
           cost_estimate: cost,
         }, prompt).catch(err => {
           console.error(`[poller] Failed to process open job:`, err.message);
@@ -1347,7 +1494,12 @@ const server = app.listen(port, () => {
     console.log(`[agent-runner] Skills: ${skillResult.skills.map(s => `${s.manifest.name}@${s.manifest.version}`).join(', ')}`);
   }
 
-  // Auto-register after server is ready, then start poller
+  // Log security config
+  const secConfig = loadSecurityConfig();
+  console.log(`[agent-runner] Security: ${secConfig.enabled ? `enabled (mode: ${secConfig.mode})` : 'disabled'}`);
+
+  // Load persistent memory, then auto-register and start poller
+  loadMemory();
   ensureRegistered().then(() => startPoller());
 });
 
