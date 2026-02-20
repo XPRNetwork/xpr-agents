@@ -21,10 +21,6 @@ export default function DashboardPage() {
   const [agentStatus, setAgentStatus] = useState<any>(null);
   const [statusLoading, setStatusLoading] = useState(false);
 
-  // Token management per agent
-  const [tokens, setTokens] = useState<Record<string, string>>({});
-  const [tokenInput, setTokenInput] = useState('');
-
   // Load deployments when session connects and JWT is available
   useEffect(() => {
     if (!session || !jwtToken) return;
@@ -35,14 +31,6 @@ export default function DashboardPage() {
         const result = await getDeployments(jwtToken);
         const deps = result.deployments || [];
         setDeployments(deps);
-
-        // Load tokens from localStorage for all deployments
-        const loadedTokens: Record<string, string> = {};
-        for (const dep of deps) {
-          const stored = localStorage.getItem(`dashboard_token_${dep.agent_account}`);
-          if (stored) loadedTokens[dep.agent_account] = stored;
-        }
-        setTokens(loadedTokens);
 
         // Auto-select the first agent if none selected
         if (deps.length > 0 && !selectedAgent) {
@@ -58,15 +46,22 @@ export default function DashboardPage() {
     load();
   }, [session, jwtToken]);
 
+  // Auth token: wallet JWT is the primary auth, with localStorage dashboard token as fallback
+  const getAuthToken = (agentAccount: string): string | undefined => {
+    const stored = localStorage.getItem(`dashboard_token_${agentAccount}`);
+    return jwtToken || stored || undefined;
+  };
+
+  const authToken = selectedAgent ? getAuthToken(selectedAgent) : undefined;
+
   // Fetch agent status when selected agent changes
   useEffect(() => {
-    if (!selectedAgent) return;
+    if (!selectedAgent || !authToken) return;
 
     const loadStatus = async () => {
       setStatusLoading(true);
       try {
-        const token = tokens[selectedAgent];
-        const status = await getAgentStatus(selectedAgent, token);
+        const status = await getAgentStatus(selectedAgent, authToken);
         setAgentStatus(status);
       } catch (e: any) {
         setAgentStatus(null);
@@ -76,23 +71,14 @@ export default function DashboardPage() {
     };
 
     loadStatus();
-  }, [selectedAgent, tokens]);
+  }, [selectedAgent, authToken]);
 
   const selectedDeployment = deployments.find((d) => d.agent_account === selectedAgent);
-  const currentToken = selectedAgent ? tokens[selectedAgent] : undefined;
 
-  const handleSaveToken = () => {
-    if (!selectedAgent || !tokenInput.trim()) return;
-    const trimmed = tokenInput.trim();
-    localStorage.setItem(`dashboard_token_${selectedAgent}`, trimmed);
-    setTokens((prev) => ({ ...prev, [selectedAgent]: trimmed }));
-    setTokenInput('');
-  };
-
-  const TAB_ITEMS: { id: Tab; label: string; requiresToken: boolean }[] = [
-    { id: 'status', label: '📊 Status', requiresToken: false },
-    { id: 'chat', label: '💬 Chat', requiresToken: true },
-    { id: 'settings', label: '⚙️ Settings', requiresToken: true },
+  const TAB_ITEMS: { id: Tab; label: string }[] = [
+    { id: 'status', label: 'Status' },
+    { id: 'chat', label: 'Chat' },
+    { id: 'settings', label: 'Settings' },
   ];
 
   return (
@@ -123,7 +109,7 @@ export default function DashboardPage() {
                   <a href="https://webauth.com" target="_blank" rel="noopener" className="text-xpr-purple hover:underline">WebAuth</a> wallet
                   to view and manage your deployed agents.
                 </p>
-                <button onClick={login} className="btn-primary">🔗 Connect Wallet</button>
+                <button onClick={login} className="btn-primary">Connect Wallet</button>
               </div>
             </div>
           )}
@@ -133,7 +119,7 @@ export default function DashboardPage() {
               {/* Sidebar */}
               <aside className="w-64 border-r border-xpr-border p-4 shrink-0 overflow-y-auto">
                 <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">
-                  🤖 Your Agents
+                  Your Agents
                 </h2>
 
                 {loading && (
@@ -148,7 +134,7 @@ export default function DashboardPage() {
                   <div className="text-sm text-gray-500 py-4">
                     <p className="mb-3">No agents deployed yet.</p>
                     <Link href="/deploy" className="btn-primary text-sm py-1.5 px-3">
-                      🚀 Deploy Your First Agent
+                      Deploy Your First Agent
                     </Link>
                   </div>
                 )}
@@ -156,7 +142,6 @@ export default function DashboardPage() {
                 <div className="space-y-1">
                   {deployments.map((dep: any) => {
                     const isSelected = selectedAgent === dep.agent_account;
-                    const hasToken = !!tokens[dep.agent_account];
                     return (
                       <button
                         key={dep.agent_account}
@@ -186,9 +171,6 @@ export default function DashboardPage() {
                             }`}
                           />
                           <span className="text-xs text-gray-500 capitalize">{dep.status}</span>
-                          {!hasToken && (
-                            <span className="text-xs text-yellow-600 ml-auto">No token</span>
-                          )}
                         </div>
                       </button>
                     );
@@ -204,17 +186,17 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {selectedAgent && selectedDeployment && (
+                {selectedAgent && selectedDeployment && authToken && (
                   <div className="p-6 max-w-4xl">
                     {/* Agent header */}
                     <div className="flex items-center justify-between mb-4">
                       <h1 className="text-xl font-bold font-mono">{selectedAgent}</h1>
                       <div className="flex items-center gap-3">
-                        {currentToken && selectedDeployment.endpoint && (
+                        {selectedDeployment.endpoint && (
                           <button
                             onClick={async () => {
                               try {
-                                const { url } = await getAgentConnectUrl(selectedAgent, currentToken);
+                                const { url } = await getAgentConnectUrl(selectedAgent, authToken);
                                 window.open(url, '_blank', 'noopener');
                               } catch {
                                 window.open(selectedDeployment.endpoint, '_blank', 'noopener');
@@ -247,46 +229,15 @@ export default function DashboardPage() {
                       </div>
                     </div>
 
-                    {/* Token prompt if missing */}
-                    {!currentToken && (
-                      <div className="card mb-4 border-yellow-800/50">
-                        <p className="text-sm text-yellow-300 mb-3">
-                          No access token found for this agent. Enter your dashboard token to access chat and settings:
-                        </p>
-                        <div className="flex gap-2">
-                          <input
-                            type="password"
-                            className="input flex-1"
-                            placeholder="Paste your dashboard token..."
-                            value={tokenInput}
-                            onChange={(e) => setTokenInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleSaveToken();
-                            }}
-                          />
-                          <button
-                            onClick={handleSaveToken}
-                            disabled={!tokenInput.trim()}
-                            className="btn-primary px-4"
-                          >
-                            Save
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
                     {/* Tabs */}
                     <div className="flex border-b border-xpr-border mb-6">
                       {TAB_ITEMS.map((tab) => (
                         <button
                           key={tab.id}
                           onClick={() => setActiveTab(tab.id)}
-                          disabled={tab.requiresToken && !currentToken}
                           className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
                             activeTab === tab.id
                               ? 'border-xpr-purple text-white'
-                              : tab.requiresToken && !currentToken
-                              ? 'border-transparent text-gray-600 cursor-not-allowed'
                               : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
                           }`}
                         >
@@ -301,14 +252,13 @@ export default function DashboardPage() {
                         <AgentStatus
                           deployment={selectedDeployment}
                           subscription={selectedDeployment.subscription}
-                          token={currentToken}
+                          token={authToken}
                           onStatusChange={() => {
-                            // Refresh deployments and status
                             if (jwtToken) {
                               getDeployments(jwtToken).then((r) => setDeployments(r.deployments || [])).catch(() => {});
                             }
-                            if (selectedAgent) {
-                              getAgentStatus(selectedAgent, currentToken).then(setAgentStatus).catch(() => {});
+                            if (selectedAgent && authToken) {
+                              getAgentStatus(selectedAgent, authToken).then(setAgentStatus).catch(() => {});
                             }
                           }}
                         />
@@ -320,10 +270,8 @@ export default function DashboardPage() {
                             tokenContract="xmd.token"
                             amount={`15.000000 ${selectedDeployment.subscription.token_symbol || 'XMD'}`}
                             onRenewed={() => {
-                              // Refresh status after renewal
-                              if (selectedAgent) {
-                                const token = tokens[selectedAgent];
-                                getAgentStatus(selectedAgent, token).then(setAgentStatus).catch(() => {});
+                              if (selectedAgent && authToken) {
+                                getAgentStatus(selectedAgent, authToken).then(setAgentStatus).catch(() => {});
                               }
                             }}
                           />
@@ -332,42 +280,28 @@ export default function DashboardPage() {
                       </div>
                     )}
 
-                    {currentToken && selectedDeployment && (
+                    {selectedDeployment && (
                       <div className={activeTab === 'chat' ? 'card' : 'hidden'}>
                         <ChatPanel
                           agent={selectedAgent}
-                          token={currentToken}
+                          token={authToken}
                           endpoint={selectedDeployment.endpoint || ''}
                         />
                       </div>
                     )}
 
-                    {activeTab === 'chat' && !currentToken && (
-                      <div className="card text-center text-gray-500 py-8">
-                        Enter your dashboard token above to use the chat feature.
-                      </div>
-                    )}
-
-                    {activeTab === 'settings' && currentToken && (
+                    {activeTab === 'settings' && (
                       <div className="card">
                         <h2 className="text-lg font-bold mb-4">Agent Settings</h2>
                         <ConfigPanel
                           agent={selectedAgent}
-                          token={currentToken}
+                          token={authToken}
                           onSaved={() => {
-                            // Optionally refresh status after config change
-                            if (selectedAgent) {
-                              const token = tokens[selectedAgent];
-                              getAgentStatus(selectedAgent, token).then(setAgentStatus).catch(() => {});
+                            if (selectedAgent && authToken) {
+                              getAgentStatus(selectedAgent, authToken).then(setAgentStatus).catch(() => {});
                             }
                           }}
                         />
-                      </div>
-                    )}
-
-                    {activeTab === 'settings' && !currentToken && (
-                      <div className="card text-center text-gray-500 py-8">
-                        Enter your dashboard token above to manage settings.
                       </div>
                     )}
                   </div>
