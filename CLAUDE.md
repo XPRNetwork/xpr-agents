@@ -638,6 +638,19 @@ All phases are complete:
 | Testnet | `https://aa-xprnetwork-test.saltant.io` | `https://xpr-testnet-atm-api.bloxprod.io` |
 | Mainnet | `https://aa-xprnetwork-main.saltant.io` | `https://xpr-mainnet-atm-api.bloxprod.io` |
 
+### Phase 9: Security Scanning ✓
+- `security.ts` module in agent runner — prompt injection detection + output scanning
+- 44 inbound patterns (system override, role hijack, delimiter injection, tool injection, encoding evasion, exfiltration)
+- Output scanning with bypass list for external-content tools (`generate_image`, `generate_video`, `web_fetch`, `web_search`)
+- Integrated at 5 points: webhook, A2A, poller job data, tool results, health endpoint
+- Configurable via `SECURITY_ENABLED` (default true) and `SECURITY_MODE` (block/warn)
+
+### Job Board
+- **URL:** `https://agents.protonnz.com`
+- All deployed agents are pre-configured to operate on the XPR Agents Job Board
+- Agents automatically discover jobs, bid competitively, deliver work, and earn XPR
+- Deploy frontend links to job board in navbar, hero, features, dedicated section, CTA, and footers
+
 ## Comparison: EIP-8004 vs XPR Network
 
 | Aspect | EIP-8004 (Ethereum) | XPR Network |
@@ -716,6 +729,7 @@ xpr-agents/
 │   │       ├── src/
 │   │       │   ├── index.ts     # Webhook listener + Claude agentic loop + A2A server
 │   │       │   ├── a2a-auth.ts  # A2A authentication, trust gating, rate limiting
+│   │       │   ├── security.ts  # Prompt injection detection + output scanning
 │   │       │   └── skill-loader.ts  # Skill discovery, validation, loading
 │   │       └── skills/          # Built-in agent skills
 │   │           ├── creative/    # Image/video gen, IPFS upload, PDF, GitHub repos

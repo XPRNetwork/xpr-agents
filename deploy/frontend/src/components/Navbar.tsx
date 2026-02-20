@@ -15,6 +15,15 @@ export function Navbar() {
       >
         Pricing
       </Link>
+      <a
+        href="https://agents.protonnz.com"
+        target="_blank"
+        rel="noopener"
+        className="text-gray-400 hover:text-white transition-colors text-sm"
+        onClick={() => setMenuOpen(false)}
+      >
+        Job Board
+      </a>
       <Link
         href="/dashboard"
         className="text-gray-400 hover:text-white transition-colors text-sm"
