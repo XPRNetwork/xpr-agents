@@ -785,6 +785,35 @@ app.get('/health', (_req, res) => {
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL || '30') * 1000;
 const POLL_ENABLED = process.env.POLL_ENABLED !== 'false';
 
+// Credit protection: minimum job value and daily evaluation cap
+const JOB_POLLER_MIN_XPR = parseFloat(process.env.JOB_POLLER_MIN_XPR || '100');
+const JOB_POLLER_MAX_EVALS_PER_DAY = parseInt(process.env.JOB_POLLER_MAX_EVALS_PER_DAY || '20');
+let dailyEvalCount = 0;
+let dailyEvalResetDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+function checkAndResetDailyEvals(): void {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== dailyEvalResetDate) {
+    dailyEvalCount = 0;
+    dailyEvalResetDate = today;
+    console.log(`[poller] Daily eval counter reset (new day: ${today})`);
+  }
+}
+
+function canSpendCredits(context: string): boolean {
+  checkAndResetDailyEvals();
+  if (dailyEvalCount >= JOB_POLLER_MAX_EVALS_PER_DAY) {
+    console.log(`[poller] Daily eval cap reached (${dailyEvalCount}/${JOB_POLLER_MAX_EVALS_PER_DAY}), skipping: ${context}`);
+    return false;
+  }
+  return true;
+}
+
+function recordEval(): void {
+  dailyEvalCount++;
+  console.log(`[poller] Eval ${dailyEvalCount}/${JOB_POLLER_MAX_EVALS_PER_DAY} today`);
+}
+
 // Tracked state for change detection
 const knownJobStates = new Map<number, number>();   // job_id → state
 const knownOpenJobIds = new Set<number>();           // open job ids already seen
@@ -810,6 +839,8 @@ interface PollerState {
   knownFeedbackIds: number[];
   knownChallengeIds: number[];
   fundedJobAttempts?: Record<string, number>;
+  dailyEvalCount?: number;
+  dailyEvalResetDate?: string;
 }
 
 function savePollerState(): void {
@@ -820,6 +851,8 @@ function savePollerState(): void {
       knownFeedbackIds: [...knownFeedbackIds],
       knownChallengeIds: [...knownChallengeIds],
       fundedJobAttempts: Object.fromEntries(fundedJobAttempts),
+      dailyEvalCount,
+      dailyEvalResetDate,
     };
     fs.writeFileSync(POLLER_STATE_PATH, JSON.stringify(state), 'utf-8');
   } catch (err: any) {
@@ -841,6 +874,17 @@ function loadPollerState(): boolean {
     if (state.fundedJobAttempts) {
       for (const [k, v] of Object.entries(state.fundedJobAttempts)) {
         fundedJobAttempts.set(Number(k), v);
+      }
+    }
+    // Restore daily eval counter (auto-resets if date changed)
+    if (state.dailyEvalResetDate && state.dailyEvalCount != null) {
+      const today = new Date().toISOString().slice(0, 10);
+      if (state.dailyEvalResetDate === today) {
+        dailyEvalCount = state.dailyEvalCount;
+        dailyEvalResetDate = state.dailyEvalResetDate;
+        console.log(`[poller] Restored daily eval count: ${dailyEvalCount}/${JOB_POLLER_MAX_EVALS_PER_DAY}`);
+      } else {
+        console.log(`[poller] New day — daily eval count reset`);
       }
     }
     firstPoll = false; // skip seed — we already have state
@@ -1019,10 +1063,12 @@ async function pollOnChainInner(): Promise<void> {
           if (!firstPoll && (job.state === 1 || job.state === 'funded')) {
             const attempts = fundedJobAttempts.get(job.id) || 0;
             if (attempts >= MAX_FUNDED_RETRIES) continue; // already tried enough
+            if (!canSpendCredits(`assigned job #${job.id}`)) continue;
             fundedJobAttempts.set(job.id, attempts + 1);
             const jobBudgetXpr = (job.amount / 10000).toFixed(4);
             console.log(`[poller] Newly assigned job #${job.id} in FUNDED state (attempt ${attempts + 1}/${MAX_FUNDED_RETRIES})`);
             activeJobIds.add(job.id);
+            recordEval();
             const deliverables = job.deliverables || '';
             runAgent('poll:job_assigned', {
               job_id: job.id, client: job.client, agent: job.agent,
@@ -1042,11 +1088,13 @@ async function pollOnChainInner(): Promise<void> {
             // Already tried enough times — skip until state changes on-chain
             continue;
           }
+          if (!canSpendCredits(`re-eval FUNDED job #${job.id}`)) continue;
           const jobBudgetXpr = (job.amount / 10000).toFixed(4);
           fundedJobAttempts.set(job.id, attempts + 1);
           const deliverables = job.deliverables || '';
           console.log(`[poller] Re-evaluating FUNDED job #${job.id} (attempt ${attempts + 1}/${MAX_FUNDED_RETRIES})`);
           activeJobIds.add(job.id);
+          recordEval();
           runAgent('poll:job_assigned', {
             job_id: job.id, client: job.client, agent: job.agent,
             state: job.state, title: job.title, description: job.description || '',
@@ -1065,9 +1113,12 @@ async function pollOnChainInner(): Promise<void> {
           const toName = stateNames[job.state] || String(job.state);
           console.log(`[poller] Job #${job.id} state changed: ${fromName} → ${toName}`);
 
+          if (!canSpendCredits(`job #${job.id} state change ${fromName}→${toName}`)) continue;
+
           const jobBudgetXpr = (job.amount / 10000).toFixed(4);
           const deliverables = job.deliverables || '';
           activeJobIds.add(job.id);
+          recordEval();
           runAgent('poll:job_state_change', {
             job_id: job.id, client: job.client, agent: job.agent,
             from_state: prevState, to_state: job.state,
@@ -1084,6 +1135,8 @@ async function pollOnChainInner(): Promise<void> {
     // NOTE: Open jobs are evaluated even on first poll — the agent should bid on
     // existing opportunities, not just newly-appeared ones. We still track IDs to
     // avoid re-processing the same job on every cycle.
+    // CREDIT PROTECTION: Jobs below JOB_POLLER_MIN_XPR are skipped (no Claude call).
+    // Daily eval cap (JOB_POLLER_MAX_EVALS_PER_DAY) prevents runaway credit usage.
     if (listOpenJobs) {
       const res: any = await listOpenJobs.handler({ limit: 20 });
       const jobs: any[] = res?.items || res || [];
@@ -1100,12 +1153,22 @@ async function pollOnChainInner(): Promise<void> {
           continue;
         }
 
-        const budgetXpr = (job.amount / 10000).toFixed(4);
+        const budgetXpr = parseFloat((job.amount / 10000).toFixed(4));
+
+        // Credit protection: skip jobs below minimum value (zero credits spent)
+        if (budgetXpr < JOB_POLLER_MIN_XPR) {
+          console.log(`[poller] Skipping low-value open job #${job.id}: ${budgetXpr} XPR < ${JOB_POLLER_MIN_XPR} XPR minimum`);
+          continue;
+        }
+
+        // Credit protection: daily evaluation cap
+        if (!canSpendCredits(`open job #${job.id}`)) continue;
+
         console.log(`[poller] ${firstPoll ? 'Existing' : 'New'} open job #${job.id}: "${job.title}" (${budgetXpr} XPR)`);
 
-        // Estimate costs before triggering Claude
+        // Estimate costs before triggering Claude (local computation, zero credits)
         const cost = await estimateJobCost(job.title, job.description || '', job.deliverables || '');
-        const budgetUsd = (parseFloat(budgetXpr) * cost.xpr_price_usd).toFixed(2);
+        const budgetUsd = (budgetXpr * cost.xpr_price_usd).toFixed(2);
 
         const prompt = `${firstPoll ? 'Existing' : 'New'} open job #${job.id} "${job.title}" with budget ${budgetXpr} XPR.
 
@@ -1114,7 +1177,7 @@ async function pollOnChainInner(): Promise<void> {
 - Estimated cost: ${cost.estimated_xpr.toLocaleString()} XPR ($${cost.estimated_usd.toFixed(2)} USD)
 - Cost breakdown: ${cost.breakdown}
 - Job budget: ${budgetXpr} XPR ($${budgetUsd} USD)
-- ${cost.estimated_xpr > parseFloat(budgetXpr) ? 'WARNING: Budget is BELOW estimated cost — bid higher to cover costs or skip' : 'Budget covers estimated costs'}
+- ${cost.estimated_xpr > budgetXpr ? 'WARNING: Budget is BELOW estimated cost — bid higher to cover costs or skip' : 'Budget covers estimated costs'}
 
 Evaluate this job and if it matches your capabilities, submit a bid using xpr_submit_bid.
 Set your bid amount based on the cost analysis above — at LEAST the estimated cost.
@@ -1122,9 +1185,10 @@ You MAY bid above the posted budget if costs require it — the client can accep
 Include a brief proposal (1-2 sentences) saying what you will deliver.
 If the job is outside your capabilities or wildly unprofitable (budget < 25% of cost), skip it.`;
 
+        recordEval();
         runAgent('poll:new_open_job', {
           job_id: job.id, client: job.client, title: job.title,
-          description: job.description, budget_xpr: budgetXpr, deadline: job.deadline,
+          description: job.description, budget_xpr: budgetXpr.toFixed(4), deadline: job.deadline,
           cost_estimate: cost,
         }, prompt).catch(err => {
           console.error(`[poller] Failed to process open job:`, err.message);
@@ -1145,6 +1209,8 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
         if (firstPoll) continue;
 
         console.log(`[poller] New feedback #${fb.id} from ${fb.reviewer}: score ${fb.score}/5`);
+        if (!canSpendCredits(`feedback #${fb.id}`)) continue;
+        recordEval();
         runAgent('poll:new_feedback', {
           feedback_id: fb.id, reviewer: fb.reviewer,
           score: fb.score, tags: fb.tags, job_hash: fb.job_hash,
@@ -1168,6 +1234,8 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
         if (firstPoll) continue;
 
         console.log(`[poller] Validation #${v.id} has been challenged`);
+        if (!canSpendCredits(`challenge on validation #${v.id}`)) continue;
+        recordEval();
         runAgent('poll:validation_challenged', {
           validation_id: v.id, validator: v.validator, job_hash: v.job_hash,
         }, `Validation #${v.id} has been challenged. Review the challenge and respond.`).catch(err => {
@@ -1195,7 +1263,7 @@ function startPoller(): void {
   }
   // Restore persisted state (avoids re-seeding and duplicate processing after restart)
   loadPollerState();
-  console.log(`[poller] Starting on-chain poller (interval: ${POLL_INTERVAL / 1000}s)`);
+  console.log(`[poller] Starting on-chain poller (interval: ${POLL_INTERVAL / 1000}s, min: ${JOB_POLLER_MIN_XPR} XPR, max: ${JOB_POLLER_MAX_EVALS_PER_DAY} evals/day)`);
   // Initial delay to let the server start
   pollTimer = setTimeout(pollOnChain, 5000);
   pollTimer.unref();
