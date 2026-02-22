@@ -3,7 +3,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useProton } from '@/contexts/ProtonContext';
 import { Navbar } from '@/components/Navbar';
-import { getDeployments, getAgentStatus, getAgentConnectUrl } from '@/lib/deploy-api';
+import { getDeployments, getAgentStatus } from '@/lib/deploy-api';
 import { AgentStatus } from '@/components/AgentStatus';
 import { SubscriptionCard } from '@/components/SubscriptionCard';
 import { ChatPanel } from '@/components/ChatPanel';
@@ -192,24 +192,6 @@ export default function DashboardPage() {
                     <div className="flex items-center justify-between mb-4">
                       <h1 className="text-xl font-bold font-mono">{selectedAgent}</h1>
                       <div className="flex items-center gap-3">
-                        {selectedDeployment.endpoint && (
-                          <button
-                            onClick={async () => {
-                              try {
-                                const { url } = await getAgentConnectUrl(selectedAgent, authToken);
-                                window.open(url, '_blank', 'noopener');
-                              } catch {
-                                window.open(selectedDeployment.endpoint, '_blank', 'noopener');
-                              }
-                            }}
-                            className="btn-primary text-sm py-1.5 px-3 inline-flex items-center gap-1.5"
-                          >
-                            Open Agent
-                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                            </svg>
-                          </button>
-                        )}
                         <div className="flex items-center gap-2">
                           <span
                             className={`w-2 h-2 rounded-full ${
