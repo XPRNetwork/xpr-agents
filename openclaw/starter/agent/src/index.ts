@@ -951,12 +951,12 @@ app.get('/health', (_req, res) => {
 // ── On-chain polling loop ────────────────────
 // Polls on-chain state directly via tools — no indexer required.
 // Detects job state changes, new open jobs, new feedback/challenges.
-const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL || '30') * 1000;
+const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL || '14400') * 1000; // default: 4 hours
 const POLL_ENABLED = process.env.POLL_ENABLED !== 'false';
 
 // Credit protection: minimum job value and daily evaluation cap
 const JOB_POLLER_MIN_XPR = parseFloat(process.env.JOB_POLLER_MIN_XPR || '100');
-const JOB_POLLER_MAX_EVALS_PER_DAY = parseInt(process.env.JOB_POLLER_MAX_EVALS_PER_DAY || '20');
+const JOB_POLLER_MAX_EVALS_PER_DAY = parseInt(process.env.JOB_POLLER_MAX_EVALS_PER_DAY || '10');
 let dailyEvalCount = 0;
 let dailyEvalResetDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
@@ -1326,13 +1326,21 @@ async function pollOnChainInner(): Promise<void> {
           continue;
         }
 
-        // State changed — notify the agent and reset retry counter
+        // State changed — only invoke Claude for ACTIONABLE states (saves credits)
         if (prevState !== job.state) {
           fundedJobAttempts.delete(job.id); // state moved, reset retry counter
           const stateNames = ['CREATED', 'FUNDED', 'ACCEPTED', 'INPROGRESS', 'DELIVERED', 'DISPUTED', 'COMPLETED', 'REFUNDED', 'ARBITRATED'];
           const fromName = stateNames[prevState] || String(prevState);
           const toName = stateNames[job.state] || String(job.state);
           console.log(`[poller] Job #${job.id} state changed: ${fromName} → ${toName}`);
+
+          // Terminal/informational states — just log, no Claude call needed
+          // COMPLETED(6), REFUNDED(7), ARBITRATED(8), ACCEPTED(2), INPROGRESS(3)
+          const ACTIONABLE_STATES = [1, 4, 5]; // FUNDED, DELIVERED, DISPUTED
+          if (!ACTIONABLE_STATES.includes(job.state)) {
+            console.log(`[poller] Job #${job.id} → ${toName} (informational, no action needed)`);
+            continue;
+          }
 
           if (!canSpendCredits(`job #${job.id} state change ${fromName}→${toName}`)) continue;
 
@@ -1425,6 +1433,8 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
     }
 
     // 3. Check for new feedback about this agent
+    // NOTE: Feedback is logged only — no Claude call needed (saves credits).
+    // Feedback doesn't require any on-chain action from the agent.
     if (listFeedback) {
       const res: any = await listFeedback.handler({ agent: account, limit: 20 });
       const items: any[] = res?.feedback || res?.items || res || [];
@@ -1433,18 +1443,9 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
         if (knownFeedbackIds.has(fb.id)) continue;
         knownFeedbackIds.add(fb.id);
 
-        // Skip seed
         if (firstPoll) continue;
 
-        console.log(`[poller] New feedback #${fb.id} from ${fb.reviewer}: score ${fb.score}/5`);
-        if (!canSpendCredits(`feedback #${fb.id}`)) continue;
-        recordEval();
-        runAgent('poll:new_feedback', {
-          feedback_id: fb.id, reviewer: fb.reviewer,
-          score: fb.score, tags: fb.tags, job_hash: fb.job_hash,
-        }, `New feedback #${fb.id} from ${fb.reviewer}: ${fb.score}/5 stars. Acknowledge if appropriate.`).catch(err => {
-          console.error(`[poller] Failed to process new feedback:`, err.message);
-        });
+        console.log(`[poller] New feedback #${fb.id} from ${fb.reviewer}: score ${fb.score}/5 (logged, no action needed)`);
       }
     }
 
