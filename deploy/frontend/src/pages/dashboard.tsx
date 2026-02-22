@@ -297,7 +297,6 @@ export default function DashboardPage() {
                           agent={selectedAgent}
                           token={authToken}
                           currentMode={agentStatus?.deployment?.mode || selectedDeployment?.mode || 'worker'}
-                          currentModel={agentStatus?.deployment?.model || selectedDeployment?.model}
                           onSaved={() => {
                             if (selectedAgent && authToken) {
                               getAgentStatus(selectedAgent, authToken).then(setAgentStatus).catch(() => {});
