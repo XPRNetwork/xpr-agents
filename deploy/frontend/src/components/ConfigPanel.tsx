@@ -11,10 +11,17 @@ const MODE_OPTIONS: { id: AgentMode; label: string; emoji: string }[] = [
   { id: 'social', label: 'Social', emoji: '\uD83D\uDCAC' },
 ];
 
+const MODEL_OPTIONS: { id: string; label: string }[] = [
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+];
+
 interface ConfigPanelProps {
   agent: string;
   token: string;
   currentMode?: string;
+  currentModel?: string;
   onSaved?: () => void;
 }
 
@@ -27,7 +34,7 @@ interface FieldState {
 
 const INITIAL_FIELD: FieldState = { value: '', saving: false, success: false, error: '' };
 
-export function ConfigPanel({ agent, token, currentMode, onSaved }: ConfigPanelProps) {
+export function ConfigPanel({ agent, token, currentMode, currentModel, onSaved }: ConfigPanelProps) {
   const [anthropicApiKey, setAnthropicApiKey] = useState<FieldState>({ ...INITIAL_FIELD });
   const [telegramToken, setTelegramToken] = useState<FieldState>({ ...INITIAL_FIELD });
   const [discordToken, setDiscordToken] = useState<FieldState>({ ...INITIAL_FIELD });
@@ -35,6 +42,9 @@ export function ConfigPanel({ agent, token, currentMode, onSaved }: ConfigPanelP
   const [modeSaving, setModeSaving] = useState(false);
   const [modeSuccess, setModeSuccess] = useState(false);
   const [modeError, setModeError] = useState('');
+  const [modelSaving, setModelSaving] = useState(false);
+  const [modelSuccess, setModelSuccess] = useState(false);
+  const [modelError, setModelError] = useState('');
 
   const handleUpdate = async (
     fieldName: string,
@@ -76,6 +86,22 @@ export function ConfigPanel({ agent, token, currentMode, onSaved }: ConfigPanelP
     } catch (e: any) {
       setModeSaving(false);
       setModeError(e.message || 'Failed to update mode');
+    }
+  };
+
+  const handleModelChange = async (newModel: string) => {
+    setModelSaving(true);
+    setModelSuccess(false);
+    setModelError('');
+    try {
+      await updateAgentConfig(agent, { AGENT_MODEL: newModel }, token);
+      setModelSaving(false);
+      setModelSuccess(true);
+      onSaved?.();
+      setTimeout(() => setModelSuccess(false), 3000);
+    } catch (e: any) {
+      setModelSaving(false);
+      setModelError(e.message || 'Failed to update model');
     }
   };
 
@@ -154,6 +180,34 @@ export function ConfigPanel({ agent, token, currentMode, onSaved }: ConfigPanelP
         {modeSaving && <p className="text-xs text-gray-400 mt-1">Updating mode (triggers redeploy)...</p>}
         {modeSuccess && <p className="text-xs text-green-400 mt-1">Mode updated. Agent will restart shortly.</p>}
         {modeError && <p className="text-xs text-red-400 mt-1">{modeError}</p>}
+      </div>
+
+      {/* Agent Model Section */}
+      <div className="mb-6">
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">Agent Model</h3>
+        <div className="flex items-center gap-3 flex-wrap">
+          {MODEL_OPTIONS.map((opt) => {
+            const isActive = (currentModel || 'claude-sonnet-4-6') === opt.id;
+            return (
+              <button
+                key={opt.id}
+                onClick={() => handleModelChange(opt.id)}
+                disabled={modelSaving || isActive}
+                className={`px-3 py-1.5 rounded-full text-sm transition-all ${
+                  isActive
+                    ? 'bg-xpr-purple text-white'
+                    : 'bg-xpr-dark border border-xpr-border text-gray-400 hover:border-xpr-purple hover:text-gray-200'
+                } ${modelSaving ? 'opacity-50 cursor-wait' : ''}`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-gray-500 mt-1">Controls the AI model powering your agent. Sonnet is fast and cost-effective, Opus is most capable.</p>
+        {modelSaving && <p className="text-xs text-gray-400 mt-1">Updating model (triggers redeploy)...</p>}
+        {modelSuccess && <p className="text-xs text-green-400 mt-1">Model updated. Agent will restart shortly.</p>}
+        {modelError && <p className="text-xs text-red-400 mt-1">{modelError}</p>}
       </div>
 
       {/* API Key Section */}
