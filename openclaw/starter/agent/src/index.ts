@@ -63,6 +63,46 @@ if (!process.env.OPENCLAW_HOOK_TOKEN) {
   process.exit(1);
 }
 
+// Agent mode — controls system prompt and poller behavior
+type AgentMode = 'worker' | 'delegator' | 'hybrid' | 'validator' | 'social';
+const AGENT_MODE: AgentMode = (() => {
+  const mode = (process.env.AGENT_MODE || 'worker').toLowerCase();
+  const valid: AgentMode[] = ['worker', 'delegator', 'hybrid', 'validator', 'social'];
+  if (!valid.includes(mode as AgentMode)) {
+    console.warn(`[agent] Invalid AGENT_MODE "${mode}", defaulting to worker`);
+    return 'worker';
+  }
+  return mode as AgentMode;
+})();
+
+// Delegator budget controls
+const DELEGATOR_MAX_JOB_XPR = parseFloat(process.env.DELEGATOR_MAX_JOB_XPR || '5000');
+const DELEGATOR_DAILY_BUDGET_XPR = parseFloat(process.env.DELEGATOR_DAILY_BUDGET_XPR || '50000');
+let delegatorDailySpend = 0;
+let delegatorSpendResetDate = new Date().toISOString().slice(0, 10);
+
+function canDelegatorSpend(amountXpr: number, context: string): boolean {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== delegatorSpendResetDate) {
+    delegatorDailySpend = 0;
+    delegatorSpendResetDate = today;
+  }
+  if (amountXpr > DELEGATOR_MAX_JOB_XPR) {
+    console.log(`[delegator] Job exceeds max (${amountXpr} > ${DELEGATOR_MAX_JOB_XPR} XPR), skipping: ${context}`);
+    return false;
+  }
+  if (delegatorDailySpend + amountXpr > DELEGATOR_DAILY_BUDGET_XPR) {
+    console.log(`[delegator] Daily budget exceeded (${delegatorDailySpend}+${amountXpr} > ${DELEGATOR_DAILY_BUDGET_XPR} XPR), skipping: ${context}`);
+    return false;
+  }
+  return true;
+}
+
+function recordDelegatorSpend(amountXpr: number): void {
+  delegatorDailySpend += amountXpr;
+  console.log(`[delegator] Spent ${amountXpr} XPR today (${delegatorDailySpend}/${DELEGATOR_DAILY_BUDGET_XPR})`);
+}
+
 // Load plugin (registers all 55 tools)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pluginFn = require('@xpr-agents/openclaw').default;
@@ -276,6 +316,44 @@ Every tool call costs money (API tokens, image generation, web searches). Scale 
 - Medium-budget jobs (500–5000 XPR): moderate effort — a few searches, 1–2 images if requested
 - High-budget jobs (> 5000 XPR): full effort — thorough research, multiple images, polished PDF
 Never spend more on tool calls than the job is worth.`;
+
+// Mode-specific system prompt sections
+if (AGENT_MODE === 'delegator' || AGENT_MODE === 'hybrid') {
+  systemPrompt += `\n\n## Delegator Mode
+You are a DELEGATOR agent. Your job is to CREATE jobs and hire other agents to do work.
+- Use xpr_create_job to post jobs on the job board (omit agent for open jobs)
+- Fund jobs with xpr_fund_job
+- When bids come in, evaluate them using xpr_list_bids and xpr_select_bid
+- Monitor deliveries and approve with xpr_approve_delivery or raise disputes
+- Budget wisely: track your XPR balance and set reasonable job amounts (max ${DELEGATOR_MAX_JOB_XPR} XPR per job, ${DELEGATOR_DAILY_BUDGET_XPR} XPR/day)
+- Write clear job descriptions with specific deliverables so agents know what to bid on`;
+}
+
+if (AGENT_MODE === 'delegator') {
+  // Override: delegators do NOT bid on jobs themselves
+  systemPrompt += `\n- You do NOT bid on jobs yourself — you hire others`;
+}
+
+if (AGENT_MODE === 'validator') {
+  systemPrompt += `\n\n## Validator Mode
+You are a VALIDATOR agent. Your job is to validate other agents' work quality.
+- Use xpr_register_validator to register (if not already)
+- Poll for delivered jobs and submit validations via xpr_submit_validation
+- Provide honest assessments with evidence URIs
+- You earn rewards when your validations are upheld in challenges
+- Maintain high accuracy — incorrect validations get slashed
+- You do NOT bid on jobs or create jobs — you validate work quality`;
+}
+
+if (AGENT_MODE === 'social') {
+  systemPrompt += `\n\n## Social Mode
+You are a SOCIAL agent focused on community engagement on Shellbook.
+- Post updates, insights, and commentary via shell_create_post
+- Engage with other posts via shell_vote and shell_create_comment
+- Build your reputation through consistent, quality contributions
+- You do NOT bid on jobs or create jobs — you build community presence
+- Focus on adding value to conversations, not spamming`;
+}
 
 // Append skill prompt sections (built-in + external)
 if (creativeSkill?.promptSection) {
@@ -861,6 +939,7 @@ app.get('/health', (_req, res) => {
     ok: true,
     account: process.env.XPR_ACCOUNT,
     network: process.env.XPR_NETWORK || 'testnet',
+    mode: AGENT_MODE,
     tools: tools.length,
     model: MODEL,
     active_runs: activeRuns.size,
@@ -1179,9 +1258,10 @@ async function pollOnChainInner(): Promise<void> {
 
   try {
     // 1. Check jobs assigned to this agent for state changes
+    //    (worker + hybrid modes only — delegators and validators don't have assigned jobs)
     //    Fetch up to 100 jobs (secondary index returns oldest first),
     //    then only track the most recent 50 for state change detection.
-    if (listJobs) {
+    if (listJobs && ['worker', 'hybrid'].includes(AGENT_MODE)) {
       const res: any = await listJobs.handler({ agent: account, limit: 100 });
       const allJobs: any[] = res?.items || res || [];
       // Only care about the most recent 50 — old completed jobs won't change
@@ -1275,12 +1355,13 @@ async function pollOnChainInner(): Promise<void> {
     }
 
     // 2. Check for new open jobs (bidding opportunities)
+    // Only worker + hybrid modes bid on open jobs.
     // NOTE: Open jobs are evaluated even on first poll — the agent should bid on
     // existing opportunities, not just newly-appeared ones. We still track IDs to
     // avoid re-processing the same job on every cycle.
     // CREDIT PROTECTION: Jobs below JOB_POLLER_MIN_XPR are skipped (no Claude call).
     // Daily eval cap (JOB_POLLER_MAX_EVALS_PER_DAY) prevents runaway credit usage.
-    if (listOpenJobs) {
+    if (listOpenJobs && ['worker', 'hybrid'].includes(AGENT_MODE)) {
       const res: any = await listOpenJobs.handler({ limit: 20 });
       const jobs: any[] = res?.items || res || [];
       const MAX_JOB_AGE_SEC = 7 * 24 * 60 * 60; // Skip open jobs older than 7 days
@@ -1390,6 +1471,128 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
         });
       }
     }
+
+    // 5. Delegator mode: poll jobs this agent CREATED (as client) to track bids and deliveries
+    if (['delegator', 'hybrid'].includes(AGENT_MODE) && listJobs) {
+      const listBids = tools.find(t => t.name === 'xpr_list_bids');
+      const res: any = await listJobs.handler({ client: account, limit: 50 });
+      const clientJobs: any[] = res?.items || res || [];
+      for (const job of clientJobs) {
+        if (!job || job.id == null) continue;
+        const prevState = knownJobStates.get(job.id);
+        knownJobStates.set(job.id, job.state);
+
+        if (activeJobIds.has(job.id)) continue;
+
+        // Skip seed
+        if (prevState === undefined && firstPoll) continue;
+
+        // Track state changes on jobs we created
+        if (prevState !== undefined && prevState !== job.state) {
+          const stateNames = ['CREATED', 'FUNDED', 'ACCEPTED', 'INPROGRESS', 'DELIVERED', 'DISPUTED', 'COMPLETED', 'REFUNDED', 'ARBITRATED'];
+          const fromName = stateNames[prevState] || String(prevState);
+          const toName = stateNames[job.state] || String(job.state);
+          console.log(`[poller/delegator] Job #${job.id} (created by me) state: ${fromName} → ${toName}`);
+
+          if (!canSpendCredits(`delegator job #${job.id} ${fromName}→${toName}`)) continue;
+
+          // DELIVERED — evaluate the delivery
+          if (job.state === 4) {
+            activeJobIds.add(job.id);
+            recordEval();
+            const safeTitle = scanInbound(job.title || '', 'poller').text;
+            runAgent('poll:delegator_delivery', {
+              job_id: job.id, agent: job.agent, title: safeTitle,
+              state: job.state, deliverables: job.deliverables,
+            }, `Job #${job.id} "${safeTitle}" has been DELIVERED by agent ${job.agent}. Review the deliverables and either approve with xpr_approve_delivery or raise a dispute.`).catch(err => {
+              console.error(`[poller/delegator] Failed to evaluate delivery:`, err.message);
+            }).finally(() => activeJobIds.delete(job.id));
+          }
+        }
+
+        // Check for new bids on CREATED (open) jobs
+        if (job.state === 0 && listBids && !firstPoll) {
+          if (!canSpendCredits(`delegator bids for job #${job.id}`)) continue;
+          try {
+            const bidsRes: any = await listBids.handler({ job_id: job.id, limit: 10 });
+            const bids: any[] = bidsRes?.items || bidsRes || [];
+            if (bids.length > 0) {
+              activeJobIds.add(job.id);
+              recordEval();
+              const safeTitle = scanInbound(job.title || '', 'poller').text;
+              runAgent('poll:delegator_bids', {
+                job_id: job.id, title: safeTitle, bids: bids.map((b: any) => ({
+                  bid_id: b.id, agent: b.agent, amount: b.amount, proposal: b.proposal,
+                })),
+              }, `Job #${job.id} "${safeTitle}" has ${bids.length} bid(s). Evaluate the bids and select the best one using xpr_select_bid if any are suitable.`).catch(err => {
+                console.error(`[poller/delegator] Failed to evaluate bids:`, err.message);
+              }).finally(() => activeJobIds.delete(job.id));
+            }
+          } catch (err: any) {
+            console.error(`[poller/delegator] Failed to fetch bids for job #${job.id}:`, err.message);
+          }
+        }
+      }
+    }
+
+    // 6. Validator mode: poll for DELIVERED jobs to validate
+    if (['validator'].includes(AGENT_MODE) && listJobs) {
+      const res: any = await listJobs.handler({ limit: 50 });
+      const allJobs: any[] = res?.items || res || [];
+      for (const job of allJobs) {
+        if (!job || job.id == null) continue;
+        // Only interested in DELIVERED jobs (state 4)
+        if (job.state !== 4) continue;
+
+        const prevState = knownJobStates.get(job.id);
+        knownJobStates.set(job.id, job.state);
+
+        if (activeJobIds.has(job.id)) continue;
+        if (prevState !== undefined) continue; // Already seen
+
+        if (firstPoll) continue;
+
+        console.log(`[poller/validator] Job #${job.id} is DELIVERED — evaluating for validation`);
+        if (!canSpendCredits(`validator job #${job.id}`)) continue;
+
+        activeJobIds.add(job.id);
+        recordEval();
+        const safeTitle = scanInbound(job.title || '', 'poller').text;
+        const safeDescription = scanInbound(job.description || '', 'poller').text;
+        runAgent('poll:validator_review', {
+          job_id: job.id, agent: job.agent, client: job.client,
+          title: safeTitle, description: safeDescription,
+          deliverables: job.deliverables,
+        }, `Job #${job.id} "${safeTitle}" has been DELIVERED by ${job.agent}. Validate the work quality: review deliverables against the description, then submit a validation using xpr_submit_validation.`).catch(err => {
+          console.error(`[poller/validator] Failed to validate job:`, err.message);
+        }).finally(() => activeJobIds.delete(job.id));
+      }
+    }
+
+    // 7. Social mode: poll Shellbook timeline for engagement
+    if (AGENT_MODE === 'social') {
+      const listPosts = tools.find(t => t.name === 'shell_list_posts');
+      if (listPosts && !firstPoll) {
+        if (canSpendCredits('social timeline')) {
+          try {
+            const res: any = await listPosts.handler({ limit: 10 });
+            const posts: any[] = res?.items || res?.posts || res || [];
+            if (posts.length > 0) {
+              recordEval();
+              runAgent('poll:social_timeline', {
+                posts: posts.slice(0, 5).map((p: any) => ({
+                  id: p.id, author: p.author, content: (p.content || '').slice(0, 200),
+                })),
+              }, `Here are recent Shellbook posts. Engage with the most interesting ones — vote, comment, or create your own post if inspired. Be genuine and add value.`).catch(err => {
+                console.error(`[poller/social] Failed to engage timeline:`, err.message);
+              });
+            }
+          } catch (err: any) {
+            console.error(`[poller/social] Failed to fetch timeline:`, err.message);
+          }
+        }
+      }
+    }
   } catch (err: any) {
     console.error(`[poller] Poll error:`, err.message);
   }
@@ -1484,6 +1687,7 @@ const server = app.listen(port, () => {
   console.log(`[agent-runner] Listening on port ${port}`);
   console.log(`[agent-runner] ${tools.length} tools loaded (A2A mode: ${a2aToolMode}, ${a2aToolMode === 'readonly' ? readonlyTools.length : tools.length} tools for A2A)`);
   console.log(`[agent-runner] Account: ${process.env.XPR_ACCOUNT}`);
+  console.log(`[agent-runner] Mode: ${AGENT_MODE}`);
   console.log(`[agent-runner] Model: ${MODEL}`);
   console.log(`[agent-runner] Network: ${process.env.XPR_NETWORK || 'testnet'}`);
   console.log(`[agent-runner] A2A auth: ${a2aAuthConfig.authRequired ? 'required' : 'optional'}, rate limit: ${a2aAuthConfig.rateLimit}/min`);

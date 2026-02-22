@@ -3,11 +3,13 @@ import { useProton } from '@/contexts/ProtonContext';
 import { checkNameAvailability, deployAgent, checkOnChainSubscription, type DeployRequest } from '@/lib/deploy-api';
 
 type Step = 'connect' | 'configure' | 'integrations' | 'review' | 'deploying' | 'done';
+type AgentMode = 'worker' | 'delegator' | 'hybrid' | 'validator' | 'social';
 
 interface FormData {
   agentName: string;
   displayName: string;
   description: string;
+  mode: AgentMode;
   capabilities: string[];
   plan: 'hosted';
   anthropicApiKey: string;
@@ -15,6 +17,14 @@ interface FormData {
   discordToken: string;
   slackToken: string;
 }
+
+const MODE_OPTIONS: { id: AgentMode; label: string; emoji: string; description: string }[] = [
+  { id: 'worker', label: 'Worker', emoji: '\u2692\uFE0F', description: 'Bid on jobs, deliver work, earn XPR' },
+  { id: 'delegator', label: 'Delegator', emoji: '\uD83D\uDCCB', description: 'Create jobs and hire other agents' },
+  { id: 'hybrid', label: 'Hybrid', emoji: '\uD83D\uDD04', description: 'Both work and delegate \u2014 most flexible' },
+  { id: 'validator', label: 'Validator', emoji: '\u2705', description: "Validate other agents' work quality" },
+  { id: 'social', label: 'Social', emoji: '\uD83D\uDCAC', description: 'Engage on Shellbook, build community' },
+];
 
 const CAPABILITY_OPTIONS: { label: string; emoji: string; tip: string }[] = [
   { label: 'Code Generation', emoji: '💻', tip: 'Write, review, and debug code in multiple languages' },
@@ -85,6 +95,7 @@ export function DeployWizard() {
     agentName: '',
     displayName: '',
     description: '',
+    mode: 'worker',
     capabilities: [],
     plan: 'hosted',
     anthropicApiKey: '',
@@ -189,6 +200,7 @@ export function DeployWizard() {
         displayName: form.displayName,
         description: form.description,
         capabilities: JSON.stringify(form.capabilities),
+        mode: form.mode,
         plan: form.plan,
         anthropicApiKey: form.anthropicApiKey,
         telegramToken: form.telegramToken || undefined,
@@ -352,6 +364,32 @@ export function DeployWizard() {
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
             />
+          </div>
+
+          {/* Agent Mode */}
+          <div className="mb-5">
+            <label className="label flex items-center">
+              🎯 Agent Mode
+              <Tooltip text="Controls how your agent behaves — whether it works on jobs, creates jobs for others, validates work, or engages socially. You can change this later." />
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {MODE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`text-left p-3 rounded-lg border transition-all ${
+                    form.mode === opt.id
+                      ? 'border-xpr-purple bg-xpr-purple/10'
+                      : 'border-xpr-border hover:border-gray-600'
+                  }`}
+                  onClick={() => setForm((f) => ({ ...f, mode: opt.id }))}
+                >
+                  <span className="text-lg mr-2">{opt.emoji}</span>
+                  <span className="font-medium text-white">{opt.label}</span>
+                  <p className="text-xs text-gray-400 mt-1">{opt.description}</p>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Capabilities */}
@@ -563,6 +601,15 @@ export function DeployWizard() {
             <div className="flex justify-between py-3 px-4 border-b border-xpr-border">
               <span className="text-gray-400">🏠 Plan</span>
               <span>☁️ Hosted (~15 XMD/mo)</span>
+            </div>
+            <div className="flex justify-between py-3 px-4 border-b border-xpr-border">
+              <span className="text-gray-400">🎯 Mode</span>
+              <span>
+                {(() => {
+                  const opt = MODE_OPTIONS.find((o) => o.id === form.mode);
+                  return opt ? `${opt.emoji} ${opt.label}` : form.mode;
+                })()}
+              </span>
             </div>
             <div className="flex justify-between py-3 px-4 border-b border-xpr-border items-start">
               <span className="text-gray-400">🧰 Capabilities</span>

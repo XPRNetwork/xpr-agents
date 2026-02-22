@@ -1,9 +1,20 @@
 import { useState } from 'react';
 import { updateAgentConfig } from '@/lib/deploy-api';
 
+type AgentMode = 'worker' | 'delegator' | 'hybrid' | 'validator' | 'social';
+
+const MODE_OPTIONS: { id: AgentMode; label: string; emoji: string }[] = [
+  { id: 'worker', label: 'Worker', emoji: '\u2692\uFE0F' },
+  { id: 'delegator', label: 'Delegator', emoji: '\uD83D\uDCCB' },
+  { id: 'hybrid', label: 'Hybrid', emoji: '\uD83D\uDD04' },
+  { id: 'validator', label: 'Validator', emoji: '\u2705' },
+  { id: 'social', label: 'Social', emoji: '\uD83D\uDCAC' },
+];
+
 interface ConfigPanelProps {
   agent: string;
   token: string;
+  currentMode?: string;
   onSaved?: () => void;
 }
 
@@ -16,11 +27,14 @@ interface FieldState {
 
 const INITIAL_FIELD: FieldState = { value: '', saving: false, success: false, error: '' };
 
-export function ConfigPanel({ agent, token, onSaved }: ConfigPanelProps) {
+export function ConfigPanel({ agent, token, currentMode, onSaved }: ConfigPanelProps) {
   const [anthropicApiKey, setAnthropicApiKey] = useState<FieldState>({ ...INITIAL_FIELD });
   const [telegramToken, setTelegramToken] = useState<FieldState>({ ...INITIAL_FIELD });
   const [discordToken, setDiscordToken] = useState<FieldState>({ ...INITIAL_FIELD });
   const [slackToken, setSlackToken] = useState<FieldState>({ ...INITIAL_FIELD });
+  const [modeSaving, setModeSaving] = useState(false);
+  const [modeSuccess, setModeSuccess] = useState(false);
+  const [modeError, setModeError] = useState('');
 
   const handleUpdate = async (
     fieldName: string,
@@ -46,6 +60,22 @@ export function ConfigPanel({ agent, token, onSaved }: ConfigPanelProps) {
         saving: false,
         error: e.message || 'Update failed',
       }));
+    }
+  };
+
+  const handleModeChange = async (newMode: AgentMode) => {
+    setModeSaving(true);
+    setModeSuccess(false);
+    setModeError('');
+    try {
+      await updateAgentConfig(agent, { AGENT_MODE: newMode }, token);
+      setModeSaving(false);
+      setModeSuccess(true);
+      onSaved?.();
+      setTimeout(() => setModeSuccess(false), 3000);
+    } catch (e: any) {
+      setModeSaving(false);
+      setModeError(e.message || 'Failed to update mode');
     }
   };
 
@@ -97,6 +127,33 @@ export function ConfigPanel({ agent, token, onSaved }: ConfigPanelProps) {
     <div>
       <div className="bg-xpr-dark rounded-lg p-3 mb-5 text-sm text-gray-400 border border-xpr-border">
         Updates take effect immediately. Only fill in fields you want to change.
+      </div>
+
+      {/* Agent Mode Section */}
+      <div className="mb-6">
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">Agent Mode</h3>
+        <div className="flex items-center gap-3 flex-wrap">
+          {MODE_OPTIONS.map((opt) => {
+            const isActive = currentMode === opt.id;
+            return (
+              <button
+                key={opt.id}
+                onClick={() => handleModeChange(opt.id)}
+                disabled={modeSaving || isActive}
+                className={`px-3 py-1.5 rounded-full text-sm transition-all ${
+                  isActive
+                    ? 'bg-xpr-purple text-white'
+                    : 'bg-xpr-dark border border-xpr-border text-gray-400 hover:border-xpr-purple hover:text-gray-200'
+                } ${modeSaving ? 'opacity-50 cursor-wait' : ''}`}
+              >
+                {opt.emoji} {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        {modeSaving && <p className="text-xs text-gray-400 mt-1">Updating mode (triggers redeploy)...</p>}
+        {modeSuccess && <p className="text-xs text-green-400 mt-1">Mode updated. Agent will restart shortly.</p>}
+        {modeError && <p className="text-xs text-red-400 mt-1">{modeError}</p>}
       </div>
 
       {/* API Key Section */}
