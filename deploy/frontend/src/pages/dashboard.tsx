@@ -296,6 +296,7 @@ export default function DashboardPage() {
                         <ConfigPanel
                           agent={selectedAgent}
                           token={authToken}
+                          currentMode={agentStatus?.deployment?.mode || selectedDeployment?.mode || 'worker'}
                           onSaved={() => {
                             if (selectedAgent && authToken) {
                               getAgentStatus(selectedAgent, authToken).then(setAgentStatus).catch(() => {});
