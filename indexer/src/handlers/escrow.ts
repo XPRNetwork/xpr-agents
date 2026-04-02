@@ -2,6 +2,21 @@ import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
 import { updateStats } from '../db/schema';
 import { WebhookDispatcher } from '../webhooks/dispatcher';
+import { pendingCorrections, fetchOnChainId } from './id-correction';
+
+/**
+ * Fetch the real on-chain job ID by looking up the jobs table for a matching record.
+ */
+async function fetchOnChainJobId(
+  escrowContract: string,
+  client: string,
+  title: string,
+  jobHash: string,
+): Promise<number | null> {
+  return fetchOnChainId(escrowContract, 'jobs', (row) =>
+    row.client === client && row.title === title && (row.job_hash || '') === (jobHash || '')
+  );
+}
 
 /**
  * Handle escrow contract actions
@@ -11,7 +26,7 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
 
   switch (name) {
     case 'createjob':
-      handleCreateJob(db, data, action.timestamp);
+      handleCreateJob(db, { ...data, _escrowContract: action.act.account }, action.timestamp);
       dispatcher?.dispatch(
         'job.created',
         [data.client, data.agent],
@@ -63,7 +78,7 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
       }
       break;
     case 'dispute':
-      handleDispute(db, data, action.timestamp);
+      handleDispute(db, { ...data, _escrowContract: action.act.account }, action.timestamp);
       if (dispatcher) {
         const disputeJob = db.prepare('SELECT client, agent, arbitrator FROM jobs WHERE id = ?').get(data.job_id) as { client: string; agent: string; arbitrator: string } | undefined;
         const disputeAccounts = disputeJob ? [disputeJob.client, disputeJob.agent, disputeJob.arbitrator].filter(Boolean) : [data.raised_by];
@@ -141,7 +156,7 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
       handleActivateArbitrator(db, data, false);
       break;
     case 'addmilestone':
-      handleAddMilestone(db, data);
+      handleAddMilestone(db, { ...data, _escrowContract: action.act.account });
       break;
     case 'submitmile':
       handleSubmitMilestone(db, data);
@@ -159,7 +174,7 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
       handleCancelUnstake(db, data);
       break;
     case 'submitbid':
-      handleSubmitBid(db, data, action.timestamp);
+      handleSubmitBid(db, { ...data, _escrowContract: action.act.account }, action.timestamp);
       if (dispatcher) {
         const bidJob = db.prepare('SELECT client, title, amount FROM jobs WHERE id = ?').get(data.job_id) as { client: string; title: string; amount: number } | undefined;
         dispatcher.dispatch(
@@ -214,13 +229,23 @@ function handleCreateJob(db: Database.Database, data: any, timestamp: string): v
 
   const createdAt = Math.floor(new Date(timestamp).getTime() / 1000);
 
-  // Generate job ID based on existing count
+  // Check if this job was already seeded by syncFromChain (match by client + title + job_hash)
+  const existing = db.prepare(
+    'SELECT id FROM jobs WHERE client = ? AND title = ? AND job_hash = ?'
+  ).get(data.client, data.title || '', data.job_hash || '') as { id: number } | undefined;
+
+  if (existing) {
+    console.log(`Job already exists (ID ${existing.id}) — skipping duplicate createjob for "${data.title}"`);
+    return;
+  }
+
+  // Temporary synthetic ID — will be corrected async via RPC lookup
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM jobs');
   const result = countStmt.get() as { max_id: number | null };
-  const id = (result.max_id || 0) + 1;
+  const tempId = (result.max_id || 0) + 1;
 
   stmt.run(
-    id,
+    tempId,
     data.client,
     data.agent,
     data.title || '',
@@ -235,7 +260,32 @@ function handleCreateJob(db: Database.Database, data: any, timestamp: string): v
     createdAt
   );
 
-  console.log(`Job created: ${id} - ${data.title}`);
+  console.log(`Job created: ${tempId} (temp) - ${data.title}`);
+
+  // Schedule async correction to replace synthetic ID with real on-chain ID
+  const escrowContract = data._escrowContract || 'agentescrow';
+  const client = data.client;
+  const title = data.title || '';
+  const jobHash = data.job_hash || '';
+
+  pendingCorrections.push(async () => {
+    const realId = await fetchOnChainJobId(escrowContract, client, title, jobHash);
+    if (realId != null && realId !== tempId) {
+      // Update the job ID and any foreign keys referencing it
+      db.transaction(() => {
+        db.prepare('UPDATE bids SET job_id = ? WHERE job_id = ?').run(realId, tempId);
+        db.prepare('UPDATE milestones SET job_id = ? WHERE job_id = ?').run(realId, tempId);
+        db.prepare('UPDATE escrow_disputes SET job_id = ? WHERE job_id = ?').run(realId, tempId);
+        db.prepare('UPDATE job_evidence SET job_id = ? WHERE job_id = ?').run(realId, tempId);
+        db.prepare('UPDATE jobs SET id = ? WHERE id = ?').run(realId, tempId);
+      })();
+      console.log(`Job ID corrected: ${tempId} → ${realId} (${title})`);
+    } else if (realId != null) {
+      // IDs already match
+    } else {
+      console.warn(`Job ID correction failed for temp ID ${tempId} — RPC lookup returned null`);
+    }
+  });
 }
 
 function handleAcceptJob(db: Database.Database, data: any): void {
@@ -290,16 +340,31 @@ function handleDispute(db: Database.Database, data: any, timestamp: string): voi
 
   // Create dispute record
   const createdAt = Math.floor(new Date(timestamp).getTime() / 1000);
+
+  // Check if already seeded by syncFromChain
+  const existingDispute = db.prepare(
+    'SELECT id FROM escrow_disputes WHERE job_id = ? AND raised_by = ?'
+  ).get(data.job_id, data.raised_by) as { id: number } | undefined;
+  if (existingDispute) {
+    console.log(`Dispute already exists (ID ${existingDispute.id}) — skipping duplicate`);
+    // Still update job state
+    const job = db.prepare('SELECT arbitrator FROM jobs WHERE id = ?').get(data.job_id) as { arbitrator: string } | undefined;
+    if (job && job.arbitrator) {
+      db.prepare('UPDATE arbitrators SET active_disputes = active_disputes + 1 WHERE account = ?').run(job.arbitrator);
+    }
+    return;
+  }
+
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM escrow_disputes');
   const result = countStmt.get() as { max_id: number | null };
-  const id = (result.max_id || 0) + 1;
+  const tempId = (result.max_id || 0) + 1;
 
   const disputeStmt = db.prepare(`
     INSERT INTO escrow_disputes (id, job_id, raised_by, reason, evidence_uri, resolution, created_at)
     VALUES (?, ?, ?, ?, ?, 0, ?)
   `);
   disputeStmt.run(
-    id,
+    tempId,
     data.job_id,
     data.raised_by,
     data.reason || '',
@@ -313,7 +378,21 @@ function handleDispute(db: Database.Database, data: any, timestamp: string): voi
     db.prepare('UPDATE arbitrators SET active_disputes = active_disputes + 1 WHERE account = ?').run(job.arbitrator);
   }
 
-  console.log(`Dispute raised for job ${data.job_id}`);
+  console.log(`Dispute raised for job ${data.job_id} (temp dispute ID ${tempId})`);
+
+  // Schedule async correction for dispute ID
+  const raisedBy = data.raised_by;
+  const jobId = data.job_id;
+  const disputeContract = data._escrowContract || 'agentescrow';
+  pendingCorrections.push(async () => {
+    const realId = await fetchOnChainId(disputeContract, 'disputes', (row) =>
+      row.job_id == jobId && row.raised_by === raisedBy
+    );
+    if (realId != null && realId !== tempId) {
+      db.prepare('UPDATE escrow_disputes SET id = ? WHERE id = ?').run(realId, tempId);
+      console.log(`Dispute ID corrected: ${tempId} → ${realId}`);
+    }
+  });
 }
 
 function handleArbitrate(db: Database.Database, data: any): void {
@@ -462,23 +541,46 @@ function handleActivateArbitrator(db: Database.Database, data: any, active: bool
 }
 
 function handleAddMilestone(db: Database.Database, data: any): void {
+  // Check if already seeded by syncFromChain
+  const existingMilestone = db.prepare(
+    'SELECT id FROM milestones WHERE job_id = ? AND title = ?'
+  ).get(data.job_id, data.title || '') as { id: number } | undefined;
+  if (existingMilestone) {
+    console.log(`Milestone already exists (ID ${existingMilestone.id}) — skipping duplicate`);
+    return;
+  }
+
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM milestones');
   const result = countStmt.get() as { max_id: number | null };
-  const id = (result.max_id || 0) + 1;
+  const tempId = (result.max_id || 0) + 1;
 
   const stmt = db.prepare(`
     INSERT INTO milestones (id, job_id, title, description, amount, milestone_order, state, evidence_uri)
     VALUES (?, ?, ?, ?, ?, ?, 0, '')
   `);
   stmt.run(
-    id,
+    tempId,
     data.job_id,
     data.title || '',
     data.description || '',
     data.amount || 0,
     data.order || 0
   );
-  console.log(`Milestone added to job ${data.job_id}: ${data.title}`);
+  console.log(`Milestone added to job ${data.job_id}: ${data.title} (temp ID ${tempId})`);
+
+  // Schedule async correction for milestone ID
+  const milestoneJobId = data.job_id;
+  const milestoneTitle = data.title || '';
+  const milestoneContract = data._escrowContract || 'agentescrow';
+  pendingCorrections.push(async () => {
+    const realId = await fetchOnChainId(milestoneContract, 'milestones', (row) =>
+      row.job_id == milestoneJobId && row.title === milestoneTitle
+    );
+    if (realId != null && realId !== tempId) {
+      db.prepare('UPDATE milestones SET id = ? WHERE id = ?').run(realId, tempId);
+      console.log(`Milestone ID corrected: ${tempId} → ${realId}`);
+    }
+  });
 }
 
 function handleSubmitMilestone(db: Database.Database, data: any): void {
@@ -558,16 +660,26 @@ function handleCancelUnstake(db: Database.Database, data: any): void {
 
 function handleSubmitBid(db: Database.Database, data: any, timestamp: string): void {
   const createdAt = Math.floor(new Date(timestamp).getTime() / 1000);
+
+  // Check if already seeded by syncFromChain
+  const existingBid = db.prepare(
+    'SELECT id FROM bids WHERE job_id = ? AND agent = ?'
+  ).get(data.job_id, data.agent) as { id: number } | undefined;
+  if (existingBid) {
+    console.log(`Bid already exists (ID ${existingBid.id}) — skipping duplicate`);
+    return;
+  }
+
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM bids');
   const result = countStmt.get() as { max_id: number | null };
-  const id = (result.max_id || 0) + 1;
+  const tempId = (result.max_id || 0) + 1;
 
   const stmt = db.prepare(`
     INSERT INTO bids (id, job_id, agent, amount, timeline, proposal, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   stmt.run(
-    id,
+    tempId,
     data.job_id,
     data.agent,
     data.amount || 0,
@@ -575,7 +687,21 @@ function handleSubmitBid(db: Database.Database, data: any, timestamp: string): v
     data.proposal || '',
     createdAt
   );
-  console.log(`Bid ${id} submitted on job ${data.job_id} by ${data.agent}`);
+  console.log(`Bid ${tempId} (temp) submitted on job ${data.job_id} by ${data.agent}`);
+
+  // Schedule async correction for bid ID
+  const bidJobId = data.job_id;
+  const bidAgent = data.agent;
+  const bidContract = data._escrowContract || 'agentescrow';
+  pendingCorrections.push(async () => {
+    const realId = await fetchOnChainId(bidContract, 'bids', (row) =>
+      row.job_id == bidJobId && row.agent === bidAgent
+    );
+    if (realId != null && realId !== tempId) {
+      db.prepare('UPDATE bids SET id = ? WHERE id = ?').run(realId, tempId);
+      console.log(`Bid ID corrected: ${tempId} → ${realId}`);
+    }
+  });
 }
 
 function handleSelectBid(db: Database.Database, data: any): void {

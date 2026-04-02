@@ -8,6 +8,7 @@ import { handleAgentAction, handleAgentCoreTransfer } from './handlers/agent';
 import { handleFeedbackAction } from './handlers/feedback';
 import { handleValidationAction, handleValidationTransfer } from './handlers/validation';
 import { handleEscrowAction, handleEscrowTransfer } from './handlers/escrow';
+import { setRpcEndpoint, flushPendingCorrections } from './handlers/id-correction';
 import { createRoutes } from './api/routes';
 import { WebhookDispatcher } from './webhooks/dispatcher';
 import { syncFromChain } from './sync';
@@ -28,6 +29,15 @@ const config = {
     token: 'eosio.token',
   },
 };
+
+// Force reseed: delete existing DB if FORCE_RESEED=true
+if (process.env.FORCE_RESEED === 'true') {
+  const fs = require('fs');
+  if (fs.existsSync(config.dbPath)) {
+    fs.unlinkSync(config.dbPath);
+    console.log(`[reseed] Deleted ${config.dbPath} — will reseed from chain`);
+  }
+}
 
 // Initialize database
 console.log('Initializing database...');
@@ -177,6 +187,11 @@ function handleAction(action: StreamAction): void {
   } catch (error) {
     console.error(`Error handling action ${action.act.name}:`, error);
   }
+
+  // Flush any pending ID corrections (async RPC lookups scheduled by escrow handlers)
+  flushPendingCorrections().catch(err =>
+    console.error('[escrow] ID correction flush failed:', err)
+  );
 }
 
 // Auto-detect streaming support and choose stream vs poller
@@ -256,6 +271,11 @@ async function startIngestion(): Promise<void> {
     source.start();
   }
 }
+
+// Set RPC endpoint for on-chain ID correction lookups
+const correctionRpc = config.hyperionEndpoints[0].replace(/\/v2.*$/, '').replace(/\/$/, '');
+setRpcEndpoint(correctionRpc);
+console.log(`[id-correction] RPC endpoint: ${correctionRpc}`);
 
 // Sync from chain state on first start (empty DB), then begin ingestion
 (async () => {

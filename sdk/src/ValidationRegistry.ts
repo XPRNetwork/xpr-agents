@@ -119,11 +119,12 @@ export class ValidationRegistry {
       table: 'validations',
       index_position: 2,
       key_type: 'i64',
+      lower_bound: agent,
+      upper_bound: agent,
       limit,
     });
 
     return result.rows
-      .filter((row) => row.agent === agent)
       .map((row) => this.parseValidation(row));
   }
 
@@ -141,11 +142,12 @@ export class ValidationRegistry {
       table: 'validations',
       index_position: 3,
       key_type: 'i64',
+      lower_bound: validator,
+      upper_bound: validator,
       limit,
     });
 
     return result.rows
-      .filter((row) => row.validator === validator)
       .map((row) => this.parseValidation(row));
   }
 

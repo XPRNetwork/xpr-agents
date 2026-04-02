@@ -1,24 +1,4 @@
 services:
-  indexer:
-    image: ghcr.io/paulgnz/xpr-agents-indexer:latest
-    profiles: ["indexer"]
-    environment:
-      - PORT=3001
-      - DB_PATH=/data/agents.db
-      - HYPERION_ENDPOINTS=${HYPERION_ENDPOINTS:-https://api-xprnetwork-test.saltant.io}
-      - WEBHOOK_ADMIN_TOKEN=${WEBHOOK_ADMIN_TOKEN}
-    volumes:
-      - indexer-data:/data
-    ports:
-      - "127.0.0.1:3001:3001"
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    restart: unless-stopped
-
   agent:
     image: ghcr.io/paulgnz/xpr-agent-runner:latest
     environment:
@@ -28,7 +8,7 @@ services:
       - XPR_PERMISSION=${XPR_PERMISSION:-active}
       - XPR_RPC_ENDPOINT=${XPR_RPC_ENDPOINT:-https://tn1.protonnz.com}
       - XPR_NETWORK=${XPR_NETWORK:-testnet}
-      - INDEXER_URL=http://indexer:3001
+      - INDEXER_URL=${INDEXER_URL:-https://indexer.xpragents.com}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - AGENT_MODEL=${AGENT_MODEL:-claude-sonnet-4-6}
       - AGENT_MAX_TURNS=${AGENT_MAX_TURNS:-20}
@@ -87,6 +67,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  indexer-data:
   agent-data:
   telegram-data:

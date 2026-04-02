@@ -2,13 +2,14 @@ import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
 import { updateStats } from '../db/schema';
 import { WebhookDispatcher } from '../webhooks/dispatcher';
+import { pendingCorrections, fetchOnChainId } from './id-correction';
 
 export function handleFeedbackAction(db: Database.Database, action: StreamAction, dispatcher?: WebhookDispatcher): void {
   const { name, data } = action.act;
 
   switch (name) {
     case 'submit':
-      handleSubmit(db, data, action.timestamp);
+      handleSubmit(db, data, action.timestamp, action.act.account);
       dispatcher?.dispatch(
         'feedback.received',
         [data.agent, data.reviewer],
@@ -42,11 +43,11 @@ export function handleFeedbackAction(db: Database.Database, action: StreamAction
       break;
     case 'submitctx':
       // Context-specific feedback - same feedback table, context prepended to tags
-      handleSubmit(db, data, action.timestamp);
+      handleSubmit(db, data, action.timestamp, action.act.account);
       break;
     case 'submitwpay':
       // Feedback with payment proof - same feedback table, payment proof is separate
-      handleSubmit(db, data, action.timestamp);
+      handleSubmit(db, data, action.timestamp, action.act.account);
       break;
     case 'reinstate':
       handleReinstate(db, data);
@@ -95,13 +96,22 @@ export function handleFeedbackAction(db: Database.Database, action: StreamAction
   updateStats(db);
 }
 
-function handleSubmit(db: Database.Database, data: any, timestamp: string): void {
+function handleSubmit(db: Database.Database, data: any, timestamp: string, contract?: string): void {
   const ts = Math.floor(new Date(timestamp).getTime() / 1000);
 
-  // Generate ID based on existing count
+  // Check if already seeded by syncFromChain
+  const existing = db.prepare(
+    'SELECT id FROM feedback WHERE agent = ? AND reviewer = ? AND timestamp = ?'
+  ).get(data.agent, data.reviewer, ts) as { id: number } | undefined;
+  if (existing) {
+    console.log(`Feedback already exists (ID ${existing.id}) — skipping duplicate: ${data.reviewer} -> ${data.agent}`);
+    return;
+  }
+
+  // Generate temp ID
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM feedback');
   const result = countStmt.get() as { max_id: number | null };
-  const id = (result.max_id || 0) + 1;
+  const tempId = (result.max_id || 0) + 1;
 
   // INSERT OR IGNORE prevents duplicates when sync + poller process the same action
   const feedbackStmt = db.prepare(`
@@ -110,13 +120,9 @@ function handleSubmit(db: Database.Database, data: any, timestamp: string): void
   `);
 
   const changes = feedbackStmt.run(
-    id,
+    tempId,
     data.agent,
     data.reviewer,
-    // NOTE: reviewer_kyc_level is not in action data - the contract reads it internally
-    // from eosio.proton::usersinfo. This value will be 0 in the indexer. On-chain scores
-    // may differ because they use the actual KYC weight. A periodic chain-sync job
-    // can be used to update these values from the on-chain feedback table.
     data.reviewer_kyc_level || 0,
     data.score,
     data.tags || '',
@@ -134,7 +140,25 @@ function handleSubmit(db: Database.Database, data: any, timestamp: string): void
   // Update agent score
   updateAgentScore(db, data.agent);
 
-  console.log(`Feedback submitted: ${data.reviewer} -> ${data.agent} (${data.score}/5)`);
+  console.log(`Feedback submitted: ${data.reviewer} -> ${data.agent} (${data.score}/5, temp ID ${tempId})`);
+
+  // Schedule async correction for feedback ID
+  if (contract) {
+    const agent = data.agent;
+    const reviewer = data.reviewer;
+    pendingCorrections.push(async () => {
+      const realId = await fetchOnChainId(contract, 'feedback', (row) =>
+        row.agent === agent && row.reviewer === reviewer && (row.timestamp || 0) == ts
+      );
+      if (realId != null && realId !== tempId) {
+        db.transaction(() => {
+          db.prepare('UPDATE feedback_disputes SET feedback_id = ? WHERE feedback_id = ?').run(realId, tempId);
+          db.prepare('UPDATE feedback SET id = ? WHERE id = ?').run(realId, tempId);
+        })();
+        console.log(`Feedback ID corrected: ${tempId} → ${realId}`);
+      }
+    });
+  }
 }
 
 function handleDispute(db: Database.Database, data: any, timestamp: string): void {

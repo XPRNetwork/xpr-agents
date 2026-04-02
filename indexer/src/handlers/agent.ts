@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
 import { updateStats } from '../db/schema';
 import { WebhookDispatcher } from '../webhooks/dispatcher';
+import { pendingCorrections, fetchOnChainId } from './id-correction';
 
 export function handleAgentAction(db: Database.Database, action: StreamAction, dispatcher?: WebhookDispatcher): void {
   const { name, data } = action.act;
@@ -34,10 +35,10 @@ export function handleAgentAction(db: Database.Database, action: StreamAction, d
       handleIncJobs(db, data);
       break;
     case 'regplugin':
-      handleRegPlugin(db, data);
+      handleRegPlugin(db, data, action.act.account);
       break;
     case 'addplugin':
-      handleAddPlugin(db, data);
+      handleAddPlugin(db, data, action.act.account);
       break;
     case 'rmplugin':
       handleRemovePlugin(db, data);
@@ -171,19 +172,27 @@ function handleIncJobs(db: Database.Database, data: any): void {
   console.log(`Agent jobs incremented: ${data.account}`);
 }
 
-function handleRegPlugin(db: Database.Database, data: any): void {
+function handleRegPlugin(db: Database.Database, data: any, contract: string): void {
+  // Check if already seeded by syncFromChain
+  const existing = db.prepare(
+    'SELECT id FROM plugins WHERE name = ? AND version = ? AND author = ?'
+  ).get(data.name, data.version, data.author) as { id: number } | undefined;
+  if (existing) {
+    console.log(`Plugin already exists (ID ${existing.id}) — skipping duplicate: ${data.name}`);
+    return;
+  }
+
   const stmt = db.prepare(`
     INSERT INTO plugins (id, name, version, contract, action, schema, category, author, verified)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
   `);
 
-  // Generate ID based on existing count
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM plugins');
   const result = countStmt.get() as { max_id: number | null };
-  const id = (result.max_id || 0) + 1;
+  const tempId = (result.max_id || 0) + 1;
 
   stmt.run(
-    id,
+    tempId,
     data.name,
     data.version,
     data.contract,
@@ -193,23 +202,58 @@ function handleRegPlugin(db: Database.Database, data: any): void {
     data.author
   );
 
-  console.log(`Plugin registered: ${data.name}`);
+  console.log(`Plugin registered: ${data.name} (temp ID ${tempId})`);
+
+  const pluginName = data.name;
+  const pluginAuthor = data.author;
+  pendingCorrections.push(async () => {
+    const realId = await fetchOnChainId(contract, 'plugins', (row) =>
+      row.name === pluginName && row.author === pluginAuthor
+    );
+    if (realId != null && realId !== tempId) {
+      db.transaction(() => {
+        db.prepare('UPDATE agent_plugins SET plugin_id = ? WHERE plugin_id = ?').run(realId, tempId);
+        db.prepare('UPDATE plugins SET id = ? WHERE id = ?').run(realId, tempId);
+      })();
+      console.log(`Plugin ID corrected: ${tempId} → ${realId} (${pluginName})`);
+    }
+  });
 }
 
 // Plugin lifecycle handlers
 
-function handleAddPlugin(db: Database.Database, data: any): void {
-  // Contract: addplugin(agent, plugin_id, pluginConfig)
+function handleAddPlugin(db: Database.Database, data: any, contract: string): void {
+  // Check if already seeded by syncFromChain
+  const existing = db.prepare(
+    'SELECT id FROM agent_plugins WHERE agent = ? AND plugin_id = ?'
+  ).get(data.agent, data.plugin_id) as { id: number } | undefined;
+  if (existing) {
+    console.log(`Agent plugin already exists (ID ${existing.id}) — skipping duplicate`);
+    return;
+  }
+
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM agent_plugins');
   const result = countStmt.get() as { max_id: number | null };
-  const id = (result.max_id || 0) + 1;
+  const tempId = (result.max_id || 0) + 1;
 
   const stmt = db.prepare(`
     INSERT INTO agent_plugins (id, agent, plugin_id, config, enabled)
     VALUES (?, ?, ?, ?, 1)
   `);
-  stmt.run(id, data.agent, data.plugin_id, data.pluginConfig || '{}');
-  console.log(`Plugin ${data.plugin_id} added to agent ${data.agent}`);
+  stmt.run(tempId, data.agent, data.plugin_id, data.pluginConfig || '{}');
+  console.log(`Plugin ${data.plugin_id} added to agent ${data.agent} (temp ID ${tempId})`);
+
+  const agentName = data.agent;
+  const pluginId = data.plugin_id;
+  pendingCorrections.push(async () => {
+    const realId = await fetchOnChainId(contract, 'agentplugs', (row) =>
+      row.agent === agentName && row.plugin_id == pluginId
+    );
+    if (realId != null && realId !== tempId) {
+      db.prepare('UPDATE agent_plugins SET id = ? WHERE id = ?').run(realId, tempId);
+      console.log(`Agent plugin ID corrected: ${tempId} → ${realId}`);
+    }
+  });
 }
 
 function handleRemovePlugin(db: Database.Database, data: any): void {

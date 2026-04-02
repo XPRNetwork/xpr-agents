@@ -255,5 +255,35 @@ export async function syncFromChain(
     console.log(`[sync] Plugins: ${plugins.length}`);
   }
 
+  // ── Agent Plugins ────────────────────────────────
+  const agentPlugins = await fetchAllRows(rpc, contracts.agentcore, 'agentplugs');
+  if (agentPlugins.length > 0) {
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO agent_plugins (id, agent, plugin_id, config, enabled)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    for (const ap of agentPlugins) {
+      stmt.run(ap.id, ap.agent || '', ap.plugin_id || 0, ap.config || '{}', ap.enabled ? 1 : 0);
+    }
+    console.log(`[sync] Agent plugins: ${agentPlugins.length}`);
+  }
+
+  // ── Feedback Disputes ──────────────────────────────
+  const feedbackDisputes = await fetchAllRows(rpc, contracts.agentfeed, 'disputes');
+  if (feedbackDisputes.length > 0) {
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO feedback_disputes (id, feedback_id, disputer, reason, evidence_uri, status, resolver, resolution_notes, created_at, resolved_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const d of feedbackDisputes) {
+      stmt.run(
+        d.id, d.feedback_id || 0, d.disputer || '', d.reason || '',
+        d.evidence_uri || '', d.status || 0, d.resolver || '',
+        d.resolution_notes || '', d.created_at || 0, d.resolved_at || 0
+      );
+    }
+    console.log(`[sync] Feedback disputes: ${feedbackDisputes.length}`);
+  }
+
   console.log('[sync] All tables seeded from chain state');
 }

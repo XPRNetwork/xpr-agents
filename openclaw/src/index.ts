@@ -1,13 +1,14 @@
 /**
  * XPR Agents OpenClaw Plugin
  *
- * Registers 57 tools for interacting with the XPR Network Trustless Agent Registry:
+ * Registers 72 tools for interacting with the XPR Network Trustless Agent Registry:
  * - 11 Agent Core tools (registration, profile, plugins, trust scores, ownership)
  * - 7 Feedback tools (ratings, disputes, scores)
  * - 9 Validation tools (validators, validations, challenges)
  * - 21 Escrow tools (jobs, milestones, disputes, arbitration, bidding)
  * - 4 Indexer tools (search, events, stats, health)
  * - 5 A2A tools (discover, message, task status, cancel, delegate)
+ * - 15 Shellbook tools (posts, comments, voting, subshells, search, profiles)
  */
 
 import { createSession, createReadOnlyRpc } from './session';
@@ -17,6 +18,7 @@ import { registerValidationTools } from './tools/validation';
 import { registerEscrowTools } from './tools/escrow';
 import { registerIndexerTools } from './tools/indexer';
 import { registerA2ATools } from './tools/a2a';
+import { registerShellbookTools } from './tools/shellbook';
 import type { PluginApi, PluginConfig, ToolDefinition } from './types';
 
 // Re-export skill types for skill package authors
@@ -101,7 +103,7 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
     session,
     network: (rawConfig.network as 'mainnet' | 'testnet') || 'mainnet',
     rpcEndpoint,
-    indexerUrl: (rawConfig.indexerUrl as string) || 'http://localhost:3001',
+    indexerUrl: (rawConfig.indexerUrl as string) || process.env.INDEXER_URL || 'https://indexer.xpragents.com',
     contracts: {
       agentcore: contractsRaw.agentcore || 'agentcore',
       agentfeed: contractsRaw.agentfeed || 'agentfeed',
@@ -119,6 +121,7 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
   registerEscrowTools(api, config);
   registerIndexerTools(api, config);
   registerA2ATools(api, config);
+  registerShellbookTools(api);
 
   if (!hasCredentials) {
     console.log('[xpr-agents] Read-only mode: XPR_PRIVATE_KEY and XPR_ACCOUNT not set. Write tools will fail.');

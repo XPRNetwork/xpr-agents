@@ -711,17 +711,17 @@ describe('EscrowRegistry bidding read operations', () => {
         index_position: 2,
         key_type: 'i64',
         lower_bound: '42',
+        upper_bound: '42',
         limit: 100,
       });
     });
 
-    it('parses bid rows and filters by job_id', async () => {
+    it('parses bid rows correctly', async () => {
       const rpc = mockRpc();
       (rpc.get_table_rows as jest.Mock).mockResolvedValue({
         rows: [
           { id: '1', job_id: '42', agent: 'agent1', amount: '50000', timeline: '604800', proposal: 'My proposal', created_at: '1704067200' },
           { id: '2', job_id: '42', agent: 'agent2', amount: '75000', timeline: '1209600', proposal: 'Another bid', created_at: '1704070800' },
-          { id: '3', job_id: '43', agent: 'agent3', amount: '30000', timeline: '86400', proposal: 'Wrong job', created_at: '1704074400' },
         ],
         more: false,
       });

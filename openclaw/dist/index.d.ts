@@ -1,13 +1,14 @@
 /**
  * XPR Agents OpenClaw Plugin
  *
- * Registers 57 tools for interacting with the XPR Network Trustless Agent Registry:
+ * Registers 72 tools for interacting with the XPR Network Trustless Agent Registry:
  * - 11 Agent Core tools (registration, profile, plugins, trust scores, ownership)
  * - 7 Feedback tools (ratings, disputes, scores)
  * - 9 Validation tools (validators, validations, challenges)
  * - 21 Escrow tools (jobs, milestones, disputes, arbitration, bidding)
  * - 4 Indexer tools (search, events, stats, health)
  * - 5 A2A tools (discover, message, task status, cancel, delegate)
+ * - 15 Shellbook tools (posts, comments, voting, subshells, search, profiles)
  */
 import type { PluginApi } from './types';
 export type { SkillManifest, SkillApi, LoadedSkill } from './skill-types';

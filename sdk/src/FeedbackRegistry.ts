@@ -62,11 +62,12 @@ export class FeedbackRegistry {
       table: 'feedback',
       index_position: 2,
       key_type: 'i64',
+      lower_bound: agent,
+      upper_bound: agent,
       limit,
     });
 
     let feedbacks = result.rows
-      .filter((row) => row.agent === agent)
       .map((row) => this.parseFeedback(row));
 
     if (options.min_score !== undefined) {
