@@ -99,25 +99,20 @@ async function metalXLoanGet(path: string): Promise<any> {
 }
 
 // ── Session Factory ──────────────────────────────
+// Backed by the proton CLI — agent process never holds a private key.
 
 let cachedSession: { api: any; account: string; permission: string } | null = null;
 
 async function getLendingSession(): Promise<{ api: any; account: string; permission: string }> {
   if (cachedSession) return cachedSession;
 
-  const privateKey = process.env.XPR_PRIVATE_KEY;
   const account = process.env.XPR_ACCOUNT;
   const permission = process.env.XPR_PERMISSION || 'active';
 
-  if (!privateKey) throw new Error('XPR_PRIVATE_KEY is required for lending write operations');
   if (!account) throw new Error('XPR_ACCOUNT is required for lending write operations');
 
-  const { Api, JsonRpc, JsSignatureProvider } = await import('@proton/js');
-  const rpc = new JsonRpc(MAINNET_RPC);
-  const signatureProvider = new JsSignatureProvider([privateKey]);
-  const api = new Api({ rpc, signatureProvider });
-
-  cachedSession = { api, account, permission };
+  const { createCliApi } = await import('@xpr-agents/openclaw');
+  cachedSession = createCliApi({ account, permission, rpcEndpoint: MAINNET_RPC });
   return cachedSession;
 }
 

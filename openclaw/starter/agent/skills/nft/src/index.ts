@@ -20,27 +20,21 @@ interface SkillApi {
 }
 
 // ── Session Factory ──────────────────────────────
+// Backed by the proton CLI — agent process never holds a private key.
 
 let cachedSession: { api: any; account: string; permission: string } | null = null;
 
 async function getNftSession(): Promise<{ api: any; account: string; permission: string }> {
   if (cachedSession) return cachedSession;
 
-  const privateKey = process.env.XPR_PRIVATE_KEY;
   const account = process.env.XPR_ACCOUNT;
   const permission = process.env.XPR_PERMISSION || 'active';
   const rpcEndpoint = process.env.XPR_RPC_ENDPOINT;
 
-  if (!privateKey) throw new Error('XPR_PRIVATE_KEY is required for NFT write operations');
   if (!account) throw new Error('XPR_ACCOUNT is required for NFT write operations');
-  if (!rpcEndpoint) throw new Error('XPR_RPC_ENDPOINT is required for NFT write operations');
 
-  const { Api, JsonRpc, JsSignatureProvider } = await import('@proton/js');
-  const rpc = new JsonRpc(rpcEndpoint);
-  const signatureProvider = new JsSignatureProvider([privateKey]);
-  const api = new Api({ rpc, signatureProvider });
-
-  cachedSession = { api, account, permission };
+  const { createCliApi } = await import('@xpr-agents/openclaw');
+  cachedSession = createCliApi({ account, permission, rpcEndpoint });
   return cachedSession;
 }
 
