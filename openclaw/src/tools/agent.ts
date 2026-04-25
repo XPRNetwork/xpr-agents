@@ -130,7 +130,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
 
   api.registerTool({
     name: 'xpr_register_agent',
-    description: 'Register a new agent on the XPR Network registry. Requires XPR_ACCOUNT and XPR_PRIVATE_KEY env vars. May require a registration fee.',
+    description: 'Register a new agent on the XPR Network registry. Requires XPR_ACCOUNT env var and proton CLI keychain. May require a registration fee.',
     parameters: {
       type: 'object',
       required: ['name', 'description', 'endpoint', 'protocol', 'capabilities'],
@@ -157,7 +157,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
       fee_amount?: number;
       confirmed?: boolean;
     }) => {
-      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
       validateRequired(params.name, 'name');
       validateRequired(params.endpoint, 'endpoint');
       validateUrl(params.endpoint, 'endpoint');
@@ -214,7 +214,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
       protocol?: string;
       capabilities?: string[];
     }) => {
-      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
       if (params.endpoint) validateUrl(params.endpoint, 'endpoint');
       const registry = new AgentRegistry(config.rpc, config.session, contracts.agentcore);
       return registry.update(params);
@@ -232,7 +232,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
       },
     },
     handler: async ({ active }: { active: boolean }) => {
-      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
       const registry = new AgentRegistry(config.rpc, config.session, contracts.agentcore);
       return registry.setStatus(active);
     },
@@ -263,7 +263,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
       config?: object;
       enabled?: boolean;
     }) => {
-      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
       const registry = new AgentRegistry(config.rpc, config.session, contracts.agentcore);
 
       switch (params.action) {
@@ -306,7 +306,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
       },
     },
     handler: async ({ new_owner }: { new_owner: string }) => {
-      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
       validateAccountName(new_owner);
       const registry = new AgentRegistry(config.rpc, config.session, contracts.agentcore);
       return registry.approveClaim(new_owner);

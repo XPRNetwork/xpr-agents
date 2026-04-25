@@ -155,7 +155,7 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
       },
     },
     handler: async ({ method, specializations }: { method: string; specializations: string[] }) => {
-      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
       validateRequired(method, 'method');
       const registry = new ValidationRegistry(config.rpc, config.session, contracts.agentvalid);
       return registry.registerValidator(method, specializations);
@@ -185,7 +185,7 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
       evidence_uri?: string;
       fee_amount?: number;
     }) => {
-      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
       validateAccountName(params.agent, 'agent');
       validateRequired(params.job_hash, 'job_hash');
       validateValidationResult(params.result);
@@ -228,7 +228,7 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
       reason: string;
       evidence_uri?: string;
     }) => {
-      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
       validatePositiveInt(validation_id, 'validation_id');
       validateRequired(reason, 'reason');
       if (evidence_uri) validateUrl(evidence_uri, 'evidence_uri');
@@ -250,7 +250,7 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
       },
     },
     handler: async ({ amount, confirmed }: { amount: number; confirmed?: boolean }) => {
-      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
       if (amount <= 0) throw new Error('amount must be positive');
       validateAmount(xprToSmallestUnits(amount), config.maxTransferAmount);
 
