@@ -187,16 +187,22 @@ fi
 
 # ── Step 6: Pull and rebuild ───────────────────
 log "Updating agent code..."
-if [ -d "$AGENT_DIR/.git" ]; then
-  CURRENT_SHA=$(cd "$AGENT_DIR" && git rev-parse HEAD)
+GIT_ROOT=""
+if git -C "$AGENT_DIR" rev-parse --show-toplevel >/dev/null 2>&1; then
+  GIT_ROOT=$(git -C "$AGENT_DIR" rev-parse --show-toplevel)
+fi
+
+if [ -n "$GIT_ROOT" ]; then
+  CURRENT_SHA=$(git -C "$GIT_ROOT" rev-parse HEAD)
+  echo "  Git repo: $GIT_ROOT"
   echo "  Current SHA: $CURRENT_SHA (saved to /tmp/agent-pre-upgrade-sha for rollback)"
   echo "$CURRENT_SHA" > /tmp/agent-pre-upgrade-sha
   if confirm "Pull latest from origin?"; then
-    run "cd '$AGENT_DIR' && git pull --ff-only"
+    run "git -C '$GIT_ROOT' pull --ff-only"
     ok "Pulled"
   fi
 else
-  warn "$AGENT_DIR is not a git repo — code update is manual"
+  warn "$AGENT_DIR is not inside a git repo — code update is manual"
   info "Either: (a) re-run setup.sh from a fresh checkout"
   info "    or: (b) tar xzf <(curl -sL https://github.com/XPRNetwork/xpr-agents/archive/refs/heads/main.tar.gz)"
 fi
@@ -234,7 +240,7 @@ echo "    3. Watch for: ${BOLD}[agent] proton CLI ready (keychain populated)${NC
 echo "    4. Verify with: curl http://localhost:8080/health"
 echo ""
 echo "  Rollback if needed:"
-echo "    git -C $AGENT_DIR checkout \$(cat /tmp/agent-pre-upgrade-sha)"
+echo "    git -C ${GIT_ROOT:-$AGENT_DIR} checkout \$(cat /tmp/agent-pre-upgrade-sha)"
 echo "    mv $AGENT_DIR/.env.bak.* $AGENT_DIR/.env  (restores XPR_PRIVATE_KEY)"
 echo "    npm install && npm run build && npm start"
 echo ""
