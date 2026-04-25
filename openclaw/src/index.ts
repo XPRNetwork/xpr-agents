@@ -81,7 +81,10 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
   const defaultRpc = network === 'mainnet' ? 'https://proton.eosusa.io' : 'https://tn1.protonnz.com';
   const rpcEndpoint = (rawConfig.rpcEndpoint as string) || process.env.XPR_RPC_ENDPOINT || defaultRpc;
 
-  const hasCredentials = !!process.env.XPR_PRIVATE_KEY && !!process.env.XPR_ACCOUNT;
+  // Signing is enabled when XPR_ACCOUNT is set. The proton CLI handles the
+  // private key — the agent process never sees it. Verifying CLI presence
+  // is the entry-point's job (starter/agent/src/index.ts), not the plugin's.
+  const hasCredentials = !!process.env.XPR_ACCOUNT;
 
   // Create RPC connection and optional session
   let rpc;
@@ -122,7 +125,7 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
   registerA2ATools(api, config);
 
   if (!hasCredentials) {
-    console.log('[xpr-agents] Read-only mode: XPR_PRIVATE_KEY and XPR_ACCOUNT not set. Write tools will fail.');
+    console.log('[xpr-agents] Read-only mode: XPR_ACCOUNT not set. Write tools will fail.');
   }
 
   console.log(`[xpr-agents] Plugin loaded: ${config.network} (${rpcEndpoint})`);
