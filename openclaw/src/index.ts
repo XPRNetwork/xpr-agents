@@ -24,6 +24,20 @@ import type { PluginApi, PluginConfig, ToolDefinition } from './types';
 export type { SkillManifest, SkillApi, LoadedSkill } from './skill-types';
 export type { ToolDefinition, PluginApi } from './types';
 
+// Re-export CLI session factories. Used by skill packages to obtain a
+// signing session backed by the proton CLI (no private key in process).
+export { createCliSession, createCliApi } from './cli-session';
+export type { CliSessionOptions, CliApi } from './cli-session';
+export {
+  execAction,
+  execTransactionPush,
+  getTableRows,
+  checkProtonCli,
+  checkKeychainPopulated,
+  ProtonCliError,
+} from './proton-cli';
+export type { CliErrorCode, CliAction, CliTransactionResult, TableQueryOpts } from './proton-cli';
+
 /**
  * OpenClaw plugin API shape (real runtime API).
  * Plugins receive this from the OpenClaw gateway.
