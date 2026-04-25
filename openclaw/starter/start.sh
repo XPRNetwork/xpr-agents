@@ -6,10 +6,17 @@ set -euo pipefail
 # ════════════════════════════════════════════════════════════
 #
 # Usage:
-#   ./start.sh --account myagent --key PVT_K1_... --api-key sk-ant-...
+#   ./start.sh --account myagent --api-key sk-ant-...
 #   ./start.sh                  # (uses .env file or prompts)
 #
-# Requirements: Node.js >= 18
+# Requirements: Node.js >= 18, proton CLI with key in keychain
+#
+# This script does NOT take a private key. All signing is done by the
+# proton CLI (which holds keys in an encrypted keychain). Set up once:
+#
+#   npm i -g github:paulgnz/proton-cli#security/key-list-redact
+#   proton chain:set proton           # or proton-test
+#   proton key:add                    # paste private key (stored encrypted)
 #
 
 RED='\033[0;31m'
@@ -40,7 +47,6 @@ log "Node.js $(node -v)"
 
 # ── Parse CLI args ─────────────────────────────
 XPR_ACCOUNT="${XPR_ACCOUNT:-}"
-XPR_PRIVATE_KEY="${XPR_PRIVATE_KEY:-}"
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 XPR_NETWORK="${XPR_NETWORK:-testnet}"
 XPR_RPC_ENDPOINT="${XPR_RPC_ENDPOINT:-}"
@@ -50,7 +56,13 @@ POLL_INTERVAL="${POLL_INTERVAL:-30}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --account) XPR_ACCOUNT="$2"; shift 2 ;;
-    --key) XPR_PRIVATE_KEY="$2"; shift 2 ;;
+    --key)
+      err "--key is no longer supported. Use proton CLI keychain instead:"
+      echo "  npm i -g github:paulgnz/proton-cli#security/key-list-redact"
+      echo "  proton chain:set proton    # or proton-test"
+      echo "  proton key:add"
+      exit 1
+      ;;
     --api-key) ANTHROPIC_API_KEY="$2"; shift 2 ;;
     --network) XPR_NETWORK="$2"; shift 2 ;;
     --rpc) XPR_RPC_ENDPOINT="$2"; shift 2 ;;
@@ -59,6 +71,18 @@ while [[ $# -gt 0 ]]; do
     *) warn "Unknown arg: $1"; shift ;;
   esac
 done
+
+# ── Refuse legacy XPR_PRIVATE_KEY env var ──────
+if [ -n "${XPR_PRIVATE_KEY:-}" ]; then
+  err "XPR_PRIVATE_KEY is set in environment but is no longer supported."
+  echo ""
+  echo "  Migration:"
+  echo "    1. proton key:add                          # paste your key"
+  echo "    2. unset XPR_PRIVATE_KEY                   # or remove from .env"
+  echo "    3. ./start.sh                              # restart"
+  echo ""
+  exit 1
+fi
 
 # ── Load .env if it exists ─────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -88,10 +112,6 @@ if [ -t 0 ]; then
   if [ -z "$XPR_ACCOUNT" ]; then
     read -rp "XPR account name: " XPR_ACCOUNT
   fi
-  if [ -z "$XPR_PRIVATE_KEY" ]; then
-    read -rsp "Private key (PVT_K1_...): " XPR_PRIVATE_KEY
-    echo
-  fi
   if [ -z "$ANTHROPIC_API_KEY" ]; then
     read -rsp "Anthropic API key (sk-ant-...): " ANTHROPIC_API_KEY
     echo
@@ -99,13 +119,15 @@ if [ -t 0 ]; then
 fi
 
 # ── Validate ───────────────────────────────────
-if [ -z "$XPR_ACCOUNT" ] || [ -z "$XPR_PRIVATE_KEY" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
+if [ -z "$XPR_ACCOUNT" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
   err "Missing required config. Provide via CLI args, .env file, or environment variables."
   echo ""
   echo "  Required:"
-  echo "    --account <name>     XPR account name"
-  echo "    --key <PVT_K1_...>   Private key"
-  echo "    --api-key <sk-ant-...>  Anthropic API key"
+  echo "    --account <name>          XPR account name"
+  echo "    --api-key <sk-ant-...>    Anthropic API key"
+  echo ""
+  echo "  Signing key (no flag — handled by proton CLI):"
+  echo "    proton key:add            # one-time setup"
   echo ""
   echo "  Optional:"
   echo "    --network <testnet|mainnet>"
@@ -113,6 +135,17 @@ if [ -z "$XPR_ACCOUNT" ] || [ -z "$XPR_PRIVATE_KEY" ] || [ -z "$ANTHROPIC_API_KE
   echo "    --model <model-id>"
   echo "    --poll-interval <seconds>"
   exit 1
+fi
+
+# ── Verify proton CLI has a key in keychain ────
+if ! command -v proton &>/dev/null; then
+  err "proton CLI is not installed. Signing actions will fail."
+  echo "  Install:  npm i -g github:paulgnz/proton-cli#security/key-list-redact"
+  echo ""
+  warn "Continuing in best-effort mode — agent will boot but cannot sign."
+elif ! proton key:list 2>/dev/null | grep -q "publicKey"; then
+  warn "proton CLI keychain is empty. Signing actions will fail until a key is added:"
+  echo "  proton key:add"
 fi
 
 log "Account: ${XPR_ACCOUNT}"
@@ -204,7 +237,6 @@ fi
 if [ ! -f "$ENV_FILE" ]; then
   cat > "$ENV_FILE" <<ENVEOF
 XPR_ACCOUNT=${XPR_ACCOUNT}
-XPR_PRIVATE_KEY=${XPR_PRIVATE_KEY}
 XPR_PERMISSION=active
 XPR_NETWORK=${XPR_NETWORK}
 XPR_RPC_ENDPOINT=${XPR_RPC_ENDPOINT}
@@ -223,7 +255,7 @@ ENVEOF
 fi
 
 # ── Export all env vars ───────────────────────
-export XPR_ACCOUNT XPR_PRIVATE_KEY XPR_NETWORK XPR_RPC_ENDPOINT
+export XPR_ACCOUNT XPR_NETWORK XPR_RPC_ENDPOINT
 export ANTHROPIC_API_KEY AGENT_MODEL OPENCLAW_HOOK_TOKEN
 export POLL_ENABLED=true POLL_INTERVAL
 export XPR_PERMISSION="${XPR_PERMISSION:-active}"
