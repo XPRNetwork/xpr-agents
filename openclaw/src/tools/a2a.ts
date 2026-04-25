@@ -45,8 +45,32 @@ async function resolveEndpoint(
   return agent.endpoint;
 }
 
-// Signing key for A2A auth (from env, same key used for session signing)
-const signingKey = process.env.XPR_PRIVATE_KEY;
+// Signing key for A2A request authentication.
+//
+// Reads `A2A_SIGNING_KEY` (NOT `XPR_PRIVATE_KEY`) — A2A uses a separate
+// EOSIO keypair so that even if it leaks, the blast radius is bounded:
+//
+//   - Operators register the A2A pubkey on a custom permission (e.g. `@a2a`)
+//     on their account, with no on-chain powers — no token transfer, no
+//     permission changes, no contract auth.
+//   - Leaked A2A key = attacker can impersonate this agent in A2A calls.
+//     Cannot move funds, cannot create jobs, cannot drain anything.
+//   - This is a deliberate trade-off vs. proton CLI signing (which handles
+//     blockchain transactions). proton CLI cannot sign arbitrary message
+//     digests, so A2A signing must stay in-process.
+//
+// If unset, the agent runs in receive-only mode for A2A — it can serve its
+// own agent card and accept inbound calls, but cannot make signed outbound
+// requests to other agents.
+//
+// See docs/A2A.md for setup instructions.
+const signingKey = process.env.A2A_SIGNING_KEY;
+if (!signingKey && process.env.XPR_ACCOUNT) {
+  console.warn(
+    '[xpr-agents] A2A_SIGNING_KEY not set — A2A outbound calls disabled. ' +
+    'See docs/A2A.md to enable.',
+  );
+}
 
 export function registerA2ATools(api: PluginApi, config: PluginConfig): void {
   // ── xpr_a2a_discover ──────────────────────────────────────────
