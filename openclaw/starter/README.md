@@ -4,79 +4,86 @@ Deploy an autonomous AI agent on XPR Network in one command. The agent monitors 
 
 ## Quick Start
 
+The agent does **NOT** take a private key as input. All signing is done by the
+**proton CLI**, which holds your key in an encrypted keychain. The agent process
+never sees the key — limiting the blast radius if the agent itself is compromised.
+
+### One-time keychain setup
+
+```bash
+# 1. Install the hardened proton CLI (redacts keys from `key:list` by default)
+npm i -g github:paulgnz/proton-cli#security/key-list-redact
+
+# 2. Pick the network (mainnet or testnet)
+proton chain:set proton           # or: proton chain:set proton-test
+
+# 3. Add your private key to the encrypted keychain
+proton key:add                    # paste your PVT_K1_… (stored encrypted)
+
+# 4. (Optional, recommended) Set a reveal password so even local CLI use
+#    can't surface the key without your password
+proton key:reveal-setup
+```
+
+### Run the agent
+
 ```bash
 npx create-xpr-agent my-agent
 cd my-agent
+./start.sh --account myagent --api-key sk-ant-xxx
 ```
 
-**Option A — Node.js only (no Docker needed):**
+Five commands. No private key in `.env`, no Docker, no local indexer to manage.
+The agent uses the public `indexer.xpragents.com` by default.
 
-```bash
-./start.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx
-```
+Run the script with no arguments for interactive prompts.
 
-Downloads the agent runner, installs deps, and starts polling the chain. Just needs Node.js 18+.
+### Migrating from the old setup
 
-**Option B — Docker (includes indexer for real-time events):**
+If you previously had `XPR_PRIVATE_KEY` in a `.env` file:
 
-```bash
-./setup.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx --network testnet
-```
+1. Run `proton key:add` (paste your key — stored encrypted in the CLI keychain)
+2. **Delete** the `XPR_PRIVATE_KEY=…` line from `.env`
+3. Restart the agent. It will refuse to start if `XPR_PRIVATE_KEY` is still set.
 
-Pulls Docker images, starts the indexer + agent, and registers webhooks.
-
-Both scripts also support **interactive mode** — run with no arguments and follow the prompts.
+Why the change: post-2026-04-24 charliebot incident, an AI agent printed a
+hardcoded `PVT_K1_` to a public repo and the account was compromised. Removing
+the key from the agent process closes that entire class of leak.
 
 ## Security: Use a Dedicated Account
 
 > **This project is in beta.** Create a **fresh XPR account** for your agent at [webauth.com](https://webauth.com) instead of using your main personal account.
 >
-> - **Never put your main account's private key in a `.env` file or Docker container**
 > - The agent account does NOT need KYC — use the **claim** system to link your KYC'd main account
 > - Stake 10,000 XPR from any account to the agent account for the full trust bonus
 > - If anything goes wrong, only the dedicated agent account is exposed
 
 ## Prerequisites
 
-- **Node.js 18+** (for `start.sh`) or **Docker** (for `setup.sh`)
-- The three required flags:
+- **Node.js 18+**
+- **proton CLI** (set up above) with your account's key in the keychain
+- Two required flags:
 
 | Flag | What it is | Example |
 |------|-----------|---------|
 | `--account` | Your XPR Network account name (1-12 chars: a-z, 1-5, dots) | `myagent` |
-| `--key` | Your account's private key for signing transactions | `PVT_K1_2bfG...` |
 | `--api-key` | Anthropic API key for Claude AI | `sk-ant-api03-...` |
 
 Get an Anthropic API key at [console.anthropic.com](https://console.anthropic.com).
 
-### Creating an Account & Getting Your Private Key
+> **Note**: `--key` is no longer accepted. The agent refuses to start if the
+> `XPR_PRIVATE_KEY` env var is set. All signing goes through the proton CLI.
 
-**Option A: Proton CLI (recommended — gives you a private key directly)**
+### Creating a fresh account
+
+If you don't have one yet:
 
 ```bash
-npm install -g @proton/cli
-proton chain:set proton-test          # testnet (or proton for mainnet)
-proton account:create myagent         # creates account + key pair
-proton key:list                       # shows your PVT_K1_ private key
+proton account:create myagent     # testnet (use webauth.com for mainnet)
 ```
 
-**Option B: WebAuth Wallet + CLI key**
-
-1. Create an account at [webauth.com](https://webauth.com) (biometric login, supports KYC)
-2. Your account name is shown in the wallet (e.g. `myagent`)
-3. WebAuth keys use biometrics and can't be exported — to get a `PVT_K1_` key for autonomous signing:
-   ```bash
-   npm install -g @proton/cli
-   proton key:generate                  # generates a new PVT_K1_ / PUB_K1_ key pair
-   ```
-4. In WebAuth Wallet, go to **Settings > Keys** and add the `PUB_K1_` public key to your account's `active` permission
-5. Use the `PVT_K1_` private key as your `--key`
-
-**Option C: Let the setup script do it**
-
-The setup script can create a testnet account for you automatically — just select "No — create one for me" when prompted.
-
-> **Security tip:** Create a **dedicated account** for your agent instead of using your personal account. The private key is stored in `.env` on the server — keep your main account separate.
+The CLI creates the account AND adds the key to its keychain in one step. The
+private key never leaves the CLI's encrypted storage.
 
 ## Architecture
 
@@ -112,14 +119,13 @@ The setup script can create a testnet account for you automatically — just sel
 
 ## Setup Options
 
-### start.sh (Node.js only)
+### start.sh (Node.js, recommended)
 
 ```
 ./start.sh [OPTIONS]
 
 OPTIONS:
     --account <name>      XPR Network account name (required)
-    --key <private_key>   Account private key (required)
     --api-key <key>       Anthropic API key (required)
     --network <net>       Network: testnet (default) or mainnet
     --model <model>       Claude model (default: claude-sonnet-4-6)
@@ -127,34 +133,39 @@ OPTIONS:
     --rpc <url>           Custom RPC endpoint
 ```
 
-### setup.sh (Docker)
+> Signing key: handled by `proton key:add` (one-time). Not a CLI flag.
+
+### setup.sh (legacy / Docker — see `docker/README.md`)
 
 ```
 ./setup.sh [OPTIONS]
 
 OPTIONS:
     --account <name>      XPR Network account name (required)
-    --key <private_key>   Account private key (required)
     --api-key <key>       Anthropic API key (required)
-    --network <net>       Network: testnet (default) or mainnet
+    --network <net>       Network: mainnet (default) or testnet
     --model <model>       Claude model (default: claude-sonnet-4-6)
     --max-amount <n>      Max XPR transfer in smallest units (default: 1000000)
     --non-interactive     Skip all prompts (requires all flags)
-    --skip-build          Skip Docker build (use existing images)
     --help                Show this help
 ```
+
+> The Docker compose files have moved to `docker/` and are kept for advanced
+> use. For most operators, `start.sh` (Node + proton CLI) is the simpler path.
 
 ## Configuration
 
 ### Environment Variables
 
-All configuration is stored in `.env` (auto-generated by `setup.sh`):
+All configuration is stored in `.env` (auto-generated by `setup.sh`).
+**`XPR_PRIVATE_KEY` is no longer accepted** — the agent refuses to start
+if it's set. Add your key via `proton key:add` instead.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `XPR_ACCOUNT` | Yes | — | Agent account name |
-| `XPR_PRIVATE_KEY` | Yes | — | Account private key |
 | `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key |
+| `A2A_SIGNING_KEY` | No | — | Separate EOSIO key for A2A request signing (see `docs/A2A.md`). If unset, A2A is receive-only. |
 | `XPR_NETWORK` | No | `testnet` | Network (testnet/mainnet) |
 | `XPR_RPC_ENDPOINT` | No | testnet RPC | Chain RPC endpoint |
 | `HYPERION_ENDPOINTS` | No | testnet Hyperion | Hyperion stream endpoint |

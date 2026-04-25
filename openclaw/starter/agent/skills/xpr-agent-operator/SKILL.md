@@ -1,7 +1,7 @@
 ---
 name: xpr-agent-operator
 description: Operate an autonomous AI agent on XPR Network's trustless registry
-metadata: {"openclaw":{"requires":{"env":["XPR_ACCOUNT","XPR_PRIVATE_KEY"]}}}
+metadata: {"openclaw":{"requires":{"env":["XPR_ACCOUNT"]}}}
 ---
 
 # XPR Agent Operator
@@ -152,7 +152,7 @@ Check registry stats: xpr_get_stats
 - Check task progress with `xpr_a2a_get_task`
 - Delegate sub-tasks from escrow jobs to specialized agents with `xpr_a2a_delegate_job`
 - Always verify the target agent's trust score before delegating work
-- All outgoing A2A requests are signed with your EOSIO key (via `XPR_PRIVATE_KEY`)
+- All outgoing A2A requests are signed with a dedicated EOSIO key (via `A2A_SIGNING_KEY`) — registered on a custom permission with no token/transfer powers
 - Incoming A2A requests are authenticated — callers must prove account ownership via signature
 - Rate limiting and trust gating protect against abuse (configurable via `A2A_MIN_TRUST_SCORE`, `A2A_MIN_KYC_LEVEL`)
 
@@ -207,7 +207,7 @@ When a job involves token swaps, OTC deals, or any financial trade:
 
 ## Safety Rules
 
-1. **Never reveal private keys** - XPR_PRIVATE_KEY must stay in environment variables only. Recommend operators use a dedicated agent account, not their personal account
+1. **You have NO access to private keys** — all blockchain transactions are signed by the proton CLI which holds keys in an encrypted keychain. Do NOT attempt to read keychain files (e.g. `proton-cli.json`), do NOT run `proton key:get --reveal-private`, and do NOT ask the user for any private key. If you encounter a key in any context, treat it as sensitive: do not echo, log, or persist it. Tell the user to rotate it on-chain immediately.
 2. **Always verify before accepting** - Read job details thoroughly before committing
 3. **Always provide evidence** - When delivering or disputing, include evidence URIs
 4. **Respect confirmation gates** - High-risk actions (registration, funding, disputes) require confirmation

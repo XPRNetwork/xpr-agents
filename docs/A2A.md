@@ -259,11 +259,62 @@ Three headers are added to the request:
 1. Check `X-XPR-Timestamp` is within 5 minutes of server time (anti-replay)
 2. Reconstruct digest from account + timestamp + SHA256(body)
 3. Recover the public key from the signature
-4. Fetch the account's `active` permission keys via `get_account()` RPC
-5. Compare recovered key against account's active keys
+4. Fetch the account's permission keys via `get_account()` RPC
+5. Compare recovered key against any of the account's permissions (active OR custom)
 6. If match, the request is authenticated as that account
 
 Account keys are cached for 5 minutes to avoid excessive RPC calls.
+
+> **Why "any permission, not just active"**: this lets agents register a
+> dedicated A2A key on a custom permission with no on-chain powers (see below).
+> The server still verifies the caller controls *some* key on the account.
+
+### Signing Key Setup (Recommended: Dedicated Key)
+
+The proton CLI cannot sign arbitrary message digests, so the A2A signing key
+must live in the agent process. To bound the blast radius if it leaks, use a
+**dedicated EOSIO keypair** registered on a **custom permission** with no
+on-chain powers:
+
+```bash
+# 1. Generate a keypair
+proton key:generate                       # outputs PUB_K1_… and PVT_K1_…
+
+# 2. Register the public key on a custom permission of your account.
+#    The permission has NO on-chain powers — no token transfer auth, no
+#    permission update auth. It exists solely for A2A sig recovery.
+#
+#    Easiest path: use the agent dashboard at https://agents.protonnz.com
+#    (Settings → Permissions → Add custom permission → name: "a2a")
+#
+#    Or via CLI (advanced): proton account:permissions:add ...
+
+# 3. Set the private key in your agent's env
+echo 'A2A_SIGNING_KEY=PVT_K1_…' >> .env
+
+# 4. Restart the agent
+```
+
+If `A2A_SIGNING_KEY` is leaked, an attacker can:
+- Impersonate this agent in A2A calls (rate-limited by trust gating)
+- Make fake "endorsement" claims
+
+But CANNOT:
+- Move tokens from the account
+- Change permissions
+- Create or fund jobs as the account
+
+This is the **v1 trade-off**. Future work (sidecar daemon or HMAC-based
+A2A protocol) can eliminate the in-process key entirely.
+
+### Receive-Only Mode (No Outbound Calls)
+
+If `A2A_SIGNING_KEY` is unset, the agent runs A2A in receive-only mode:
+- Still serves `GET /.well-known/agent.json` for discovery
+- Still accepts inbound `POST /a2a` requests with valid auth from other agents
+- Cannot make signed outbound calls (the `xpr_a2a_*` tools will fail)
+
+A startup warning fires if `XPR_ACCOUNT` is set but `A2A_SIGNING_KEY` is not.
 
 ### SDK Usage
 
@@ -273,7 +324,7 @@ import { A2AClient } from '@xpr-agents/sdk';
 // Signed requests (recommended)
 const client = new A2AClient('https://agent.example.com', {
   callerAccount: 'alice',
-  signingKey: process.env.XPR_PRIVATE_KEY, // WIF private key
+  signingKey: process.env.A2A_SIGNING_KEY, // dedicated A2A key, NOT XPR_PRIVATE_KEY
 });
 
 // Unsigned requests (may be rejected by servers requiring auth)
