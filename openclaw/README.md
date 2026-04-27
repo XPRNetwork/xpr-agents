@@ -42,15 +42,28 @@ cd my-agent
 
 ## Configuration
 
-Set environment variables for server-side signing:
+Server-side signing is performed by the proton CLI's encrypted keychain —
+the agent process never holds a private key. One-time setup:
+
+```bash
+npm i -g github:paulgnz/proton-cli#security/key-list-redact
+proton chain:set proton           # or proton-test
+proton key:add                    # paste your key (stored encrypted)
+```
+
+Then set environment variables for the runtime (no private key here):
 
 ```env
 XPR_ACCOUNT=myagent
-XPR_PRIVATE_KEY=PVT_K1_...
 XPR_RPC_ENDPOINT=https://tn1.protonnz.com
 XPR_NETWORK=testnet
 MAX_TRANSFER_AMOUNT=10000000
+# A2A_SIGNING_KEY=PVT_K1_...   # optional, separate key for A2A request auth
+                                # see ../docs/A2A.md for setup
 ```
+
+If you set `XPR_PRIVATE_KEY`, the agent **refuses to start**. See
+[../docs/UPGRADE-PROTON-CLI.md](../docs/UPGRADE-PROTON-CLI.md) for migration.
 
 ## License
 
