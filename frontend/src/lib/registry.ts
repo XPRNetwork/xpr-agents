@@ -13,8 +13,21 @@ export const CONTRACTS = {
   AGENT_ESCROW: process.env.NEXT_PUBLIC_AGENT_ESCROW || 'agentescrow',
 };
 
-// Initialize RPC
-export const rpc = new JsonRpc(networkConfig.rpc);
+// Typed result shape — Next.js Turbopack's stricter typecheck rejects the
+// untyped JsonRpc.get_table_rows return inside paginated loops with an
+// implicit-any cycle error. Wrapping forces a concrete return type.
+interface TableRowsResult {
+  rows: any[];
+  more: boolean;
+  next_key?: string;
+}
+
+const _rpc = new JsonRpc(networkConfig.rpc);
+export const rpc = {
+  get_table_rows(params: any): Promise<TableRowsResult> {
+    return _rpc.get_table_rows(params);
+  },
+};
 
 // Types
 export interface Agent {
