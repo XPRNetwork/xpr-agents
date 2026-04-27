@@ -137,8 +137,13 @@ export class WebhookDispatcher {
           this.incrementFailure(sub);
           return;
         }
-      } catch {
-        // Network error - retryable
+      } catch (err) {
+        // Network error - log it and retry
+        lastStatusCode = 0;
+        if (attempt === RETRY_DELAYS.length) {
+          // Final attempt — log the network error
+          this.logDelivery(sub.id, payload.event_type, JSON.stringify(payload), 0);
+        }
       }
 
       // Wait before retry
@@ -147,8 +152,7 @@ export class WebhookDispatcher {
       }
     }
 
-    // All retries exhausted
-    this.logDelivery(sub.id, payload.event_type, JSON.stringify(payload), lastStatusCode);
+    // All retries exhausted — HTTP responses already logged in the loop
     this.incrementFailure(sub);
   }
 

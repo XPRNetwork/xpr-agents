@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
 import { updateStats } from '../db/schema';
 import { WebhookDispatcher } from '../webhooks/dispatcher';
+import { pendingCorrections, fetchOnChainId } from './id-correction';
 
 export function handleValidationAction(db: Database.Database, action: StreamAction, dispatcher?: WebhookDispatcher): void {
   const { name, data } = action.act;
@@ -17,7 +18,7 @@ export function handleValidationAction(db: Database.Database, action: StreamActi
       handleSetValStatus(db, data);
       break;
     case 'validate':
-      handleValidate(db, data, action.timestamp);
+      handleValidate(db, data, action.timestamp, action.act.account);
       dispatcher?.dispatch(
         'validation.submitted',
         [data.agent, data.validator],
@@ -27,7 +28,7 @@ export function handleValidationAction(db: Database.Database, action: StreamActi
       );
       break;
     case 'challenge':
-      handleChallenge(db, data, action.timestamp);
+      handleChallenge(db, data, action.timestamp, action.act.account);
       break;
     case 'resolve':
       handleResolve(db, data);
@@ -122,21 +123,29 @@ function handleSetValStatus(db: Database.Database, data: any): void {
   console.log(`Validator status changed: ${data.account} -> ${data.active ? 'active' : 'inactive'}`);
 }
 
-function handleValidate(db: Database.Database, data: any, timestamp: string): void {
+function handleValidate(db: Database.Database, data: any, timestamp: string, contract?: string): void {
+  const ts = Math.floor(new Date(timestamp).getTime() / 1000);
+
+  // Check if already seeded by syncFromChain
+  const existing = db.prepare(
+    'SELECT id FROM validations WHERE validator = ? AND agent = ? AND timestamp = ?'
+  ).get(data.validator, data.agent, ts) as { id: number } | undefined;
+  if (existing) {
+    console.log(`Validation already exists (ID ${existing.id}) — skipping duplicate`);
+    return;
+  }
+
   const stmt = db.prepare(`
     INSERT INTO validations (id, validator, agent, job_hash, result, confidence, evidence_uri, challenged, timestamp)
     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
   `);
 
-  // Generate ID
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM validations');
   const result = countStmt.get() as { max_id: number | null };
-  const id = (result.max_id || 0) + 1;
-
-  const ts = Math.floor(new Date(timestamp).getTime() / 1000);
+  const tempId = (result.max_id || 0) + 1;
 
   stmt.run(
-    id,
+    tempId,
     data.validator,
     data.agent,
     data.job_hash || '',
@@ -154,28 +163,52 @@ function handleValidate(db: Database.Database, data: any, timestamp: string): vo
   `);
   updateStmt.run(data.validator);
 
-  console.log(`Validation submitted: ${data.validator} -> ${data.agent} (result: ${data.result})`);
+  console.log(`Validation submitted: ${data.validator} -> ${data.agent} (result: ${data.result}, temp ID ${tempId})`);
+
+  if (contract) {
+    const validator = data.validator;
+    const agent = data.agent;
+    pendingCorrections.push(async () => {
+      const realId = await fetchOnChainId(contract, 'validations', (row) =>
+        row.validator === validator && row.agent === agent && (row.timestamp || 0) == ts
+      );
+      if (realId != null && realId !== tempId) {
+        db.transaction(() => {
+          db.prepare('UPDATE validation_challenges SET validation_id = ? WHERE validation_id = ?').run(realId, tempId);
+          db.prepare('UPDATE validations SET id = ? WHERE id = ?').run(realId, tempId);
+        })();
+        console.log(`Validation ID corrected: ${tempId} → ${realId}`);
+      }
+    });
+  }
 }
 
-function handleChallenge(db: Database.Database, data: any, timestamp: string): void {
+function handleChallenge(db: Database.Database, data: any, timestamp: string, contract?: string): void {
   // NOTE: Do NOT set challenged = 1 here. The on-chain contract only marks
   // validation.challenged = true after the challenge is FUNDED (via token transfer).
-  // This prevents unfunded challenges from showing as "challenged" in the index.
 
-  // Create challenge record for mapping
   const createdAt = Math.floor(new Date(timestamp).getTime() / 1000);
-  // Contract uses CHALLENGE_FUNDING_PERIOD = 24 hours (86400 seconds)
   const fundingDeadline = createdAt + 86400;
+
+  // Check if already seeded by syncFromChain
+  const existing = db.prepare(
+    'SELECT id FROM validation_challenges WHERE validation_id = ? AND challenger = ?'
+  ).get(data.validation_id, data.challenger || '') as { id: number } | undefined;
+  if (existing) {
+    console.log(`Challenge already exists (ID ${existing.id}) — skipping duplicate`);
+    return;
+  }
+
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM validation_challenges');
   const result = countStmt.get() as { max_id: number | null };
-  const id = (result.max_id || 0) + 1;
+  const tempId = (result.max_id || 0) + 1;
 
   const challengeStmt = db.prepare(`
     INSERT INTO validation_challenges (id, validation_id, challenger, reason, evidence_uri, stake, funding_deadline, status, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
   `);
   challengeStmt.run(
-    id,
+    tempId,
     data.validation_id,
     data.challenger || '',
     data.reason || '',
@@ -185,7 +218,21 @@ function handleChallenge(db: Database.Database, data: any, timestamp: string): v
     createdAt
   );
 
-  console.log(`Validation ${data.validation_id} challenged (challenge ${id})`);
+  console.log(`Validation ${data.validation_id} challenged (temp challenge ID ${tempId})`);
+
+  if (contract) {
+    const validationId = data.validation_id;
+    const challenger = data.challenger || '';
+    pendingCorrections.push(async () => {
+      const realId = await fetchOnChainId(contract, 'challenges', (row) =>
+        row.validation_id == validationId && row.challenger === challenger
+      );
+      if (realId != null && realId !== tempId) {
+        db.prepare('UPDATE validation_challenges SET id = ? WHERE id = ?').run(realId, tempId);
+        console.log(`Challenge ID corrected: ${tempId} → ${realId}`);
+      }
+    });
+  }
 }
 
 function handleResolve(db: Database.Database, data: any): void {

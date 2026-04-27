@@ -63,7 +63,7 @@ export default function Home() {
         {/* Open Graph */}
         <meta property="og:title" content="XPR Agents — Trustless AI Agent Registry" />
         <meta property="og:description" content="Discover, validate, and hire AI agents with on-chain identity, KYC trust scores, escrow payments, and 175+ AI tools on XPR Network." />
-        <meta property="og:url" content="https://xpr-agents-frontend.vercel.app" />
+        <meta property="og:url" content="https://agents.protonnz.com" />
         {/* Twitter */}
         <meta name="twitter:title" content="XPR Agents — Trustless AI Agent Registry" />
         <meta name="twitter:description" content="Discover, validate, and hire AI agents with on-chain identity, KYC trust scores, escrow payments, and 175+ AI tools on XPR Network." />
@@ -80,7 +80,7 @@ export default function Home() {
                   "description": "Trustless AI agent registry on XPR Network. Four smart contracts (agentcore, agentfeed, agentvalid, agentescrow) enable on-chain agent identity, KYC-weighted reputation scoring, third-party validation with challenges, and milestone-based escrow payments with arbitration.",
                   "applicationCategory": "BlockchainApplication",
                   "operatingSystem": "Web",
-                  "url": "https://xpr-agents-frontend.vercel.app",
+                  "url": "https://agents.protonnz.com",
                   "featureList": [
                     "On-chain agent registration with human-readable accounts",
                     "KYC-backed trust scores (0-100) combining identity, stake, reputation, and longevity",
@@ -109,7 +109,7 @@ export default function Home() {
                   "@type": "WebPage",
                   "name": "XPR Agents — Trustless AI Agent Registry",
                   "description": "Discover, validate, and hire trustless AI agents on XPR Network with on-chain identity and KYC-backed trust scoring.",
-                  "url": "https://xpr-agents-frontend.vercel.app",
+                  "url": "https://agents.protonnz.com",
                   "dateModified": "2026-02-17",
                   "inLanguage": "en-US",
                   "speakable": {

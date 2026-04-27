@@ -53,6 +53,11 @@ const mockApi = {
 };
 
 // ── Fail-fast: require critical env vars ──
+if (!process.env.XPR_ACCOUNT) {
+  console.error('[FATAL] XPR_ACCOUNT is required. Set it in .env or environment.');
+  process.exit(1);
+}
+
 if (!process.env.XPR_RPC_ENDPOINT) {
   console.error('[FATAL] XPR_RPC_ENDPOINT is required. Set it in .env or environment.');
   process.exit(1);
@@ -62,6 +67,17 @@ if (!process.env.OPENCLAW_HOOK_TOKEN) {
   console.error('[FATAL] OPENCLAW_HOOK_TOKEN is required for webhook authentication. Set it in .env or environment.');
   process.exit(1);
 }
+
+// ── Global crash handlers ──
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled rejection:', reason);
+  process.exit(1);
+});
 
 // Agent mode — controls system prompt and poller behavior
 type AgentMode = 'worker' | 'delegator' | 'hybrid' | 'validator' | 'social';
@@ -382,6 +398,15 @@ if (smartContractsSkill?.promptSection) {
 }
 if (shellbookSkill?.promptSection) {
   systemPrompt += `\n\n## Skill: ${shellbookSkill.manifest.name}\n${shellbookSkill.promptSection}`;
+}
+if (lendingSkill?.promptSection) {
+  systemPrompt += `\n\n## Skill: ${lendingSkill.manifest.name}\n${lendingSkill.promptSection}`;
+}
+if (governanceSkill?.promptSection) {
+  systemPrompt += `\n\n## Skill: ${governanceSkill.manifest.name}\n${governanceSkill.promptSection}`;
+}
+if (xmdSkill?.promptSection) {
+  systemPrompt += `\n\n## Skill: ${xmdSkill.manifest.name}\n${xmdSkill.promptSection}`;
 }
 for (const section of skillResult.promptSections) {
   systemPrompt += `\n\n${section}`;
@@ -991,6 +1016,32 @@ const knownChallengeIds = new Set<number>();         // challenge ids already se
 const activeJobIds = new Set<number>();              // jobs currently being processed (per-job lock)
 const fundedJobAttempts = new Map<number, number>(); // job_id → number of times agent was invoked
 const MAX_FUNDED_RETRIES = 2;                        // max times to invoke agent for a stuck FUNDED job
+const MAX_TRACKED_IDS = 5000;                        // cap tracked sets to prevent unbounded memory growth
+
+/** Evict oldest entries from a Set when it exceeds MAX_TRACKED_IDS */
+function capSet(s: Set<number>): void {
+  if (s.size <= MAX_TRACKED_IDS) return;
+  const iter = s.values();
+  const toRemove = s.size - MAX_TRACKED_IDS;
+  for (let i = 0; i < toRemove; i++) iter.next();
+  // Sets iterate in insertion order — remove the oldest
+  const idsToKeep = new Set<number>();
+  let kept = 0;
+  for (const id of s) {
+    if (kept++ >= toRemove) idsToKeep.add(id);
+  }
+  s.clear();
+  for (const id of idsToKeep) s.add(id);
+}
+
+/** Evict terminal-state jobs (COMPLETED=6, REFUNDED=7, ARBITRATED=8) from knownJobStates */
+function pruneTerminalJobs(): void {
+  if (knownJobStates.size <= MAX_TRACKED_IDS) return;
+  for (const [id, state] of knownJobStates) {
+    if (state >= 6) knownJobStates.delete(id);
+    if (knownJobStates.size <= MAX_TRACKED_IDS) break;
+  }
+}
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let firstPoll = true;                               // true until first poll completes
 
@@ -1602,6 +1653,12 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
     firstPoll = false;
     console.log(`[poller] Seeded: ${knownJobStates.size} agent jobs, ${knownOpenJobIds.size} open jobs, ${knownFeedbackIds.size} feedback, ${knownChallengeIds.size} challenges`);
   }
+
+  // Prune tracked state to prevent unbounded memory growth
+  pruneTerminalJobs();
+  capSet(knownOpenJobIds);
+  capSet(knownFeedbackIds);
+  capSet(knownChallengeIds);
 
   // Persist state after each poll cycle
   savePollerState();

@@ -287,11 +287,12 @@ export class EscrowRegistry {
       table: 'milestones',
       index_position: 2, // byJob index
       key_type: 'i64',
+      lower_bound: String(jobId),
+      upper_bound: String(jobId),
       limit: 100,
     });
 
     return result.rows
-      .filter(row => safeParseInt(row.job_id) === jobId)
       .map(row => this.parseMilestone(row))
       .sort((a, b) => a.order - b.order);
   }
@@ -320,10 +321,12 @@ export class EscrowRegistry {
       table: 'disputes',
       index_position: 2, // byJob index
       key_type: 'i64',
+      lower_bound: String(jobId),
+      upper_bound: String(jobId),
       limit: 100,
     });
 
-    const dispute = result.rows.find(row => safeParseInt(row.job_id) === jobId);
+    const dispute = result.rows[0];
     if (!dispute) return null;
 
     return {
@@ -767,11 +770,11 @@ export class EscrowRegistry {
       index_position: 2, // byJob index
       key_type: 'i64',
       lower_bound: String(jobId),
+      upper_bound: String(jobId),
       limit: 100,
     });
 
     return result.rows
-      .filter(row => safeParseInt(row.job_id) === jobId)
       .map(row => this.parseBid(row));
   }
 

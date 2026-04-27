@@ -29,6 +29,14 @@ export default function Dashboard() {
   const [showPluginSelector, setShowPluginSelector] = useState(false);
   const [myBids, setMyBids] = useState<Bid[]>([]);
 
+  // Edit profile
+  const [showEditProfile, setShowEditProfile] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editEndpoint, setEditEndpoint] = useState('');
+  const [editProtocol, setEditProtocol] = useState('');
+  const [editCapabilities, setEditCapabilities] = useState('');
+
   useEffect(() => {
     if (session?.auth.actor) {
       getBidsByAgent(session.auth.actor).then(setMyBids).catch(() => {});
@@ -68,14 +76,13 @@ export default function Dashboard() {
     setProcessing(true);
 
     try {
-      const amount = Math.floor(parseFloat(unstakeAmount) * 10000);
       const result = await transact([
         {
-          account: CONTRACTS.AGENT_CORE,
-          name: 'unstake',
+          account: 'eosio',
+          name: 'unstakexpr',
           data: {
-            account: session.auth.actor,
-            amount,
+            owner_name: session.auth.actor,
+            amount: `${parseFloat(unstakeAmount).toFixed(4)} XPR`,
           },
         },
       ]);
@@ -111,6 +118,47 @@ export default function Dashboard() {
       refresh();
     } catch (e: any) {
       addToast({ type: 'error', message: e.message || 'Failed to update status' });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const openEditProfile = () => {
+    if (!agent) return;
+    setEditName(agent.name);
+    setEditDescription(agent.description);
+    setEditEndpoint(agent.endpoint);
+    setEditProtocol(agent.protocol);
+    setEditCapabilities(agent.capabilities.join(', '));
+    setShowEditProfile(true);
+  };
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!session) return;
+    setProcessing(true);
+    try {
+      const capsArray = editCapabilities.split(',').map(s => s.trim()).filter(Boolean);
+      const result = await transact([
+        {
+          account: CONTRACTS.AGENT_CORE,
+          name: 'update',
+          data: {
+            account: session.auth.actor,
+            name: editName,
+            description: editDescription,
+            endpoint: editEndpoint,
+            protocol: editProtocol || '',
+            capabilities: JSON.stringify(capsArray),
+          },
+        },
+      ]);
+      addToast({ type: 'success', message: 'Profile updated', txId: getTxId(result) });
+      setShowEditProfile(false);
+      await new Promise(r => setTimeout(r, 1500));
+      refresh();
+    } catch (e: any) {
+      addToast({ type: 'error', message: e.message || 'Update failed' });
     } finally {
       setProcessing(false);
     }
@@ -252,14 +300,76 @@ export default function Dashboard() {
                   ))}
                 </div>
 
-                <div className="mt-6 pt-4 border-t border-zinc-800">
+                <div className="mt-6 pt-4 border-t border-zinc-800 flex items-center justify-between">
                   <Link
                     href={`/agent/${agent.account}`}
-                    className="text-proton-purple hover:underline"
+                    className="text-proton-purple hover:underline text-sm"
                   >
                     View Public Profile →
                   </Link>
+                  <button
+                    onClick={openEditProfile}
+                    className="px-3 py-1.5 border border-zinc-700 text-zinc-300 rounded-lg text-sm hover:bg-zinc-800 transition-colors"
+                  >
+                    Edit Profile
+                  </button>
                 </div>
+
+                {showEditProfile && (
+                  <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowEditProfile(false)}>
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 max-w-lg w-full" onClick={e => e.stopPropagation()}>
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold text-white">Edit Agent Profile</h3>
+                        <button onClick={() => setShowEditProfile(false)} className="text-zinc-500 hover:text-zinc-300 text-lg">&#10005;</button>
+                      </div>
+                      <form onSubmit={handleUpdateProfile} className="space-y-4">
+                        <div>
+                          <label className="block text-xs text-zinc-500 mb-1 uppercase tracking-wider">Name</label>
+                          <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} required
+                            className="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg text-sm focus:border-proton-purple/50 outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-zinc-500 mb-1 uppercase tracking-wider">Description</label>
+                          <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} required rows={3}
+                            className="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg text-sm focus:border-proton-purple/50 outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-zinc-500 mb-1 uppercase tracking-wider">Endpoint URL</label>
+                          <input type="text" value={editEndpoint} onChange={(e) => setEditEndpoint(e.target.value)}
+                            placeholder="https://..."
+                            className="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg text-sm focus:border-proton-purple/50 outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-zinc-500 mb-1 uppercase tracking-wider">Protocol</label>
+                          <select value={editProtocol} onChange={(e) => setEditProtocol(e.target.value)}
+                            className="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 text-white rounded-lg text-sm">
+                            <option value="">None</option>
+                            <option value="http">HTTP</option>
+                            <option value="websocket">WebSocket</option>
+                            <option value="grpc">gRPC</option>
+                            <option value="a2a">A2A</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-zinc-500 mb-1 uppercase tracking-wider">Capabilities (comma-separated)</label>
+                          <input type="text" value={editCapabilities} onChange={(e) => setEditCapabilities(e.target.value)}
+                            placeholder="code-generation, data-analysis, web-scraping"
+                            className="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg text-sm focus:border-proton-purple/50 outline-none" />
+                        </div>
+                        <div className="flex gap-2 pt-2">
+                          <button type="submit" disabled={processing}
+                            className="flex-1 px-4 py-2.5 bg-proton-purple text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:bg-zinc-700 disabled:text-zinc-500 transition-colors">
+                            {processing ? 'Saving...' : 'Save Changes'}
+                          </button>
+                          <button type="button" onClick={() => setShowEditProfile(false)}
+                            className="px-4 py-2.5 border border-zinc-700 text-zinc-300 rounded-lg text-sm hover:bg-zinc-800 transition-colors">
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Stats */}

@@ -14,9 +14,7 @@ COPY src ./src
 RUN npm run build
 
 # Create data directory
-RUN mkdir -p /data && chown node:node /data
-
-USER node
+RUN mkdir -p /data
 
 ENV DB_PATH=/data/agents.db
 ENV PORT=3001
