@@ -2,7 +2,21 @@ import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
 import { updateStats } from '../db/schema';
 import { WebhookDispatcher } from '../webhooks/dispatcher';
-import { pendingCorrections, fetchOnChainId } from './id-correction';
+import { pendingCorrections, fetchOnChainId, safeCorrect, type RetargetSpec } from './id-correction';
+
+/** Foreign-key topology for escrow tables (used by safeCorrect to update FK columns). */
+const JOBS_SPEC: RetargetSpec = {
+  primaryTable: 'jobs',
+  fkRefs: [
+    { table: 'bids', col: 'job_id' },
+    { table: 'milestones', col: 'job_id' },
+    { table: 'escrow_disputes', col: 'job_id' },
+    { table: 'job_evidence', col: 'job_id' },
+  ],
+};
+const BIDS_SPEC: RetargetSpec = { primaryTable: 'bids', fkRefs: [] };
+const MILESTONES_SPEC: RetargetSpec = { primaryTable: 'milestones', fkRefs: [] };
+const DISPUTES_SPEC: RetargetSpec = { primaryTable: 'escrow_disputes', fkRefs: [] };
 
 /**
  * Fetch the real on-chain job ID by looking up the jobs table for a matching record.
@@ -270,21 +284,25 @@ function handleCreateJob(db: Database.Database, data: any, timestamp: string): v
 
   pendingCorrections.push(async () => {
     const realId = await fetchOnChainJobId(escrowContract, client, title, jobHash);
-    if (realId != null && realId !== tempId) {
-      // Update the job ID and any foreign keys referencing it
-      db.transaction(() => {
-        db.prepare('UPDATE bids SET job_id = ? WHERE job_id = ?').run(realId, tempId);
-        db.prepare('UPDATE milestones SET job_id = ? WHERE job_id = ?').run(realId, tempId);
-        db.prepare('UPDATE escrow_disputes SET job_id = ? WHERE job_id = ?').run(realId, tempId);
-        db.prepare('UPDATE job_evidence SET job_id = ? WHERE job_id = ?').run(realId, tempId);
-        db.prepare('UPDATE jobs SET id = ? WHERE id = ?').run(realId, tempId);
-      })();
-      console.log(`Job ID corrected: ${tempId} → ${realId} (${title})`);
-    } else if (realId != null) {
-      // IDs already match
-    } else {
+    if (realId == null) {
       console.warn(`Job ID correction failed for temp ID ${tempId} — RPC lookup returned null`);
+      return;
     }
+    if (realId === tempId) return; // already correct
+
+    // Collision-safe move: if realId is already in use, displace the occupier
+    // to a negative temp slot and re-schedule its own correction.
+    safeCorrect(db, JOBS_SPEC, tempId, realId, (displacedId, displacedRow) => {
+      const dClient = String(displacedRow.client || '');
+      const dTitle = String(displacedRow.title || '');
+      const dJobHash = String(displacedRow.job_hash || '');
+      pendingCorrections.push(async () => {
+        const displacedRealId = await fetchOnChainJobId(escrowContract, dClient, dTitle, dJobHash);
+        if (displacedRealId == null || displacedRealId === displacedId) return;
+        safeCorrect(db, JOBS_SPEC, displacedId, displacedRealId);
+      });
+    });
+    console.log(`Job ID corrected: ${tempId} → ${realId} (${title})`);
   });
 }
 
@@ -388,10 +406,19 @@ function handleDispute(db: Database.Database, data: any, timestamp: string): voi
     const realId = await fetchOnChainId(disputeContract, 'disputes', (row) =>
       row.job_id == jobId && row.raised_by === raisedBy
     );
-    if (realId != null && realId !== tempId) {
-      db.prepare('UPDATE escrow_disputes SET id = ? WHERE id = ?').run(realId, tempId);
-      console.log(`Dispute ID corrected: ${tempId} → ${realId}`);
-    }
+    if (realId == null || realId === tempId) return;
+    safeCorrect(db, DISPUTES_SPEC, tempId, realId, (displacedId, displacedRow) => {
+      const dJobId = Number(displacedRow.job_id);
+      const dRaisedBy = String(displacedRow.raised_by || '');
+      pendingCorrections.push(async () => {
+        const displacedRealId = await fetchOnChainId(disputeContract, 'disputes', (row) =>
+          row.job_id == dJobId && row.raised_by === dRaisedBy
+        );
+        if (displacedRealId == null || displacedRealId === displacedId) return;
+        safeCorrect(db, DISPUTES_SPEC, displacedId, displacedRealId);
+      });
+    });
+    console.log(`Dispute ID corrected: ${tempId} → ${realId}`);
   });
 }
 
@@ -576,10 +603,19 @@ function handleAddMilestone(db: Database.Database, data: any): void {
     const realId = await fetchOnChainId(milestoneContract, 'milestones', (row) =>
       row.job_id == milestoneJobId && row.title === milestoneTitle
     );
-    if (realId != null && realId !== tempId) {
-      db.prepare('UPDATE milestones SET id = ? WHERE id = ?').run(realId, tempId);
-      console.log(`Milestone ID corrected: ${tempId} → ${realId}`);
-    }
+    if (realId == null || realId === tempId) return;
+    safeCorrect(db, MILESTONES_SPEC, tempId, realId, (displacedId, displacedRow) => {
+      const dJobId = Number(displacedRow.job_id);
+      const dTitle = String(displacedRow.title || '');
+      pendingCorrections.push(async () => {
+        const displacedRealId = await fetchOnChainId(milestoneContract, 'milestones', (row) =>
+          row.job_id == dJobId && row.title === dTitle
+        );
+        if (displacedRealId == null || displacedRealId === displacedId) return;
+        safeCorrect(db, MILESTONES_SPEC, displacedId, displacedRealId);
+      });
+    });
+    console.log(`Milestone ID corrected: ${tempId} → ${realId}`);
   });
 }
 
@@ -697,10 +733,19 @@ function handleSubmitBid(db: Database.Database, data: any, timestamp: string): v
     const realId = await fetchOnChainId(bidContract, 'bids', (row) =>
       row.job_id == bidJobId && row.agent === bidAgent
     );
-    if (realId != null && realId !== tempId) {
-      db.prepare('UPDATE bids SET id = ? WHERE id = ?').run(realId, tempId);
-      console.log(`Bid ID corrected: ${tempId} → ${realId}`);
-    }
+    if (realId == null || realId === tempId) return;
+    safeCorrect(db, BIDS_SPEC, tempId, realId, (displacedId, displacedRow) => {
+      const dJobId = Number(displacedRow.job_id);
+      const dAgent = String(displacedRow.agent || '');
+      pendingCorrections.push(async () => {
+        const displacedRealId = await fetchOnChainId(bidContract, 'bids', (row) =>
+          row.job_id == dJobId && row.agent === dAgent
+        );
+        if (displacedRealId == null || displacedRealId === displacedId) return;
+        safeCorrect(db, BIDS_SPEC, displacedId, displacedRealId);
+      });
+    });
+    console.log(`Bid ID corrected: ${tempId} → ${realId}`);
   });
 }
 
