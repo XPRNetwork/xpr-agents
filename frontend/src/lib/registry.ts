@@ -1,6 +1,5 @@
+import { JsonRpc } from '@proton/js';
 import { getSelectedNetwork, getNetworkConfig, NETWORKS } from './networks';
-import { fetchTableRows } from './rpc';
-import { indexerFetch } from './indexer';
 
 // Network configuration — reads from localStorage, defaults to mainnet
 const networkConfig = getNetworkConfig();
@@ -14,19 +13,8 @@ export const CONTRACTS = {
   AGENT_ESCROW: process.env.NEXT_PUBLIC_AGENT_ESCROW || 'agentescrow',
 };
 
-// RPC wrapper — delegates to rpc.ts failover service.
-// Explicit return shape avoids TS implicit-any cycle errors at call sites
-// when stricter Next.js / TypeScript modes flow-analyze paginated loops.
-interface RpcTableResult {
-  rows: any[];
-  more: boolean;
-  next_key?: string;
-}
-export const rpc = {
-  get_table_rows(params: any): Promise<RpcTableResult> {
-    return fetchTableRows({ json: true, ...params });
-  },
-};
+// Initialize RPC
+export const rpc = new JsonRpc(networkConfig.rpc);
 
 // Types
 export interface Agent {
@@ -78,33 +66,8 @@ export interface TrustScore {
   rating: 'untrusted' | 'low' | 'medium' | 'high' | 'verified';
 }
 
-// Helper: parse agent row from either indexer or RPC
-function parseAgentRow(row: any): Agent {
-  let capabilities: string[] = [];
-  try { capabilities = typeof row.capabilities === 'string' ? JSON.parse(row.capabilities || '[]') : (row.capabilities || []); } catch { /* malformed */ }
-  const ownerRaw = row.owner || '';
-  return {
-    account: row.account,
-    owner: ownerRaw && ownerRaw !== '.............' ? ownerRaw : null,
-    name: row.name,
-    description: row.description,
-    endpoint: row.endpoint,
-    protocol: row.protocol,
-    capabilities,
-    stake: parseInt(row.stake) || 0,
-    total_jobs: parseInt(row.total_jobs) || 0,
-    registered_at: parseInt(row.registered_at) || 0,
-    active: row.active === 1 || row.active === true,
-  };
-}
-
 // API functions
 export async function getAgents(limit = 100): Promise<Agent[]> {
-  // Try indexer first
-  const indexed = await indexerFetch<{ agents: any[] }>(`/agents?limit=${limit}&active_only=false`);
-  if (indexed?.agents) return indexed.agents.map(parseAgentRow);
-
-  // RPC fallback
   const result = await rpc.get_table_rows({
     json: true,
     code: CONTRACTS.AGENT_CORE,
@@ -112,15 +75,28 @@ export async function getAgents(limit = 100): Promise<Agent[]> {
     table: 'agents',
     limit,
   });
-  return result.rows.map(parseAgentRow);
+
+  return result.rows.map((row: any) => {
+    let capabilities: string[] = [];
+    try { capabilities = JSON.parse(row.capabilities || '[]'); } catch { /* malformed */ }
+    const ownerRaw = row.owner || '';
+    return {
+      account: row.account,
+      owner: ownerRaw && ownerRaw !== '.............' ? ownerRaw : null,
+      name: row.name,
+      description: row.description,
+      endpoint: row.endpoint,
+      protocol: row.protocol,
+      capabilities,
+      stake: 0, // populated later from eosio::voters via getSystemStake()
+      total_jobs: parseInt(row.total_jobs) || 0,
+      registered_at: parseInt(row.registered_at) || 0,
+      active: row.active === 1,
+    };
+  });
 }
 
 export async function getAgent(account: string): Promise<Agent | null> {
-  // Try indexer first
-  const indexed = await indexerFetch<any>(`/agents/${account}`);
-  if (indexed && indexed.account) return parseAgentRow(indexed);
-
-  // RPC fallback
   const result = await rpc.get_table_rows({
     json: true,
     code: CONTRACTS.AGENT_CORE,
@@ -130,8 +106,26 @@ export async function getAgent(account: string): Promise<Agent | null> {
     upper_bound: account,
     limit: 1,
   });
+
   if (result.rows.length === 0) return null;
-  return parseAgentRow(result.rows[0]);
+
+  const row = result.rows[0];
+  let capabilities: string[] = [];
+  try { capabilities = JSON.parse(row.capabilities || '[]'); } catch { /* malformed */ }
+  const ownerRaw = row.owner || '';
+  return {
+    account: row.account,
+    owner: ownerRaw && ownerRaw !== '.............' ? ownerRaw : null,
+    name: row.name,
+    description: row.description,
+    endpoint: row.endpoint,
+    protocol: row.protocol,
+    capabilities,
+    stake: 0, // populated later from eosio::voters via getSystemStake()
+    total_jobs: parseInt(row.total_jobs) || 0,
+    registered_at: parseInt(row.registered_at) || 0,
+    active: row.active === 1,
+  };
 }
 
 export async function getAgentScore(agent: string): Promise<AgentScore | null> {
@@ -370,11 +364,6 @@ export async function getOpenJobs(limit = 100): Promise<Job[]> {
 }
 
 export async function getAllJobs(limit = 500): Promise<Job[]> {
-  // Try indexer first — single fast query instead of paginated RPC
-  const indexed = await indexerFetch<{ jobs: any[] }>(`/jobs?limit=${limit}`);
-  if (indexed?.jobs) return indexed.jobs.map(parseJob);
-
-  // RPC fallback (paginated)
   const allJobs: Job[] = [];
   let lower_bound: string | undefined = undefined;
   const pageSize = Math.min(limit, 100);
@@ -395,11 +384,13 @@ export async function getAllJobs(limit = 500): Promise<Job[]> {
 
     for (const row of rows) {
       const job = parseJob(row);
+      // Skip duplicate from pagination boundary
       if (allJobs.length > 0 && allJobs[allJobs.length - 1].id === job.id) continue;
       allJobs.push(job);
     }
 
     if (!result.more) break;
+    // For reverse iteration, next page upper_bound = lowest ID we've seen - 1
     const lastId = rows[rows.length - 1].id;
     lower_bound = String(lastId - 1);
     if (lastId <= 0) break;
@@ -409,11 +400,6 @@ export async function getAllJobs(limit = 500): Promise<Job[]> {
 }
 
 export async function getJob(id: number): Promise<Job | null> {
-  // Try indexer first
-  const indexed = await indexerFetch<any>(`/jobs/${id}`);
-  if (indexed && indexed.id !== undefined) return parseJob(indexed);
-
-  // RPC fallback
   const result = await rpc.get_table_rows({
     json: true,
     code: CONTRACTS.AGENT_ESCROW,
@@ -423,6 +409,7 @@ export async function getJob(id: number): Promise<Job | null> {
     upper_bound: String(id),
     limit: 1,
   });
+
   if (result.rows.length === 0) return null;
   return parseJob(result.rows[0]);
 }
@@ -536,14 +523,10 @@ export async function getBidsByAgent(agent: string): Promise<Bid[]> {
 
 // Returns last activity timestamp (in seconds) per agent from completed/delivered/arbitrated jobs
 export async function getAgentLastActivity(): Promise<Record<string, number>> {
-  // Try indexer first — dedicated endpoint, no need to fetch all jobs
-  const indexed = await indexerFetch<Record<string, number>>('/agents/activity');
-  if (indexed && typeof indexed === 'object') return indexed;
-
-  // RPC fallback
   const jobs = await getAllJobs(500);
   const activity: Record<string, number> = {};
   for (const job of jobs) {
+    // States: 4=delivered, 6=completed, 8=arbitrated
     if (job.agent && job.agent !== '.............' && [4, 6, 8].includes(job.state)) {
       const ts = job.updated_at || job.created_at;
       if (!activity[job.agent] || ts > activity[job.agent]) {
@@ -780,9 +763,6 @@ function parseChallenge(row: any): Challenge {
 }
 
 export async function getValidators(limit = 100): Promise<Validator[]> {
-  const indexed = await indexerFetch<{ validators: any[] }>(`/validators?limit=${limit}`);
-  if (indexed?.validators) return indexed.validators.map(parseValidator);
-
   const result = await rpc.get_table_rows({
     json: true,
     code: CONTRACTS.AGENT_VALID,
@@ -961,9 +941,6 @@ function parseDispute(row: any): Dispute {
 }
 
 export async function getArbitrators(limit = 100): Promise<Arbitrator[]> {
-  const indexed = await indexerFetch<{ arbitrators: any[] }>(`/arbitrators?limit=${limit}`);
-  if (indexed?.arbitrators) return indexed.arbitrators.map(parseArbitrator);
-
   const result = await rpc.get_table_rows({
     json: true,
     code: CONTRACTS.AGENT_ESCROW,
@@ -975,9 +952,6 @@ export async function getArbitrators(limit = 100): Promise<Arbitrator[]> {
 }
 
 export async function getArbitrator(account: string): Promise<Arbitrator | null> {
-  const indexed = await indexerFetch<any>(`/arbitrators/${account}`);
-  if (indexed && indexed.account) return parseArbitrator(indexed);
-
   const result = await rpc.get_table_rows({
     json: true,
     code: CONTRACTS.AGENT_ESCROW,
@@ -1004,9 +978,6 @@ export async function getDisputes(limit = 100): Promise<Dispute[]> {
 }
 
 export async function getDisputesForJob(jobId: number): Promise<Dispute[]> {
-  const indexed = await indexerFetch<{ disputes: any[] }>(`/jobs/${jobId}/disputes`);
-  if (indexed?.disputes) return indexed.disputes.map(parseDispute);
-
   const disputes = await getDisputes(500);
   return disputes.filter(d => d.job_id === jobId);
 }
@@ -1071,8 +1042,7 @@ export async function getAvatar(account: string): Promise<string | null> {
       limit: 1,
     });
     const avatar = result.rows[0]?.avatar || null;
-    const isValidBase64 = avatar && /^[A-Za-z0-9+/=]+$/.test(avatar);
-    const dataUri = isValidBase64 ? `data:image/jpeg;base64,${avatar}` : null;
+    const dataUri = avatar ? `data:image/jpeg;base64,${avatar}` : null;
     avatarCache.set(account, dataUri);
     return dataUri;
   } catch {
