@@ -1366,6 +1366,50 @@ export class AgentEscrowContract extends Contract {
 
   // ============== CLEANUP ==============
 
+  @action("removejob")
+  removeJob(job_id: u64): void {
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+
+    const job = this.jobsTable.requireGet(job_id, "Job not found");
+
+    // Refund any remaining funds to client (CEI: calculate before state changes)
+    const refundAmount = job.funded_amount - job.released_amount;
+
+    // Delete associated milestones
+    let ms = this.milestonesTable.getBySecondaryU64(job_id, 0);
+    while (ms != null && ms.job_id == job_id) {
+      this.milestonesTable.remove(ms);
+      ms = this.milestonesTable.getBySecondaryU64(job_id, 0);
+    }
+
+    // Delete associated bids
+    this.cleanBidsForJob(job_id);
+
+    // Delete associated disputes
+    let dispute = this.disputesTable.getBySecondaryU64(job_id, 0);
+    while (dispute != null && dispute.job_id == job_id) {
+      this.disputesTable.remove(dispute);
+      dispute = this.disputesTable.getBySecondaryU64(job_id, 0);
+    }
+
+    // Delete job evidence
+    const evidence = this.jobEvidenceTable.get(job_id);
+    if (evidence != null) {
+      this.jobEvidenceTable.remove(evidence);
+    }
+
+    // Delete the job
+    this.jobsTable.remove(job);
+
+    // Refund remaining funds to client after all state changes (CEI pattern)
+    if (refundAmount > 0) {
+      this.sendTokens(job.client, new Asset(refundAmount, this.XPR_SYMBOL), "Admin removed job - refund");
+    }
+
+    print(`Job ${job_id} removed by admin`);
+  }
+
   @action("cleanjobs")
   cleanJobs(max_age: u64, max_delete: u64): void {
     check(max_age >= 7776000, "Max age must be at least 90 days (7776000 seconds)");

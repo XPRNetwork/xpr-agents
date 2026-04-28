@@ -1207,6 +1207,44 @@ export class AgentCoreContract extends Contract {
     this.pluginResultsTable.store(result, this.receiver);
   }
 
+  // ============== ADMIN REMOVAL ==============
+
+  @action("removeagent")
+  removeAgent(agent: Name): void {
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+
+    const agentRow = this.agentsTable.requireGet(agent.N, "Agent not found");
+
+    // Refund claim deposit if any (CEI: calculate before state changes)
+    const refundAmount = agentRow.claim_deposit;
+    const refundTo = agentRow.deposit_payer != EMPTY_NAME ? agentRow.deposit_payer : agentRow.owner;
+
+    // Delete agent plugins
+    let plug = this.agentPlugsTable.getBySecondaryU64(agent.N, 0);
+    while (plug != null && plug.agent == agent) {
+      this.agentPlugsTable.remove(plug);
+      plug = this.agentPlugsTable.getBySecondaryU64(agent.N, 0);
+    }
+
+    // Delete plugin results
+    let result = this.pluginResultsTable.getBySecondaryU64(agent.N, 0);
+    while (result != null && result.agent == agent) {
+      this.pluginResultsTable.remove(result);
+      result = this.pluginResultsTable.getBySecondaryU64(agent.N, 0);
+    }
+
+    // Delete agent
+    this.agentsTable.remove(agentRow);
+
+    // Refund deposit after state changes (CEI pattern)
+    if (refundAmount > 0 && refundTo != EMPTY_NAME) {
+      this.sendTokens(refundTo, new Asset(refundAmount, this.XPR_SYMBOL), "Agent removed by admin - deposit refund");
+    }
+
+    print(`Agent ${agent.toString()} removed by admin`);
+  }
+
   // ============== PLUGIN RESULT CLEANUP ==============
 
   /**
