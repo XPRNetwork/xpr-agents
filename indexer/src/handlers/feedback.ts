@@ -275,7 +275,15 @@ function handleRmFeedback(db: Database.Database, data: any): void {
   })();
   console.log(`Feedback ${fbId} removed (admin)${before ? ` for agent ${before.agent}` : ''}`);
   if (before) {
-    updateAgentScore(db, before.agent);
+    // If this was the agent's last feedback, the contract clears the
+    // agent_scores row entirely. Mirror that — `updateAgentScore` would
+    // leave a phantom row with avg_score=0 instead of removing it.
+    const remaining = db.prepare('SELECT COUNT(*) as c FROM feedback WHERE agent = ?').get(before.agent) as { c: number };
+    if (remaining.c === 0) {
+      db.prepare('DELETE FROM agent_scores WHERE agent = ?').run(before.agent);
+    } else {
+      updateAgentScore(db, before.agent);
+    }
   }
 }
 

@@ -297,7 +297,15 @@ async function fetchChainHead(rpcEndpoint: string): Promise<number> {
 (async () => {
   const agentCount = (db.prepare('SELECT COUNT(*) as c FROM agents').get() as any).c;
   const jobCount = (db.prepare('SELECT COUNT(*) as c FROM jobs').get() as any).c;
-  if (agentCount === 0 && jobCount === 0) {
+  const isEmpty = agentCount === 0 && jobCount === 0;
+  // Detect "stuck cursors": DB has data but contract cursors are at 0
+  // (indicates a previous crash before any action committed, or a manual
+  // cursor reset). Without bumping in this case the poller will replay from
+  // genesis and re-create rows for already-removed jobs.
+  const cursorsAtZero = [...contractCursors.values()].every(b => b === 0);
+  const needsCursorBump = isEmpty || (cursorsAtZero && !isEmpty);
+
+  if (isEmpty) {
     console.log('[sync] Empty database — syncing from chain state...');
     // Try each endpoint until one succeeds
     let syncDone = false;
@@ -335,6 +343,25 @@ async function fetchChainHead(rpcEndpoint: string): Promise<number> {
       console.log('[sync] Chain sync complete');
     } catch (err) {
       console.error('[sync] Chain sync failed (will rely on stream):', err);
+    }
+  } else if (needsCursorBump) {
+    // DB populated but cursors stuck at 0 — bump without re-seeding, so the
+    // poller starts from head and doesn't replay history into populated tables.
+    console.log('[sync] DB populated but contract cursors at 0 — bumping to chain head to skip replay');
+    for (const ep of config.hyperionEndpoints) {
+      const rpcEndpoint = ep.replace(/\/v2.*$/, '').replace(/\/$/, '');
+      try {
+        const headBlock = await fetchChainHead(rpcEndpoint);
+        for (const contract of allContracts) {
+          updateContractCursor(db, contract, headBlock);
+          contractCursors.set(contract, headBlock);
+        }
+        resumeCursors = new Map(contractCursors);
+        console.log(`[sync] Cursors bumped to chain head ${headBlock}`);
+        break;
+      } catch (e) {
+        console.warn(`[sync] Cursor bump failed via ${rpcEndpoint}: ${e instanceof Error ? e.message : e}`);
+      }
     }
   }
   startIngestion();

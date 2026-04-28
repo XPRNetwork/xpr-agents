@@ -118,10 +118,20 @@ export function handleAgentAction(db: Database.Database, action: StreamAction, d
 }
 
 function handleRegister(db: Database.Database, data: any, timestamp: string): void {
-  // P2 FIX: Include ownership fields in registration (all null/0 for new agents)
+  // INSERT OR REPLACE would clobber owner/total_jobs/claim_deposit/deposit_payer
+  // on action replay (e.g. seed-then-poll covers the same register action).
+  // Use INSERT … ON CONFLICT … DO UPDATE so registration metadata refreshes
+  // but agent state (ownership, job count, deposits) is preserved.
   const stmt = db.prepare(`
-    INSERT OR REPLACE INTO agents (account, owner, pending_owner, name, description, endpoint, protocol, capabilities, stake, total_jobs, registered_at, active, claim_deposit, deposit_payer)
+    INSERT INTO agents (account, owner, pending_owner, name, description, endpoint, protocol, capabilities, stake, total_jobs, registered_at, active, claim_deposit, deposit_payer)
     VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, 0, 0, ?, 1, 0, NULL)
+    ON CONFLICT(account) DO UPDATE SET
+      name = excluded.name,
+      description = excluded.description,
+      endpoint = excluded.endpoint,
+      protocol = excluded.protocol,
+      capabilities = excluded.capabilities,
+      active = 1
   `);
 
   const registeredAt = Math.floor(new Date(timestamp).getTime() / 1000);
@@ -381,7 +391,11 @@ function handleRemoveAgent(db: Database.Database, data: any): void {
   const agent = String(data.agent || '');
   if (!agent) return;
   db.transaction(() => {
+    // Cascade derived/scoped tables — match the contract's cascade so the
+    // indexer doesn't keep zombie rows referencing a deleted agent.
     db.prepare('DELETE FROM agent_plugins WHERE agent = ?').run(agent);
+    db.prepare('DELETE FROM plugin_results WHERE agent = ?').run(agent);
+    db.prepare('DELETE FROM agent_scores WHERE agent = ?').run(agent);
     db.prepare('DELETE FROM agents WHERE account = ?').run(agent);
   })();
   console.log(`Agent ${agent} removed (admin)`);
