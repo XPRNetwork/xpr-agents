@@ -1013,6 +1013,8 @@ const knownJobStates = new Map<number, number>();   // job_id → state
 const knownOpenJobIds = new Set<number>();           // open job ids already seen
 const knownFeedbackIds = new Set<number>();          // feedback ids already seen
 const knownChallengeIds = new Set<number>();         // challenge ids already seen
+const knownDelegatorBidIds = new Set<number>();      // bid ids already evaluated by delegator
+const knownPostIds = new Set<number>();              // shellbook post ids already seen by social mode
 const activeJobIds = new Set<number>();              // jobs currently being processed (per-job lock)
 const fundedJobAttempts = new Map<number, number>(); // job_id → number of times agent was invoked
 const MAX_FUNDED_RETRIES = 2;                        // max times to invoke agent for a stuck FUNDED job
@@ -1058,6 +1060,8 @@ interface PollerState {
   knownOpenJobIds: number[];
   knownFeedbackIds: number[];
   knownChallengeIds: number[];
+  knownDelegatorBidIds?: number[];
+  knownPostIds?: number[];
   fundedJobAttempts?: Record<string, number>;
   dailyEvalCount?: number;
   dailyEvalResetDate?: string;
@@ -1070,6 +1074,8 @@ function savePollerState(): void {
       knownOpenJobIds: [...knownOpenJobIds],
       knownFeedbackIds: [...knownFeedbackIds],
       knownChallengeIds: [...knownChallengeIds],
+      knownDelegatorBidIds: [...knownDelegatorBidIds],
+      knownPostIds: [...knownPostIds],
       fundedJobAttempts: Object.fromEntries(fundedJobAttempts),
       dailyEvalCount,
       dailyEvalResetDate,
@@ -1091,6 +1097,8 @@ function loadPollerState(): boolean {
     for (const id of state.knownOpenJobIds) knownOpenJobIds.add(id);
     for (const id of state.knownFeedbackIds) knownFeedbackIds.add(id);
     for (const id of state.knownChallengeIds) knownChallengeIds.add(id);
+    if (state.knownDelegatorBidIds) for (const id of state.knownDelegatorBidIds) knownDelegatorBidIds.add(id);
+    if (state.knownPostIds) for (const id of state.knownPostIds) knownPostIds.add(id);
     if (state.fundedJobAttempts) {
       for (const [k, v] of Object.entries(state.fundedJobAttempts)) {
         fundedJobAttempts.set(Number(k), v);
@@ -1562,21 +1570,25 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
           }
         }
 
-        // Check for new bids on CREATED (open) jobs
+        // Check for new bids on CREATED (open) jobs — gated on NEW bid IDs only
+        // (without this gate, the poller invokes Claude every cycle for any job
+        // with bids, even when nothing has changed since the last evaluation)
         if (job.state === 0 && listBids && !firstPoll) {
-          if (!canSpendCredits(`delegator bids for job #${job.id}`)) continue;
           try {
             const bidsRes: any = await listBids.handler({ job_id: job.id, limit: 10 });
             const bids: any[] = bidsRes?.items || bidsRes || [];
-            if (bids.length > 0) {
+            const newBids = bids.filter((b: any) => b && b.id != null && !knownDelegatorBidIds.has(b.id));
+            if (newBids.length > 0) {
+              if (!canSpendCredits(`delegator bids for job #${job.id} (${newBids.length} new)`)) continue;
+              for (const b of bids) if (b && b.id != null) knownDelegatorBidIds.add(b.id);
               activeJobIds.add(job.id);
               recordEval();
               const safeTitle = scanInbound(job.title || '', 'poller').text;
               runAgent('poll:delegator_bids', {
-                job_id: job.id, title: safeTitle, bids: bids.map((b: any) => ({
+                job_id: job.id, title: safeTitle, new_bid_count: newBids.length, bids: bids.map((b: any) => ({
                   bid_id: b.id, agent: b.agent, amount: b.amount, proposal: b.proposal,
                 })),
-              }, `Job #${job.id} "${safeTitle}" has ${bids.length} bid(s). Evaluate the bids and select the best one using xpr_select_bid if any are suitable.`).catch(err => {
+              }, `Job #${job.id} "${safeTitle}" has ${bids.length} bid(s) total, ${newBids.length} new since last poll. Evaluate the bids and select the best one using xpr_select_bid if any are suitable.`).catch(err => {
                 console.error(`[poller/delegator] Failed to evaluate bids:`, err.message);
               }).finally(() => activeJobIds.delete(job.id));
             }
@@ -1621,27 +1633,32 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
       }
     }
 
-    // 7. Social mode: poll Shellbook timeline for engagement
+    // 7. Social mode: poll Shellbook timeline for engagement — gated on NEW posts only
+    // (without this gate, the poller invokes Claude every cycle as long as any
+    // posts exist on the timeline, even when nothing has changed)
     if (AGENT_MODE === 'social') {
       const listPosts = tools.find(t => t.name === 'shell_list_posts');
       if (listPosts && !firstPoll) {
-        if (canSpendCredits('social timeline')) {
-          try {
-            const res: any = await listPosts.handler({ limit: 10 });
-            const posts: any[] = res?.items || res?.posts || res || [];
-            if (posts.length > 0) {
+        try {
+          const res: any = await listPosts.handler({ limit: 10 });
+          const posts: any[] = res?.items || res?.posts || res || [];
+          const newPosts = posts.filter((p: any) => p && p.id != null && !knownPostIds.has(p.id));
+          if (newPosts.length > 0) {
+            if (canSpendCredits(`social timeline (${newPosts.length} new posts)`)) {
+              for (const p of posts) if (p && p.id != null) knownPostIds.add(p.id);
               recordEval();
               runAgent('poll:social_timeline', {
-                posts: posts.slice(0, 5).map((p: any) => ({
+                new_post_count: newPosts.length,
+                posts: newPosts.slice(0, 5).map((p: any) => ({
                   id: p.id, author: p.author, content: (p.content || '').slice(0, 200),
                 })),
-              }, `Here are recent Shellbook posts. Engage with the most interesting ones — vote, comment, or create your own post if inspired. Be genuine and add value.`).catch(err => {
+              }, `Here are ${newPosts.length} new Shellbook post(s) since last poll. Engage with the most interesting ones — vote, comment, or create your own post if inspired. Be genuine and add value.`).catch(err => {
                 console.error(`[poller/social] Failed to engage timeline:`, err.message);
               });
             }
-          } catch (err: any) {
-            console.error(`[poller/social] Failed to fetch timeline:`, err.message);
           }
+        } catch (err: any) {
+          console.error(`[poller/social] Failed to fetch timeline:`, err.message);
         }
       }
     }
@@ -1659,6 +1676,8 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
   capSet(knownOpenJobIds);
   capSet(knownFeedbackIds);
   capSet(knownChallengeIds);
+  capSet(knownDelegatorBidIds);
+  capSet(knownPostIds);
 
   // Persist state after each poll cycle
   savePollerState();
