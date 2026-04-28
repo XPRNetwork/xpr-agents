@@ -245,6 +245,33 @@ describe('Agent Core Transfer', () => {
     const agent = db.prepare('SELECT claim_deposit FROM agents WHERE account = ?').get('botaccount') as any;
     expect(agent.claim_deposit).toBe(0);
   });
+
+  describe('removeagent (admin)', () => {
+    it('removes agent and cascades plugin links', () => {
+      handleAgentAction(db, createAction('agentcore', 'register', {
+        account: 'spamagent', name: 'Spam', description: '', endpoint: '', protocol: '', capabilities: '[]',
+      }));
+      handleAgentAction(db, createAction('agentcore', 'regplugin', {
+        author: 'spamagent', name: 'p1', version: '1', contract: 'spamagent', action: 'go', schema: '{}', category: 'compute',
+      }));
+      handleAgentAction(db, createAction('agentcore', 'addplugin', {
+        agent: 'spamagent', plugin_id: 1, pluginConfig: '{}',
+      }));
+      expect(db.prepare('SELECT 1 FROM agents WHERE account = ?').get('spamagent')).toBeDefined();
+      expect(db.prepare('SELECT 1 FROM agent_plugins WHERE agent = ?').get('spamagent')).toBeDefined();
+
+      handleAgentAction(db, createAction('agentcore', 'removeagent', { agent: 'spamagent' }));
+
+      expect(db.prepare('SELECT 1 FROM agents WHERE account = ?').get('spamagent')).toBeUndefined();
+      expect(db.prepare('SELECT 1 FROM agent_plugins WHERE agent = ?').get('spamagent')).toBeUndefined();
+    });
+
+    it('is a no-op when agent does not exist', () => {
+      expect(() => {
+        handleAgentAction(db, createAction('agentcore', 'removeagent', { agent: 'nonexistent' }));
+      }).not.toThrow();
+    });
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -355,6 +382,42 @@ describe('Feedback Handlers', () => {
     // avg = (8 * 10000) / 10 = 8000
     expect(score.avg_score).toBe(8000);
     expect(score.feedback_count).toBe(2);
+  });
+
+  describe('rmfeedback (admin)', () => {
+    it('removes feedback and cascades dispute rows', () => {
+      handleFeedbackAction(db, createAction('agentfeed', 'submit', {
+        reviewer: 'bob', agent: 'alice', score: 1, tags: '', job_hash: '', evidence_uri: '', amount_paid: 0,
+      }));
+      handleFeedbackAction(db, createAction('agentfeed', 'dispute', {
+        disputer: 'alice', feedback_id: 1, reason: 'spam', evidence_uri: '',
+      }));
+      expect(db.prepare('SELECT 1 FROM feedback WHERE id = 1').get()).toBeDefined();
+      expect(db.prepare('SELECT COUNT(*) as c FROM feedback_disputes WHERE feedback_id = 1').get()).toEqual({ c: 1 });
+
+      handleFeedbackAction(db, createAction('agentfeed', 'rmfeedback', { feedback_id: 1 }));
+
+      expect(db.prepare('SELECT 1 FROM feedback WHERE id = 1').get()).toBeUndefined();
+      expect(db.prepare('SELECT COUNT(*) as c FROM feedback_disputes WHERE feedback_id = 1').get()).toEqual({ c: 0 });
+    });
+
+    it('recomputes the affected agent score after removal', () => {
+      // Two feedbacks for alice: 5 and 1
+      handleFeedbackAction(db, createAction('agentfeed', 'submit', {
+        reviewer: 'bob', agent: 'alice', score: 5, tags: '', job_hash: '', evidence_uri: '', amount_paid: 0,
+      }));
+      handleFeedbackAction(db, createAction('agentfeed', 'submit', {
+        reviewer: 'carol', agent: 'alice', score: 1, tags: '', job_hash: '', evidence_uri: '', amount_paid: 0,
+      }));
+      const before = db.prepare('SELECT feedback_count FROM agent_scores WHERE agent = ?').get('alice') as any;
+      expect(before.feedback_count).toBe(2);
+
+      // Admin removes the spammy 1-star feedback (id=2)
+      handleFeedbackAction(db, createAction('agentfeed', 'rmfeedback', { feedback_id: 2 }));
+
+      const after = db.prepare('SELECT feedback_count FROM agent_scores WHERE agent = ?').get('alice') as any;
+      expect(after.feedback_count).toBe(1);
+    });
   });
 });
 
@@ -521,6 +584,40 @@ describe('Escrow Handlers', () => {
 
     const stat = db.prepare("SELECT value FROM stats WHERE key = 'total_jobs_escrow'").get() as { value: number };
     expect(stat.value).toBe(1);
+  });
+
+  describe('removejob (admin)', () => {
+    it('cascades delete across all FK tables', () => {
+      // Create a spam job with bid + milestone + dispute + evidence
+      handleEscrowAction(db, createAction('agentescrow', 'createjob', {
+        client: 'spammer', agent: '', title: '<script>alert(1)</script>', description: '',
+        deliverables: '', amount: 10000, deadline: 0, arbitrator: '',
+      }));
+      const job = db.prepare('SELECT id FROM jobs WHERE client = ?').get('spammer') as { id: number };
+      const jobId = job.id;
+      handleEscrowAction(db, createAction('agentescrow', 'submitbid', {
+        agent: 'someone', job_id: jobId, amount: 10000, timeline: 3600, proposal: 'b',
+      }));
+      handleEscrowAction(db, createAction('agentescrow', 'addmilestone', {
+        client: 'spammer', job_id: jobId, title: 'm', description: '', amount: 10000, order: 0,
+      }));
+
+      expect(db.prepare('SELECT 1 FROM jobs WHERE id = ?').get(jobId)).toBeDefined();
+      expect(db.prepare('SELECT COUNT(*) as c FROM bids WHERE job_id = ?').get(jobId)).toEqual({ c: 1 });
+      expect(db.prepare('SELECT COUNT(*) as c FROM milestones WHERE job_id = ?').get(jobId)).toEqual({ c: 1 });
+
+      handleEscrowAction(db, createAction('agentescrow', 'removejob', { job_id: jobId }));
+
+      expect(db.prepare('SELECT 1 FROM jobs WHERE id = ?').get(jobId)).toBeUndefined();
+      expect(db.prepare('SELECT COUNT(*) as c FROM bids WHERE job_id = ?').get(jobId)).toEqual({ c: 0 });
+      expect(db.prepare('SELECT COUNT(*) as c FROM milestones WHERE job_id = ?').get(jobId)).toEqual({ c: 0 });
+    });
+
+    it('is a no-op when job does not exist', () => {
+      expect(() => {
+        handleEscrowAction(db, createAction('agentescrow', 'removejob', { job_id: 99999 }));
+      }).not.toThrow();
+    });
   });
 });
 

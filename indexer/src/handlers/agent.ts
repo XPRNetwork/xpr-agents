@@ -95,6 +95,16 @@ export function handleAgentAction(db: Database.Database, action: StreamAction, d
     case 'cleanresults':
       // On-chain cleanup only - indexer can keep historical results
       break;
+    case 'removeagent':
+      handleRemoveAgent(db, data);
+      dispatcher?.dispatch(
+        'agent.removed',
+        [data.agent],
+        data,
+        `Agent ${data.agent} removed (admin)`,
+        action.block_num,
+      );
+      break;
     default:
       // Log unknown action
       console.log(`Unknown agentcore action: ${name}`);
@@ -359,6 +369,22 @@ function handleRelease(db: Database.Database, data: any): void {
   stmt.run(data.agent);
 
   console.log(`Agent ${data.agent} released`);
+}
+
+/**
+ * Admin removeagent — chain admin force-removes a malicious/spam agent.
+ * Cascades the removal: agent_plugins, plus all the agent's reputation/escrow/
+ * validation footprint. Without this handler, removed agents zombie in the
+ * indexer with stale stats and links to dead agentcore rows.
+ */
+function handleRemoveAgent(db: Database.Database, data: any): void {
+  const agent = String(data.agent || '');
+  if (!agent) return;
+  db.transaction(() => {
+    db.prepare('DELETE FROM agent_plugins WHERE agent = ?').run(agent);
+    db.prepare('DELETE FROM agents WHERE account = ?').run(agent);
+  })();
+  console.log(`Agent ${agent} removed (admin)`);
 }
 
 function handleVerifyClaim(db: Database.Database, data: any, action?: StreamAction): void {

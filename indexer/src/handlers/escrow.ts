@@ -218,6 +218,9 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
     case 'withdrawbid':
       handleWithdrawBid(db, data);
       break;
+    case 'removejob':
+      handleRemoveJob(db, data);
+      break;
     case 'cleanjobs':
       handleCleanJobs(db, data);
       break;
@@ -747,6 +750,31 @@ function handleSubmitBid(db: Database.Database, data: any, timestamp: string): v
     });
     console.log(`Bid ID corrected: ${tempId} → ${realId}`);
   });
+}
+
+/**
+ * Admin removejob — chain admin force-removes a spam/abusive job.
+ * The contract action wipes the row (and any associated bids/milestones/disputes
+ * fee-bearing structures) on chain; indexer mirrors with cascading DELETE so
+ * those records don't linger and confuse later inserts (synthetic-ID drift,
+ * UNIQUE conflicts, frontend showing zombie rows).
+ */
+function handleRemoveJob(db: Database.Database, data: any): void {
+  const jobId = Number(data.job_id);
+  if (!Number.isFinite(jobId)) return;
+  const before = db.prepare('SELECT title, client FROM jobs WHERE id = ?').get(jobId) as
+    | { title: string; client: string }
+    | undefined;
+  db.transaction(() => {
+    db.prepare('DELETE FROM bids WHERE job_id = ?').run(jobId);
+    db.prepare('DELETE FROM milestones WHERE job_id = ?').run(jobId);
+    db.prepare('DELETE FROM escrow_disputes WHERE job_id = ?').run(jobId);
+    db.prepare('DELETE FROM job_evidence WHERE job_id = ?').run(jobId);
+    db.prepare('DELETE FROM jobs WHERE id = ?').run(jobId);
+  })();
+  console.log(
+    `Job ${jobId} removed (admin)${before ? ` — was "${before.title}" by ${before.client}` : ''}`,
+  );
 }
 
 function handleSelectBid(db: Database.Database, data: any): void {
