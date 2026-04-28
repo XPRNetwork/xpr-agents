@@ -1,0 +1,47 @@
+#!/bin/bash
+# Pre-commit hook: block commits containing live private keys.
+# Patterns checked against staged content (not whole files):
+#   - PVT_K1_/PVT_R1_ followed by 40+ base58 chars (proton CLI format)
+#   - WIF format (5 + H/J/K/L + 50 base58 chars; same encoding for BTC and EOSIO)
+# Exits non-zero to abort commit.
+
+set -e
+
+# Get the staged diff (additions only). `|| true` swallows grep's exit 1 on
+# no-match — important when the diff is pure deletions, otherwise `set -e`
+# would silently abort the hook (no error, exit 1).
+STAGED_DIFF=$(git diff --cached --diff-filter=ACM | grep -E '^\+' | grep -v '^+++ ' || true)
+
+# Pattern 1: PVT_K1_ / PVT_R1_ with realistic key-length suffix
+if echo "$STAGED_DIFF" | grep -E "PVT_[KR]1_[1-9A-HJ-NP-Za-km-z]{40,}" >/dev/null; then
+    echo "ERROR: pre-commit hook blocked commit."
+    echo "       Staged content contains a PVT_K1_/PVT_R1_ private-key pattern."
+    echo "       If this is a placeholder, shorten it (e.g. PVT_K1_xxx)."
+    echo "       If this is a real key, REMOVE IT and rotate the key on-chain."
+    echo ""
+    echo "Matches:"
+    echo "$STAGED_DIFF" | grep -nE "PVT_[KR]1_[1-9A-HJ-NP-Za-km-z]{40,}" | head -5
+    exit 1
+fi
+
+# Pattern 2: WIF format (5K/5J/5L private keys)
+if echo "$STAGED_DIFF" | grep -E "(^|[^A-Za-z0-9])5[HJKL][1-9A-HJ-NP-Za-km-z]{49}([^A-Za-z0-9]|$)" >/dev/null; then
+    # Allow the well-known EOSIO tutorial key (5KQwrPbwd...) — it's not a real-account key
+    NON_TUTORIAL=$(echo "$STAGED_DIFF" \
+        | grep -E "(^|[^A-Za-z0-9])5[HJKL][1-9A-HJ-NP-Za-km-z]{49}([^A-Za-z0-9]|$)" \
+        | grep -v "5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3" || true)
+    if [ -n "$NON_TUTORIAL" ]; then
+        echo "ERROR: pre-commit hook blocked commit."
+        echo "       Staged content contains a WIF-format private key (5K/5J/5L...)."
+        echo "       Remove it and rotate the key on-chain if it was real."
+        echo ""
+        echo "Matches:"
+        echo "$NON_TUTORIAL" | head -5
+        exit 1
+    fi
+fi
+
+# Pattern 3: SIG_K1_ in source code (allow in tests/docs, block elsewhere)
+# Tightening this risks false positives, so we only warn.
+
+exit 0
