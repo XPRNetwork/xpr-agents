@@ -18,11 +18,26 @@ import { registerValidationTools } from './tools/validation';
 import { registerEscrowTools } from './tools/escrow';
 import { registerIndexerTools } from './tools/indexer';
 import { registerA2ATools } from './tools/a2a';
+import { registerShellbookTools } from './tools/shellbook';
 import type { PluginApi, PluginConfig, ToolDefinition } from './types';
 
 // Re-export skill types for skill package authors
 export type { SkillManifest, SkillApi, LoadedSkill } from './skill-types';
 export type { ToolDefinition, PluginApi } from './types';
+
+// Re-export CLI session factories. Used by skill packages to obtain a
+// signing session backed by the proton CLI (no private key in process).
+export { createCliSession, createCliApi } from './cli-session';
+export type { CliSessionOptions, CliApi } from './cli-session';
+export {
+  execAction,
+  execTransactionPush,
+  getTableRows,
+  checkProtonCli,
+  checkKeychainPopulated,
+  ProtonCliError,
+} from './proton-cli';
+export type { CliErrorCode, CliAction, CliTransactionResult, TableQueryOpts } from './proton-cli';
 
 /**
  * OpenClaw plugin API shape (real runtime API).
@@ -81,7 +96,10 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
   const defaultRpc = network === 'mainnet' ? 'https://proton.eosusa.io' : 'https://tn1.protonnz.com';
   const rpcEndpoint = (rawConfig.rpcEndpoint as string) || process.env.XPR_RPC_ENDPOINT || defaultRpc;
 
-  const hasCredentials = !!process.env.XPR_PRIVATE_KEY && !!process.env.XPR_ACCOUNT;
+  // Signing is enabled when XPR_ACCOUNT is set. The proton CLI handles the
+  // private key — the agent process never sees it. Verifying CLI presence
+  // is the entry-point's job (starter/agent/src/index.ts), not the plugin's.
+  const hasCredentials = !!process.env.XPR_ACCOUNT;
 
   // Create RPC connection and optional session
   let rpc;
@@ -120,9 +138,10 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
   registerEscrowTools(api, config);
   registerIndexerTools(api, config);
   registerA2ATools(api, config);
+  registerShellbookTools(api);
 
   if (!hasCredentials) {
-    console.log('[xpr-agents] Read-only mode: XPR_PRIVATE_KEY and XPR_ACCOUNT not set. Write tools will fail.');
+    console.log('[xpr-agents] Read-only mode: XPR_ACCOUNT not set. Write tools will fail.');
   }
 
   console.log(`[xpr-agents] Plugin loaded: ${config.network} (${rpcEndpoint})`);

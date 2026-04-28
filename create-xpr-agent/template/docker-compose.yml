@@ -4,7 +4,8 @@ services:
     environment:
       - PORT=8080
       - XPR_ACCOUNT=${XPR_ACCOUNT}
-      - XPR_PRIVATE_KEY=${XPR_PRIVATE_KEY}
+      # XPR_PRIVATE_KEY is no longer accepted — agent uses proton CLI keychain.
+      # Mount your keychain: ~/.config/@proton/cli:/root/.config/@proton/cli:ro
       - XPR_PERMISSION=${XPR_PERMISSION:-active}
       - XPR_RPC_ENDPOINT=${XPR_RPC_ENDPOINT:-https://tn1.protonnz.com}
       - XPR_NETWORK=${XPR_NETWORK:-testnet}

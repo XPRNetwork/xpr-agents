@@ -52,6 +52,28 @@ const mockApi = {
   },
 };
 
+// ── Fail-fast: legacy XPR_PRIVATE_KEY MUST NOT be set ──
+//
+// Post-2026-04-24 charliebot incident, the agent process is forbidden
+// from holding blockchain private keys. All signing goes through the
+// proton CLI's encrypted keychain. If XPR_PRIVATE_KEY is set, refuse
+// to start — both code paths cannot run simultaneously without risk.
+if (process.env.XPR_PRIVATE_KEY) {
+  console.error('[FATAL] XPR_PRIVATE_KEY is set but is no longer supported.');
+  console.error('');
+  console.error('  Migration:');
+  console.error('    1. Install the hardened proton CLI:');
+  console.error('         npm i -g github:paulgnz/proton-cli#security/key-list-redact');
+  console.error('    2. Add your blockchain key to the encrypted keychain:');
+  console.error('         proton chain:set proton   # or proton-test');
+  console.error('         proton key:add');
+  console.error('    3. Remove XPR_PRIVATE_KEY from your .env / environment.');
+  console.error('    4. Restart the agent.');
+  console.error('');
+  console.error('  See README.md "Quick Start" for the full setup flow.');
+  process.exit(1);
+}
+
 // ── Fail-fast: require critical env vars ──
 if (!process.env.XPR_ACCOUNT) {
   console.error('[FATAL] XPR_ACCOUNT is required. Set it in .env or environment.');
@@ -59,13 +81,44 @@ if (!process.env.XPR_ACCOUNT) {
 }
 
 if (!process.env.XPR_RPC_ENDPOINT) {
-  console.error('[FATAL] XPR_RPC_ENDPOINT is required. Set it in .env or environment.');
-  process.exit(1);
+  // Default to public indexer-paired RPC by network.
+  const network = process.env.XPR_NETWORK || 'mainnet';
+  const defaultRpc = network === 'mainnet' ? 'https://proton.eosusa.io' : 'https://tn1.protonnz.com';
+  process.env.XPR_RPC_ENDPOINT = defaultRpc;
+  console.warn(`[agent] XPR_RPC_ENDPOINT not set — defaulting to ${defaultRpc}`);
 }
 
 if (!process.env.OPENCLAW_HOOK_TOKEN) {
   console.error('[FATAL] OPENCLAW_HOOK_TOKEN is required for webhook authentication. Set it in .env or environment.');
   process.exit(1);
+}
+
+// ── Verify proton CLI is available for signing ──
+// Async check kicked off here; if it fails the agent will still boot
+// (read-only operations work) but signed actions will throw with a clear
+// error from the wrapper.
+import('@xpr-agents/openclaw').then(({ checkProtonCli, checkKeychainPopulated }) => {
+  Promise.all([checkProtonCli(), checkKeychainPopulated()]).then(([cliOk, keyOk]) => {
+    if (!cliOk) {
+      console.warn('[agent] proton CLI not found in PATH. Signing actions will fail until installed:');
+      console.warn('         npm i -g github:paulgnz/proton-cli#security/key-list-redact');
+    } else if (!keyOk) {
+      console.warn('[agent] proton CLI keychain is empty. Signing actions will fail until a key is added:');
+      console.warn('         proton key:add');
+    } else {
+      console.log('[agent] proton CLI ready (keychain populated)');
+    }
+  });
+}).catch(() => {
+  // openclaw module not loaded yet — non-fatal, signing path will report later
+});
+
+// Default INDEXER_URL to the public xpr-agents indexer per network.
+if (!process.env.INDEXER_URL) {
+  const network = process.env.XPR_NETWORK || 'mainnet';
+  process.env.INDEXER_URL = network === 'mainnet'
+    ? 'https://indexer.xpragents.com'
+    : 'https://testnet-indexer.xpragents.com';
 }
 
 // ── Global crash handlers ──
@@ -278,6 +331,16 @@ if (systemPrompt === 'You are an autonomous AI agent on XPR Network.') {
 // Add account context to system prompt
 const baseUrl = process.env.AGENT_PUBLIC_URL || `http://localhost:${process.env.PORT || '8080'}`;
 systemPrompt += `\n\n## Runtime Context\n- Account: ${process.env.XPR_ACCOUNT}\n- Network: ${process.env.XPR_NETWORK || 'testnet'}\n- Public URL: ${baseUrl}`;
+systemPrompt += `\n\n## Key Handling Policy
+You do NOT have access to any blockchain private keys. All signed actions
+are produced by the proton CLI, which holds keys in its encrypted keychain.
+Do NOT attempt to read keychain files (e.g. proton-cli.json), do NOT run
+\`proton key:get --reveal-private\`, and do NOT ask the user for a private
+key. If you encounter a private key in any context, treat it as sensitive:
+do not echo, log, or persist it, and tell the user to rotate it on-chain.
+
+To execute on-chain actions, use the registered xpr_* tools. They build
+action data and the proton CLI signs them — you never see the key.`;
 systemPrompt += `\n\n## Delivering Jobs
 When delivering a job, ALWAYS:
 1. Do the actual work — write the text, generate the image, create the code, etc.

@@ -37,7 +37,6 @@ NC='\033[0m'
 # Defaults
 NETWORK="testnet"
 XPR_ACCOUNT=""
-XPR_PRIVATE_KEY=""
 ANTHROPIC_API_KEY=""
 AGENT_MODEL=""
 MAX_TRANSFER_AMOUNT=""
@@ -57,7 +56,6 @@ ${BOLD}USAGE:${NC}
 
 ${BOLD}OPTIONS:${NC}
     --account <name>      XPR Network account name
-    --key <private_key>   Account private key
     --api-key <key>       Anthropic API key
     --network <net>       Network: testnet (default) or mainnet
     --model <model>       Claude model (default: claude-sonnet-4-6)
@@ -75,7 +73,13 @@ EOF
 while [[ $# -gt 0 ]]; do
   case $1 in
     --account)      XPR_ACCOUNT="$2"; shift 2 ;;
-    --key)          XPR_PRIVATE_KEY="$2"; shift 2 ;;
+    --key)
+      echo "Error: --key is no longer supported. Use the proton CLI keychain:" >&2
+      echo "  npm i -g github:paulgnz/proton-cli#security/key-list-redact" >&2
+      echo "  proton chain:set proton-test    # or proton" >&2
+      echo "  proton key:add" >&2
+      exit 1
+      ;;
     --api-key)      ANTHROPIC_API_KEY="$2"; shift 2 ;;
     --network)      NETWORK="$2"; shift 2 ;;
     --model)        AGENT_MODEL="$2"; shift 2 ;;
@@ -183,7 +187,11 @@ if [ -f .env ]; then
     value="${line#*=}"
     case "$key" in
       XPR_ACCOUNT)        [ -z "$XPR_ACCOUNT" ] && XPR_ACCOUNT="$value" ;;
-      XPR_PRIVATE_KEY)    [ -z "$XPR_PRIVATE_KEY" ] && XPR_PRIVATE_KEY="$value" ;;
+      XPR_PRIVATE_KEY)
+        echo "Error: legacy XPR_PRIVATE_KEY found in .env — must be removed." >&2
+        echo "  Migration: proton key:add  (then delete the line from .env)" >&2
+        exit 1
+        ;;
       ANTHROPIC_API_KEY)  [ -z "$ANTHROPIC_API_KEY" ] && ANTHROPIC_API_KEY="$value" ;;
       XPR_NETWORK)        NETWORK="$value" ;;
       AGENT_MODEL)        [ -z "$AGENT_MODEL" ] && AGENT_MODEL="$value" ;;
@@ -227,44 +235,73 @@ if [ "$EXISTING_SETUP" = false ]; then
   fi
 fi
 
-# ── Account Setup (only if not already configured) ────
+# ── Account & Keychain Setup ─────────────────────
+#
+# Signing is performed by the proton CLI. The agent never holds a key.
+# This block ensures:
+#   1. proton CLI is installed
+#   2. Keychain has at least one account
+#   3. XPR_ACCOUNT names that account (or one the user chooses)
+#
+# We deliberately do NOT extract the private key from the CLI. It stays
+# encrypted in the CLI keychain.
+
+# Verify proton CLI is installed (use globally-installed if present, else npx).
+PROTON_CMD=""
+if command -v proton &>/dev/null; then
+  PROTON_CMD="proton"
+elif command -v npx &>/dev/null; then
+  PROTON_CMD="npx -y @proton/cli"
+else
+  fail "proton CLI is required (install: npm i -g github:paulgnz/proton-cli#security/key-list-redact)"
+fi
+
+# Auto-set the chain on the CLI to match selected network.
+if [ "$NETWORK" = "mainnet" ]; then
+  $PROTON_CMD chain:set proton 2>/dev/null || true
+else
+  $PROTON_CMD chain:set proton-test 2>/dev/null || true
+fi
+
+# Detect any existing keychain account name (NOT the private key).
+EXISTING_CLI_ACCOUNT=""
+CLI_KEYS=$($PROTON_CMD key:list 2>/dev/null || true)
+if echo "$CLI_KEYS" | grep -q "publicKey"; then
+  # Extract first account name. With the hardened CLI, key:list shows
+  # `accounts: [...]` and never prints private keys.
+  EXISTING_CLI_ACCOUNT=$(echo "$CLI_KEYS" | grep -oE '[a-z1-5.]{1,12}' | head -1 || true)
+fi
 
 if [ -z "$XPR_ACCOUNT" ]; then
-  # Detect existing Proton CLI accounts
-  EXISTING_CLI_ACCOUNT=""
-  EXISTING_CLI_KEY=""
-  if command -v npx &>/dev/null; then
-    CLI_KEYS=$(npx -y @proton/cli key:list 2>/dev/null || true)
-    EXISTING_CLI_KEY=$(echo "$CLI_KEYS" | grep -oE 'PVT_K1_[A-Za-z0-9]+' | head -1)
-    if [ -n "$EXISTING_CLI_KEY" ]; then
-      EXISTING_CLI_ACCOUNT=$(echo "$CLI_KEYS" | grep -oE '[a-z1-5.]{1,12}' | head -1)
-    fi
-  fi
-
   if [ "$NON_INTERACTIVE" = false ]; then
     echo ""
     echo -e "${BOLD}XPR Network Account${NC}"
 
-    if [ -n "$EXISTING_CLI_KEY" ] && [ -n "$EXISTING_CLI_ACCOUNT" ]; then
-      echo "  1) Use existing Proton CLI account: ${GREEN}${EXISTING_CLI_ACCOUNT}${NC} (detected)"
-      echo "  2) Enter a different account and key"
-      echo "  3) Create a new account (testnet only, requires Node.js)"
+    if [ -n "$EXISTING_CLI_ACCOUNT" ]; then
+      echo "  1) Use existing keychain account: ${GREEN}${EXISTING_CLI_ACCOUNT}${NC} (detected)"
+      echo "  2) Enter a different account name (must already exist in keychain)"
+      echo "  3) Create a new account (testnet only)"
       echo -n "Choice [1]: "
       read -r ACCOUNT_CHOICE
       ACCOUNT_CHOICE="${ACCOUNT_CHOICE:-1}"
-
       if [ "$ACCOUNT_CHOICE" = "1" ]; then
         XPR_ACCOUNT="$EXISTING_CLI_ACCOUNT"
-        XPR_PRIVATE_KEY="$EXISTING_CLI_KEY"
         success "Using existing account: $XPR_ACCOUNT"
       fi
       [ "$ACCOUNT_CHOICE" = "3" ] && ACCOUNT_CHOICE="CREATE"
     else
-      echo "  1) Yes — I have an account and private key"
-      echo "  2) No — create one for me (testnet only, requires Node.js)"
+      echo "  No accounts in proton CLI keychain yet."
+      echo "  1) Add an existing key (proton key:add)"
+      echo "  2) Create a new account (testnet only)"
       echo -n "Choice [1]: "
       read -r ACCOUNT_CHOICE
       ACCOUNT_CHOICE="${ACCOUNT_CHOICE:-1}"
+      if [ "$ACCOUNT_CHOICE" = "1" ]; then
+        echo ""
+        echo "Run this in another terminal, then re-run bootstrap.sh:"
+        echo "  $PROTON_CMD key:add"
+        fail "Add your key to the proton CLI keychain first."
+      fi
       [ "$ACCOUNT_CHOICE" = "2" ] && ACCOUNT_CHOICE="CREATE"
     fi
 
@@ -272,62 +309,16 @@ if [ -z "$XPR_ACCOUNT" ]; then
       if [ "$NETWORK" = "mainnet" ]; then
         fail "Automatic account creation is only available on testnet"
       fi
-      if ! command -v npx &>/dev/null; then
-        echo ""
-        echo -e "${RED}Node.js is required to create an account.${NC}"
-        echo "  Mac:   brew install node"
-        echo "  Linux: curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo bash - && sudo apt install -y nodejs"
-        fail "Install Node.js and re-run"
-      fi
-
       echo ""
       echo -en "${BOLD}Choose an account name${NC} (1-12 chars, a-z 1-5 and .): "
       read -r XPR_ACCOUNT
-
       if ! echo "$XPR_ACCOUNT" | grep -qE '^[a-z1-5.]{1,12}$'; then
         fail "Invalid account name '$XPR_ACCOUNT'. Use only a-z, 1-5, and dots (max 12 chars)"
       fi
-
-      # Check if account already exists BEFORE attempting creation
-      EXISTING_CHECK=$(curl -s -X POST "$RPC_ENDPOINT/v1/chain/get_account" \
-        -H "Content-Type: application/json" \
-        -d "{\"account_name\": \"$XPR_ACCOUNT\"}" 2>/dev/null || echo "NOT_FOUND")
-
-      if echo "$EXISTING_CHECK" | grep -q '"account_name"'; then
-        echo ""
-        echo -e "${YELLOW}Account '$XPR_ACCOUNT' already exists on $NETWORK.${NC}"
-        echo "  You need the private key that controls this account."
-        echo ""
-        echo "  1) Enter the private key for '$XPR_ACCOUNT'"
-        echo "  2) Choose a different account name"
-        echo -n "Choice [1]: "
-        read -r EXIST_CHOICE
-        EXIST_CHOICE="${EXIST_CHOICE:-1}"
-        [ "$EXIST_CHOICE" = "2" ] && fail "Re-run the script and choose a different name"
-        prompt_value XPR_PRIVATE_KEY "Private key for '$XPR_ACCOUNT' (PVT_K1_...)" "" true
-      else
-        log "Creating account '$XPR_ACCOUNT' on testnet..."
-        echo -e "  ${CYAN}This may take a moment on first run (downloading @proton/cli)...${NC}"
-        npx -y @proton/cli chain:set proton-test 2>/dev/null
-        CREATE_OUTPUT=$(npx -y @proton/cli account:create "$XPR_ACCOUNT" 2>&1) || {
-          echo "$CREATE_OUTPUT"
-          fail "Account creation failed. The name may be taken — try a different one."
-        }
-        success "Account '$XPR_ACCOUNT' created on testnet"
-
-        KEY_OUTPUT=$(npx -y @proton/cli key:list 2>&1)
-        EXTRACTED_KEY=$(echo "$KEY_OUTPUT" | grep -oE 'PVT_K1_[A-Za-z0-9]+' | head -1)
-        if [ -n "$EXTRACTED_KEY" ]; then
-          XPR_PRIVATE_KEY="$EXTRACTED_KEY"
-          success "Private key extracted"
-          echo ""
-          echo -e "  ${BOLD}Your private key:${NC} $EXTRACTED_KEY"
-          echo -e "  ${YELLOW}Save this somewhere safe! It controls your account.${NC}"
-          echo ""
-        else
-          prompt_value XPR_PRIVATE_KEY "Paste your private key (PVT_K1_...)" "" true
-        fi
-      fi
+      log "Creating account '$XPR_ACCOUNT' on testnet via proton CLI..."
+      $PROTON_CMD account:create "$XPR_ACCOUNT" || \
+        fail "Account creation failed. The name may be taken — try a different one."
+      success "Account '$XPR_ACCOUNT' created. Key stored in proton CLI keychain (not printed here)."
     fi
   fi
 
@@ -338,10 +329,12 @@ if [ -z "$XPR_ACCOUNT" ]; then
 fi
 success "Account: $XPR_ACCOUNT"
 
-if [ -z "$XPR_PRIVATE_KEY" ]; then
-  prompt_value XPR_PRIVATE_KEY "Private key (PVT_K1_...)" "" true
+# Verify keychain has a key for this account (best-effort — exact account
+# matching depends on hardened CLI features).
+if ! echo "$CLI_KEYS" | grep -q "publicKey"; then
+  warn "proton CLI keychain appears empty. Add your key before starting:"
+  echo "  $PROTON_CMD key:add"
 fi
-success "Private key: set"
 
 if [ -z "$ANTHROPIC_API_KEY" ]; then
   prompt_value ANTHROPIC_API_KEY "Anthropic API key (from console.anthropic.com)" "" true
@@ -366,7 +359,12 @@ if [ -z "$TELEGRAM_BOT_TOKEN" ] && [ "$NON_INTERACTIVE" = false ]; then
   fi
 fi
 
-# ── Phase 4: Validate Account & Key ─────────
+# ── Phase 4: Validate Account On-Chain ──────
+#
+# We deliberately do NOT cross-check the key here. Key validation would
+# require the agent process to read the private key — which is exactly
+# what we removed. The proton CLI itself will surface "no key" or
+# "key mismatch" errors at sign time with a clear message.
 
 echo ""
 log "Validating account on-chain..."
@@ -377,55 +375,6 @@ ACCOUNT_CHECK=$(curl -s -X POST "$RPC_ENDPOINT/v1/chain/get_account" \
 
 if echo "$ACCOUNT_CHECK" | grep -q '"account_name"'; then
   success "Account '$XPR_ACCOUNT' exists on $NETWORK"
-
-  # Validate key matches on-chain active keys
-  if command -v node &>/dev/null; then
-    log "Validating private key..."
-    ONCHAIN_KEYS=$(echo "$ACCOUNT_CHECK" | node -e "
-      const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-      const active = d.permissions?.find(p => p.perm_name === 'active');
-      if (active) active.required_auth.keys.forEach(k => console.log(k.key));
-    " 2>/dev/null || echo "")
-
-    DERIVED_PUB=$(node -e "
-      try {
-        const { PrivateKey } = require('@proton/js');
-        console.log(PrivateKey.fromString(process.argv[1]).getPublicKey().toLegacyString());
-      } catch(e) {
-        try {
-          const { PrivateKey } = require('@proton/js');
-          console.log(PrivateKey.fromString(process.argv[1]).getPublicKey().toString());
-        } catch(e2) { /* silent */ }
-      }
-    " "$XPR_PRIVATE_KEY" 2>/dev/null || echo "")
-
-    if [ -n "$DERIVED_PUB" ] && [ -n "$ONCHAIN_KEYS" ]; then
-      KEY_MATCH=false
-      while IFS= read -r onchain_key; do
-        [ "$DERIVED_PUB" = "$onchain_key" ] && KEY_MATCH=true && break
-      done <<< "$ONCHAIN_KEYS"
-
-      if [ "$KEY_MATCH" = true ]; then
-        success "Private key matches account's active permission"
-      else
-        echo ""
-        echo -e "  ${RED}KEY MISMATCH${NC} — private key does NOT match '$XPR_ACCOUNT'"
-        echo -e "  Derived:  ${CYAN}${DERIVED_PUB}${NC}"
-        echo -e "  On-chain:"
-        while IFS= read -r k; do echo -e "    ${CYAN}${k}${NC}"; done <<< "$ONCHAIN_KEYS"
-        echo ""
-        if [ "$NON_INTERACTIVE" = false ]; then
-          echo -n "  Enter the correct private key (or Ctrl+C to abort): "
-          read -rs XPR_PRIVATE_KEY
-          echo ""
-        else
-          fail "Key mismatch — provide the correct private key for '$XPR_ACCOUNT'"
-        fi
-      fi
-    else
-      warn "Could not verify key (missing @proton/js)"
-    fi
-  fi
 else
   warn "Could not verify account '$XPR_ACCOUNT' on $NETWORK"
   if [ "$NON_INTERACTIVE" = false ]; then
@@ -448,7 +397,7 @@ log "Writing configuration..."
 cat > .env <<ENVEOF
 # Generated by bootstrap.sh v${VERSION} on $(date -Iseconds)
 XPR_ACCOUNT=$XPR_ACCOUNT
-XPR_PRIVATE_KEY=$XPR_PRIVATE_KEY
+# Signing handled by proton CLI keychain — no XPR_PRIVATE_KEY here.
 XPR_PERMISSION=active
 XPR_NETWORK=$NETWORK
 XPR_RPC_ENDPOINT=$RPC_ENDPOINT
@@ -495,7 +444,7 @@ services:
     environment:
       - PORT=8080
       - XPR_ACCOUNT=${XPR_ACCOUNT}
-      - XPR_PRIVATE_KEY=${XPR_PRIVATE_KEY}
+      # XPR_PRIVATE_KEY no longer accepted — agent uses proton CLI keychain.
       - XPR_PERMISSION=${XPR_PERMISSION:-active}
       - XPR_RPC_ENDPOINT=${XPR_RPC_ENDPOINT:-https://tn1.protonnz.com}
       - XPR_NETWORK=${XPR_NETWORK:-testnet}
