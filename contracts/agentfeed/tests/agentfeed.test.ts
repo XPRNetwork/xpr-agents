@@ -597,4 +597,57 @@ describe('agentfeed', () => {
       expect(getRecalcState('alice')).to.be.undefined;
     });
   });
+
+  /* ------------------------------------------------------------------ */
+  /*  rmfeedback (admin removal)                                         */
+  /* ------------------------------------------------------------------ */
+  describe('rmfeedback', () => {
+    beforeEach(async () => {
+      await initContracts();
+      await registerAgent('alice');
+    });
+
+    it('should remove feedback by id', async () => {
+      await agentfeed.actions.submit(['bob', 'alice', 4, 'good', 'hash1', '', 0]).send('bob@active');
+      expect(getFeedbackRows().length).to.equal(1);
+
+      await agentfeed.actions.rmfeedback([0]).send('owner@active');
+      expect(getFeedbackRows().length).to.equal(0);
+    });
+
+    it('should clear agent score on removal', async () => {
+      await agentfeed.actions.submit(['bob', 'alice', 4, 'good', 'hash1', '', 0]).send('bob@active');
+      expect(getAgentScore('alice')).to.not.be.undefined;
+
+      await agentfeed.actions.rmfeedback([0]).send('owner@active');
+      expect(getAgentScore('alice')).to.be.undefined;
+    });
+
+    it('should reject non-owner auth', async () => {
+      await agentfeed.actions.submit(['bob', 'alice', 4, 'good', 'hash1', '', 0]).send('bob@active');
+
+      await expectToThrow(
+        agentfeed.actions.rmfeedback([0]).send('bob@active'),
+        'missing required authority owner'
+      );
+    });
+
+    it('should reject non-existent feedback', async () => {
+      await expectToThrow(
+        agentfeed.actions.rmfeedback([999]).send('owner@active'),
+        protonAssert('Feedback not found')
+      );
+    });
+
+    it('should preserve other feedback when removing one', async () => {
+      await agentfeed.actions.submit(['bob', 'alice', 4, 'good', 'hash1', '', 0]).send('bob@active');
+      blockchain.addTime(TimePointSec.from(86401));
+      await agentfeed.actions.submit(['carol', 'alice', 5, 'great', 'hash2', '', 0]).send('carol@active');
+      expect(getFeedbackRows().length).to.equal(2);
+
+      await agentfeed.actions.rmfeedback([0]).send('owner@active');
+      expect(getFeedbackRows().length).to.equal(1);
+      expect(getFeedbackRows()[0].reviewer).to.equal('carol');
+    });
+  });
 });

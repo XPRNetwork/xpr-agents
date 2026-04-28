@@ -369,7 +369,9 @@ export async function getAllJobs(limit = 500): Promise<Job[]> {
   const pageSize = Math.min(limit, 100);
 
   while (allJobs.length < limit) {
-    const result = await rpc.get_table_rows({
+    // Explicit type — Turbopack's stricter typecheck flags `const result = await rpc.get_table_rows(...)`
+    // as implicitly `any`. JsonRpc.get_table_rows returns `Promise<any>` from @proton/js.
+    const result: { rows: any[]; more: boolean } = await rpc.get_table_rows({
       json: true,
       code: CONTRACTS.AGENT_ESCROW,
       scope: CONTRACTS.AGENT_ESCROW,

@@ -109,7 +109,8 @@ if (lastBlock > 0 || [...contractCursors.values()].some(b => b > 0)) {
 }
 
 // Frozen snapshot of per-contract cursors at startup for bulk skip optimization.
-const resumeCursors: ReadonlyMap<string, number> = new Map(contractCursors);
+// Rebuilt after seedFromChain bumps cursors to chain head (see startup block below).
+let resumeCursors: ReadonlyMap<string, number> = new Map(contractCursors);
 
 // Prune old dedup entries on startup to bound table size
 pruneProcessedActions(db, 0);
@@ -277,30 +278,90 @@ const correctionRpc = config.hyperionEndpoints[0].replace(/\/v2.*$/, '').replace
 setRpcEndpoint(correctionRpc);
 console.log(`[id-correction] RPC endpoint: ${correctionRpc}`);
 
+// Fetch current chain head from a node's get_info — used to skip historical replay
+// after a fresh seed. If we don't bump cursors past the current head, the poller
+// fetches actions from genesis (limit=100/cycle) and re-creates rows for jobs
+// the contract has since removed (zombies that never get cleaned up because the
+// removejob action targets a chain ID the indexer's synthetic ID didn't reproduce).
+async function fetchChainHead(rpcEndpoint: string): Promise<number> {
+  const res = await fetch(`${rpcEndpoint}/v1/chain/get_info`, { method: 'POST' });
+  if (!res.ok) throw new Error(`get_info HTTP ${res.status}`);
+  const info = await res.json() as { head_block_num?: number };
+  if (!info.head_block_num || info.head_block_num <= 0) {
+    throw new Error('get_info returned no head_block_num');
+  }
+  return info.head_block_num;
+}
+
 // Sync from chain state on first start (empty DB), then begin ingestion
 (async () => {
   const agentCount = (db.prepare('SELECT COUNT(*) as c FROM agents').get() as any).c;
   const jobCount = (db.prepare('SELECT COUNT(*) as c FROM jobs').get() as any).c;
-  if (agentCount === 0 && jobCount === 0) {
+  const isEmpty = agentCount === 0 && jobCount === 0;
+  // Detect "stuck cursors": DB has data but contract cursors are at 0
+  // (indicates a previous crash before any action committed, or a manual
+  // cursor reset). Without bumping in this case the poller will replay from
+  // genesis and re-create rows for already-removed jobs.
+  const cursorsAtZero = [...contractCursors.values()].every(b => b === 0);
+  const needsCursorBump = isEmpty || (cursorsAtZero && !isEmpty);
+
+  if (isEmpty) {
     console.log('[sync] Empty database — syncing from chain state...');
     // Try each endpoint until one succeeds
     let syncDone = false;
+    let workingRpc: string | null = null;
     for (const ep of config.hyperionEndpoints) {
       const rpcEndpoint = ep.replace(/\/v2.*$/, '').replace(/\/$/, '');
       try {
         await syncFromChain(db, rpcEndpoint, config.contracts);
         syncDone = true;
+        workingRpc = rpcEndpoint;
         break;
       } catch (syncErr) {
         console.warn(`[sync] Failed with ${rpcEndpoint}: ${syncErr instanceof Error ? syncErr.message : syncErr}`);
       }
     }
     try {
-      if (!syncDone) console.warn('[sync] All endpoints failed — starting with empty DB');
+      if (!syncDone) {
+        console.warn('[sync] All endpoints failed — starting with empty DB');
+      } else if (workingRpc) {
+        // Bump cursors to current chain head so the poller doesn't replay genesis-to-now
+        // history (which re-creates rows for already-removed jobs). New actions only.
+        try {
+          const headBlock = await fetchChainHead(workingRpc);
+          for (const contract of allContracts) {
+            updateContractCursor(db, contract, headBlock);
+            contractCursors.set(contract, headBlock);
+          }
+          resumeCursors = new Map(contractCursors);
+          console.log(`[sync] Cursors bumped to chain head ${headBlock} — poller will skip historical replay`);
+        } catch (cursorErr) {
+          console.warn(`[sync] Cursor bump failed (poller will replay history): ${cursorErr instanceof Error ? cursorErr.message : cursorErr}`);
+        }
+      }
       updateStats(db);
       console.log('[sync] Chain sync complete');
     } catch (err) {
       console.error('[sync] Chain sync failed (will rely on stream):', err);
+    }
+  } else if (needsCursorBump) {
+    // DB populated but cursors stuck at 0 — bump without re-seeding, so the
+    // poller starts from head and doesn't replay history into populated tables.
+    console.log('[sync] DB populated but contract cursors at 0 — bumping to chain head to skip replay');
+    for (const ep of config.hyperionEndpoints) {
+      const rpcEndpoint = ep.replace(/\/v2.*$/, '').replace(/\/$/, '');
+      try {
+        const headBlock = await fetchChainHead(rpcEndpoint);
+        for (const contract of allContracts) {
+          updateContractCursor(db, contract, headBlock);
+          contractCursors.set(contract, headBlock);
+        }
+        resumeCursors = new Map(contractCursors);
+        console.log(`[sync] Cursors bumped to chain head ${headBlock}`);
+        break;
+      } catch (e) {
+        console.warn(`[sync] Cursor bump failed via ${rpcEndpoint}: ${e instanceof Error ? e.message : e}`);
+      }
     }
   }
   startIngestion();

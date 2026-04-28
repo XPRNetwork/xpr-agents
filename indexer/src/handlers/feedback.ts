@@ -71,6 +71,9 @@ export function handleFeedbackAction(db: Database.Database, action: StreamAction
     case 'addprovider':
     case 'setprovider':
     case 'rmprovider':
+    case 'rmfeedback':
+      handleRmFeedback(db, data);
+      break;
     case 'cleanfback':
       handleCleanFeedback(db, data);
       break;
@@ -253,6 +256,35 @@ function handleReinstate(db: Database.Database, data: any): void {
   }
 
   console.log(`Feedback ${data.feedback_id} reinstated`);
+}
+
+/**
+ * Admin rmfeedback — chain admin force-removes spam/abusive feedback.
+ * Cascade-deletes the feedback row and any associated dispute rows; recompute
+ * the affected agent's aggregated score so totals don't include the removed entry.
+ */
+function handleRmFeedback(db: Database.Database, data: any): void {
+  const fbId = Number(data.feedback_id);
+  if (!Number.isFinite(fbId)) return;
+  const before = db.prepare('SELECT agent FROM feedback WHERE id = ?').get(fbId) as
+    | { agent: string }
+    | undefined;
+  db.transaction(() => {
+    db.prepare('DELETE FROM feedback_disputes WHERE feedback_id = ?').run(fbId);
+    db.prepare('DELETE FROM feedback WHERE id = ?').run(fbId);
+  })();
+  console.log(`Feedback ${fbId} removed (admin)${before ? ` for agent ${before.agent}` : ''}`);
+  if (before) {
+    // If this was the agent's last feedback, the contract clears the
+    // agent_scores row entirely. Mirror that — `updateAgentScore` would
+    // leave a phantom row with avg_score=0 instead of removing it.
+    const remaining = db.prepare('SELECT COUNT(*) as c FROM feedback WHERE agent = ?').get(before.agent) as { c: number };
+    if (remaining.c === 0) {
+      db.prepare('DELETE FROM agent_scores WHERE agent = ?').run(before.agent);
+    } else {
+      updateAgentScore(db, before.agent);
+    }
+  }
 }
 
 function handleCleanFeedback(db: Database.Database, data: any): void {

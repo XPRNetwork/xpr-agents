@@ -1131,6 +1131,47 @@ export class AgentFeedContract extends Contract {
     print(`Cleaned ${cleaned} expired recalculation states`);
   }
 
+  // ============== ADMIN REMOVAL ==============
+
+  @action("rmfeedback")
+  removeFeedback(feedback_id: u64): void {
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+
+    const fb = this.feedbackTable.requireGet(feedback_id, "Feedback not found");
+
+    // Delete associated disputes (byFeedback is secondary index 0)
+    let dispute = this.disputesTable.getBySecondaryU64(feedback_id, 0);
+    while (dispute != null && dispute.feedback_id == feedback_id) {
+      this.disputesTable.remove(dispute);
+      dispute = this.disputesTable.getBySecondaryU64(feedback_id, 0);
+    }
+
+    // Delete associated payment proofs (byFeedback is secondary index 0)
+    let proof = this.paymentProofsTable.getBySecondaryU64(feedback_id, 0);
+    while (proof != null && proof.feedback_id == feedback_id) {
+      this.paymentProofsTable.remove(proof);
+      proof = this.paymentProofsTable.getBySecondaryU64(feedback_id, 0);
+    }
+
+    // Delete the feedback
+    this.feedbackTable.remove(fb);
+
+    // Remove agent score (will need recalc if other feedback exists)
+    const agentScore = this.agentScoresTable.get(fb.agent.N);
+    if (agentScore != null) {
+      this.agentScoresTable.remove(agentScore);
+    }
+
+    // Clean any recalc state for this agent
+    const recalc = this.recalcStateTable.get(fb.agent.N);
+    if (recalc != null) {
+      this.recalcStateTable.remove(recalc);
+    }
+
+    print(`Feedback ${feedback_id} removed by admin`);
+  }
+
   // ============== FEEDBACK CLEANUP ==============
 
   @action("cleanfback")
