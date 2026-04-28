@@ -361,6 +361,13 @@ export function initDatabase(dbPath: string): Database.Database {
     'ALTER TABLE validation_challenges ADD COLUMN archived INTEGER DEFAULT 0',
     'ALTER TABLE escrow_disputes ADD COLUMN archived INTEGER DEFAULT 0',
     'ALTER TABLE plugin_results ADD COLUMN archived INTEGER DEFAULT 0',
+    // Bid lifecycle state — replaces hard-delete on selectbid/withdrawbid so
+    // the winning proposal text is queryable forever.
+    //   0 = pending  (active bid awaiting selection)
+    //   1 = selected (winning bid for the job; one per job after selectbid)
+    //   2 = lost     (other bids on the same job after selectbid)
+    //   3 = withdrawn (agent withdrew their bid)
+    'ALTER TABLE bids ADD COLUMN state INTEGER NOT NULL DEFAULT 0',
   ];
 
   // Migrate processed_actions from INTEGER to TEXT key if needed.

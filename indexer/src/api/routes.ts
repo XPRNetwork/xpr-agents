@@ -284,14 +284,30 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
 
   // ============== BIDS ==============
 
-  // List bids for a job
+  // List bids for a job. Default returns all bids (pending/selected/lost/withdrawn).
+  // Filter via ?state=pending|selected|lost|withdrawn (or numeric 0-3),
+  // or ?active=true for state IN (pending, selected) only.
   router.get('/jobs/:id/bids', (req: Request, res: Response) => {
     const { id } = req.params;
+    const stateMap: Record<string, number> = { pending: 0, selected: 1, lost: 2, withdrawn: 3 };
+    const stateParam = String(req.query.state || '');
+    const activeOnly = String(req.query.active || '') === 'true';
 
-    const bids = db.prepare(
-      'SELECT * FROM bids WHERE job_id = ? ORDER BY amount ASC, created_at ASC'
-    ).all(parseInt(id));
+    let sql = 'SELECT * FROM bids WHERE job_id = ?';
+    const params: (number | string)[] = [parseInt(id)];
 
+    if (stateParam) {
+      const stateNum = stateMap[stateParam] ?? parseInt(stateParam);
+      if (Number.isFinite(stateNum)) {
+        sql += ' AND state = ?';
+        params.push(stateNum);
+      }
+    } else if (activeOnly) {
+      sql += ' AND state IN (0, 1)';
+    }
+
+    sql += ' ORDER BY state ASC, amount ASC, created_at ASC';
+    const bids = db.prepare(sql).all(...params);
     res.json({ bids });
   });
 

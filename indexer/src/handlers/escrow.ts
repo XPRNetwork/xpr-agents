@@ -763,8 +763,11 @@ function handleSelectBid(db: Database.Database, data: any): void {
     `);
     stmt.run(bid.agent, bid.amount, now + bid.timeline, now, bid.job_id);
 
-    // Delete all bids for this job (contract cleans them up)
-    db.prepare('DELETE FROM bids WHERE job_id = ?').run(bid.job_id);
+    // Soft-delete: mark bids by state instead of hard-delete. The contract
+    // garbage-collects competing bids on selectbid, but the indexer keeps them
+    // so the winning proposal text remains queryable forever.
+    db.prepare('UPDATE bids SET state = 2 WHERE job_id = ? AND id != ?').run(bid.job_id, data.bid_id);
+    db.prepare('UPDATE bids SET state = 1 WHERE id = ?').run(data.bid_id);
 
     console.log(`Bid ${data.bid_id} selected: agent ${bid.agent} assigned to job ${bid.job_id}`);
   } else {
@@ -773,8 +776,13 @@ function handleSelectBid(db: Database.Database, data: any): void {
 }
 
 function handleWithdrawBid(db: Database.Database, data: any): void {
-  db.prepare('DELETE FROM bids WHERE id = ?').run(data.bid_id);
-  console.log(`Bid ${data.bid_id} withdrawn by ${data.agent}`);
+  // Soft-delete: mark withdrawn instead of removing — preserves history.
+  const result = db.prepare('UPDATE bids SET state = 3 WHERE id = ?').run(data.bid_id);
+  if (result.changes > 0) {
+    console.log(`Bid ${data.bid_id} withdrawn by ${data.agent}`);
+  } else {
+    console.log(`Bid ${data.bid_id} withdrawn but bid not found in indexer`);
+  }
 }
 
 function handleCleanJobs(db: Database.Database, data: any): void {
