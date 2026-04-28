@@ -18,7 +18,6 @@ import { registerValidationTools } from './tools/validation';
 import { registerEscrowTools } from './tools/escrow';
 import { registerIndexerTools } from './tools/indexer';
 import { registerA2ATools } from './tools/a2a';
-import { registerShellbookTools } from './tools/shellbook';
 import type { PluginApi, PluginConfig, ToolDefinition } from './types';
 
 // Re-export skill types for skill package authors
@@ -121,7 +120,6 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
   registerEscrowTools(api, config);
   registerIndexerTools(api, config);
   registerA2ATools(api, config);
-  registerShellbookTools(api);
 
   if (!hasCredentials) {
     console.log('[xpr-agents] Read-only mode: XPR_PRIVATE_KEY and XPR_ACCOUNT not set. Write tools will fail.');
