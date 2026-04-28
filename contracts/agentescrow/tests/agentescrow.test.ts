@@ -49,6 +49,22 @@ const getAllBids = () => {
   return agentescrow.tables.bids(nameToBigInt('agentescrow')).getTableRows();
 };
 
+const getAllJobs = () => {
+  return agentescrow.tables.jobs(nameToBigInt('agentescrow')).getTableRows();
+};
+
+const getAllMilestones = () => {
+  return agentescrow.tables.milestones(nameToBigInt('agentescrow')).getTableRows();
+};
+
+const getAllDisputes = () => {
+  return agentescrow.tables.disputes(nameToBigInt('agentescrow')).getTableRows();
+};
+
+const getJobEvidence = (jobId: number) => {
+  return agentescrow.tables.jobevidence(nameToBigInt('agentescrow')).getTableRow(BigInt(jobId));
+};
+
 /* Setup helpers */
 const initAll = async () => {
   // Create XPR token — do NOT mint to agentescrow (transfer handler rejects bad memos)
@@ -972,6 +988,147 @@ describe('agentescrow', () => {
         ]).send('agent1@active'),
         protonAssert('Contract is paused')
       );
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
+  /*  removejob (admin cleanup)                                          */
+  /* ------------------------------------------------------------------ */
+  describe('removejob', () => {
+    beforeEach(async () => {
+      await initAll();
+      await registerArbitrator('arbitrator1');
+    });
+
+    const completeJob = async () => {
+      await createAndFundJob();
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://evidence']).send('agent1@active');
+      await agentescrow.actions.approve(['client', 0]).send('client@active');
+    };
+
+    const cancelJob = async () => {
+      await createAndFundJob();
+      await agentescrow.actions.cancel(['client', 0]).send('client@active');
+    };
+
+    it('should remove a completed job (state 6)', async () => {
+      await completeJob();
+      expect(getJob(0)).to.not.be.undefined;
+      expect(getJob(0).state).to.equal(6);
+
+      await agentescrow.actions.removejob([0]).send('owner@active');
+      expect(getJob(0)).to.be.undefined;
+    });
+
+    it('should remove a refunded job (state 7)', async () => {
+      await cancelJob();
+      expect(getJob(0)).to.not.be.undefined;
+      expect(getJob(0).state).to.equal(7);
+
+      await agentescrow.actions.removejob([0]).send('owner@active');
+      expect(getJob(0)).to.be.undefined;
+    });
+
+    it('should remove an arbitrated job (state 8)', async () => {
+      await createAndFundJob();
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.dispute(['client', 0, 'Bad work', 'ipfs://proof']).send('client@active');
+      await agentescrow.actions.arbitrate(['arbitrator1', 0, 100, 'Client wins']).send('arbitrator1@active');
+      expect(getJob(0).state).to.equal(8);
+
+      await agentescrow.actions.removejob([0]).send('owner@active');
+      expect(getJob(0)).to.be.undefined;
+    });
+
+    it('should reject non-owner auth', async () => {
+      await completeJob();
+
+      await expectToThrow(
+        agentescrow.actions.removejob([0]).send('client@active'),
+        'missing required authority owner'
+      );
+    });
+
+    it('should remove unfunded job (state 0)', async () => {
+      const deadline = Math.floor(Date.now() / 1000) + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Test Job', 'Test description', '["deliverable1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'hash'
+      ]).send('client@active');
+      expect(getJob(0)).to.not.be.undefined;
+
+      await agentescrow.actions.removejob([0]).send('owner@active');
+      expect(getJob(0)).to.be.undefined;
+    });
+
+    it('should remove funded job and refund client (state 1)', async () => {
+      await createAndFundJob();
+      expect(getJob(0).state).to.equal(1);
+
+      await agentescrow.actions.removejob([0]).send('owner@active');
+      expect(getJob(0)).to.be.undefined;
+    });
+
+    it('should remove in-progress job and refund client (state 3)', async () => {
+      await createAndFundJob();
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      expect(getJob(0).state).to.equal(3);
+
+      await agentescrow.actions.removejob([0]).send('owner@active');
+      expect(getJob(0)).to.be.undefined;
+    });
+
+    it('should reject non-existent job', async () => {
+      await expectToThrow(
+        agentescrow.actions.removejob([999]).send('owner@active'),
+        protonAssert('Job not found')
+      );
+    });
+
+    it('should clean up milestones', async () => {
+      // Create unfunded job, add milestones, then cancel
+      const deadline = Math.floor(Date.now() / 1000) + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Test Job', 'Test description', '["deliverable1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'hash'
+      ]).send('client@active');
+      await agentescrow.actions.addmilestone(['client', 0, 'M1', 'First milestone', 500000, 1]).send('client@active');
+      await agentescrow.actions.addmilestone(['client', 0, 'M2', 'Second milestone', 500000, 2]).send('client@active');
+      expect(getAllMilestones().length).to.equal(2);
+
+      // Cancel (state 0 → 7), cancel cleans milestones too
+      await agentescrow.actions.cancel(['client', 0]).send('client@active');
+
+      await agentescrow.actions.removejob([0]).send('owner@active');
+      expect(getJob(0)).to.be.undefined;
+      expect(getAllMilestones().length).to.equal(0);
+    });
+
+    it('should clean up job evidence', async () => {
+      await completeJob();
+      // completeJob calls deliver which stores evidence
+      expect(getJobEvidence(0)).to.not.be.undefined;
+
+      await agentescrow.actions.removejob([0]).send('owner@active');
+      expect(getJob(0)).to.be.undefined;
+      expect(getJobEvidence(0)).to.be.undefined;
+    });
+
+    it('should clean up disputes', async () => {
+      await createAndFundJob();
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.dispute(['client', 0, 'Bad work', 'ipfs://proof']).send('client@active');
+      await agentescrow.actions.arbitrate(['arbitrator1', 0, 100, 'Client wins']).send('arbitrator1@active');
+      expect(getAllDisputes().length).to.equal(1);
+
+      await agentescrow.actions.removejob([0]).send('owner@active');
+      expect(getJob(0)).to.be.undefined;
+      expect(getAllDisputes().length).to.equal(0);
     });
   });
 });

@@ -13,27 +13,57 @@ const agentcore = blockchain.createContract('agentcore', 'assembly/target/agentc
 // eosio.token for claim deposits
 const eosioToken = blockchain.createContract('eosio.token', 'node_modules/proton-tsc/external/eosio.token/eosio.token');
 
-// eosio.proton mock for KYC data — needs both ABI + wasm for table accessors to work
+// eosio.proton mock for KYC data — needs both ABI + wasm for table accessors to work.
+// Schema must match the actual eosio.proton::usersinfo table: aacts/ac are tuple
+// arrays, kyc is kyc_prov[] (NOT u8[]). The contract reads these via @table(noabigen)
+// — positional binary serialization, so types must match exactly.
 const USERSINFO_ABI = {
   version: 'eosio::abi/1.1',
   types: [],
-  structs: [{
-    name: 'usersinfo',
-    base: '',
-    fields: [
-      { name: 'acc', type: 'name' },
-      { name: 'name', type: 'string' },
-      { name: 'avatar', type: 'string' },
-      { name: 'verified', type: 'uint8' },
-      { name: 'date', type: 'uint64' },
-      { name: 'verifiedon', type: 'uint64' },
-      { name: 'verifier', type: 'name' },
-      { name: 'raccs', type: 'name[]' },
-      { name: 'aacts', type: 'string[]' },
-      { name: 'ac', type: 'uint64[]' },
-      { name: 'kyc', type: 'uint8[]' },
-    ],
-  }],
+  structs: [
+    {
+      name: 'tuple_name_name',
+      base: '',
+      fields: [
+        { name: 'first', type: 'name' },
+        { name: 'second', type: 'name' },
+      ],
+    },
+    {
+      name: 'tuple_name_string',
+      base: '',
+      fields: [
+        { name: 'first', type: 'name' },
+        { name: 'second', type: 'string' },
+      ],
+    },
+    {
+      name: 'kyc_prov',
+      base: '',
+      fields: [
+        { name: 'kyc_provider', type: 'name' },
+        { name: 'kyc_level', type: 'string' },
+        { name: 'kyc_date', type: 'uint64' },
+      ],
+    },
+    {
+      name: 'usersinfo',
+      base: '',
+      fields: [
+        { name: 'acc', type: 'name' },
+        { name: 'name', type: 'string' },
+        { name: 'avatar', type: 'string' },
+        { name: 'verified', type: 'uint8' },
+        { name: 'date', type: 'uint64' },
+        { name: 'verifiedon', type: 'uint64' },
+        { name: 'verifier', type: 'name' },
+        { name: 'raccs', type: 'name[]' },
+        { name: 'aacts', type: 'tuple_name_name[]' },
+        { name: 'ac', type: 'tuple_name_string[]' },
+        { name: 'kyc', type: 'kyc_prov[]' },
+      ],
+    },
+  ],
   actions: [],
   tables: [{
     name: 'usersinfo',
@@ -85,9 +115,15 @@ const validReg = (account: string) => [
   '["chat","compute"]',
 ];
 
-/* Set KYC level for an account in eosio.proton::usersinfo */
+/* Set KYC level for an account in eosio.proton::usersinfo.
+ * The contract derives the numeric level from the comma-separated claims
+ * string in `kyc_level`: 0 claims → 0, 1-2 → 1, 3-4 → 2, 5+ → 3. The helper
+ * generates a claim string with the right number of commas for each level. */
 const setKyc = (account: string, kycLevel: number) => {
   const scope = nameToBigInt('eosio.proton');
+  // Build a comma-separated claims string matching contract's tier logic
+  const claimCount = kycLevel === 0 ? 0 : kycLevel === 1 ? 1 : kycLevel === 2 ? 3 : 5;
+  const claims = Array(claimCount).fill('metal.kyc:claim').join(',');
   eosioProton.tables.usersinfo(scope).set(nameToBigInt(account), 'eosio.proton' as any, {
     acc: account,
     name: '',
@@ -99,7 +135,7 @@ const setKyc = (account: string, kycLevel: number) => {
     raccs: [],
     aacts: [],
     ac: [],
-    kyc: kycLevel > 0 ? [kycLevel] : [],
+    kyc: kycLevel > 0 ? [{ kyc_provider: 'metal.kyc', kyc_level: claims, kyc_date: 0 }] : [],
   });
 };
 
@@ -873,6 +909,52 @@ describe('agentcore', () => {
         ]).send('alice@active'),
         protonAssert('Protocol must be: http, https, grpc, websocket, mqtt, or wss')
       );
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
+  /*  removeagent (admin removal)                                        */
+  /* ------------------------------------------------------------------ */
+  describe('removeagent', () => {
+    beforeEach(async () => {
+      await agentcore.actions.init(['owner', 0, 100000, '', '', '']).send('agentcore@active');
+    });
+
+    it('should remove an agent', async () => {
+      await agentcore.actions.register(validReg('alice')).send('alice@active');
+      expect(getAgent('alice')).to.not.be.undefined;
+
+      await agentcore.actions.removeagent(['alice']).send('owner@active');
+      expect(getAgent('alice')).to.be.undefined;
+    });
+
+    it('should reject non-owner auth', async () => {
+      await agentcore.actions.register(validReg('alice')).send('alice@active');
+
+      await expectToThrow(
+        agentcore.actions.removeagent(['alice']).send('alice@active'),
+        'missing required authority owner'
+      );
+    });
+
+    it('should reject non-existent agent', async () => {
+      await expectToThrow(
+        agentcore.actions.removeagent(['alice']).send('owner@active'),
+        protonAssert('Agent not found')
+      );
+    });
+
+    it('should clean up agent plugins', async () => {
+      await agentcore.actions.register(validReg('alice')).send('alice@active');
+
+      // Register a plugin and add it to the agent
+      await agentcore.actions.regplugin(['alice', 'TestPlugin', '1.0.0', 'plugcon', 'execute', '{}', 'compute']).send('alice@active');
+      await agentcore.actions.addplugin(['alice', 0, '{"key":"val"}']).send('alice@active');
+      expect(getAgentPlugin(0)).to.not.be.undefined;
+
+      await agentcore.actions.removeagent(['alice']).send('owner@active');
+      expect(getAgent('alice')).to.be.undefined;
+      expect(getAgentPlugin(0)).to.be.undefined;
     });
   });
 });
