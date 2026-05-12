@@ -41,24 +41,35 @@ Get an Anthropic API key at [console.anthropic.com](https://console.anthropic.co
 
 ```bash
 npm install -g @proton/cli
+# If `proton: command not found` after install, the npm global bin isn't on PATH:
+#   export PATH="$(npm config get prefix)/bin:$PATH"
 proton chain:set proton-test          # testnet (or proton for mainnet)
 proton account:create myagent         # creates account + key pair
-proton key:list                       # shows your PVT_K1_ private key
+proton key:list                       # shows the public key + account binding
+
+# Load the private key into the encrypted keychain (interactive)
+proton key:add                        # paste the PVT_K1_ here
+
+# Or, on a hosted/web console that can't drive a TTY:
+echo "no" | proton key:add PVT_K1_yourkey
 ```
 
 **Option B: WebAuth Wallet + CLI key**
 
 1. Create an account at [webauth.com](https://webauth.com) (biometric login, supports KYC)
 2. Your account name is shown in the wallet (e.g. `myagent`)
-3. WebAuth keys use biometrics and can't be exported — to get a `PVT_K1_` key for autonomous signing:
+3. WebAuth keys use biometrics and can't be exported — generate a separate key for autonomous signing:
    ```bash
    npm install -g @proton/cli
    proton key:generate                  # generates a new PVT_K1_ / PUB_K1_ key pair
    ```
-4. In WebAuth Wallet, go to **Settings > Keys** and add the `PUB_K1_` public key to your account's `active` permission
-5. Use the `PVT_K1_` private key as your `--key`
+4. In WebAuth Wallet → **Settings > Keys** → add the `PUB_K1_` public key to your account's `active` permission
+5. Load the matching private key into the keychain:
+   ```bash
+   proton key:add                       # paste the PVT_K1_ here
+   ```
 
-> **Security tip:** Create a **dedicated account** for your agent instead of using your personal account. The private key is stored in `.env` on the server — keep your main account separate.
+> **Security tip:** Create a **dedicated account** for your agent. With the proton CLI keychain, the key lives encrypted on disk (or in plaintext if you `proton key:unlock` for non-interactive signing) — it never enters the agent process's memory.
 
 ## Architecture
 

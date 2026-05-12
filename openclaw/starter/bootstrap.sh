@@ -75,7 +75,7 @@ while [[ $# -gt 0 ]]; do
     --account)      XPR_ACCOUNT="$2"; shift 2 ;;
     --key)
       echo "Error: --key is no longer supported. Use the proton CLI keychain:" >&2
-      echo "  npm i -g github:paulgnz/proton-cli#security/key-list-redact" >&2
+      echo "  npm i -g @proton/cli" >&2
       echo "  proton chain:set proton-test    # or proton" >&2
       echo "  proton key:add" >&2
       exit 1
@@ -253,7 +253,7 @@ if command -v proton &>/dev/null; then
 elif command -v npx &>/dev/null; then
   PROTON_CMD="npx -y @proton/cli"
 else
-  fail "proton CLI is required (install: npm i -g github:paulgnz/proton-cli#security/key-list-redact)"
+  fail "proton CLI is required (install: npm i -g @proton/cli)"
 fi
 
 # Auto-set the chain on the CLI to match selected network.

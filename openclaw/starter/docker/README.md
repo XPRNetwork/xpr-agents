@@ -48,7 +48,7 @@ That makes your host's keychain readable from inside the container. The agent's 
 If you previously set `XPR_PRIVATE_KEY` in `.env` for Docker:
 
 1. Remove the line entirely.
-2. Install proton CLI on the host: `npm i -g github:paulgnz/proton-cli#security/key-list-redact`
+2. Install proton CLI on the host: `npm i -g @proton/cli`
 3. `proton key:add` (paste your key — stored encrypted on host).
 4. Add the volume mount above to the compose file.
 5. Restart the stack.

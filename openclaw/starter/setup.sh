@@ -48,7 +48,7 @@ ${BOLD}SIGNING KEY:${NC}
     the proton CLI, which holds keys in an encrypted keychain.
 
     One-time setup before running this script:
-        npm i -g github:paulgnz/proton-cli#security/key-list-redact
+        npm i -g @proton/cli
         proton chain:set proton           # or proton-test
         proton key:add                    # paste your key (stored encrypted)
 
@@ -77,7 +77,7 @@ while [[ $# -gt 0 ]]; do
     --key)
       echo -e "${RED}--key is no longer supported.${NC}" >&2
       echo "Use the proton CLI keychain instead:" >&2
-      echo "  npm i -g github:paulgnz/proton-cli#security/key-list-redact" >&2
+      echo "  npm i -g @proton/cli" >&2
       echo "  proton chain:set proton    # or proton-test" >&2
       echo "  proton key:add" >&2
       exit 1
@@ -205,7 +205,7 @@ success "API key: set"
 log "Checking proton CLI keychain..."
 if ! command -v proton &>/dev/null; then
   warn "proton CLI not installed. Install before running the agent:"
-  echo "    npm i -g github:paulgnz/proton-cli#security/key-list-redact"
+  echo "    npm i -g @proton/cli"
   echo "    proton chain:set proton    # or proton-test"
   echo "    proton key:add"
   if [ "$NON_INTERACTIVE" = false ]; then

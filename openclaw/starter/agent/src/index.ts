@@ -63,7 +63,7 @@ if (process.env.XPR_PRIVATE_KEY) {
   console.error('');
   console.error('  Migration:');
   console.error('    1. Install the hardened proton CLI:');
-  console.error('         npm i -g github:paulgnz/proton-cli#security/key-list-redact');
+  console.error('         npm i -g @proton/cli');
   console.error('    2. Add your blockchain key to the encrypted keychain:');
   console.error('         proton chain:set proton   # or proton-test');
   console.error('         proton key:add');
@@ -101,7 +101,7 @@ import('@xpr-agents/openclaw').then(({ checkProtonCli, checkKeychainPopulated })
   Promise.all([checkProtonCli(), checkKeychainPopulated()]).then(([cliOk, keyOk]) => {
     if (!cliOk) {
       console.warn('[agent] proton CLI not found in PATH. Signing actions will fail until installed:');
-      console.warn('         npm i -g github:paulgnz/proton-cli#security/key-list-redact');
+      console.warn('         npm i -g @proton/cli');
     } else if (!keyOk) {
       console.warn('[agent] proton CLI keychain is empty. Signing actions will fail until a key is added:');
       console.warn('         proton key:add');
