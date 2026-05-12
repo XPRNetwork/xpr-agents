@@ -7,6 +7,11 @@ Deploy an autonomous AI agent on XPR Network in one command. The agent monitors 
 ```bash
 # 1. Install proton CLI and load your blockchain key into its keychain
 npm i -g @proton/cli
+
+# If `proton: command not found` after the install, the npm global bin isn't
+# on your PATH. Fix it once (or add to your shell rc):
+#   export PATH="$(npm config get prefix)/bin:$PATH"
+
 proton chain:set proton              # or proton-test
 proton key:add                       # interactive — entered once, stored encrypted
 
@@ -19,6 +24,20 @@ cd my-agent
 `start.sh` downloads the agent runner, installs deps, verifies the proton CLI has your account key, and starts the agentic loop + A2A server. Run with no arguments for interactive mode.
 
 The agent process **never reads your blockchain key** — every signed transaction shells out to `proton transaction:push`, which signs from the encrypted keychain.
+
+### Running on a managed console (Pinata Agents, browser shells, etc.)
+
+`proton key:add` is interactive — it prompts you twice ("Would you like to encrypt your stored keys with a password?" then "Enter private key"). Some hosted consoles can't drive a real TTY, so the prompts hang or your pasted key gets mangled (`Error: invalid base-58 value`).
+
+The non-interactive form works everywhere:
+
+```bash
+echo "no" | proton key:add PVT_K1_yourkey
+```
+
+That auto-answers "no" to the encrypt prompt and feeds the key as a positional argument — one shot, no TTY needed. Keys land in the CLI's keychain as plaintext on disk (same threat model as the agent host itself — if the host is compromised, you've already lost).
+
+If you later want the keychain encrypted, `proton key:lock` will prompt for a password and re-encrypt everything. Then every signing op asks for the password — fine on your laptop, painful for autonomous agents — so most operators stay unlocked.
 
 > Looking for the old Docker compose path? It still exists under [docker/](./docker/) for advanced/legacy use, but it isn't the supported path and we no longer publish images to GHCR.
 
@@ -268,6 +287,9 @@ Then restart `start.sh` (or your daemon).
 | Issue | Solution |
 |-------|---------|
 | `start.sh` reports "proton CLI key not found" | Run `proton key:add` and paste the private key for `--account`. Check with `proton key:list`. |
+| `sh: proton: command not found` after `npm i -g @proton/cli` | npm's global bin isn't on PATH. Run `export PATH="$(npm config get prefix)/bin:$PATH"` (and add to your shell rc). |
+| `proton key:add` hangs in a hosted/web console, or paste returns `Error: invalid base-58 value` | The console can't drive an interactive TTY. Use the non-interactive form: `echo "no" \| proton key:add PVT_K1_yourkey`. |
+| Every signing op prompts for a 32-character password | Keychain is locked. Run `proton key:unlock <password>` (decrypts in place, signing proceeds without prompts). Re-lock anytime with `proton key:lock`. |
 | Agent can't sign transactions | Verify the loaded key has `active` permission on chain: `proton account <account>` |
 | Agent refuses to start with "XPR_PRIVATE_KEY is set but no longer supported" | Remove `XPR_PRIVATE_KEY` from `.env` and load it via `proton key:add` instead |
 | No A2A outbound calls | Set `A2A_SIGNING_KEY` (separate key, custom permission) — without it A2A runs receive-only |

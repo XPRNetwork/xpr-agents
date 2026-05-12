@@ -14,7 +14,7 @@ set -euo pipefail
 # This script does NOT take a private key. All signing is done by the
 # proton CLI (which holds keys in an encrypted keychain). Set up once:
 #
-#   npm i -g github:paulgnz/proton-cli#security/key-list-redact
+#   npm i -g @proton/cli
 #   proton chain:set proton           # or proton-test
 #   proton key:add                    # paste private key (stored encrypted)
 #
@@ -58,7 +58,7 @@ while [[ $# -gt 0 ]]; do
     --account) XPR_ACCOUNT="$2"; shift 2 ;;
     --key)
       err "--key is no longer supported. Use proton CLI keychain instead:"
-      echo "  npm i -g github:paulgnz/proton-cli#security/key-list-redact"
+      echo "  npm i -g @proton/cli"
       echo "  proton chain:set proton    # or proton-test"
       echo "  proton key:add"
       exit 1
@@ -140,7 +140,7 @@ fi
 # ── Verify proton CLI has a key in keychain ────
 if ! command -v proton &>/dev/null; then
   err "proton CLI is not installed. Signing actions will fail."
-  echo "  Install:  npm i -g github:paulgnz/proton-cli#security/key-list-redact"
+  echo "  Install:  npm i -g @proton/cli"
   echo ""
   warn "Continuing in best-effort mode — agent will boot but cannot sign."
 elif ! proton key:list 2>/dev/null | grep -q "publicKey"; then

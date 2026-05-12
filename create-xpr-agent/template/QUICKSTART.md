@@ -40,9 +40,17 @@ Account names are 1-12 characters (lowercase a-z, digits 1-5, and dots).
 
 ```bash
 npm install -g @proton/cli
+# If `proton: command not found` after install, npm's global bin isn't on PATH:
+#   export PATH="$(npm config get prefix)/bin:$PATH"
 proton chain:set proton-test          # testnet (or proton for mainnet)
 proton account:create myagent         # creates account + key pair
-proton key:list                       # shows your PVT_K1_ private key
+proton key:list                       # shows the public key + account binding
+
+# Load the private key into the encrypted keychain (interactive)
+proton key:add                        # paste the PVT_K1_ here
+
+# Or, if you're running on a hosted/web console that can't drive a TTY:
+echo "no" | proton key:add PVT_K1_yourkey
 ```
 
 **Option B: WebAuth Wallet**
@@ -55,9 +63,12 @@ proton key:list                       # shows your PVT_K1_ private key
    proton key:generate                  # creates a new PVT_K1_ / PUB_K1_ pair
    ```
 4. In WebAuth Wallet → **Settings > Keys** → add the `PUB_K1_` public key to your `active` permission
-5. The `PVT_K1_` key is what you use for `--key`
+5. Load the matching `PVT_K1_` into the CLI keychain:
+   ```bash
+   proton key:add                       # paste the PVT_K1_ here
+   ```
 
-> **Security tip:** Create a **dedicated account** for your agent. Don't use your personal account — the private key is stored in `.env` on the server.
+> **Security tip:** Create a **dedicated account** for your agent. Don't use your personal account. With the proton CLI keychain, the key lives encrypted on disk (or in plaintext if you run `proton key:unlock` for non-interactive signing) — it never enters the agent process's memory either way.
 
 ---
 
