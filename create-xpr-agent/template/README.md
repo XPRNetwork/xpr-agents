@@ -1,75 +1,96 @@
-# XPR Agent Operator
+# XPR Agent Operator — Starter Kit
 
 Deploy an autonomous AI agent on XPR Network in one command. The agent monitors blockchain events and autonomously manages jobs, reputation, and disputes.
 
 ## Quick Start
 
-**Option A — Node.js only (no Docker needed):**
-
 ```bash
-./start.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx
+# 1. Install proton CLI and load your blockchain key into its keychain
+npm i -g @proton/cli
+
+# If `proton: command not found` after the install, the npm global bin isn't
+# on your PATH. Fix it once (or add to your shell rc):
+#   export PATH="$(npm config get prefix)/bin:$PATH"
+
+proton chain:set proton              # or proton-test
+proton key:add                       # interactive — entered once, stored encrypted
+
+# 2. Bootstrap the agent
+npx create-xpr-agent my-agent
+cd my-agent
+./start.sh --account myagent --api-key sk-ant-xxx
 ```
 
-Downloads the agent runner, installs deps, and starts polling the chain. Just needs Node.js 18+.
+`start.sh` downloads the agent runner, installs deps, verifies the proton CLI has your account key, and starts the agentic loop + A2A server. Run with no arguments for interactive mode.
 
-**Option B — Docker (includes indexer for real-time events):**
+The agent process **never reads your blockchain key** — every signed transaction shells out to `proton transaction:push`, which signs from the encrypted keychain.
+
+### Running on a managed console (Pinata Agents, browser shells, etc.)
+
+`proton key:add` is interactive — it prompts you twice ("Would you like to encrypt your stored keys with a password?" then "Enter private key"). Some hosted consoles can't drive a real TTY, so the prompts hang or your pasted key gets mangled (`Error: invalid base-58 value`).
+
+The non-interactive form works everywhere:
 
 ```bash
-./setup.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx --network testnet
+echo "no" | proton key:add PVT_K1_yourkey
 ```
 
-Pulls Docker images, starts the indexer + agent, and registers webhooks.
+That auto-answers "no" to the encrypt prompt and feeds the key as a positional argument — one shot, no TTY needed. Keys land in the CLI's keychain as plaintext on disk (same threat model as the agent host itself — if the host is compromised, you've already lost).
 
-Both scripts also support **interactive mode** — run with no arguments and follow the prompts.
+If you later want the keychain encrypted, `proton key:lock` will prompt for a password and re-encrypt everything. Then every signing op asks for the password — fine on your laptop, painful for autonomous agents — so most operators stay unlocked.
+
+> Looking for the old Docker compose path? It still exists under [docker/](./docker/) for advanced/legacy use, but it isn't the supported path and we no longer publish images to GHCR.
+
+## Security: Use a Dedicated Account
+
+> **This project is in beta.** Create a **fresh XPR account** for your agent at [webauth.com](https://webauth.com) instead of using your main personal account.
+>
+> - **Never put your main account's private key in a `.env` file.** The starter kit doesn't read keys from env at all — they live in the proton CLI's encrypted keychain and the agent shells out to sign.
+> - The agent account does NOT need KYC — use the **claim** system to link your KYC'd main account
+> - Stake 10,000 XPR from any account to the agent account for the full trust bonus
+> - If anything goes wrong, only the dedicated agent account is exposed
 
 ## Prerequisites
 
-- **Node.js 18+** (for `start.sh`) or **Docker** (for `setup.sh`)
-- The three required flags explained:
+- **Node.js 18+**
+- **proton CLI** with your account's active key loaded (`proton key:add`)
+- The two required flags:
 
 | Flag | What it is | Example |
 |------|-----------|---------|
 | `--account` | Your XPR Network account name (1-12 chars: a-z, 1-5, dots) | `myagent` |
-| `--key` | Your account's private key for signing transactions | `PVT_K1_2bfG...` |
 | `--api-key` | Anthropic API key for Claude AI | `sk-ant-api03-...` |
 
-Get an Anthropic API key at [console.anthropic.com](https://console.anthropic.com).
+Get an Anthropic API key at [console.anthropic.com](https://console.anthropic.com). The agent's signing key is **not** passed via CLI — `start.sh` calls `proton key:list` at boot to verify your account has a key in the keychain.
 
-### Creating an Account & Getting Your Private Key
+### Creating an Account & Loading the Signing Key
 
-**Option A: Proton CLI (recommended — gives you a private key directly)**
+**Option A: Proton CLI (recommended)**
 
 ```bash
 npm install -g @proton/cli
-# If `proton: command not found` after install, the npm global bin isn't on PATH:
-#   export PATH="$(npm config get prefix)/bin:$PATH"
 proton chain:set proton-test          # testnet (or proton for mainnet)
 proton account:create myagent         # creates account + key pair
-proton key:list                       # shows the public key + account binding
-
-# Load the private key into the encrypted keychain (interactive)
-proton key:add                        # paste the PVT_K1_ here
-
-# Or, on a hosted/web console that can't drive a TTY:
-echo "no" | proton key:add PVT_K1_yourkey
+proton key:add                        # paste the private key — stored encrypted
 ```
 
-**Option B: WebAuth Wallet + CLI key**
+The key now lives in the proton CLI's encrypted keychain. The agent will shell out to `proton transaction:push` for every signed action — the key never enters the agent process's memory.
+
+**Option B: WebAuth Wallet + a separate signing key**
 
 1. Create an account at [webauth.com](https://webauth.com) (biometric login, supports KYC)
-2. Your account name is shown in the wallet (e.g. `myagent`)
-3. WebAuth keys use biometrics and can't be exported — generate a separate key for autonomous signing:
+2. WebAuth keys can't be exported. Generate a new key for autonomous signing:
    ```bash
    npm install -g @proton/cli
    proton key:generate                  # generates a new PVT_K1_ / PUB_K1_ key pair
    ```
-4. In WebAuth Wallet → **Settings > Keys** → add the `PUB_K1_` public key to your account's `active` permission
-5. Load the matching private key into the keychain:
+3. In WebAuth Wallet, go to **Settings > Keys** and add the `PUB_K1_` public key to your account's `active` permission
+4. Load the matching private key into the CLI keychain:
    ```bash
    proton key:add                       # paste the PVT_K1_ here
    ```
 
-> **Security tip:** Create a **dedicated account** for your agent. With the proton CLI keychain, the key lives encrypted on disk (or in plaintext if you `proton key:unlock` for non-interactive signing) — it never enters the agent process's memory.
+> **Security tip:** Create a **dedicated account** for the agent. With the proton CLI keychain, the chain key never enters your `.env` file or the agent process — even if the agent is fully compromised, the attacker cannot leak the key directly.
 
 ## Architecture
 
@@ -105,66 +126,37 @@ echo "no" | proton key:add PVT_K1_yourkey
 
 ## Setup Options
 
-### start.sh (Node.js only)
+### start.sh
 
 ```
 ./start.sh [OPTIONS]
 
 OPTIONS:
     --account <name>      XPR Network account name (required)
-    --key <private_key>   Account private key (required)
     --api-key <key>       Anthropic API key (required)
-    --network <net>       Network: testnet (default) or mainnet
+    --network <net>       Network: mainnet (default) or testnet
     --model <model>       Claude model (default: claude-sonnet-4-6)
     --poll-interval <n>   Seconds between chain polls (default: 30)
     --rpc <url>           Custom RPC endpoint
 ```
 
-### setup.sh (Docker)
+The signing key is **not** a flag — `start.sh` checks that `proton key:list` shows a key for `--account` before booting. If your key isn't loaded, it tells you to run `proton key:add`.
 
-```
-./setup.sh [OPTIONS]
+### Docker (legacy)
 
-OPTIONS:
-    --account <name>      XPR Network account name (required)
-    --key <private_key>   Account private key (required)
-    --api-key <key>       Anthropic API key (required)
-    --network <net>       Network: testnet (default) or mainnet
-    --model <model>       Claude model (default: claude-sonnet-4-6)
-    --max-amount <n>      Max XPR transfer in smallest units (default: 1000000)
-    --non-interactive     Skip all prompts (requires all flags)
-    --skip-build          Skip Docker build (use existing images)
-    --help                Show this help
-```
+The docker-compose configs under [docker/](./docker/) still work but are unsupported and don't get pre-built images anymore. See [docker/README.md](./docker/README.md) if you really need that path.
 
 ## Configuration
 
 ### Environment Variables
 
-All configuration is stored in `.env` (auto-generated by `setup.sh`). To update any setting after initial setup, edit `.env` directly and restart:
-
-```bash
-# Edit configuration
-nano .env    # or vim, code, etc.
-
-# Apply changes
-docker compose restart
-```
-
-See `.env.example` for all available variables with descriptions. Key optional integrations:
-
-- `PINATA_JWT` — IPFS uploads for deliverables
-- `GITHUB_TOKEN` + `GITHUB_OWNER` — code repo deliverables
-- `REPLICATE_API_TOKEN` — AI image/video generation
-- `TELEGRAM_BOT_TOKEN` — Telegram bridge (`docker compose --profile telegram up -d`)
-
-Full variable reference:
+All configuration is stored in `.env` (auto-generated by `start.sh`). **There is no `XPR_PRIVATE_KEY` env var** — the agent shells out to the proton CLI keychain for every signature. If you set `XPR_PRIVATE_KEY`, the agent refuses to start with a migration message.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `XPR_ACCOUNT` | Yes | — | Agent account name |
-| `XPR_PRIVATE_KEY` | Yes | — | Account private key |
+| `XPR_ACCOUNT` | Yes | — | Agent account name (proton CLI must have its key loaded) |
 | `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key |
+| `A2A_SIGNING_KEY` | No | — | Separate EOSIO key for outbound A2A signatures (limited blast radius — register on a custom permission with no powers). If unset, A2A runs receive-only. |
 | `XPR_NETWORK` | No | `testnet` | Network (testnet/mainnet) |
 | `XPR_RPC_ENDPOINT` | No | testnet RPC | Chain RPC endpoint |
 | `HYPERION_ENDPOINTS` | No | testnet Hyperion | Hyperion stream endpoint |
@@ -245,15 +237,12 @@ A2A_TOOL_MODE=readonly
 ## Operations
 
 ```bash
-# View all logs
-docker compose logs -f
+# Tail agent logs (start.sh runs in foreground; for daemonized setups,
+# write the stdout to a file via your launchd/systemd unit and tail it)
+tail -f logs/agent.out.log
 
-# Agent logs only
-docker compose logs -f agent
-
-# Health checks
-curl http://localhost:3001/health   # Indexer
-curl http://localhost:8080/health   # Agent
+# Health check
+curl http://localhost:8080/health
 
 # Manually trigger the agent (requires auth token from .env)
 source .env
@@ -262,51 +251,46 @@ curl -X POST http://localhost:8080/run \
   -H "Authorization: Bearer $OPENCLAW_HOOK_TOKEN" \
   -d '{"prompt": "Check my trust score and list any pending jobs"}'
 
-# List webhook subscriptions
-source .env
-curl -H "Authorization: Bearer $WEBHOOK_ADMIN_TOKEN" http://localhost:3001/api/webhooks
-
 # Restart
-docker compose restart
-
-# Stop
-docker compose down
-
-# Stop and remove data
-docker compose down -v
+# (no docker compose — kill the start.sh process and re-run, or
+#  restart your launchd/systemd unit)
 ```
 
 ## Switching to Mainnet
 
-```bash
-# Stop current deployment
-docker compose down
-
-# Re-run setup with mainnet flag
-./setup.sh --network mainnet --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx
-```
-
-Or edit `.env` manually:
+Edit `.env`:
 ```env
 XPR_NETWORK=mainnet
 XPR_RPC_ENDPOINT=https://proton.eosusa.io
-HYPERION_ENDPOINTS=https://proton.eosusa.io
+INDEXER_URL=https://indexer.xpragents.com
 ```
-Then restart: `docker compose up -d`
+
+Make sure proton CLI is on the right chain too:
+```bash
+proton chain:set proton              # mainnet
+proton key:list                      # confirm the mainnet key is loaded
+```
+
+Then restart `start.sh` (or your daemon).
 
 ## Safety
 
-- **Private key** is only stored in `.env` (never committed or logged)
-- **Confirmation gates** are disabled in autonomous mode — the `MAX_TRANSFER_AMOUNT` env var limits per-transaction exposure
-- **Webhook tokens** are auto-generated with 256-bit entropy
-- The agent runs in Docker with no host network access beyond the exposed ports
+- **No chain key in process.** Every signed transaction shells out to `proton transaction:push`, which signs from the encrypted keychain. Leaking the agent's RAM cannot leak the chain key.
+- **Boot-time refusal of legacy `XPR_PRIVATE_KEY`** — if the env var is set, the agent prints a migration message and exits. Hard cutover, no silent fallback.
+- **Confirmation gates** are disabled in autonomous mode — the `MAX_TRANSFER_AMOUNT` env var limits per-transaction exposure.
+- **Security tripwires** scan every inbound prompt and tool result for private-key shapes (`PVT_K1_`, WIF) and proton CLI exfiltration patterns (`reveal-private`, `proton-cli.json`). Configurable via `SECURITY_ENABLED` / `SECURITY_MODE`.
+- **Webhook tokens** are auto-generated with 256-bit entropy.
+- **A2A signing** uses a separate `A2A_SIGNING_KEY` — register it on a custom permission with no powers so a leak only damages reputation, not funds.
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|---------|
-| Indexer won't start | Check Hyperion endpoint: `curl $HYPERION_ENDPOINTS/v2/health` |
-| Agent can't sign transactions | Verify private key matches account: check key permissions on chain |
-| No webhook events | Check subscription: `curl -H "Authorization: Bearer $WEBHOOK_ADMIN_TOKEN" http://localhost:3001/api/webhooks` |
-| Agent errors on tool calls | Check agent logs: `docker compose logs agent` |
-| Build fails | Ensure Docker has enough memory (4GB+ recommended) |
+| `start.sh` reports "proton CLI key not found" | Run `proton key:add` and paste the private key for `--account`. Check with `proton key:list`. |
+| `sh: proton: command not found` after `npm i -g @proton/cli` | npm's global bin isn't on PATH. Run `export PATH="$(npm config get prefix)/bin:$PATH"` (and add to your shell rc). |
+| `proton key:add` hangs in a hosted/web console, or paste returns `Error: invalid base-58 value` | The console can't drive an interactive TTY. Use the non-interactive form: `echo "no" \| proton key:add PVT_K1_yourkey`. |
+| Every signing op prompts for a 32-character password | Keychain is locked. Run `proton key:unlock <password>` (decrypts in place, signing proceeds without prompts). Re-lock anytime with `proton key:lock`. |
+| Agent can't sign transactions | Verify the loaded key has `active` permission on chain: `proton account <account>` |
+| Agent refuses to start with "XPR_PRIVATE_KEY is set but no longer supported" | Remove `XPR_PRIVATE_KEY` from `.env` and load it via `proton key:add` instead |
+| No A2A outbound calls | Set `A2A_SIGNING_KEY` (separate key, custom permission) — without it A2A runs receive-only |
+| Agent errors on tool calls | Check agent logs (`tail -f logs/agent.out.log`) — security tripwires may be blocking input/output |

@@ -138,14 +138,31 @@ if [ -z "$XPR_ACCOUNT" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
 fi
 
 # ── Verify proton CLI has a key in keychain ────
+# Detect-and-skip: if proton CLI is on PATH AND a key is already loaded,
+# we say nothing and proceed. The user only sees instructions if something
+# is missing.
 if ! command -v proton &>/dev/null; then
   err "proton CLI is not installed. Signing actions will fail."
-  echo "  Install:  npm i -g @proton/cli"
+  echo ""
+  echo "  Install + load your key (one-time setup):"
+  echo "    npm i -g @proton/cli"
+  echo "    # if 'proton: command not found' after install:"
+  echo "    #   export PATH=\"\$(npm config get prefix)/bin:\$PATH\""
+  echo "    proton chain:set proton                 # or proton-test"
+  echo "    proton key:add                          # paste PVT_K1_yourkey"
+  echo "    # On a hosted console without a real TTY:"
+  echo "    #   echo \"no\" | proton key:add PVT_K1_yourkey"
   echo ""
   warn "Continuing in best-effort mode — agent will boot but cannot sign."
-elif ! proton key:list 2>/dev/null | grep -q "publicKey"; then
-  warn "proton CLI keychain is empty. Signing actions will fail until a key is added:"
-  echo "  proton key:add"
+elif ! proton key:list 2>/dev/null | grep -q -i "${XPR_ACCOUNT}"; then
+  warn "proton CLI does not have a key registered for '${XPR_ACCOUNT}'. Signing actions will fail until one is added:"
+  echo ""
+  echo "    proton chain:set proton                 # or proton-test"
+  echo "    proton key:add                          # paste PVT_K1_yourkey"
+  echo "    # On a hosted console without a real TTY:"
+  echo "    #   echo \"no\" | proton key:add PVT_K1_yourkey"
+  echo ""
+  echo "  Then re-run ./start.sh — no other flags or env vars needed."
 fi
 
 log "Account: ${XPR_ACCOUNT}"
