@@ -507,12 +507,16 @@ CF_GATEWAY_WORKER_NAME=xpr-agent-sandbox
 
 #### Gateway Worker (CF Secrets)
 
+> **Legacy path.** The Cloudflare Worker / moltworker deployment was deprecated in favor of [Railway mode](#deploy-service-deployment) (cleaner container model, fewer cold-start bugs). The `XPR_PRIVATE_KEY` shown below only exists because the CF sandbox can't shell out to a host `proton` binary — the standalone scaffold and the Pinata harness both route signing through the proton CLI keychain and have **no** `XPR_PRIVATE_KEY` env var at all.
+
 ```bash
 # Always required
 ANTHROPIC_API_KEY=<key>
 MOLTBOT_GATEWAY_TOKEN=<openssl rand -hex 32>
 
-# Single-tenant (set per worker)
+# Single-tenant (set per worker) — legacy CF sandbox only.
+# DO NOT use these on the standalone scaffold or in a Pinata harness:
+# those agents refuse to start when XPR_PRIVATE_KEY is set.
 XPR_ACCOUNT=<agent-account>
 XPR_PRIVATE_KEY=PVT_K1_...
 XPR_OWNER_ACCOUNT=<owner-account>
