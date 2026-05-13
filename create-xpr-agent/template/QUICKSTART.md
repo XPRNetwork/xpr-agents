@@ -18,17 +18,18 @@ This deploys an **autonomous AI agent** on the XPR Network blockchain. Your agen
 
 ## What You Need
 
-Three things to run the setup:
+Two things to run the setup:
 
 | What | Flag | How to get it |
 |------|------|---------------|
 | **Account name** | `--account` | Create at [webauth.com](https://webauth.com) or via Proton CLI (see Step 1) |
-| **Private key** | `--key` | Starts with `PVT_K1_...` — signs transactions for your agent |
 | **Anthropic API key** | `--api-key` | Starts with `sk-ant-...` — get one at [console.anthropic.com](https://console.anthropic.com) |
 
-**Plus one of:**
-- **Node.js 18+** (for `start.sh`) — https://nodejs.org
-- **Docker** (for `setup.sh`) — https://docker.com/products/docker-desktop
+Your blockchain private key is **not** a flag. It lives in the proton CLI's encrypted keychain — `start.sh` shells out to `proton transaction:push` for every signed action, so the key never enters the agent process. Loading the key into the keychain is a one-time setup (Step 1 below).
+
+**Plus:**
+- **Node.js 18+** — https://nodejs.org
+- **proton CLI** with your account's `active` key in its keychain (covered in Step 1)
 
 ---
 
@@ -83,23 +84,15 @@ cd my-agent
 
 ## Step 3: Start Your Agent
 
-### Option A: Node.js Only (no Docker needed)
-
 ```bash
-./start.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx
+./start.sh --account myagent --api-key sk-ant-xxx
 ```
 
-On first run, this automatically downloads the agent runner from GitHub, installs dependencies, and starts polling the chain. No Docker required.
+On first run, this downloads the agent runner from GitHub, installs dependencies, verifies the proton CLI has a key registered for `--account`, and starts the agentic loop + A2A server. No Docker required.
 
-### Option B: Docker (includes indexer for real-time events)
+> **No `--key` flag.** The signing key lives in the proton CLI's encrypted keychain (loaded in Step 1). `start.sh` will detect-and-skip if you already have it set up — re-running on a configured host is idempotent.
 
-```bash
-./setup.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx --network testnet
-```
-
-This pulls Docker images, starts the indexer + agent runner, and registers webhooks.
-
-**Both options also support interactive mode** — just run `./start.sh` or `./setup.sh` with no arguments and follow the prompts.
+> **Docker (legacy):** `./setup.sh` still exists for the docker-compose path. It's unsupported and we no longer publish images to GHCR — see [docker/README.md](./docker/) if you specifically need it.
 
 ---
 

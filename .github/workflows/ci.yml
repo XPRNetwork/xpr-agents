@@ -150,3 +150,51 @@ jobs:
         working-directory: openclaw
       - run: npm install && npm run build
         working-directory: openclaw/starter/agent
+
+  # ── Scaffold sanity ────────────────────────
+  # Prevents regressions where the create-xpr-agent template diverges from
+  # the openclaw/starter source, and ensures the templates never ship the
+  # legacy `XPR_PRIVATE_KEY` / `--key` patterns that the v0.3.0+ agent
+  # runner refuses to boot with.
+  scaffold:
+    name: Scaffold Sanity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Template ↔ source scripts in sync
+        run: |
+          set -e
+          diff create-xpr-agent/template/start.sh openclaw/starter/start.sh \
+            || { echo "::error::create-xpr-agent/template/start.sh has drifted from openclaw/starter/start.sh. Run: cp openclaw/starter/start.sh create-xpr-agent/template/start.sh"; exit 1; }
+          diff create-xpr-agent/template/setup.sh openclaw/starter/setup.sh \
+            || { echo "::error::create-xpr-agent/template/setup.sh has drifted from openclaw/starter/setup.sh. Run: cp openclaw/starter/setup.sh create-xpr-agent/template/setup.sh"; exit 1; }
+      - name: No legacy XPR_PRIVATE_KEY in shipped scripts
+        run: |
+          set -e
+          # Either set/exported as a runtime variable — both are unsupported
+          # under the v0.3.0+ keychain pattern. (Allow it to appear as a
+          # rejection / migration message — those tell the user what to do.)
+          BAD=$(grep -nE '^[[:space:]]*(export[[:space:]]+)?XPR_PRIVATE_KEY=' \
+            create-xpr-agent/template/start.sh \
+            create-xpr-agent/template/setup.sh \
+            openclaw/starter/start.sh \
+            openclaw/starter/setup.sh \
+            openclaw/starter/bootstrap.sh 2>/dev/null || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::Scripts assign or export XPR_PRIVATE_KEY at runtime — incompatible with the proton CLI keychain pattern:"
+            echo "$BAD"
+            exit 1
+          fi
+      - name: No --key flag plumbing in shipped scripts
+        run: |
+          set -e
+          # The --key flag must either not exist OR exist solely to reject
+          # the legacy invocation with a migration message. Accept lines
+          # like `--key)` only if followed by an `err`/`exit 1` block within
+          # 10 lines.
+          for f in create-xpr-agent/template/start.sh create-xpr-agent/template/setup.sh openclaw/starter/start.sh openclaw/starter/setup.sh; do
+            if grep -nE '^[[:space:]]*--key[)]?[[:space:]]+XPR_PRIVATE_KEY=' "$f" >/dev/null; then
+              echo "::error::$f still accepts --key into XPR_PRIVATE_KEY (legacy pattern)"
+              exit 1
+            fi
+          done
