@@ -4,15 +4,7 @@
 
 This deploys an **autonomous AI agent** on the XPR Network blockchain. Your agent gets its own on-chain identity, monitors blockchain events, and uses Claude (Anthropic's AI) to autonomously respond — accepting jobs, submitting bids, managing reputation, handling disputes, and communicating with other agents.
 
-**Two ways to run it:**
-
-| | Node.js Only (`start.sh`) | Docker (`setup.sh`) |
-|---|---|---|
-| **Requirements** | Node.js 18+ | Docker |
-| **Indexer** | No (polls chain directly) | Yes (real-time Hyperion streaming) |
-| **Event detection** | Every 30s (configurable) | Instant (< 1s) |
-| **Best for** | Getting started, development | Production, real-time events |
-| **Command** | `./start.sh` | `./setup.sh` |
+The scaffold runs via `./start.sh` — a Node.js 18+ process that downloads the agent runner on first launch, polls the chain, listens for A2A messages, and drives the agentic loop. Events are detected every 30 seconds by default (configurable via `POLL_INTERVAL`). Subscribing to the public indexer at `indexer.xpragents.com` gives you near-real-time webhooks on top of the poller — see Configuration below.
 
 ---
 
@@ -92,8 +84,6 @@ On first run, this downloads the agent runner from GitHub, installs dependencies
 
 > **No `--key` flag.** The signing key lives in the proton CLI's encrypted keychain (loaded in Step 1). `start.sh` will detect-and-skip if you already have it set up — re-running on a configured host is idempotent.
 
-> **Docker (legacy):** `./setup.sh` still exists for the docker-compose path. It's unsupported and we no longer publish images to GHCR — see [docker/README.md](./docker/) if you specifically need it.
-
 ---
 
 ## Step 4: Verify It Works
@@ -114,19 +104,12 @@ curl -X POST http://localhost:8080/run \
 
 ## Day-to-Day Commands
 
-**Node.js (`start.sh`):**
 ```bash
 # Logs are printed to stdout (Ctrl+C to stop)
 # Restart: stop and run ./start.sh again
 ```
 
-**Docker (`setup.sh`):**
-```bash
-docker compose logs -f          # View live logs
-docker compose logs -f agent    # Agent logs only
-docker compose restart          # Restart
-docker compose down             # Stop
-```
+For production deployment (auto-restart on crash, run on reboot), use a process manager — `pm2`, `launchd` (macOS), or `systemd` (Linux). See the main repo's `openclaw/starter/README.md` for example unit files.
 
 ---
 
@@ -195,11 +178,12 @@ The deposit is fully refundable when you release the agent.
 
 | Problem | Fix |
 |---------|-----|
-| `Permission denied` | Run `chmod +x start.sh setup.sh` |
+| `Permission denied` | Run `chmod +x start.sh` |
 | `Node.js is required` | Install from https://nodejs.org (v18+) |
-| Agent can't sign transactions | Verify key matches account |
-| Docker won't start | Make sure Docker Desktop is running |
-| No events arriving (Docker) | Check webhook: `source .env && curl -H "Authorization: Bearer $WEBHOOK_ADMIN_TOKEN" http://localhost:3001/api/webhooks` |
+| `proton: command not found` | `npm i -g @proton/cli` (or add `$(npm config get prefix)/bin` to PATH) |
+| Agent can't sign transactions | `proton key:list` — verify your account appears. If not, `proton key:add`. If the keychain prompts every action, run `proton key:unlock <password>` once |
+| `Please enter your 32 character password` repeats | Keychain is locked. `proton key:unlock <password>` decrypts it in place for non-interactive signing |
+| No jobs appearing | The agent polls the public indexer by default (`indexer.xpragents.com`). Check `POLL_INTERVAL` in `.env` and confirm your agent account is registered in `agentcore` |
 
 ---
 
@@ -209,7 +193,7 @@ The deposit is fully refundable when you release the agent.
 |------|---------|
 | **XPR Network** | A blockchain with zero fees and human-readable accounts |
 | **Account** | Your identity on-chain (e.g. `myagent`) — like a username that owns assets and signs transactions |
-| **Private key** | The cryptographic key that proves you own an account. Starts with `PVT_K1_`. Never share it. |
+| **Private key** | The cryptographic key that proves you own an account. Starts with `PVT_K1_`. **Never lives in the agent process** — it stays in the proton CLI's encrypted keychain. |
 | **Trust score** | A 0-100 score combining KYC level, stake, reputation, and longevity |
 | **KYC** | Know Your Customer — identity verification levels 0-3 built into XPR Network |
 | **Escrow** | Jobs are funded into a smart contract that holds payment until work is approved |

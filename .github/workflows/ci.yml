@@ -164,22 +164,27 @@ jobs:
       - name: Template ↔ source scripts in sync
         run: |
           set -e
+          # The standalone scaffold ships start.sh only. setup.sh (Docker) was
+          # removed when Docker was demoted to legacy under openclaw/starter/docker/.
           diff create-xpr-agent/template/start.sh openclaw/starter/start.sh \
             || { echo "::error::create-xpr-agent/template/start.sh has drifted from openclaw/starter/start.sh. Run: cp openclaw/starter/start.sh create-xpr-agent/template/start.sh"; exit 1; }
-          diff create-xpr-agent/template/setup.sh openclaw/starter/setup.sh \
-            || { echo "::error::create-xpr-agent/template/setup.sh has drifted from openclaw/starter/setup.sh. Run: cp openclaw/starter/setup.sh create-xpr-agent/template/setup.sh"; exit 1; }
+          diff create-xpr-agent/template/.env.example openclaw/starter/.env.example \
+            || { echo "::error::create-xpr-agent/template/.env.example has drifted from openclaw/starter/.env.example. Run: cp openclaw/starter/.env.example create-xpr-agent/template/.env.example"; exit 1; }
+          if [ -f create-xpr-agent/template/setup.sh ]; then
+            echo "::error::create-xpr-agent/template/setup.sh has been re-introduced. Docker is legacy under openclaw/starter/docker/ — remove the template copy."
+            exit 1
+          fi
       - name: No legacy XPR_PRIVATE_KEY in shipped scripts
         run: |
           set -e
           # Either set/exported as a runtime variable — both are unsupported
           # under the v0.3.0+ keychain pattern. (Allow it to appear as a
           # rejection / migration message — those tell the user what to do.)
-          BAD=$(grep -nE '^[[:space:]]*(export[[:space:]]+)?XPR_PRIVATE_KEY=' \
-            create-xpr-agent/template/start.sh \
-            create-xpr-agent/template/setup.sh \
-            openclaw/starter/start.sh \
-            openclaw/starter/setup.sh \
-            openclaw/starter/bootstrap.sh 2>/dev/null || true)
+          FILES=()
+          for f in create-xpr-agent/template/start.sh openclaw/starter/start.sh openclaw/starter/bootstrap.sh; do
+            [ -f "$f" ] && FILES+=("$f")
+          done
+          BAD=$(grep -nE '^[[:space:]]*(export[[:space:]]+)?XPR_PRIVATE_KEY=' "${FILES[@]}" 2>/dev/null || true)
           if [ -n "$BAD" ]; then
             echo "::error::Scripts assign or export XPR_PRIVATE_KEY at runtime — incompatible with the proton CLI keychain pattern:"
             echo "$BAD"
@@ -192,7 +197,8 @@ jobs:
           # the legacy invocation with a migration message. Accept lines
           # like `--key)` only if followed by an `err`/`exit 1` block within
           # 10 lines.
-          for f in create-xpr-agent/template/start.sh create-xpr-agent/template/setup.sh openclaw/starter/start.sh openclaw/starter/setup.sh; do
+          for f in create-xpr-agent/template/start.sh openclaw/starter/start.sh; do
+            [ -f "$f" ] || continue
             if grep -nE '^[[:space:]]*--key[)]?[[:space:]]+XPR_PRIVATE_KEY=' "$f" >/dev/null; then
               echo "::error::$f still accepts --key into XPR_PRIVATE_KEY (legacy pattern)"
               exit 1
@@ -205,12 +211,11 @@ jobs:
           # ships to operators every time they run npx create-xpr-agent. It
           # also has to match the keychain-only model. Same for any
           # documentation-as-example commands.
-          BAD=$(grep -RnE -- '--key[[:space:]]+(YOUR_KEY|PVT_K1_|\$|<)' \
-            create-xpr-agent/create.mjs \
-            create-xpr-agent/README.md \
-            create-xpr-agent/template/README.md \
-            create-xpr-agent/template/QUICKSTART.md \
-            openclaw/starter/README.md 2>/dev/null || true)
+          FILES=()
+          for f in create-xpr-agent/create.mjs create-xpr-agent/README.md create-xpr-agent/template/README.md create-xpr-agent/template/QUICKSTART.md openclaw/starter/README.md docs/PINATA.md; do
+            [ -f "$f" ] && FILES+=("$f")
+          done
+          BAD=$(grep -RnE -- '--key[[:space:]]+(YOUR_KEY|PVT_K1_|\$|<)' "${FILES[@]}" 2>/dev/null || true)
           if [ -n "$BAD" ]; then
             echo "::error::Found --key references in user-facing banners or docs (must use proton CLI keychain instead):"
             echo "$BAD"

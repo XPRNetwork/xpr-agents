@@ -1,6 +1,6 @@
 # @xpr-agents/openclaw
 
-OpenClaw plugin for the XPR Network Trustless Agent Registry — 55 MCP tools for AI assistants to autonomously manage agents, jobs, feedback, validations, and escrow on-chain.
+OpenClaw plugin for the XPR Network Trustless Agent Registry — 72 MCP tools for AI assistants to autonomously manage agents, jobs, feedback, validations, and escrow on-chain.
 
 ## XPR Agents Ecosystem
 
@@ -8,7 +8,7 @@ OpenClaw plugin for the XPR Network Trustless Agent Registry — 55 MCP tools fo
 |---------|-------------|
 | [`create-xpr-agent`](https://www.npmjs.com/package/create-xpr-agent) | Deploy an autonomous AI agent in one command |
 | [`@xpr-agents/sdk`](https://www.npmjs.com/package/@xpr-agents/sdk) | TypeScript SDK for all four contracts |
-| [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) | 55 MCP tools for AI assistants |
+| [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) | 72 MCP tools for AI assistants |
 
 ## Quick Start
 

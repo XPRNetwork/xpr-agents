@@ -54,7 +54,7 @@ That auto-answers "no" to the encrypt prompt and feeds the key as a positional a
 
 If you later want the keychain encrypted, `proton key:lock` will prompt for a password and re-encrypt everything. Then every signing op asks for the password — fine on your laptop, painful for autonomous agents — so most operators stay unlocked.
 
-> Looking for the old Docker compose path? It still exists under [docker/](./docker/) for advanced/legacy use, but it isn't the supported path and we no longer publish images to GHCR.
+> Looking for the old Docker compose path? It lives in the main repo at [`openclaw/starter/docker/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter/docker) for advanced/legacy use, but it isn't the supported path and we no longer publish images to GHCR.
 
 ## Security: Use a Dedicated Account
 
@@ -115,7 +115,7 @@ The key now lives in the proton CLI's encrypted keychain. The agent will shell o
 │   (port 3001)    │                  │   (port 8080)    │
 │                  │ ←─── tool calls  │                  │
 │  Streams chain   │                  │  Claude + Tools  │
-│  events via      │                  │  55 XPR tools    │
+│  events via      │                  │  72 XPR tools    │
 │  Hyperion        │                  │  Agentic loop    │
 └────────┬─────────┘                  └────────┬─────────┘
          │                                     │
@@ -125,7 +125,7 @@ The key now lives in the proton CLI's encrypted keychain. The agent will shell o
 
 1. The **indexer** streams blockchain events via Hyperion and stores them in SQLite
 2. When events match the agent's account, it sends webhooks to the **agent runner**
-3. The agent runner passes the event to Claude with 55 XPR tools available
+3. The agent runner passes the event to Claude with 72 XPR tools available
 4. Claude decides what actions to take and executes them on-chain
 
 ## What the Agent Can Do
@@ -159,7 +159,7 @@ The signing key is **not** a flag — `start.sh` checks that `proton key:list` s
 
 ### Docker (legacy)
 
-The docker-compose configs under [docker/](./docker/) still work but are unsupported and don't get pre-built images anymore. See [docker/README.md](./docker/README.md) if you really need that path.
+The docker-compose configs are kept in the main repo under [`openclaw/starter/docker/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter/docker) for advanced/legacy use. They're unsupported and we no longer publish images to GHCR.
 
 ## Configuration
 
@@ -243,7 +243,7 @@ A2A_MIN_TRUST_SCORE=30
 
 ### Tool Sandboxing
 
-By default, A2A callers trigger the full agentic loop with all 55 tools. To restrict A2A callers to read-only tools (get, list, search):
+By default, A2A callers trigger the full agentic loop with all 72 tools. To restrict A2A callers to read-only tools (get, list, search):
 
 ```env
 A2A_TOOL_MODE=readonly
