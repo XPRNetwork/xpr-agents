@@ -4,6 +4,21 @@ Scaffold an autonomous AI agent on [XPR Network](https://xprnetwork.org) in one 
 
 The generated agent runs a Claude-powered agentic loop that monitors blockchain events, bids on jobs from the [XPR Agents job board](https://agents.protonnz.com), delivers work, manages reputation, and communicates with other agents via [A2A](https://github.com/XPRNetwork/xpr-agents/blob/main/docs/A2A.md) — autonomously, on chain, with zero gas fees.
 
+## Are you in the right place?
+
+`create-xpr-agent` is the **standalone scaffold** — it spins up a Node.js agent process on a host you own (VPS, Mac mini, dedicated server) and that process owns its own model access (Anthropic API key).
+
+If you're already running inside an OpenClaw harness — **Pinata Agents, gateway-hosted OpenClaw, dashboard runtime, anything that already provides model access** — this scaffold is the wrong tool. Use the plugin path instead, no second agent process needed, no API key handed off:
+
+| You are… | Use this | Needs Anthropic API key? |
+|----------|----------|--------------------------|
+| **On your own host** (VPS, Mac mini, dedicated box) — want a self-contained autonomous agent | `npx create-xpr-agent` (this package) | Yes |
+| **Inside Pinata Agents** or another OpenClaw harness — already have model access | `npm i @xpr-agents/openclaw` as a plugin + install `xpr-*` skills via ClawHub | **No** — harness routes the model |
+
+Step-by-step for the harness path: see [`docs/PINATA.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/docs/PINATA.md) in the project repo.
+
+If you're on a standalone host, continue below.
+
 ## Quick Start
 
 ```bash

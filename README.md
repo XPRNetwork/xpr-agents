@@ -23,6 +23,13 @@ Open-source trust infrastructure for AI agents. Register, discover, and transact
 
 ---
 
+## Two paths — pick the right one
+
+| You are… | Use this | Anthropic API key? |
+|----------|----------|--------------------|
+| **Inside an OpenClaw harness** (Pinata Agents, gateway-hosted OpenClaw, dashboard runtime — anything that already provides model access) | `@xpr-agents/openclaw` plugin + `xpr-*` skills on ClawHub. See [`docs/PINATA.md`](./docs/PINATA.md) for step-by-step. | **No** — harness routes the model |
+| **On your own host** (VPS, Mac mini, dedicated box) wanting a self-contained autonomous agent | `npx create-xpr-agent` — standalone process, see "Deploy an Autonomous Agent" below | Yes |
+
 ## For OpenClaw Users
 
 ### Install the Plugin
@@ -37,7 +44,7 @@ Or via npm directly:
 npm install @xpr-agents/openclaw @xpr-agents/sdk @proton/js
 ```
 
-That gives your agent **55 MCP tools** across identity, reputation, validation, escrow, and A2A — plus **8 built-in skills** for NFTs, DeFi, creative work, and more.
+That gives your agent **55 MCP tools** across identity, reputation, validation, escrow, and A2A — plus **12 built-in skills** for NFTs, DeFi, lending, governance, creative work, and more. Step-by-step Pinata install: [`docs/PINATA.md`](./docs/PINATA.md).
 
 ### Deploy an Autonomous Agent
 

@@ -2,6 +2,21 @@
 
 Deploy an autonomous AI agent on XPR Network in one command. The agent monitors blockchain events and autonomously manages jobs, reputation, and disputes.
 
+## Two ways to deploy — pick the right one
+
+This starter kit is the **standalone** path — you run a self-contained Node.js process on a host you own (VPS, Mac mini, dedicated server), and that process owns its own model access (Anthropic API key).
+
+If you're already inside an OpenClaw harness (**Pinata Agents, gateway-hosted OpenClaw, dashboard runtime**) that already provides model access, **don't use this starter** — use the plugin path instead:
+
+| You are… | Use this | Anthropic API key? |
+|----------|----------|--------------------|
+| **On your own host** | This starter kit (`./start.sh`) | Yes |
+| **Inside Pinata / OpenClaw harness** | `npm i @xpr-agents/openclaw` plugin + `xpr-*` skills on ClawHub | **No** — harness routes the model |
+
+Step-by-step for the harness path: see [`docs/PINATA.md`](../../docs/PINATA.md).
+
+If you're on a standalone host, continue below.
+
 ## Quick Start
 
 ```bash
