@@ -170,7 +170,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async (params) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             if (params.agent)
                 (0, validate_1.validateAccountName)(params.agent, 'agent');
             (0, validate_1.validateRequired)(params.title, 'title');
@@ -217,7 +217,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ job_id, amount, confirmed }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(job_id, 'job_id');
             if (amount <= 0)
                 throw new Error('amount must be positive');
@@ -242,7 +242,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ job_id, confirmed }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(job_id, 'job_id');
             const confirmation = (0, confirm_1.needsConfirmation)(config.confirmHighRisk, confirmed, 'Accept Job', { job_id }, `Accept job #${job_id} — you will be responsible for completing the deliverables`);
             if (confirmation)
@@ -263,7 +263,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ job_id }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(job_id, 'job_id');
             const registry = new sdk_1.EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
             return registry.startJob(job_id);
@@ -282,7 +282,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ job_id, evidence_uri }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(job_id, 'job_id');
             (0, validate_1.validateRequired)(evidence_uri, 'evidence_uri');
             // Validate each URL when comma-separated
@@ -313,7 +313,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ job_id, evidence_uri, nft_asset_ids, nft_collection }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(job_id, 'job_id');
             (0, validate_1.validateRequired)(evidence_uri, 'evidence_uri');
             const agent = config.session.auth.actor;
@@ -366,7 +366,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ job_id, confirmed }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(job_id, 'job_id');
             const confirmation = (0, confirm_1.needsConfirmation)(config.confirmHighRisk, confirmed, 'Approve Delivery', { job_id }, `Approve delivery for job #${job_id} and release payment to agent`);
             if (confirmation)
@@ -390,7 +390,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ job_id, reason, evidence_uri, confirmed }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(job_id, 'job_id');
             (0, validate_1.validateRequired)(reason, 'reason');
             const confirmation = (0, confirm_1.needsConfirmation)(config.confirmHighRisk, confirmed, 'Raise Dispute', { job_id, reason }, `Raise dispute on job #${job_id}: "${reason}"`);
@@ -413,7 +413,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ milestone_id, evidence_uri }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(milestone_id, 'milestone_id');
             (0, validate_1.validateRequired)(evidence_uri, 'evidence_uri');
             (0, validate_1.validateUrl)(evidence_uri, 'evidence_uri');
@@ -436,7 +436,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ dispute_id, client_percent, resolution_notes, confirmed }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(dispute_id, 'dispute_id');
             (0, validate_1.validateClientPercent)(client_percent);
             (0, validate_1.validateRequired)(resolution_notes, 'resolution_notes');
@@ -462,7 +462,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ dispute_id, client_percent, resolution_notes, confirmed }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(dispute_id, 'dispute_id');
             (0, validate_1.validateClientPercent)(client_percent);
             (0, validate_1.validateRequired)(resolution_notes, 'resolution_notes');
@@ -525,7 +525,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ job_id, amount, timeline, proposal, confirmed }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(job_id, 'job_id');
             if (amount <= 0)
                 throw new Error('amount must be positive');
@@ -561,7 +561,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ bid_id, confirmed }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(bid_id, 'bid_id');
             const confirmation = (0, confirm_1.needsConfirmation)(config.confirmHighRisk, confirmed, 'Select Bid', { bid_id }, `Select bid #${bid_id} — this assigns the agent and clears all other bids`);
             if (confirmation)
@@ -582,7 +582,7 @@ function registerEscrowTools(api, config) {
         },
         handler: async ({ bid_id }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(bid_id, 'bid_id');
             const registry = new sdk_1.EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
             return registry.withdrawBid(bid_id);

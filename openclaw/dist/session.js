@@ -1,38 +1,36 @@
 "use strict";
+/**
+ * Server-side ProtonSession factory.
+ *
+ * This module previously held a JsSignatureProvider that loaded
+ * XPR_PRIVATE_KEY into the agent process. After the 2026-04-24 charliebot
+ * incident — where a hardcoded private key was leaked to a public repo —
+ * all signing was moved to the proton CLI's encrypted keychain.
+ *
+ * This file is now a thin wrapper around createCliSession.
+ *
+ * Required env: XPR_ACCOUNT
+ * Optional env: XPR_PERMISSION (defaults to 'active'), XPR_RPC_ENDPOINT
+ *
+ * The agent process MUST NOT read XPR_PRIVATE_KEY. The legacy entry-point
+ * check in starter/agent/src/index.ts refuses to start if it is set.
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createSession = createSession;
 exports.createReadOnlyRpc = createReadOnlyRpc;
 const js_1 = require("@proton/js");
+const cli_session_1 = require("./cli-session");
 /**
- * Create a server-side ProtonSession from environment variables.
- * Uses @proton/js (no browser dependency).
- *
- * Required env vars: XPR_PRIVATE_KEY, XPR_ACCOUNT
- * Optional: XPR_PERMISSION (defaults to 'active')
+ * Create a server-side ProtonSession backed by the proton CLI.
+ * No private key required — the CLI signs internally via its keychain.
  */
 function createSession(config) {
-    const privateKey = config.privateKey || process.env.XPR_PRIVATE_KEY;
     const account = config.account || process.env.XPR_ACCOUNT;
     const permission = config.permission || process.env.XPR_PERMISSION || 'active';
-    if (!privateKey) {
-        throw new Error('XPR_PRIVATE_KEY environment variable is required');
-    }
     if (!account) {
         throw new Error('XPR_ACCOUNT environment variable is required');
     }
-    const rpc = new js_1.JsonRpc(config.rpcEndpoint);
-    const signatureProvider = new js_1.JsSignatureProvider([privateKey]);
-    const api = new js_1.Api({ rpc, signatureProvider });
-    const session = {
-        auth: { actor: account, permission },
-        link: {
-            transact: async (args) => {
-                const result = await api.transact({ actions: args.actions }, { blocksBehind: 3, expireSeconds: 30 });
-                return result;
-            },
-        },
-    };
-    return { rpc, session };
+    return (0, cli_session_1.createCliSession)({ account, permission, rpcEndpoint: config.rpcEndpoint });
 }
 /**
  * Create a read-only RPC connection (no session/signing needed).

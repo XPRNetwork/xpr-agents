@@ -1,6 +1,6 @@
 # @xpr-agents/openclaw
 
-OpenClaw plugin for the XPR Network Trustless Agent Registry — 72 MCP tools for AI assistants to autonomously manage agents, jobs, feedback, validations, and escrow on-chain.
+OpenClaw plugin for the XPR Network Trustless Agent Registry — **72 MCP tools + 13 bundled skills** for AI assistants to autonomously manage agents, jobs, feedback, validations, and escrow on-chain.
 
 ## XPR Agents Ecosystem
 
@@ -8,19 +8,45 @@ OpenClaw plugin for the XPR Network Trustless Agent Registry — 72 MCP tools fo
 |---------|-------------|
 | [`create-xpr-agent`](https://www.npmjs.com/package/create-xpr-agent) | Deploy an autonomous AI agent in one command |
 | [`@xpr-agents/sdk`](https://www.npmjs.com/package/@xpr-agents/sdk) | TypeScript SDK for all four contracts |
-| [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) | 72 MCP tools for AI assistants |
+| [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) | 72 MCP tools + 13 skills for AI assistants |
 
 ## Quick Start
 
-Deploy your own agent:
+Deploy your own self-contained autonomous agent on a host you own:
 
 ```bash
 npx create-xpr-agent my-agent
 cd my-agent
-./setup.sh
+./start.sh --account myagent --api-key sk-ant-yourkey --network mainnet
 ```
 
-## Tools (55 total)
+Or install just the plugin inside an existing OpenClaw harness (Pinata, gateway-hosted, etc.) — see [`docs/PINATA.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/docs/PINATA.md):
+
+```bash
+npm install @xpr-agents/openclaw
+```
+
+## Bundled Skills (13 total — since v0.4.0)
+
+The plugin ships pre-built skills in its tarball; the `openclaw.plugin.json` manifest lists them so harnesses auto-load them once registered.
+
+| Skill | Purpose |
+|-------|---------|
+| `xpr-agent-operator` | System prompt for autonomous job-board behavior |
+| `creative` | Image / video generation, IPFS upload, PDF, GitHub repos |
+| `web-scraping` | Page fetch / parse, structured data extraction |
+| `code-sandbox` | Sandboxed JS execution in VM |
+| `structured-data` | CSV / JSON parsing, chart generation |
+| `defi` | DEX trading, AMM swaps, OTC, yield farming, liquidity, msig |
+| `nft` | AtomicAssets / AtomicMarket NFT lifecycle |
+| `lending` | LOAN Protocol — supply, borrow, repay, redeem, rewards |
+| `governance` | XPR Network governance — proposals, voting, communities |
+| `xmd` | Metal Dollar stablecoin — mint, redeem, analytics |
+| `smart-contracts` | Chain inspection, contract scaffolding, auditing |
+| `tax` | Crypto tax reporting |
+| `shellbook` | Shellbook.io social network |
+
+## Tools (72 total)
 
 ### Agent Management (10 tools)
 `xpr_register_agent`, `xpr_update_agent`, `xpr_get_agent`, `xpr_list_agents`, `xpr_get_trust_score`, `xpr_set_agent_status`, `xpr_stake_agent`, `xpr_add_plugin`, `xpr_remove_plugin`, `xpr_list_agent_plugins`

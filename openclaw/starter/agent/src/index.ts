@@ -178,52 +178,68 @@ const pluginFn = require('@xpr-agents/openclaw').default;
 pluginFn(mockApi);
 
 // ── Load skills ──────────────────────────────
+// Skills ship inside the @xpr-agents/openclaw npm package since v0.4.0.
+// Resolving via require.resolve makes both deployment paths work without
+// branching:
+//   - Standalone scaffold: openclaw is at file:../.. → resolves locally
+//   - Pinata / harness:    openclaw is npm-installed → resolves there
+function resolveSkillDir(name: string): string {
+  try {
+    const pkgPath = require.resolve('@xpr-agents/openclaw/package.json');
+    return path.join(path.dirname(pkgPath), 'skills', name);
+  } catch {
+    // Last-resort local-dev fallback when running the runner outside the
+    // standard openclaw install (e.g. checked-out monorepo, no npm install).
+    return path.resolve(__dirname, '../../../skills', name);
+  }
+}
+
 // 1. Built-in creative skill (always loaded — deliverable tools)
-const creativeSkillDir = path.resolve(__dirname, '../skills/creative');
+const creativeSkillDir = resolveSkillDir('creative');
 const creativeSkill = loadBuiltinSkill(creativeSkillDir, tools);
 
 // 2. Built-in web-scraping skill (always loaded — page fetch/parse tools)
-const webScrapingSkillDir = path.resolve(__dirname, '../skills/web-scraping');
+const webScrapingSkillDir = resolveSkillDir('web-scraping');
 const webScrapingSkill = loadBuiltinSkill(webScrapingSkillDir, tools);
 
 // 3. Built-in code-sandbox skill (always loaded — JS execution in sandboxed VM)
-const codeSandboxSkillDir = path.resolve(__dirname, '../skills/code-sandbox');
+const codeSandboxSkillDir = resolveSkillDir('code-sandbox');
 const codeSandboxSkill = loadBuiltinSkill(codeSandboxSkillDir, tools);
 
 // 4. Built-in structured-data skill (always loaded — CSV/JSON/chart tools)
-const structuredDataSkillDir = path.resolve(__dirname, '../skills/structured-data');
+const structuredDataSkillDir = resolveSkillDir('structured-data');
 const structuredDataSkill = loadBuiltinSkill(structuredDataSkillDir, tools);
 
 // 5. Built-in defi skill (always loaded — DEX trading, AMM swaps, OTC, yield farming, liquidity, msig)
-const defiSkillDir = path.resolve(__dirname, '../skills/defi');
+const defiSkillDir = resolveSkillDir('defi');
 const defiSkill = loadBuiltinSkill(defiSkillDir, tools);
 
 // 6. Built-in nft skill (always loaded — AtomicAssets/AtomicMarket lifecycle)
-const nftSkillDir = path.resolve(__dirname, '../skills/nft');
+const nftSkillDir = resolveSkillDir('nft');
 const nftSkill = loadBuiltinSkill(nftSkillDir, tools);
 
 // 7. Built-in tax skill (always loaded — crypto tax reporting)
-const taxSkillDir = path.resolve(__dirname, '../skills/tax');
+const taxSkillDir = resolveSkillDir('tax');
 const taxSkill = loadBuiltinSkill(taxSkillDir, tools);
 
 // 8. Built-in lending skill (always loaded — LOAN Protocol supply/borrow/repay)
-const lendingSkillDir = path.resolve(__dirname, '../skills/lending');
+const lendingSkillDir = resolveSkillDir('lending');
 const lendingSkill = loadBuiltinSkill(lendingSkillDir, tools);
 
 // 9. Built-in governance skill (always loaded — proposals, voting, communities)
-const governanceSkillDir = path.resolve(__dirname, '../skills/governance');
+const governanceSkillDir = resolveSkillDir('governance');
 const governanceSkill = loadBuiltinSkill(governanceSkillDir, tools);
 
 // 10. Built-in xmd skill (always loaded — Metal Dollar mint/redeem/analytics)
-const xmdSkillDir = path.resolve(__dirname, '../skills/xmd');
+const xmdSkillDir = resolveSkillDir('xmd');
 const xmdSkill = loadBuiltinSkill(xmdSkillDir, tools);
 
 // 11. Built-in smart-contracts skill (always loaded — chain inspection, scaffolding, auditing)
-const smartContractsSkillDir = path.resolve(__dirname, '../skills/smart-contracts');
+const smartContractsSkillDir = resolveSkillDir('smart-contracts');
 const smartContractsSkill = loadBuiltinSkill(smartContractsSkillDir, tools);
 
 // 12. Built-in shellbook skill (always loaded — agent social network)
-const shellbookSkillDir = path.resolve(__dirname, '../skills/shellbook');
+const shellbookSkillDir = resolveSkillDir('shellbook');
 const shellbookSkill = loadBuiltinSkill(shellbookSkillDir, tools);
 
 // 13. External skills from AGENT_SKILLS env var
@@ -296,19 +312,18 @@ tools.push({
 });
 
 // Load agent-operator skill as system prompt
-// Resolve from npm package or repo-relative paths for local dev
+// Primary path: shipped inside @xpr-agents/openclaw since v0.4.0. The repo-relative
+// fallbacks cover monorepo dev where the runner is exec'd before npm-installing.
 function findSkillCandidates(): string[] {
   const candidates: string[] = [];
-  // Co-located in skills/ dir (Docker image — highest priority, always up to date with repo)
-  candidates.push(path.resolve(__dirname, '../skills/xpr-agent-operator/SKILL.md'));
-  // Local dev paths (running from openclaw/starter/agent/dist)
-  candidates.push(path.resolve(__dirname, '../../../../skills/xpr-agent-operator/SKILL.md'));
-  candidates.push(path.resolve(__dirname, '../../../skills/xpr-agent-operator/SKILL.md'));
-  // Fallback: npm package
+  // Primary: npm package (@xpr-agents/openclaw bundles the skills folder)
   try {
     const pkgPath = require.resolve('@xpr-agents/openclaw/package.json');
     candidates.push(path.resolve(path.dirname(pkgPath), 'skills/xpr-agent-operator/SKILL.md'));
   } catch { /* not installed via npm */ }
+  // Local dev fallbacks (running from openclaw/starter/agent/dist)
+  candidates.push(path.resolve(__dirname, '../../../skills/xpr-agent-operator/SKILL.md'));
+  candidates.push(path.resolve(__dirname, '../../../../skills/xpr-agent-operator/SKILL.md'));
   return candidates;
 }
 const skillCandidates = findSkillCandidates();
@@ -1012,7 +1027,10 @@ app.get('/deliverables/:jobId', (req, res) => {
   // Import getDeliverable from the creative skill
   let entry: { content: string; content_type: string; media_url?: string; created_at: string } | undefined;
   try {
-    const creativeModule = require(path.resolve(__dirname, '../skills/creative/src/index'));
+    // Skill ships pre-built inside the openclaw package — require the dist
+    // entry directly. (Previously this loaded TS source via __dirname/../skills,
+    // which silently failed on non-Docker installs without ts-node.)
+    const creativeModule = require(resolveSkillDir('creative') + '/dist/index');
     entry = creativeModule.getDeliverable?.(jobId);
   } catch { /* creative skill not loaded */ }
   if (!entry) {

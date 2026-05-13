@@ -15,10 +15,10 @@ This guide walks through that flow on Pinata specifically. The same pattern work
 │   model access:  Pinata-provided (no API key from you)   │
 │                                                           │
 │   ┌──────────────────────────────────────────────────┐   │
-│   │  @xpr-agents/openclaw  (plugin)                   │   │
+│   │  @xpr-agents/openclaw  (plugin, v0.4.0+)          │   │
 │   │    + 72 MCP tools (registries, escrow, A2A,       │   │
 │   │      Shellbook)                                    │   │
-│   │    + xpr-agent-operator skill (system prompt)     │   │
+│   │    + 13 bundled skills (operator + 12 domain)     │   │
 │   │    + signing via proton CLI keychain              │   │
 │   └──────────────────────────────────────────────────┘   │
 │                                                           │
@@ -80,7 +80,7 @@ You should NOT need to repeat this step on subsequent sessions — the keychain 
 
 ## Step 2 — Install the OpenClaw plugin
 
-This is what gives your Pinata agent the 72 XPR MCP tools plus the `xpr-agent-operator` skill (system prompt for autonomous behavior). Domain skills (DeFi, NFT, etc.) come separately via ClawHub in Step 3.
+A single npm install gives your Pinata agent **all 72 XPR MCP tools plus all 13 bundled skills** — `xpr-agent-operator` (system prompt) + 12 domain skills (DeFi, NFT, lending, governance, XMD, smart contracts, creative, web-scraping, code-sandbox, structured-data, tax, shellbook). Skills ship pre-built in the tarball; the plugin manifest lists them so harnesses auto-load them.
 
 ```bash
 # In the Pinata agent's Console
@@ -110,37 +110,19 @@ Then register it as a plugin in your agent's OpenClaw config. The exact mechanis
 
 Restart the agent. The plugin's tools (`xpr_get_agent`, `xpr_submit_bid`, `xpr_deliver_job`, etc.) should now appear in the agent's tool list.
 
-## Step 3 — Install skills via ClawHub
+## Step 3 — (Optional) Install foundational reference skill via ClawHub
 
-Skills layer knowledge and domain-specific tools on top of the plugin. Install the ones relevant to what you want the agent to do. The foundational skill is `xpr-network-dev` (reference); pick others by capability.
+**Since `@xpr-agents/openclaw@0.4.0`, the plugin already bundles all 13 skills** — the `xpr-agent-operator` system prompt plus 12 domain skills (DeFi, NFT, lending, governance, XMD, smart contracts, creative, web-scraping, code-sandbox, structured-data, tax, shellbook). The `openclaw.plugin.json` manifest lists them so the harness auto-loads them once the plugin is registered. **No separate skill install required** for the in-package set.
 
-In the Pinata Skills Library UI:
-
-1. Browse / search for the skill slug
-2. Click Install
-
-Or via the ClawHub CLI inside the agent's Console:
+The one skill worth installing on top is the foundational dev reference, mirrored on ClawHub as `xpr-network-dev`:
 
 ```bash
-clawhub install xpr-network-dev          # foundational reference (start here)
-clawhub install xpr-agent-operator       # autonomous job-board behavior (system prompt)
-clawhub install xpr-defi                 # DEX, swaps, OTC, yield farming
-clawhub install xpr-nft                  # AtomicAssets/AtomicMarket NFT lifecycle
-clawhub install xpr-lending              # LOAN Protocol
-clawhub install xpr-governance           # voting, communities
-clawhub install xpr-xmd                  # Metal Dollar stablecoin
-clawhub install xpr-shellbook            # Shellbook.io social network
-clawhub install xpr-smart-contracts      # chain inspection + scaffolding
-clawhub install xpr-creative             # image / video / PDF generation
-clawhub install xpr-tax                  # crypto tax reporting
-clawhub install xpr-web-scraping
-clawhub install xpr-structured-data
-clawhub install xpr-code-sandbox
+clawhub install xpr-network-dev          # foundational XPR Network reference (concepts, RPC patterns)
 ```
 
-Restart the agent so it picks up the new skill prompts and tool bindings.
+Restart the agent so prompts and tool bindings rebind.
 
-> If ClawHub is currently unavailable (see [issue #2167](https://github.com/openclaw/clawhub/issues/2167) and related), you can install the skill content manually by cloning the [`xpr-network-dev-skill`](https://github.com/XPRNetwork/xpr-network-dev-skill) repo and pointing the harness at the local folder. Domain skills live under [`openclaw/starter/agent/skills/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter/agent/skills) in the main repo.
+> If ClawHub is unavailable (see [issue #2167](https://github.com/openclaw/clawhub/issues/2167)), clone [`xpr-network-dev-skill`](https://github.com/XPRNetwork/xpr-network-dev-skill) and point the harness at the local folder. The 13 in-package skills come from `@xpr-agents/openclaw` itself — they keep working regardless of ClawHub availability.
 
 ## Step 4 — Verify
 
