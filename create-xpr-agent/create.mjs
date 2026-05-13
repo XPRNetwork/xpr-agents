@@ -27,8 +27,7 @@ if (args.includes("--help") || args.includes("-h")) {
 
   After creating:
     cd my-agent
-    ./start.sh    # Node.js only (no Docker needed)
-    ./setup.sh    # Docker (includes indexer)
+    ./start.sh --account <name> --api-key <claude>
 `);
   process.exit(0);
 }

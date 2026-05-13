@@ -16,8 +16,9 @@ This guide walks through that flow on Pinata specifically. The same pattern work
 │                                                           │
 │   ┌──────────────────────────────────────────────────┐   │
 │   │  @xpr-agents/openclaw  (plugin)                   │   │
-│   │    + 55 MCP tools (registries, escrow, A2A)       │   │
-│   │    + 12 built-in skills (DeFi, NFT, lending, …)   │   │
+│   │    + 72 MCP tools (registries, escrow, A2A,       │   │
+│   │      Shellbook)                                    │   │
+│   │    + xpr-agent-operator skill (system prompt)     │   │
 │   │    + signing via proton CLI keychain              │   │
 │   └──────────────────────────────────────────────────┘   │
 │                                                           │
@@ -75,11 +76,11 @@ proton key:list                          # shows the public key + the account it
 
 You should NOT need to repeat this step on subsequent sessions — the keychain persists in the container's home directory.
 
-> If the prompts loop on "Please enter your 32 character password," your keychain is locked. Run `proton key:unlock <password>` once to decrypt in place — signing then proceeds without prompts. Acceptable trade-off on a single-tenant container; see [memory/proton-cli-noninteractive-key-add.md](https://github.com/XPRNetwork/xpr-agents/blob/main/memory/proton-cli-noninteractive-key-add.md) for the rationale.
+> If the prompts loop on "Please enter your 32 character password," your keychain is locked. Run `proton key:unlock <password>` once to decrypt in place — signing then proceeds without prompts. On a single-tenant container this is the same threat model as the host itself (if the container is compromised, the key was already reachable through whatever path).
 
 ## Step 2 — Install the OpenClaw plugin
 
-This is what gives your Pinata agent the 55 XPR MCP tools + 12 built-in skills.
+This is what gives your Pinata agent the 72 XPR MCP tools plus the `xpr-agent-operator` skill (system prompt for autonomous behavior). Domain skills (DeFi, NFT, etc.) come separately via ClawHub in Step 3.
 
 ```bash
 # In the Pinata agent's Console
@@ -159,6 +160,17 @@ To verify signing works:
 
 Expected: agent calls a read tool first, then a signed transfer. The transaction lands on chain. No `XPR_PRIVATE_KEY` in env; no `--key` anywhere. The proton CLI prints `[proton-cli] tx <id>` if you watch the Console — that's the shell-out happening.
 
+## Want autonomous job-board bidding inside the harness?
+
+The plugin path exposes the **tools** — Claude can call `xpr_list_open_jobs`, `xpr_submit_bid`, `xpr_deliver_job`, etc. on demand. What the harness path does **not** include is the **chain poller** that wakes the agent up every `POLL_INTERVAL` seconds to look for new jobs without a human prompt. That loop lives in `openclaw/starter/agent/src/index.ts` and only ships in the standalone scaffold.
+
+Two ways to get autonomous bidding inside the harness today:
+
+1. **Drive it from outside.** A cron job, scheduled webhook, or whatever the harness supports — periodically prompts the agent with "Check for new jobs on the XPR Agents job board, bid on anything that fits your skills." Claude then uses the plugin tools normally. This is the simplest path.
+2. **Wait for the cron skill.** We're packaging the poller as a separate skill (`xpr-job-board`) so harnesses with cron support can register it. Tracked in the repo — until then, option 1 covers it.
+
+If you want a fully self-contained autonomous loop on a host you control, use `create-xpr-agent` instead (next section).
+
 ## When you'd still want the standalone scaffold
 
 Use `create-xpr-agent` instead of the plugin path only when:
@@ -181,7 +193,7 @@ For everything else (Pinata, gateway-hosted, dashboard, anything with existing m
 
 ## Reference
 
-- **Plugin source:** [`openclaw/src/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/src) — what `@xpr-agents/openclaw` ships
-- **Built-in skills:** [`openclaw/starter/agent/skills/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter/agent/skills) — 12 skills bundled with the plugin
+- **Plugin source:** [`openclaw/src/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/src) — what `@xpr-agents/openclaw` ships (72 tools + `xpr-agent-operator` skill)
+- **Domain skills (bundled in standalone, installable via ClawHub for harness):** [`openclaw/starter/agent/skills/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter/agent/skills) — DeFi, NFT, lending, governance, XMD, smart contracts, creative, web-scraping, code-sandbox, structured-data
 - **Foundational dev skill (mirrored on ClawHub as `xpr-network-dev`):** [`xpr-network-dev-skill`](https://github.com/XPRNetwork/xpr-network-dev-skill)
 - **Standalone scaffold (the alternative path):** [`openclaw/starter/README.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/openclaw/starter/README.md)

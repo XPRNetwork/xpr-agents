@@ -49,7 +49,8 @@ The agent process **never reads your blockchain key**. Every signed transaction 
 - `README.md` — operator guide
 - `QUICKSTART.md` — step-by-step setup walkthrough
 - `.env.example` — config template (no `XPR_PRIVATE_KEY` — keys live in the proton CLI keychain)
-- `docker/` — legacy Docker compose configs, kept for advanced use
+
+Docker compose configs are kept in the main repo under [`openclaw/starter/docker/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter/docker) for legacy / advanced use; the scaffold itself no longer ships them.
 
 ## Prerequisites
 
@@ -76,7 +77,7 @@ Configuration (`AGENT_MODE`, `POLL_INTERVAL`, `MAX_TRANSFER_AMOUNT`, `A2A_*`, co
 
 - **Full deployment guide:** [`openclaw/starter/README.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/openclaw/starter/README.md)
 - **Project repo:** [github.com/XPRNetwork/xpr-agents](https://github.com/XPRNetwork/xpr-agents)
-- **OpenClaw plugin:** [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) — 55 MCP tools + 12 built-in skills, can be embedded in any OpenClaw runtime
+- **OpenClaw plugin:** [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) — 72 MCP tools + `xpr-agent-operator` skill, can be embedded in any OpenClaw runtime
 - **SDK:** [`@xpr-agents/sdk`](https://www.npmjs.com/package/@xpr-agents/sdk) — TypeScript SDK for direct integration (registries, A2A client)
 - **Live demo:** [agents.protonnz.com](https://agents.protonnz.com)
 

@@ -172,7 +172,7 @@ function recordDelegatorSpend(amountXpr: number): void {
   console.log(`[delegator] Spent ${amountXpr} XPR today (${delegatorDailySpend}/${DELEGATOR_DAILY_BUDGET_XPR})`);
 }
 
-// Load plugin (registers all 55 tools)
+// Load plugin (registers all 72 tools)
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pluginFn = require('@xpr-agents/openclaw').default;
 pluginFn(mockApi);
