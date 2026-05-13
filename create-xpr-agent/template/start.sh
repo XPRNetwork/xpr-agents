@@ -46,12 +46,21 @@ fi
 log "Node.js $(node -v)"
 
 # ── Parse CLI args ─────────────────────────────
+# Defaults below MUST stay in sync with `.env.example` and the agent
+# runner's own env-var defaults — drift causes operator surprise
+# (e.g. .env says 1000 XPR cap but agent applies 100 XPR).
 XPR_ACCOUNT="${XPR_ACCOUNT:-}"
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
-XPR_NETWORK="${XPR_NETWORK:-testnet}"
+XPR_NETWORK="${XPR_NETWORK:-mainnet}"
 XPR_RPC_ENDPOINT="${XPR_RPC_ENDPOINT:-}"
 AGENT_MODEL="${AGENT_MODEL:-claude-sonnet-4-6}"
-POLL_INTERVAL="${POLL_INTERVAL:-30}"
+# 60s default — fast enough to feel responsive on the job board, slow
+# enough not to rate-limit on shared RPC. Tune via --poll-interval or
+# POLL_INTERVAL in .env (the agent runner itself accepts down to 5s).
+POLL_INTERVAL="${POLL_INTERVAL:-60}"
+# 10000000 = 1000 XPR cap (smallest units, 4 decimals). Match .env.example.
+MAX_TRANSFER_AMOUNT="${MAX_TRANSFER_AMOUNT:-10000000}"
+AGENT_PUBLIC_URL="${AGENT_PUBLIC_URL:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -154,15 +163,30 @@ if ! command -v proton &>/dev/null; then
   echo "    #   echo \"no\" | proton key:add PVT_K1_yourkey"
   echo ""
   warn "Continuing in best-effort mode — agent will boot but cannot sign."
-elif ! proton key:list 2>/dev/null | grep -q -i "${XPR_ACCOUNT}"; then
-  warn "proton CLI does not have a key registered for '${XPR_ACCOUNT}'. Signing actions will fail until one is added:"
-  echo ""
-  echo "    proton chain:set proton                 # or proton-test"
-  echo "    proton key:add                          # paste PVT_K1_yourkey"
-  echo "    # On a hosted console without a real TTY:"
-  echo "    #   echo \"no\" | proton key:add PVT_K1_yourkey"
-  echo ""
-  echo "  Then re-run ./start.sh — no other flags or env vars needed."
+else
+  # Match the exact `"account": "myagent"` JSON line — substring matching
+  # against the raw output false-positives on public keys (PUB_K1_…).
+  # If no key is loaded, key:list prints `[]` and the grep falls through.
+  if ! proton key:list 2>/dev/null | grep -qE "\"account\"[[:space:]]*:[[:space:]]*\"${XPR_ACCOUNT}\""; then
+    # Last-resort: any key at all? The accounts[] array can be empty
+    # if the chain lookup at `key:add` time failed; we'd still want to
+    # proceed and let the agent surface the actual signing error.
+    if ! proton key:list 2>/dev/null | grep -q '"publicKey"'; then
+      warn "proton CLI has no keys loaded. Signing actions will fail until you add one:"
+      echo ""
+      echo "    proton chain:set proton                 # or proton-test"
+      echo "    proton key:add                          # paste PVT_K1_yourkey"
+      echo "    # On a hosted console without a real TTY:"
+      echo "    #   echo \"no\" | proton key:add PVT_K1_yourkey"
+      echo ""
+      echo "  Then re-run ./start.sh — no other flags or env vars needed."
+    else
+      warn "proton CLI has keys loaded but none are linked to '${XPR_ACCOUNT}' (chain lookup may be stale)."
+      echo "  Proceeding anyway — if signing fails, run:"
+      echo "    proton key:list                         # confirm the right key is loaded"
+      echo "    proton key:add                          # if not"
+    fi
+  fi
 fi
 
 log "Account: ${XPR_ACCOUNT}"
@@ -206,80 +230,76 @@ if [ -z "$OPENCLAW_HOOK_TOKEN" ]; then
   log "Generated hook token"
 fi
 
-# ── Auto-detect Telegram bot token ────────────
+# ── Telegram bot token (optional, off by default) ────
+# Previously this auto-recursed ~/Documents/projects/**/.env looking
+# for a token to reuse — undocumented, surprised operators, and on
+# multi-tenant boxes leaked tokens between unrelated projects. Now
+# strictly opt-in: set TELEGRAM_BOT_TOKEN in env or .env, or paste at
+# the interactive prompt below.
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
-  # Search common locations for existing Telegram bot tokens
-  SEARCH_PATHS=(
-    "$HOME/.clawdbot/.env"
-    "$HOME/.clawdbot/config"
-    "$HOME/.openclaw/.env"
-    "$HOME/openclaw/.env"
-    "$HOME/.env"
-    "$HOME/protonlink-bot/.env"
-    "$HOME/dex-bot/.env"
-  )
-  # Also search any .env files in ~/Documents/projects/
-  if [ -d "$HOME/Documents/projects" ]; then
-    while IFS= read -r f; do
-      SEARCH_PATHS+=("$f")
-    done < <(find "$HOME/Documents/projects" -maxdepth 3 -name ".env" -type f 2>/dev/null)
-  fi
-
-  for envpath in "${SEARCH_PATHS[@]}"; do
-    if [ -f "$envpath" ]; then
-      found_token=$(grep -m1 "^TELEGRAM_BOT_TOKEN=" "$envpath" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
-      if [ -n "$found_token" ]; then
-        TELEGRAM_BOT_TOKEN="$found_token"
-        log "Found Telegram bot token in $envpath"
-        break
-      fi
-    fi
-  done
-
-  # Interactive prompt if still not found
-  if [ -z "$TELEGRAM_BOT_TOKEN" ] && [ -t 0 ]; then
-    echo ""
-    read -rp "Telegram bot token (optional, press Enter to skip): " TELEGRAM_BOT_TOKEN
-  fi
-
-  if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-    log "Telegram bridge enabled"
-  else
-    warn "No Telegram bot token found (bridge disabled)"
-  fi
+if [ -z "$TELEGRAM_BOT_TOKEN" ] && [ -t 0 ]; then
+  echo ""
+  read -rp "Telegram bot token (optional, press Enter to skip): " TELEGRAM_BOT_TOKEN
+fi
+if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+  log "Telegram bridge enabled"
 fi
 
 # ── Save .env for next time ───────────────────
+# Defaults below match .env.example. Operators can edit afterward;
+# this is the first-run-only seed.
 if [ ! -f "$ENV_FILE" ]; then
   cat > "$ENV_FILE" <<ENVEOF
 XPR_ACCOUNT=${XPR_ACCOUNT}
 XPR_PERMISSION=active
 XPR_NETWORK=${XPR_NETWORK}
 XPR_RPC_ENDPOINT=${XPR_RPC_ENDPOINT}
+INDEXER_URL=${INDEXER_URL:-https://indexer.xpragents.com}
 ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 AGENT_MODEL=${AGENT_MODEL}
-AGENT_MAX_TURNS=10
-MAX_TRANSFER_AMOUNT=1000000
+AGENT_MODE=worker
+AGENT_MAX_TURNS=20
+MAX_TRANSFER_AMOUNT=${MAX_TRANSFER_AMOUNT}
 POLL_ENABLED=true
 POLL_INTERVAL=${POLL_INTERVAL}
+# Public URL where this agent can be reached for A2A. Leave blank if
+# you don't expose the agent — it'll register on chain as localhost,
+# which is fine for solo job-board work but blocks A2A discovery.
+AGENT_PUBLIC_URL=${AGENT_PUBLIC_URL}
 OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN}
 A2A_AUTH_REQUIRED=true
 A2A_TOOL_MODE=full
+# A2A_SIGNING_KEY: separate key for outbound A2A (proton CLI can't sign
+# arbitrary HTTP digests). Without it, outbound A2A is disabled —
+# receive-only mode. See docs/A2A.md for the custom-permission setup.
+A2A_SIGNING_KEY=
+COST_MARGIN=2.0
 TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+# Optional capability keys — see template/.env.example for the full list:
+#   PINATA_JWT, PINATA_GATEWAY (IPFS deliverables)
+#   GITHUB_TOKEN, GITHUB_OWNER (code repo deliverables)
+#   REPLICATE_API_TOKEN (image/video generation)
+#   COINGECKO_API_KEY (crypto price data)
+#   SHELLBOOK_API_KEY (Shellbook write tools)
 ENVEOF
   log "Saved config to $ENV_FILE"
 fi
 
 # ── Export all env vars ───────────────────────
+# These mirror the .env defaults — keep in sync.
 export XPR_ACCOUNT XPR_NETWORK XPR_RPC_ENDPOINT
 export ANTHROPIC_API_KEY AGENT_MODEL OPENCLAW_HOOK_TOKEN
 export POLL_ENABLED=true POLL_INTERVAL
+export INDEXER_URL="${INDEXER_URL:-https://indexer.xpragents.com}"
 export XPR_PERMISSION="${XPR_PERMISSION:-active}"
-export AGENT_MAX_TURNS="${AGENT_MAX_TURNS:-10}"
-export MAX_TRANSFER_AMOUNT="${MAX_TRANSFER_AMOUNT:-1000000}"
+export AGENT_MODE="${AGENT_MODE:-worker}"
+export AGENT_MAX_TURNS="${AGENT_MAX_TURNS:-20}"
+export MAX_TRANSFER_AMOUNT="${MAX_TRANSFER_AMOUNT}"
+export AGENT_PUBLIC_URL="${AGENT_PUBLIC_URL:-}"
 export A2A_AUTH_REQUIRED="${A2A_AUTH_REQUIRED:-true}"
 export A2A_TOOL_MODE="${A2A_TOOL_MODE:-full}"
+export A2A_SIGNING_KEY="${A2A_SIGNING_KEY:-}"
+export COST_MARGIN="${COST_MARGIN:-2.0}"
 export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 export PINATA_JWT="${PINATA_JWT:-}"
 export PORT="${PORT:-8080}"

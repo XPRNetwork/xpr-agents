@@ -15,7 +15,8 @@
       },
       "indexerUrl": {
         "type": "string",
-        "default": "http://localhost:3001"
+        "default": "https://indexer.xpragents.com",
+        "description": "Public XPR Agents indexer URL. Mainnet: https://indexer.xpragents.com, Testnet: https://testnet-indexer.xpragents.com. Override only if you run your own indexer."
       },
       "contracts": {
         "type": "object",
