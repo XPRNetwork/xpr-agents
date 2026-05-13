@@ -198,3 +198,21 @@ jobs:
               exit 1
             fi
           done
+      - name: No --key in user-facing banners / docs / examples
+        run: |
+          set -e
+          # create.mjs prints a next-steps banner after scaffolding — that text
+          # ships to operators every time they run npx create-xpr-agent. It
+          # also has to match the keychain-only model. Same for any
+          # documentation-as-example commands.
+          BAD=$(grep -RnE -- '--key[[:space:]]+(YOUR_KEY|PVT_K1_|\$|<)' \
+            create-xpr-agent/create.mjs \
+            create-xpr-agent/README.md \
+            create-xpr-agent/template/README.md \
+            create-xpr-agent/template/QUICKSTART.md \
+            openclaw/starter/README.md 2>/dev/null || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::Found --key references in user-facing banners or docs (must use proton CLI keychain instead):"
+            echo "$BAD"
+            exit 1
+          fi
