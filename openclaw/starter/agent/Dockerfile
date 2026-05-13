@@ -5,23 +5,13 @@ WORKDIR /app
 # Install build deps for native modules
 RUN apk add --no-cache python3 make g++
 
-# Copy agent runner package files and install from npm
+# Copy agent runner package files and install from npm.
+# Skills ship pre-built inside @xpr-agents/openclaw (v0.4.0+), so we no
+# longer build them per-skill here — npm install pulls them in already
+# compiled.
 COPY package.json tsconfig.json ./
 COPY src ./src
-COPY skills ./skills
-RUN npm install && npm run build \
-  && npx tsc --outDir skills/creative/dist --rootDir skills/creative/src skills/creative/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
-  && npx tsc --outDir skills/web-scraping/dist --rootDir skills/web-scraping/src skills/web-scraping/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
-  && npx tsc --outDir skills/code-sandbox/dist --rootDir skills/code-sandbox/src skills/code-sandbox/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
-  && npx tsc --outDir skills/structured-data/dist --rootDir skills/structured-data/src skills/structured-data/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
-  && npx tsc --outDir skills/defi/dist --rootDir skills/defi/src skills/defi/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
-  && npx tsc --outDir skills/nft/dist --rootDir skills/nft/src skills/nft/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
-  && npx tsc --outDir skills/tax/dist --rootDir skills/tax/src skills/tax/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
-  && npx tsc --outDir skills/lending/dist --rootDir skills/lending/src skills/lending/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
-  && npx tsc --outDir skills/governance/dist --rootDir skills/governance/src skills/governance/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
-  && npx tsc --outDir skills/xmd/dist --rootDir skills/xmd/src skills/xmd/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
-  && npx tsc --outDir skills/smart-contracts/dist --rootDir skills/smart-contracts/src skills/smart-contracts/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020 \
-  && npx tsc --outDir skills/shellbook/dist --rootDir skills/shellbook/src skills/shellbook/src/index.ts --esModuleInterop --skipLibCheck --module commonjs --target ES2020
+RUN npm install && npm run build
 
 RUN mkdir -p /data && chown node:node /data
 

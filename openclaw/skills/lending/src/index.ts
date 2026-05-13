@@ -111,6 +111,8 @@ async function getLendingSession(): Promise<{ api: any; account: string; permiss
 
   if (!account) throw new Error('XPR_ACCOUNT is required for lending write operations');
 
+  // @ts-ignore — provided by host at runtime; not resolvable when building skills inside the openclaw package
+
   const { createCliApi } = await import('@xpr-agents/openclaw');
   cachedSession = createCliApi({ account, permission, rpcEndpoint: MAINNET_RPC });
   return cachedSession;

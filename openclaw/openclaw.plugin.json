@@ -42,5 +42,19 @@
     "indexerUrl": { "label": "Indexer URL" },
     "confirmHighRisk": { "label": "Confirm High-Risk Actions" }
   },
-  "skills": ["skills/xpr-agent-operator"]
+  "skills": [
+    "skills/xpr-agent-operator",
+    "skills/creative",
+    "skills/web-scraping",
+    "skills/code-sandbox",
+    "skills/structured-data",
+    "skills/defi",
+    "skills/nft",
+    "skills/tax",
+    "skills/lending",
+    "skills/governance",
+    "skills/xmd",
+    "skills/smart-contracts",
+    "skills/shellbook"
+  ]
 }

@@ -108,7 +108,7 @@ function registerFeedbackTools(api, config) {
         },
         handler: async (params) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validateAccountName)(params.agent, 'agent');
             (0, validate_1.validateScore)(params.score);
             if (params.evidence_uri)
@@ -147,7 +147,7 @@ function registerFeedbackTools(api, config) {
         },
         handler: async ({ feedback_id, reason, evidence_uri }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validatePositiveInt)(feedback_id, 'feedback_id');
             (0, validate_1.validateRequired)(reason, 'reason');
             const registry = new sdk_1.FeedbackRegistry(config.rpc, config.session, contracts.agentfeed);
@@ -166,7 +166,7 @@ function registerFeedbackTools(api, config) {
         },
         handler: async ({ agent }) => {
             if (!config.session)
-                throw new Error('Session required: set XPR_ACCOUNT and XPR_PRIVATE_KEY environment variables');
+                throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
             (0, validate_1.validateAccountName)(agent);
             const registry = new sdk_1.FeedbackRegistry(config.rpc, config.session, contracts.agentfeed);
             return registry.recalculate(agent);
