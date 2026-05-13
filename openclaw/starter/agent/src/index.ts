@@ -35,7 +35,7 @@ const mockApi = {
   registerTool(tool: ToolDef) { tools.push(tool); },
   getConfig() {
     return {
-      network: process.env.XPR_NETWORK || 'testnet',
+      network: process.env.XPR_NETWORK || 'mainnet',
       rpcEndpoint: process.env.XPR_RPC_ENDPOINT || '',
       indexerUrl: process.env.INDEXER_URL || 'http://indexer:3001',
       confirmHighRisk: false, // autonomous mode - no confirmation gates
@@ -345,7 +345,7 @@ if (systemPrompt === 'You are an autonomous AI agent on XPR Network.') {
 
 // Add account context to system prompt
 const baseUrl = process.env.AGENT_PUBLIC_URL || `http://localhost:${process.env.PORT || '8080'}`;
-systemPrompt += `\n\n## Runtime Context\n- Account: ${process.env.XPR_ACCOUNT}\n- Network: ${process.env.XPR_NETWORK || 'testnet'}\n- Public URL: ${baseUrl}`;
+systemPrompt += `\n\n## Runtime Context\n- Account: ${process.env.XPR_ACCOUNT}\n- Network: ${process.env.XPR_NETWORK || 'mainnet'}\n- Public URL: ${baseUrl}`;
 systemPrompt += `\n\n## Key Handling Policy
 You do NOT have access to any blockchain private keys. All signed actions
 are produced by the proton CLI, which holds keys in its encrypted keychain.
@@ -1044,7 +1044,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     account: process.env.XPR_ACCOUNT,
-    network: process.env.XPR_NETWORK || 'testnet',
+    network: process.env.XPR_NETWORK || 'mainnet',
     mode: AGENT_MODE,
     tools: tools.length,
     model: MODEL,
@@ -1057,7 +1057,12 @@ app.get('/health', (_req, res) => {
 // ── On-chain polling loop ────────────────────
 // Polls on-chain state directly via tools — no indexer required.
 // Detects job state changes, new open jobs, new feedback/challenges.
-const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL || '14400') * 1000; // default: 4 hours
+// Default 60s — matches starter/start.sh and .env.example. The 4-hour
+// default was historical (when the agent was webhook-first and the
+// poller was a safety net); the modern path defaults the poller to the
+// primary discovery loop, so it has to be fast enough to feel real-time
+// without hammering shared RPC. Operators tune via POLL_INTERVAL.
+const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL || '60') * 1000;
 const POLL_ENABLED = process.env.POLL_ENABLED !== 'false';
 
 // Credit protection: minimum job value and daily evaluation cap
@@ -1836,7 +1841,10 @@ async function ensureRegistered(): Promise<void> {
     console.log(`[agent-runner] Registered on-chain as "${account}"`);
   } catch (err: any) {
     console.error(`[agent-runner] Auto-registration failed: ${err.message}`);
-    console.error('[agent-runner] The private key may not match this account. Check .env');
+    console.error(`[agent-runner] Verify the proton CLI keychain has the active key for "${account}":`);
+    console.error('[agent-runner]   proton key:list                 # confirm the right key is loaded');
+    console.error('[agent-runner]   proton key:add                  # if not, add it (see docs/PINATA.md for hosted-console form)');
+    console.error('[agent-runner] Do NOT set XPR_PRIVATE_KEY in .env — the agent refuses to start with it.');
   }
 }
 
@@ -1847,7 +1855,7 @@ const server = app.listen(port, () => {
   console.log(`[agent-runner] Account: ${process.env.XPR_ACCOUNT}`);
   console.log(`[agent-runner] Mode: ${AGENT_MODE}`);
   console.log(`[agent-runner] Model: ${MODEL}`);
-  console.log(`[agent-runner] Network: ${process.env.XPR_NETWORK || 'testnet'}`);
+  console.log(`[agent-runner] Network: ${process.env.XPR_NETWORK || 'mainnet'}`);
   console.log(`[agent-runner] A2A auth: ${a2aAuthConfig.authRequired ? 'required' : 'optional'}, rate limit: ${a2aAuthConfig.rateLimit}/min`);
   if (a2aAuthConfig.minTrustScore > 0) console.log(`[agent-runner] A2A min trust score: ${a2aAuthConfig.minTrustScore}`);
   if (a2aAuthConfig.minKycLevel > 0) console.log(`[agent-runner] A2A min KYC level: ${a2aAuthConfig.minKycLevel}`);
