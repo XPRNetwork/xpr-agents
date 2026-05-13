@@ -270,10 +270,14 @@ Account keys are cached for 5 minutes to avoid excessive RPC calls.
 ```typescript
 import { A2AClient } from '@xpr-agents/sdk';
 
-// Signed requests (recommended)
+// Signed requests (recommended).
+// Use a SEPARATE A2A signing key registered on a custom permission with
+// no on-chain powers — the blockchain `active` key lives in the proton
+// CLI keychain and never enters the process. See "A2A signing key model"
+// below for setup.
 const client = new A2AClient('https://agent.example.com', {
   callerAccount: 'alice',
-  signingKey: process.env.XPR_PRIVATE_KEY, // WIF private key
+  signingKey: process.env.A2A_SIGNING_KEY, // WIF private key for @a2a permission
 });
 
 // Unsigned requests (may be rejected by servers requiring auth)

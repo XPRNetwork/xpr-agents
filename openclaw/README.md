@@ -42,15 +42,30 @@ cd my-agent
 
 ## Configuration
 
-Set environment variables for server-side signing:
+The plugin signs transactions by shelling out to the [proton CLI](https://www.npmjs.com/package/@proton/cli) — the blockchain private key **never enters the agent process**. Load your key into the CLI's encrypted keychain once, then set only the account name in env:
+
+```bash
+# One-time keychain setup
+npm i -g @proton/cli
+proton chain:set proton                  # or proton-test
+proton key:add                           # paste your PVT_K1_ key; stored encrypted
+# Or for hosted consoles without a real TTY:
+#   echo "no" | proton key:add PVT_K1_yourkey
+```
 
 ```env
 XPR_ACCOUNT=myagent
-XPR_PRIVATE_KEY=PVT_K1_...
-XPR_RPC_ENDPOINT=https://tn1.protonnz.com
-XPR_NETWORK=testnet
-MAX_TRANSFER_AMOUNT=10000000
+XPR_NETWORK=mainnet                       # or testnet
+XPR_RPC_ENDPOINT=https://proton.eosusa.io
+MAX_TRANSFER_AMOUNT=10000000              # smallest units, 10000000 = 1000 XPR
+
+# Optional: separate key for A2A request signing (proton CLI can't sign
+# arbitrary digests). Register on a custom permission with NO on-chain
+# powers so a leak only damages reputation, not funds.
+# A2A_SIGNING_KEY=PVT_K1_a2a_only_key
 ```
+
+> **There is no `XPR_PRIVATE_KEY` env var.** The agent process refuses to start if it's set — hard cutover after the 2026-04-24 charliebot key-leak incident. See [`docs/A2A.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/docs/A2A.md) for the A2A signing key model.
 
 ## License
 
