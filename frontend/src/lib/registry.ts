@@ -369,7 +369,7 @@ export async function getAllJobs(limit = 500): Promise<Job[]> {
   const pageSize = Math.min(limit, 100);
 
   while (allJobs.length < limit) {
-    const result = await rpc.get_table_rows({
+    const result: any = await rpc.get_table_rows({
       json: true,
       code: CONTRACTS.AGENT_ESCROW,
       scope: CONTRACTS.AGENT_ESCROW,
@@ -379,7 +379,7 @@ export async function getAllJobs(limit = 500): Promise<Job[]> {
       ...(lower_bound ? { upper_bound: lower_bound } : {}),
     });
 
-    const rows = result.rows;
+    const rows: any[] = result.rows;
     if (rows.length === 0) break;
 
     for (const row of rows) {
