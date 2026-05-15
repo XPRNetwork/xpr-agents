@@ -25,47 +25,60 @@ Your blockchain private key is **not** a flag. It lives in the proton CLI's encr
 
 ---
 
-## Step 1: Create a XPR Network Account
+## Step 1: Create the agent account at webauth.com
 
-Account names are 1-12 characters (lowercase a-z, digits 1-5, and dots).
+Account names are 1-12 characters (lowercase a-z, digits 1-5, and dots). Create a **fresh, dedicated** account for your agent — don't reuse your personal account.
 
-**Option A: Proton CLI (recommended — gives you a private key directly)**
+1. Go to [webauth.com](https://webauth.com) → create an XPR Network account → pick a name
+2. WebAuth gives you a **12-word seed phrase**. Save it offline (paper, password manager). You'll need it in Step 2.
+3. WebAuth installs a biometric key on the account so you can sign from your phone. The biometric key can't be exported and the agent can't use it for autonomous signing — that's what Step 2 fixes.
+
+> **Tip:** If you already control a funded XPR account on chain, you can create the agent account via the proton CLI instead: `proton account:create myagent`. Skip Step 2 — you already have the `PVT_K1_`. This is uncommon for first-time operators.
+
+---
+
+## Step 2: Extract the K1 private key from your seed phrase
+
+The seed phrase encodes a K1 keypair registered on the agent account's `owner` permission. The agent needs that `PVT_K1_` in plain form so the proton CLI can use it for signing. Pick one path:
+
+**Path A — Explorer utility (desktop)**
+
+1. Open [`explorer.xprnetwork.org/wallet/utilities/format-keys`](https://explorer.xprnetwork.org/wallet/utilities/format-keys)
+2. Find the **"Mnemonic to Private Key"** section
+3. Paste your 12-word seed phrase
+4. Copy the resulting `PVT_K1_...`
+
+**Path B — WebAuth mobile app**
+
+1. Open the WebAuth Wallet app
+2. Select the agent account you just created
+3. Open **Backup Wallet** → reveal / export private key
+4. Authenticate (Face ID / fingerprint) and copy the `PVT_K1_...`
+
+> **Treat the seed phrase and the `PVT_K1_` as equally sensitive** until they're in the proton CLI keychain. Don't paste them into chat, logs, or screenshots. The Pillar 2 lockdown in `./setup-security.sh` (run after `./start.sh`) makes both recoverable if one leaks — but only after that step completes.
+
+---
+
+## Step 3: Load the private key into the proton CLI keychain
 
 ```bash
 npm install -g @proton/cli
 # If `proton: command not found` after install, npm's global bin isn't on PATH:
 #   export PATH="$(npm config get prefix)/bin:$PATH"
-proton chain:set proton-test          # testnet (or proton for mainnet)
-proton account:create myagent         # creates account + key pair
-proton key:list                       # shows the public key + account binding
-
-# Load the private key into the encrypted keychain (interactive)
-proton key:add                        # paste the PVT_K1_ here
+proton chain:set proton              # mainnet (or proton-test for testnet)
+proton key:add                       # paste the PVT_K1_ from Step 2
 
 # Or, if you're running on a hosted/web console that can't drive a TTY:
 echo "no" | proton key:add PVT_K1_yourkey
+
+proton key:list                      # verify: shows public key + account binding
 ```
 
-**Option B: WebAuth Wallet**
-
-1. Go to [webauth.com](https://webauth.com) and create an account
-2. Your account name appears in the wallet (e.g. `myagent`)
-3. WebAuth uses biometrics (Face ID / fingerprint) — the keys can't be exported. To get a `PVT_K1_` key for autonomous agent signing:
-   ```bash
-   npm install -g @proton/cli
-   proton key:generate                  # creates a new PVT_K1_ / PUB_K1_ pair
-   ```
-4. In WebAuth Wallet → **Settings > Keys** → add the `PUB_K1_` public key to your `active` permission
-5. Load the matching `PVT_K1_` into the CLI keychain:
-   ```bash
-   proton key:add                       # paste the PVT_K1_ here
-   ```
-
-> **Security tip:** Create a **dedicated account** for your agent. Don't use your personal account. With the proton CLI keychain, the key lives encrypted on disk (or in plaintext if you run `proton key:unlock` for non-interactive signing) — it never enters the agent process's memory either way.
+The key now lives encrypted on disk. The agent process never reads it — every signed transaction shells out to `proton transaction:push`.
 
 ---
 
-## Step 2: Create Your Agent Project
+## Step 4: Create Your Agent Project
 
 ```bash
 npx create-xpr-agent my-agent
@@ -74,7 +87,7 @@ cd my-agent
 
 ---
 
-## Step 3: Start Your Agent
+## Step 5: Start Your Agent
 
 ```bash
 ./start.sh --account myagent --api-key sk-ant-xxx
@@ -86,7 +99,7 @@ On first run, this downloads the agent runner from GitHub, installs dependencies
 
 ---
 
-## Step 4: Verify It Works
+## Step 6: Verify It Works
 
 ```bash
 # Check agent health

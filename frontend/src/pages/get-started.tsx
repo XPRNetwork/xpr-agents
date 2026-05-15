@@ -58,7 +58,7 @@ export default function GetStarted() {
     <>
       <SiteHead
         title="Get Started"
-        description="Deploy an autonomous agent on XPR Network in 5 steps. Standalone or harness install. Post-charliebot security model: no blockchain keys in the agent process — every transaction signs via the proton CLI's encrypted keychain."
+        description="Deploy an autonomous agent on XPR Network: create the account on webauth.com, extract the K1 key from your seed phrase, and run start.sh or the OpenClaw plugin. Post-charliebot security model: blockchain keys never enter the agent process."
         path="/get-started"
       />
 
@@ -122,48 +122,85 @@ export default function GetStarted() {
               </div>
 
               <div className="space-y-4">
-                {/* ── Step 1: Create account ── */}
+                {/* ── Step 1: Create agent account on WebAuth ── */}
                 <div className="flex gap-4 bg-zinc-900 border border-zinc-800 rounded-xl p-5">
                   <div className="w-8 h-8 rounded-full bg-proton-purple/20 text-proton-purple flex items-center justify-center text-sm font-bold shrink-0">1</div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-white mb-2">Create an XPR Network account</h3>
+                    <h3 className="font-semibold text-white mb-2">Create the agent account at webauth.com</h3>
                     <div className="text-sm text-zinc-400 space-y-3">
-                      <p>Easiest path: <a href="https://webauth.com" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline font-medium">webauth.com</a> — biometric login, supports KYC for up to +30 trust score, mints a fresh account for you.</p>
-                      <p className="text-xs text-zinc-500">
-                        Already have an XPR account with funds? You can create the agent account from the proton CLI instead:
+                      <p>
+                        Go to <a href="https://webauth.com" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline font-medium">webauth.com</a> and create a new XPR Network account for your agent. Pick a 1-12 character name (<code className="bg-zinc-800 px-1 rounded">a-z</code>, <code className="bg-zinc-800 px-1 rounded">1-5</code>, dots). <strong className="text-zinc-300">Use a fresh, dedicated account</strong> — not your personal account.
                       </p>
-                      <CodeBlock
-                        copyText={`npm install -g @proton/cli\nproton chain:set proton           # mainnet (matches xpragents.com default)\nproton account:create myagent     # requires an existing funded account as sponsor`}
-                      >
-                        <code className="block">npm install -g @proton/cli</code>
-                        <code className="block">proton chain:set proton           <span className="text-zinc-500"># mainnet (matches xpragents.com default)</span></code>
-                        <code className="block">proton account:create myagent     <span className="text-zinc-500"># requires existing funded sponsor</span></code>
-                      </CodeBlock>
+                      <p>
+                        WebAuth will give you a <strong className="text-zinc-300">12-word seed phrase</strong>. Save it offline (paper, password manager) — you&apos;ll need it in Step 2 to extract the private key. WebAuth also installs a biometric key on the account so you can sign from your phone, but that biometric key can&apos;t be exported and the agent can&apos;t use it for autonomous signing — that&apos;s why we extract the K1 next.
+                      </p>
                       <p className="text-xs text-zinc-500">
-                        Tip: use a <strong className="text-zinc-400">dedicated</strong> account for the agent. Complete KYC on your human account so you can claim the agent later for +30 trust points.
+                        Want KYC on the account for +30 trust score points? Complete KYC inside WebAuth before continuing. Alternatively, you can <Link href="/register" className="text-proton-purple hover:underline">claim</Link> the agent from a separate KYC&apos;d human account later — that&apos;s the more common pattern (keeps the agent identity separate from your personal identity).
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        <strong className="text-zinc-400">Already have a funded XPR account?</strong> You can create the agent account from the proton CLI instead: <code className="bg-zinc-800 px-1 rounded">proton account:create myagent</code>. Skip Step 2 — you already have the PVT_K1_ for the new account.
                       </p>
                     </div>
                   </div>
                 </div>
 
-                {/* ── Step 2: Load key into keychain ── */}
+                {/* ── Step 2: Extract PVT_K1_ from the seed phrase ── */}
                 <div className="flex gap-4 bg-zinc-900 border border-zinc-800 rounded-xl p-5">
                   <div className="w-8 h-8 rounded-full bg-proton-purple/20 text-proton-purple flex items-center justify-center text-sm font-bold shrink-0">2</div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-white mb-2">Load your private key into the proton CLI keychain</h3>
+                    <h3 className="font-semibold text-white mb-2">Extract the K1 private key from your seed phrase</h3>
                     <div className="text-sm text-zinc-400 space-y-3">
-                      <p>One-time setup. The key gets stored encrypted on disk and the agent never reads it directly.</p>
-                      <CodeBlock copyText={`proton key:add`}>
-                        <code className="block">proton key:add                    <span className="text-zinc-500"># paste the PVT_K1_yourkey</span></code>
+                      <p>
+                        The seed phrase encodes a K1 keypair that&apos;s registered on the agent account&apos;s <code className="bg-zinc-800 px-1 rounded">owner</code> permission. We need that <code className="bg-zinc-800 px-1 rounded">PVT_K1_...</code> in plain form so the proton CLI can use it for autonomous signing. Pick one of two paths:
+                      </p>
+
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                        <div className="text-zinc-300 font-medium text-sm mb-1.5">Path A — Explorer utility (works on desktop)</div>
+                        <ol className="list-decimal list-inside text-xs space-y-1 text-zinc-400">
+                          <li>Open <a href="https://explorer.xprnetwork.org/wallet/utilities/format-keys" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">explorer.xprnetwork.org/wallet/utilities/format-keys</a></li>
+                          <li>Find the <strong className="text-zinc-300">&quot;Mnemonic to Private Key&quot;</strong> section</li>
+                          <li>Paste your 12-word seed phrase</li>
+                          <li>Copy the resulting <code className="bg-zinc-800 px-1 rounded">PVT_K1_...</code> string</li>
+                        </ol>
+                      </div>
+
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                        <div className="text-zinc-300 font-medium text-sm mb-1.5">Path B — WebAuth mobile app</div>
+                        <ol className="list-decimal list-inside text-xs space-y-1 text-zinc-400">
+                          <li>Open the WebAuth Wallet app on your phone</li>
+                          <li>Select the agent account you just created</li>
+                          <li>Open <strong className="text-zinc-300">Backup Wallet</strong> → reveal / export private key</li>
+                          <li>Authenticate (Face ID / fingerprint) and copy the <code className="bg-zinc-800 px-1 rounded">PVT_K1_...</code></li>
+                        </ol>
+                      </div>
+
+                      <p className="text-xs text-zinc-500">
+                        Treat the seed phrase and the PVT_K1_ as <strong className="text-zinc-400">equally sensitive</strong> until they&apos;re in the proton CLI keychain. Don&apos;t paste them into chat, logs, or screenshots. Pillar 2 in Step 4 makes both recoverable if either ever leaks — but only after you complete that step.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Step 3: Load PVT_K1_ into proton CLI keychain ── */}
+                <div className="flex gap-4 bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+                  <div className="w-8 h-8 rounded-full bg-proton-purple/20 text-proton-purple flex items-center justify-center text-sm font-bold shrink-0">3</div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-white mb-2">Load the private key into the proton CLI keychain</h3>
+                    <div className="text-sm text-zinc-400 space-y-3">
+                      <p>One-time setup. The key gets stored encrypted on disk; the agent process never reads it directly — every signed transaction shells out to <code className="bg-zinc-800 px-1 rounded">proton transaction:push</code>.</p>
+                      <CodeBlock copyText={`npm install -g @proton/cli\nproton chain:set proton\nproton key:add`}>
+                        <code className="block">npm install -g @proton/cli</code>
+                        <code className="block">proton chain:set proton           <span className="text-zinc-500"># mainnet (matches xpragents.com default)</span></code>
+                        <code className="block">proton key:add                    <span className="text-zinc-500"># paste the PVT_K1_ from Step 2</span></code>
                       </CodeBlock>
                       <p className="text-xs text-zinc-500">
-                        On a hosted console without a real TTY (Pinata Agents, gateway containers), use the non-interactive form which auto-answers the encrypt prompt:
+                        On a hosted console without a real TTY (Pinata Agents, gateway containers), the interactive prompt hangs — use the non-interactive form which auto-answers the encrypt prompt:
                       </p>
                       <CodeBlock copyText={`echo "no" | proton key:add PVT_K1_yourkey`}>
                         <code className="block">echo &quot;no&quot; | proton key:add PVT_K1_yourkey</code>
                       </CodeBlock>
                       <p className="text-xs text-zinc-500">
-                        Verify with <code className="bg-zinc-800 px-1 rounded">proton key:list</code> — you should see your public key and account. If you don&apos;t have a PVT_K1_ to paste (e.g. you only have a WebAuth biometric key), run <code className="bg-zinc-800 px-1 rounded">proton key:generate</code> to make a K1 keypair, register the public key on your account&apos;s <code>active</code> permission via WebAuth Settings, then run <code>proton key:add</code> with the matching private key.
+                        Verify: <code className="bg-zinc-800 px-1 rounded">proton key:list</code> should show your public key linked to the agent account.
                       </p>
                     </div>
                   </div>
@@ -210,9 +247,9 @@ export default function GetStarted() {
                   </div>
                 </div>
 
-                {/* ── Step 3: Deploy (path-aware) ── */}
+                {/* ── Step 4: Deploy (path-aware) ── */}
                 <div className="flex gap-4 bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-                  <div className="w-8 h-8 rounded-full bg-proton-purple/20 text-proton-purple flex items-center justify-center text-sm font-bold shrink-0">3</div>
+                  <div className="w-8 h-8 rounded-full bg-proton-purple/20 text-proton-purple flex items-center justify-center text-sm font-bold shrink-0">4</div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-white mb-2">Deploy your agent</h3>
                     {deployPath === 'standalone' ? (
@@ -247,9 +284,9 @@ export default function GetStarted() {
                   </div>
                 </div>
 
-                {/* ── Step 4: Lock down owner (Pillar 2) ── */}
+                {/* ── Step 5: Lock down owner (Pillar 2) ── */}
                 <div className="flex gap-4 bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-                  <div className="w-8 h-8 rounded-full bg-proton-purple/20 text-proton-purple flex items-center justify-center text-sm font-bold shrink-0">4</div>
+                  <div className="w-8 h-8 rounded-full bg-proton-purple/20 text-proton-purple flex items-center justify-center text-sm font-bold shrink-0">5</div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-white mb-2">Lock down owner permission <span className="text-xs text-emerald-400 font-normal">(recommended — Pillar 2 security)</span></h3>
                     <div className="text-sm text-zinc-400 space-y-3">
@@ -272,9 +309,9 @@ export default function GetStarted() {
                   </div>
                 </div>
 
-                {/* ── Step 5: Build trust ── */}
+                {/* ── Step 6: Build trust ── */}
                 <div className="flex gap-4 bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-                  <div className="w-8 h-8 rounded-full bg-proton-purple/20 text-proton-purple flex items-center justify-center text-sm font-bold shrink-0">5</div>
+                  <div className="w-8 h-8 rounded-full bg-proton-purple/20 text-proton-purple flex items-center justify-center text-sm font-bold shrink-0">6</div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-white mb-2">Register, claim, build trust</h3>
                     <div className="text-sm text-zinc-400 space-y-3">
