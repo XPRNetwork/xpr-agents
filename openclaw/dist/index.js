@@ -98,17 +98,28 @@ function xprAgentsPlugin(realApi) {
         confirmHighRisk: rawConfig.confirmHighRisk !== false,
         maxTransferAmount: rawConfig.maxTransferAmount || 10000000,
     };
-    // Register all tool groups
-    (0, agent_1.registerAgentTools)(api, config);
-    (0, feedback_1.registerFeedbackTools)(api, config);
-    (0, validation_1.registerValidationTools)(api, config);
-    (0, escrow_1.registerEscrowTools)(api, config);
-    (0, indexer_1.registerIndexerTools)(api, config);
-    (0, a2a_1.registerA2ATools)(api, config);
-    (0, shellbook_1.registerShellbookTools)(api);
+    // Register all tool groups. Wrap registerTool with a counter so the boot
+    // log can report the actual count — operators grep for this line to
+    // confirm the plugin loaded fully, and a count that drifts from the docs
+    // makes that signal worthless.
+    let toolCount = 0;
+    const countingApi = {
+        ...api,
+        registerTool: (tool) => {
+            toolCount++;
+            return api.registerTool(tool);
+        },
+    };
+    (0, agent_1.registerAgentTools)(countingApi, config);
+    (0, feedback_1.registerFeedbackTools)(countingApi, config);
+    (0, validation_1.registerValidationTools)(countingApi, config);
+    (0, escrow_1.registerEscrowTools)(countingApi, config);
+    (0, indexer_1.registerIndexerTools)(countingApi, config);
+    (0, a2a_1.registerA2ATools)(countingApi, config);
+    (0, shellbook_1.registerShellbookTools)(countingApi);
     if (!hasCredentials) {
         console.log('[xpr-agents] Read-only mode: XPR_ACCOUNT not set. Write tools will fail.');
     }
-    console.log(`[xpr-agents] Plugin loaded: ${config.network} (${rpcEndpoint})`);
+    console.log(`[xpr-agents] Plugin loaded: ${toolCount} tools, ${config.network} (${rpcEndpoint})`);
 }
 //# sourceMappingURL=index.js.map

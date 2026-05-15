@@ -80,55 +80,131 @@ You should NOT need to repeat this step on subsequent sessions — the keychain 
 
 ## Step 2 — Install the OpenClaw plugin
 
-A single npm install gives your Pinata agent **all 72 XPR MCP tools plus all 13 bundled skills** — `xpr-agent-operator` (system prompt) + 12 domain skills (DeFi, NFT, lending, governance, XMD, smart contracts, creative, web-scraping, code-sandbox, structured-data, tax, shellbook). Skills ship pre-built in the tarball; the plugin manifest lists them so harnesses that honor the `skills` field auto-load them.
+The supported install on Pinata Agents (verified on OpenClaw 2026.3.x) is the OpenClaw plugin CLI, **not** plain `npm install`. Pinata's harness doesn't auto-scan workspace `node_modules` for plugins; it scans `~/.openclaw/extensions/<plugin>/`.
 
 ```bash
 # In the Pinata agent's Console
-npm i @xpr-agents/openclaw
+openclaw plugins install @xpr-agents/openclaw
 ```
 
-### 2a. Set the required env var
-
-**Without `XPR_ACCOUNT` set, the plugin loads in read-only mode and every signed tool silently fails.** Set these in Pinata's per-agent env / secrets panel:
-
-| Var | Value | Why |
-|---|---|---|
-| `XPR_ACCOUNT` | your XPR account name (e.g. `myagent`) | Required for signing |
-| `XPR_NETWORK` | `mainnet` or `testnet` | Defaults to mainnet |
-| `INDEXER_URL` | `https://indexer.xpragents.com` (mainnet) or `https://testnet-indexer.xpragents.com` (testnet) | Required by 4 read tools (`xpr_search_agents`, `xpr_get_events`, `xpr_get_stats`, `xpr_indexer_health`) |
-| `MAX_TRANSFER_AMOUNT` | `10000000` (= 1000 XPR) — adjust as needed | Caps every signed XPR transfer/stake/fee |
-
-If you skip `XPR_ACCOUNT`, watch the Pinata Logs tab for the diagnostic line `[xpr-agents] Read-only mode: XPR_ACCOUNT not set` — that's the symptom.
-
-### 2b. Register the plugin
-
-The exact mechanism depends on your harness. **On Pinata Agents this is unverified** as of this writing — confirm with Pinata docs / support what format their plugin registration takes. The pattern below is what generic OpenClaw runtimes expect; adapt to Pinata's actual config surface (likely a dashboard form or `~/.openclaw/config.json`):
+This downloads from npm, copies the plugin to `~/.openclaw/extensions/openclaw/`, and **auto-writes** the install metadata + enables it in `~/.openclaw/openclaw.json`:
 
 ```jsonc
 {
-  "plugins": [
-    {
-      "name": "@xpr-agents/openclaw",
-      "config": {
-        "network": "mainnet",
-        "indexerUrl": "https://indexer.xpragents.com",
-        "confirmHighRisk": true,
-        "maxTransferAmount": 10000000
+  "plugins": {
+    "entries": {
+      "openclaw": { "enabled": true }
+    },
+    "installs": {
+      "openclaw": {
+        "source": "npm",
+        "spec": "@xpr-agents/openclaw",
+        "version": "0.4.2",
+        "installPath": "/home/<user>/.openclaw/extensions/openclaw",
+        "integrity": "sha512-<...>",
+        "installedAt": "<iso-timestamp>"
       }
     }
-  ]
+  }
 }
 ```
 
-Restart the agent. Watch the Pinata Logs tab for:
+A backup of the previous `openclaw.json` is written to `~/.openclaw/openclaw.json.bak`.
+
+> **Heads up — the installer prints a list of "dangerous code patterns" warnings** (currently 19 of them). Every one is intentional and explained in the npm README's "Security notes" section. The biggest one — `Shell command execution detected (child_process)` in `dist/proton-cli.js` — is literally the post-charliebot signing model (proton CLI shells out so the blockchain key never enters the process). Don't bail on the install.
+
+### 2a. Set `XPR_ACCOUNT` at the gateway env layer
+
+**Without `XPR_ACCOUNT`, the plugin loads in read-only mode and every write tool fails with a confusing error.** The env var goes in `env.vars`, NOT in `plugins.entries.openclaw.config` — verified empirically:
+
+```jsonc
+{
+  "env": {
+    "vars": {
+      "XPR_ACCOUNT": "<your-agent-account>",
+      "XPR_NETWORK": "mainnet"
+    }
+  },
+  "plugins": {
+    "entries": {
+      "openclaw": {
+        "enabled": true,
+        "config": { "network": "mainnet" }
+      }
+    }
+  }
+}
+```
+
+On Pinata Agents this surface is the Control UI's Config editor (Raw JSON tab) at the gateway URL printed by `openclaw status`. The plugin reads `process.env.XPR_ACCOUNT` — populated from `env.vars`, not from per-plugin `config`.
+
+Diagnostic: if `XPR_ACCOUNT` is missing, the gateway log shows `[xpr-agents] Read-only mode: XPR_ACCOUNT not set. Write tools will fail.` once on plugin init. If wired correctly, that line **doesn't appear**.
+
+### 2b. Restart the gateway
+
+On Pinata Agents specifically, **the imperative `openclaw gateway restart` command does not work** ("Gateway service disabled" — they don't expose systemctl in the container). The restart fires automatically when `openclaw.json` is patched — the harness emits a `SIGUSR1` to the gateway process. Saving the config edit through the Control UI is enough.
+
+Expected restart event shape (visible in the API response or logs):
+
+```json
+{
+  "restart": {
+    "ok": true,
+    "signal": "SIGUSR1",
+    "reason": "config.patch"
+  }
+}
+```
+
+### 2c. Confirm the plugin loaded
+
+Tail the gateway log (in Pinata's Console or via the Control UI Logs tab):
+
+```bash
+ls -lt /tmp/openclaw/*.log | head -1                 # find the current log file
+grep "xpr-agents" /tmp/openclaw/openclaw-*.log | tail -10
+```
+
+The success signature:
 
 ```
-[xpr-agents] Plugin loaded: 72 tools (35 read, 37 write)
+[xpr-agents] Plugin loaded: 72 tools, mainnet (https://proton.eosusa.io)
 ```
 
-That's the success line. If you don't see it, the harness never invoked the plugin's default export — your registration step didn't take effect. If you see `[xpr-agents] Read-only mode: XPR_ACCOUNT not set`, the plugin loaded but signing is disabled (back to 2a).
+A2A receive-only mode (expected unless you set `A2A_SIGNING_KEY`):
 
-After restart, the plugin's tools (`xpr_get_agent`, `xpr_submit_bid`, `xpr_deliver_job`, etc.) appear in the agent's tool list.
+```
+[xpr-agents] A2A_SIGNING_KEY not set — A2A outbound calls disabled. See docs/A2A.md to enable.
+```
+
+If signing is wired (you set `XPR_ACCOUNT`), the `Read-only mode:` line **does NOT appear**.
+
+You can also confirm via the CLI:
+
+```bash
+openclaw plugins list                  # row should show: openclaw  loaded  0.4.2
+openclaw plugins info openclaw         # detailed status
+```
+
+### 2d. First signed write — required on the harness path
+
+Unlike the standalone `create-xpr-agent` scaffold (which auto-registers via the runner's `ensureRegistered()`), the harness path doesn't run that code. **Your account is not yet in `agentcore::agents`**, and every `xpr_update_*` / `xpr_set_agent_status` call will fail with `Agent not found` until you explicitly register.
+
+In the agent chat surface:
+
+```
+> Register <your-agent-account> as an agent with name 'My Agent',
+  description 'Autonomous worker', endpoint 'https://my-agent.example',
+  protocol 'https', capabilities ['general', 'jobs', 'bidding'].
+```
+
+Expected:
+- Tool call: `xpr_register_agent`
+- Response contains `"transaction_id": "<64-hex-chars>"`
+- Gateway log emits `[proton-cli] action agentcore::register auth=<your-agent-account>@active` then `[proton-cli] tx <id> ok in <ms>ms`
+- Follow-up `xpr_get_agent` against your account name now returns the registered record
+
+That confirms: harness load + env wiring + proton CLI shell-out + on-chain signing all working.
 
 ## Step 3 — (Optional) Install foundational reference skill via ClawHub
 
