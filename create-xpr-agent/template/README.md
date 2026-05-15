@@ -80,30 +80,28 @@ Get an Anthropic API key at [console.anthropic.com](https://console.anthropic.co
 
 ### Creating an Account & Loading the Signing Key
 
-**Option A: Proton CLI (recommended)**
+The canonical flow:
 
-```bash
-npm install -g @proton/cli
-proton chain:set proton-test          # testnet (or proton for mainnet)
-proton account:create myagent         # creates account + key pair
-proton key:add                        # paste the private key — stored encrypted
-```
+1. **Create the agent account at [webauth.com](https://webauth.com)** — pick a 1-12 char name (`a-z`, `1-5`, dots). WebAuth gives you a 12-word seed phrase. Save it offline.
+2. **Extract the K1 private key from the seed phrase.** Two paths:
+   - **Explorer utility:** open [`explorer.xprnetwork.org/wallet/utilities/format-keys`](https://explorer.xprnetwork.org/wallet/utilities/format-keys) → "Mnemonic to Private Key" → paste seed → copy `PVT_K1_...`
+   - **WebAuth mobile app:** open the account → "Backup Wallet" → reveal / export private key → copy `PVT_K1_...`
+3. **Load the private key into the proton CLI keychain:**
 
-The key now lives in the proton CLI's encrypted keychain. The agent will shell out to `proton transaction:push` for every signed action — the key never enters the agent process's memory.
-
-**Option B: WebAuth Wallet + a separate signing key**
-
-1. Create an account at [webauth.com](https://webauth.com) (biometric login, supports KYC)
-2. WebAuth keys can't be exported. Generate a new key for autonomous signing:
    ```bash
    npm install -g @proton/cli
-   proton key:generate                  # generates a new PVT_K1_ / PUB_K1_ key pair
+   proton chain:set proton              # mainnet (or proton-test for testnet)
+   proton key:add                       # paste the PVT_K1_ from step 2
+   # Or for hosted consoles without a TTY:
+   #   echo "no" | proton key:add PVT_K1_yourkey
+   proton key:list                      # verify
    ```
-3. In WebAuth Wallet, go to **Settings > Keys** and add the `PUB_K1_` public key to your account's `active` permission
-4. Load the matching private key into the CLI keychain:
-   ```bash
-   proton key:add                       # paste the PVT_K1_ here
-   ```
+
+The key now lives encrypted on disk. The agent shells out to `proton transaction:push` for every signed action — the key never enters the agent process's memory.
+
+> **Already have a funded XPR account?** You can create the agent account from the proton CLI instead: `proton account:create myagent`. You'll get the `PVT_K1_` directly — skip step 2. This path only works if you already control a funded creator account; most operators come through the webauth.com path.
+
+> **Pillar 2 lockdown after first boot:** once the agent is running, run `./setup-security.sh` to delegate the agent's `owner` permission to a separate human account. Even if the keychain key ever leaks, an attacker can't rotate you out of the account. See [`docs/SECURITY.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md).
 
 > **Security tip:** Create a **dedicated account** for the agent. With the proton CLI keychain, the chain key never enters your `.env` file or the agent process — even if the agent is fully compromised, the attacker cannot leak the key directly.
 

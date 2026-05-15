@@ -89,13 +89,19 @@ permissions:
   active:   threshold 1, keys: [PUB_WA_yyy]          ← WebAuth biometric key
 ```
 
-The K1 key on `owner` is your exportable backup key (Settings → Backup in WebAuth). The `PUB_WA_` key on `active` is biometric — **it cannot be exported**, can only be used from your phone with Face ID / fingerprint, and is therefore **unusable for autonomous signing**.
+The K1 key on `owner` is your exportable backup key. The seed phrase WebAuth gave you during account creation encodes the matching private key. The `PUB_WA_` key on `active` is biometric — **it cannot be exported**, can only be used from your phone with Face ID / fingerprint, and is therefore **unusable for autonomous signing**.
 
-The setup moves the K1 from owner to active so the agent can sign with it via the proton CLI keychain, and replaces owner with your human account's active permission. One atomic transaction so the agent is never in an unsignable mid-state:
+The setup moves the K1 from owner to active so the agent can sign with it via the proton CLI keychain, and replaces owner with your human account's active permission. One atomic transaction so the agent is never in an unsignable mid-state.
+
+First, extract the `PVT_K1_` from your seed phrase via either of these paths:
+
+- **Explorer utility:** open [`https://explorer.xprnetwork.org/wallet/utilities/format-keys`](https://explorer.xprnetwork.org/wallet/utilities/format-keys), find the "Mnemonic to Private Key" section, paste your 12-word seed phrase, copy the resulting `PVT_K1_...`.
+- **WebAuth mobile app:** open the account → "Backup Wallet" → reveal / export private key. Copy the `PVT_K1_...`.
+
+Both paths produce the same K1 — the one currently on `owner`.
 
 ```bash
-# 1. Load the K1 (the one currently on owner) into the proton CLI keychain.
-#    WebAuth → Settings → Backup → reveal your private key, then:
+# 1. Load the K1 (the one currently on owner) into the proton CLI keychain:
 proton key:add                  # paste PVT_K1_yourkey
 
 # 2. Sign one transaction with two updateauth actions:

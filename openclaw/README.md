@@ -173,8 +173,17 @@ npm i -g @proton/cli
 # 2. Point at the chain
 proton chain:set proton                  # mainnet (use `proton-test` for testnet)
 
-# 3. Don't have an XPR account yet?
-proton account:create myagent            # or sign up at https://webauth.com
+# 3. Create the agent account (if you don't have one yet).
+#    Most operators: sign up at https://webauth.com — it mints a fresh
+#    account, gives you a 12-word seed phrase, and supports KYC.
+#    Then extract the K1 private key from the seed via:
+#    - https://explorer.xprnetwork.org/wallet/utilities/format-keys
+#      ("Mnemonic to Private Key" section), or
+#    - WebAuth mobile app → Backup Wallet → reveal private key
+#
+#    Alternatively, if you already control a funded XPR account, use:
+#       proton account:create myagent
+#    This creates the account + key pair in one step — no seed extraction.
 
 # 4. Load the key (interactive — pastes are hidden)
 proton key:add                           # paste your PVT_K1_ key; stored encrypted
@@ -191,6 +200,8 @@ proton key:list                          # shows your account + public key
 # a 32-character password: the keychain is encrypted. Unlock it once:
 #   proton key:unlock <your-keychain-password>
 ```
+
+After your first run, lock down the agent's `owner` permission so a leaked active key can't take over the account: `npx @xpr-agents/openclaw xpr-agents-setup-security --account myagent`. Full rationale: [`docs/SECURITY.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md).
 
 ### Required environment variables
 
