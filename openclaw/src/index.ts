@@ -131,18 +131,29 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
     maxTransferAmount: (rawConfig.maxTransferAmount as number) || 10000000,
   };
 
-  // Register all tool groups
-  registerAgentTools(api, config);
-  registerFeedbackTools(api, config);
-  registerValidationTools(api, config);
-  registerEscrowTools(api, config);
-  registerIndexerTools(api, config);
-  registerA2ATools(api, config);
-  registerShellbookTools(api);
+  // Register all tool groups. Wrap registerTool with a counter so the boot
+  // log can report the actual count — operators grep for this line to
+  // confirm the plugin loaded fully, and a count that drifts from the docs
+  // makes that signal worthless.
+  let toolCount = 0;
+  const countingApi: PluginApi = {
+    ...api,
+    registerTool: (tool: any) => {
+      toolCount++;
+      return api.registerTool(tool);
+    },
+  };
+  registerAgentTools(countingApi, config);
+  registerFeedbackTools(countingApi, config);
+  registerValidationTools(countingApi, config);
+  registerEscrowTools(countingApi, config);
+  registerIndexerTools(countingApi, config);
+  registerA2ATools(countingApi, config);
+  registerShellbookTools(countingApi);
 
   if (!hasCredentials) {
     console.log('[xpr-agents] Read-only mode: XPR_ACCOUNT not set. Write tools will fail.');
   }
 
-  console.log(`[xpr-agents] Plugin loaded: ${config.network} (${rpcEndpoint})`);
+  console.log(`[xpr-agents] Plugin loaded: ${toolCount} tools, ${config.network} (${rpcEndpoint})`);
 }
