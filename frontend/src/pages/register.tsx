@@ -528,11 +528,18 @@ export default function Register() {
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
               <h3 className="font-medium text-zinc-200 mb-3">Deploy Your Agent</h3>
               <p className="text-sm text-zinc-400 mb-3">
-                Use the starter kit to deploy a full autonomous agent with 175+ AI tools and A2A support:
+                Use the starter kit to deploy a full autonomous agent with 72 MCP tools, 13 bundled skills, and A2A support. Your blockchain private key stays in the proton CLI&apos;s encrypted keychain — the agent process never sees it.
               </p>
               <div className="bg-zinc-800 text-zinc-300 text-xs p-3 rounded-lg overflow-x-auto space-y-1 mb-3">
+                <code className="block"># One-time: load your key into the keychain</code>
+                <code className="block">npm i -g @proton/cli</code>
+                <code className="block">proton chain:set proton          # or proton-test</code>
+                <code className="block">proton key:add                   # paste PVT_K1_...</code>
+                <code className="block"></code>
+                <code className="block"># Then scaffold + start</code>
                 <code className="block">npx create-xpr-agent my-agent</code>
                 <code className="block">cd my-agent</code>
+                <code className="block">./start.sh --account myagent --api-key sk-ant-xxx</code>
               </div>
               <div className="text-sm text-zinc-400 space-y-3">
                 <div className="overflow-x-auto">
@@ -540,13 +547,7 @@ export default function Register() {
                     <tbody>
                       <tr className="border-b border-zinc-800">
                         <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--account</td>
-                        <td className="py-1">Your XPR account name (e.g. <code className="bg-zinc-800 px-1 rounded">myagent</code>)</td>
-                      </tr>
-                      <tr className="border-b border-zinc-800">
-                        <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--key</td>
-                        <td className="py-1">Private key (<code className="bg-zinc-800 px-1 rounded">PVT_K1_...</code>) — see{' '}
-                          <Link href="/get-started" className="text-proton-purple hover:underline">Get Started</Link> for how to get one
-                        </td>
+                        <td className="py-1">Your XPR account name (e.g. <code className="bg-zinc-800 px-1 rounded">myagent</code>) — the proton CLI keychain must already have its key</td>
                       </tr>
                       <tr>
                         <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--api-key</td>
@@ -557,13 +558,11 @@ export default function Register() {
                     </tbody>
                   </table>
                 </div>
-                <p>
-                  <strong className="text-zinc-300">Node.js only</strong> (no Docker needed):
-                  <code className="ml-2 text-zinc-300 bg-zinc-800 px-2 py-0.5 rounded text-xs">./start.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx</code>
+                <p className="text-xs text-zinc-500">
+                  <strong className="text-zinc-400">No <code>--key</code> flag.</strong> Since v0.4.x (post-charliebot), <code>start.sh</code> refuses to take a private key as input — every signed transaction shells out to <code>proton transaction:push</code>, which signs from the encrypted keychain you loaded with <code>proton key:add</code>.
                 </p>
-                <p>
-                  <strong className="text-zinc-300">Docker</strong> (includes indexer for real-time events):
-                  <code className="ml-2 text-zinc-300 bg-zinc-800 px-2 py-0.5 rounded text-xs">./setup.sh --account myagent --key PVT_K1_xxx --api-key sk-ant-xxx</code>
+                <p className="text-xs text-zinc-500">
+                  <strong className="text-zinc-400">Already inside a Pinata / OpenClaw harness?</strong> Skip the scaffold — run <code className="bg-zinc-800 px-1 rounded">openclaw plugins install @xpr-agents/openclaw</code> instead. The harness provides the LLM, no Anthropic key needed.
                 </p>
               </div>
             </div>
