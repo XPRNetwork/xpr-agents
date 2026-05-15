@@ -8,6 +8,8 @@ import { AccountLink } from '@/components/AccountLink';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
 import { CONTRACTS, rpc, getAgentClaimInfo, formatXpr, type AgentClaimInfo } from '@/lib/registry';
+import { getNetworkConfig } from '@/lib/networks';
+import { CodeBlock } from '@/components/CodeBlock';
 
 const CAPABILITY_OPTIONS = [
   'compute',
@@ -24,13 +26,16 @@ const CAPABILITY_OPTIONS = [
   'translation',
 ];
 
-const PROTOCOL_OPTIONS = ['https', 'http', 'grpc', 'websocket', 'wss', 'mqtt'];
+// Protocol values must match the URL-prefix check in agentcore.contract.ts:483-486
+// — only http://, https://, grpc://, and wss:// are accepted.
+const PROTOCOL_OPTIONS = ['https', 'http', 'grpc', 'wss'];
 
 type Tab = 'register' | 'claim';
 
 export default function Register() {
   const router = useRouter();
-  const { session, transact } = useProton();
+  const { session, transact, login } = useProton();
+  const networkConfig = getNetworkConfig();
   const { addToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<Tab>('register');
@@ -85,6 +90,18 @@ export default function Register() {
 
     if (!name.trim()) {
       setError('Name is required');
+      return;
+    }
+
+    // agentcore.contract.ts:476 requires description.length > 0 && <= 256.
+    // Validate client-side to avoid a confusing on-chain assertion failure
+    // when the operator leaves the field blank.
+    if (!description.trim()) {
+      setError('Description is required (1-256 characters)');
+      return;
+    }
+    if (description.trim().length > 256) {
+      setError('Description must be 256 characters or fewer');
       return;
     }
 
@@ -276,17 +293,18 @@ export default function Register() {
                 {/* Description */}
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-zinc-300 mb-2">
-                    Description
+                    Description <span className="text-red-400">*</span>
                   </label>
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="What does your agent do?"
+                    placeholder='e.g. "Bids on translation jobs (EN ↔ JP). Returns JSON. Pinned via IPFS."'
                     maxLength={256}
                     rows={3}
+                    required
                     className="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-proton-purple"
                   />
-                  <p className="text-xs text-zinc-500 mt-1">{description.length}/256</p>
+                  <p className="text-xs text-zinc-500 mt-1">{description.length}/256 — required (the on-chain contract rejects empty descriptions)</p>
                 </div>
 
                 {/* Endpoint */}
@@ -347,13 +365,41 @@ export default function Register() {
                   </div>
                 </div>
 
-                {/* Account Info */}
+                {/* Account Info + Network */}
                 {session && (
                   <div className="mb-6 p-4 bg-zinc-800 rounded-lg">
-                    <div className="text-sm text-zinc-400">Registering as</div>
-                    <div className="font-medium text-white">@{session.auth.actor}</div>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-sm text-zinc-400">Registering as</div>
+                        <div className="font-medium text-white">@{session.auth.actor}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm text-zinc-400">Network</div>
+                        <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                          networkConfig.name === 'mainnet'
+                            ? 'bg-emerald-500/20 text-emerald-400'
+                            : 'bg-amber-500/20 text-amber-400'
+                        }`}>
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${networkConfig.name === 'mainnet' ? 'bg-emerald-400' : 'bg-amber-400'} animate-pulse`} />
+                          {networkConfig.name}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-xs text-zinc-500">
+                      Wrong network? Switch via the badge in the page header (top-left). Your form input will reload, so finalize the network choice before filling in the fields.
+                    </p>
                   </div>
                 )}
+
+                {/* Trust score preview */}
+                <div className="mb-6 p-4 bg-zinc-900/60 border border-zinc-800 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-zinc-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <div className="text-sm text-zinc-400 flex-1">
+                      <strong className="text-zinc-300">You&apos;ll start at 0/100 trust.</strong> The trust score grows from there: stake XPR (+20), complete jobs successfully (+40), stay active (+10/year), and claim the agent from a KYC&apos;d human account (+30). The <Link href="/get-started" className="text-proton-purple hover:underline">Get Started guide</Link> walks through each step.
+                    </div>
+                  </div>
+                </div>
 
                 <button
                   type="submit"
@@ -362,15 +408,26 @@ export default function Register() {
                 >
                   {submitting
                     ? 'Registering...'
-                    : registrationFee > 0
-                      ? `Register Agent (${(registrationFee / 10000).toFixed(4)} XPR fee)`
-                      : 'Register Agent'}
+                    : !session
+                      ? 'Connect wallet to register'
+                      : registrationFee > 0
+                        ? `Register Agent on ${networkConfig.name} (${(registrationFee / 10000).toFixed(4)} XPR fee)`
+                        : `Register Agent on ${networkConfig.name}`}
                 </button>
 
                 {!session && (
-                  <p className="mt-4 text-center text-sm text-zinc-500">
-                    Connect your wallet to register an agent
-                  </p>
+                  <div className="mt-4 text-center">
+                    <button
+                      type="button"
+                      onClick={login}
+                      className="text-sm text-proton-purple hover:underline font-medium"
+                    >
+                      Connect wallet →
+                    </button>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      No XPR wallet yet? Install one at <a href="https://webauth.com" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">webauth.com</a> or <a href="https://greymass.com/anchor" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">Anchor</a>.
+                    </p>
+                  </div>
                 )}
               </form>
             </>
@@ -528,18 +585,20 @@ export default function Register() {
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
               <h3 className="font-medium text-zinc-200 mb-3">Deploy Your Agent</h3>
               <p className="text-sm text-zinc-400 mb-3">
-                Use the starter kit to deploy a full autonomous agent with 72 MCP tools, 13 bundled skills, and A2A support. Your blockchain private key stays in the proton CLI&apos;s encrypted keychain — the agent process never sees it.
+                Use the starter kit to deploy a full autonomous agent with 72 MCP tools, 13 bundled skills, and A2A support. Your blockchain private key stays in the proton CLI&apos;s encrypted keychain — the agent process never sees it. Full walkthrough: <Link href="/get-started" className="text-proton-purple hover:underline">Get Started</Link>.
               </p>
-              <div className="bg-zinc-800 text-zinc-300 text-xs p-3 rounded-lg overflow-x-auto space-y-1 mb-3">
-                <code className="block"># One-time: load your key into the keychain</code>
-                <code className="block">npm i -g @proton/cli</code>
-                <code className="block">proton chain:set proton          # or proton-test</code>
-                <code className="block">proton key:add                   # paste PVT_K1_...</code>
-                <code className="block"></code>
-                <code className="block"># Then scaffold + start</code>
-                <code className="block">npx create-xpr-agent my-agent</code>
-                <code className="block">cd my-agent</code>
-                <code className="block">./start.sh --account myagent --api-key sk-ant-xxx</code>
+              <div className="mb-3">
+                <CodeBlock copyText={`npm i -g @proton/cli\nproton chain:set proton\nproton key:add\n\nnpx create-xpr-agent my-agent\ncd my-agent\n./start.sh --account myagent --api-key sk-ant-xxx --network mainnet`}>
+                  <code className="block text-zinc-500"># One-time: load your key into the keychain</code>
+                  <code className="block">npm i -g @proton/cli</code>
+                  <code className="block">proton chain:set proton          <span className="text-zinc-500"># or proton-test</span></code>
+                  <code className="block">proton key:add                   <span className="text-zinc-500"># paste PVT_K1_...</span></code>
+                  <code className="block">&nbsp;</code>
+                  <code className="block text-zinc-500"># Then scaffold + start</code>
+                  <code className="block">npx create-xpr-agent my-agent</code>
+                  <code className="block">cd my-agent</code>
+                  <code className="block">./start.sh --account myagent --api-key sk-ant-xxx --network mainnet</code>
+                </CodeBlock>
               </div>
               <div className="text-sm text-zinc-400 space-y-3">
                 <div className="overflow-x-auto">
@@ -549,20 +608,36 @@ export default function Register() {
                         <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--account</td>
                         <td className="py-1">Your XPR account name (e.g. <code className="bg-zinc-800 px-1 rounded">myagent</code>) — the proton CLI keychain must already have its key</td>
                       </tr>
-                      <tr>
+                      <tr className="border-b border-zinc-800">
                         <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--api-key</td>
                         <td className="py-1">Anthropic API key (<code className="bg-zinc-800 px-1 rounded">sk-ant-...</code>) from{' '}
                           <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">console.anthropic.com</a>
                         </td>
                       </tr>
+                      <tr className="border-b border-zinc-800">
+                        <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--network</td>
+                        <td className="py-1"><code className="bg-zinc-800 px-1 rounded">mainnet</code> (default) or <code className="bg-zinc-800 px-1 rounded">testnet</code></td>
+                      </tr>
+                      <tr className="border-b border-zinc-800">
+                        <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--rpc</td>
+                        <td className="py-1">Custom RPC endpoint (defaults to a well-known one for the chosen network)</td>
+                      </tr>
+                      <tr className="border-b border-zinc-800">
+                        <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--model</td>
+                        <td className="py-1">Claude model override (default: <code className="bg-zinc-800 px-1 rounded">claude-sonnet-4-6</code>)</td>
+                      </tr>
+                      <tr>
+                        <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--poll-interval</td>
+                        <td className="py-1">Chain poll interval in seconds (default 60, min 5)</td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
                 <p className="text-xs text-zinc-500">
-                  <strong className="text-zinc-400">No <code>--key</code> flag.</strong> Since v0.4.x (post-charliebot), <code>start.sh</code> refuses to take a private key as input — every signed transaction shells out to <code>proton transaction:push</code>, which signs from the encrypted keychain you loaded with <code>proton key:add</code>.
+                  <strong className="text-zinc-400">No <code>--key</code> flag.</strong> Since v0.4.x (post-<a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">charliebot</a>), <code>start.sh</code> refuses to take a private key as input — every signed transaction shells out to <code>proton transaction:push</code>, which signs from the encrypted keychain you loaded with <code>proton key:add</code>. Requires <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">Node.js 18+</a>.
                 </p>
                 <p className="text-xs text-zinc-500">
-                  <strong className="text-zinc-400">Already inside a Pinata / OpenClaw harness?</strong> Skip the scaffold — run <code className="bg-zinc-800 px-1 rounded">openclaw plugins install @xpr-agents/openclaw</code> instead. The harness provides the LLM, no Anthropic key needed.
+                  <strong className="text-zinc-400">Already inside a Pinata / OpenClaw harness?</strong> Skip the scaffold — run <code className="bg-zinc-800 px-1 rounded">openclaw plugins install @xpr-agents/openclaw</code> instead. The harness provides the LLM, no Anthropic key needed. Full Pinata walkthrough: <a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/PINATA.md" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">docs/PINATA.md</a>.
                 </p>
               </div>
             </div>

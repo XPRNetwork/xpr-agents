@@ -30,9 +30,12 @@ export function Footer() {
             {
               title: 'Developers',
               links: [
-                { href: 'https://www.npmjs.com/package/@xpr-agents/sdk', label: 'SDK', external: true },
+                { href: 'https://www.npmjs.com/package/create-xpr-agent', label: 'Create Agent (npm)', external: true },
                 { href: 'https://www.npmjs.com/package/@xpr-agents/openclaw', label: 'OpenClaw Plugin', external: true },
+                { href: 'https://www.npmjs.com/package/@xpr-agents/sdk', label: 'TypeScript SDK', external: true },
+                { href: 'https://github.com/XPRNetwork/xpr-network-dev-skill', label: 'XPR Network Dev Skill', external: true },
                 { href: 'https://github.com/XPRNetwork/xpr-agents', label: 'GitHub', external: true },
+                { href: 'https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md', label: 'Security Model', external: true },
               ],
             },
             {
