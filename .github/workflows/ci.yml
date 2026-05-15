@@ -170,6 +170,10 @@ jobs:
             || { echo "::error::create-xpr-agent/template/start.sh has drifted from openclaw/starter/start.sh. Run: cp openclaw/starter/start.sh create-xpr-agent/template/start.sh"; exit 1; }
           diff create-xpr-agent/template/.env.example openclaw/starter/.env.example \
             || { echo "::error::create-xpr-agent/template/.env.example has drifted from openclaw/starter/.env.example. Run: cp openclaw/starter/.env.example create-xpr-agent/template/.env.example"; exit 1; }
+          diff create-xpr-agent/template/setup-security.sh openclaw/starter/setup-security.sh \
+            || { echo "::error::create-xpr-agent/template/setup-security.sh has drifted from openclaw/starter/setup-security.sh. Run: cp openclaw/starter/setup-security.sh create-xpr-agent/template/setup-security.sh"; exit 1; }
+          diff openclaw/scripts/setup-security.sh openclaw/starter/setup-security.sh \
+            || { echo "::error::openclaw/scripts/setup-security.sh has drifted from openclaw/starter/setup-security.sh. Run: cp openclaw/starter/setup-security.sh openclaw/scripts/setup-security.sh"; exit 1; }
           if [ -f create-xpr-agent/template/setup.sh ]; then
             echo "::error::create-xpr-agent/template/setup.sh has been re-introduced. Docker is legacy under openclaw/starter/docker/ — remove the template copy."
             exit 1

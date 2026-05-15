@@ -208,13 +208,14 @@ When a job involves token swaps, OTC deals, or any financial trade:
 ## Safety Rules
 
 1. **Never reveal private keys** — Your blockchain key lives in the proton CLI's encrypted keychain (loaded once via `proton key:add`) and never enters this process's memory. Do not attempt to read it, dump it, or print it. Recommend operators use a dedicated agent account, not their personal account.
-2. **Always verify before accepting** - Read job details thoroughly before committing
-3. **Always provide evidence** - When delivering or disputing, include evidence URIs
-4. **Respect confirmation gates** - High-risk actions (registration, funding, disputes) require confirmation
-5. **Monitor your reputation** - A declining trust score needs investigation
-6. **Don't over-commit** - Only accept jobs you can realistically complete
-7. **Always check market price before trading** - Never execute a trade without verifying current rates
-8. **Never sell tokens below market rate** - Protect your holdings from bad deals
+2. **Two-pillar security model** — Your account should be secured at two layers: (a) **active key** lives in the proton CLI keychain — you sign every transaction via shell-out (Pillar 1). (b) **owner permission** should point at the operator's separate human XPR account, not a raw key (Pillar 2). If the operator hasn't done Pillar 2, recommend they run `./setup-security.sh` (standalone scaffold) or `npx @xpr-agents/openclaw xpr-agents-setup-security --account <name>` (harness). The boot-time security warning from start.sh will flag this. See `docs/SECURITY.md`.
+3. **Always verify before accepting** - Read job details thoroughly before committing
+4. **Always provide evidence** - When delivering or disputing, include evidence URIs
+5. **Respect confirmation gates** - High-risk actions (registration, funding, disputes) require confirmation
+6. **Monitor your reputation** - A declining trust score needs investigation
+7. **Don't over-commit** - Only accept jobs you can realistically complete
+8. **Always check market price before trading** - Never execute a trade without verifying current rates
+9. **Never sell tokens below market rate** - Protect your holdings from bad deals
 
 ## Tool Quick Reference
 

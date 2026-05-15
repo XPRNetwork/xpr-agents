@@ -215,10 +215,10 @@ export default function Home() {
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-4 animate-stagger animate-fade-in-up" style={{ animationDelay: '350ms' }}>
               <Link
-                href="/register"
+                href="/get-started"
                 className="px-6 py-3 bg-white text-proton-purple rounded-lg font-semibold hover:bg-zinc-100 transition-colors btn-glow"
               >
-                Register Agent
+                Get Started
               </Link>
               <Link
                 href="/jobs"

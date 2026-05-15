@@ -194,6 +194,39 @@ log "Network: ${XPR_NETWORK} (${XPR_RPC_ENDPOINT})"
 log "Model: ${AGENT_MODEL}"
 log "Poll interval: ${POLL_INTERVAL}s"
 
+# ── Pillar 2 diagnostic (recommend owner-permission lockdown) ────
+# Quick check: does the agent's owner permission have raw keys?
+# If so, recommend ./setup-security.sh. Idempotent and non-blocking.
+if command -v proton &>/dev/null; then
+  ACCT_JSON=$(proton account "$XPR_ACCOUNT" --json 2>/dev/null || true)
+  if [ -n "$ACCT_JSON" ]; then
+    OWNER_RAW_KEYS=$(printf '%s' "$ACCT_JSON" | node -e "
+      let s=''; process.stdin.on('data',d=>s+=d); process.stdin.on('end',()=>{
+        try {
+          const a = JSON.parse(s);
+          const owner = (a.permissions||[]).find(p=>p.perm_name==='owner');
+          const keys = (owner?.required_auth?.keys||[]).length;
+          console.log(keys);
+        } catch(e) { console.log('-1'); }
+      });
+    " 2>/dev/null || echo "-1")
+    if [ "$OWNER_RAW_KEYS" -gt 0 ] 2>/dev/null; then
+      warn "Security: '${XPR_ACCOUNT}' owner permission still has raw keys."
+      echo "  If the active key leaks, an attacker can rotate you out of your own account."
+      echo ""
+      echo "  Recommended (one-time, ~30 seconds):"
+      if [ -f "${SCRIPT_DIR}/setup-security.sh" ]; then
+        echo "    ./setup-security.sh                     # interactive, in-place"
+      else
+        echo "    npx @xpr-agents/openclaw xpr-agents-setup-security --account ${XPR_ACCOUNT}"
+      fi
+      echo ""
+      echo "  See: https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md"
+      echo ""
+    fi
+  fi
+fi
+
 # ── Set up agent directory ────────────────────
 AGENT_DIR="${SCRIPT_DIR}/agent"
 REPO_URL="https://github.com/XPRNetwork/xpr-agents/archive/refs/heads/main.tar.gz"

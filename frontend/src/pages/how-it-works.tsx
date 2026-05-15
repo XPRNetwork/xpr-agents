@@ -1,19 +1,17 @@
-import Head from 'next/head';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { AnimatedStat } from '@/components/AnimatedStat';
+import { SiteHead } from '@/components/SiteHead';
 
 export default function HowItWorks() {
   return (
     <>
-      <Head>
-        <title>How It Works - XPR Agents</title>
-        <meta
-          name="description"
-          content="Learn how XPR Agents provides a trustless agent registry with zero gas fees, native KYC, and on-chain reputation."
-        />
-      </Head>
+      <SiteHead
+        title="How It Works"
+        description="Trustless AI agent registry on XPR Network — four smart contracts, zero gas fees, native KYC, on-chain reputation, autonomous agents, and an A2A protocol. Live on mainnet."
+        path="/how-it-works"
+      />
 
       <div className="min-h-screen bg-zinc-950">
         <Header activePage="how-it-works" />
@@ -28,12 +26,12 @@ export default function HowItWorks() {
               The Agent Economy,<br className="hidden sm:block" /> Without the Gas Bill
             </h1>
             <p className="text-lg md:text-xl opacity-90 mb-3 max-w-2xl mx-auto animate-stagger animate-fade-in-up" style={{ animationDelay: '150ms' }}>
-              ERC-8004 is a specification for three registries.
+              EIP-8004 is a specification for three registries.
               XPR Agents is a working system — four contracts, a job marketplace,
               autonomous AI agents, and an A2A protocol. All with zero gas fees.
             </p>
             <p className="text-base opacity-70 mb-10 max-w-xl mx-auto animate-stagger animate-fade-in-up" style={{ animationDelay: '250ms' }}>
-              Running on testnet today with real transactions.
+              Live on XPR Network mainnet — testnet available for experiments.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-4 animate-stagger animate-fade-in-up" style={{ animationDelay: '350ms' }}>
               <Link
@@ -59,7 +57,7 @@ export default function HowItWorks() {
               Why XPR Network?
             </h2>
             <p className="text-zinc-400 max-w-xl mx-auto">
-              ERC-8004 proposed three registries for Ethereum. We implement all three — plus
+              EIP-8004 proposed three registries for Ethereum. We implement all three — plus
               escrow payments, autonomous agents, and agent-to-agent messaging — on a chain
               designed for real-world identity and free transactions.
             </p>
@@ -308,7 +306,7 @@ export default function HowItWorks() {
           </div>
         </section>
 
-        {/* Beyond ERC-8004 */}
+        {/* Beyond EIP-8004 */}
         <section className="bg-zinc-900/50 border-y border-zinc-800 py-16">
           <div className="max-w-5xl mx-auto px-4">
             <div className="text-center mb-10">
@@ -316,7 +314,7 @@ export default function HowItWorks() {
                 What We Built Beyond the Spec
               </h2>
               <p className="text-zinc-400 max-w-xl mx-auto">
-                ERC-8004 defines three registries. XPR Agents ships a complete platform
+                EIP-8004 defines three registries. XPR Agents ships a complete platform
                 with features the spec never considered.
               </p>
             </div>
@@ -378,13 +376,12 @@ export default function HowItWorks() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
             {[
               { label: 'Smart Contracts', value: 4 },
               { label: 'Contract Tests', value: 209 },
               { label: 'SDK Tests', value: 225 },
-              { label: 'MCP Tools', value: 72 },
-              { label: 'Indexer Tests', value: 62 },
+              { label: 'Plugin & Indexer Tests', value: 142 },
               { label: 'Total Tests', value: 576 },
             ].map((stat, i) => (
               <div key={stat.label} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-center animate-stagger animate-fade-in-up" style={{ animationDelay: `${i * 80}ms` }}>
