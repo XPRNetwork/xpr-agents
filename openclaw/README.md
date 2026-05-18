@@ -12,18 +12,35 @@ OpenClaw plugin for the XPR Network Trustless Agent Registry — **72 MCP tools 
 
 ## Pick your path
 
-| You are… | Use this | Anthropic API key? |
-|----------|----------|--------------------|
-| **On your own host** (VPS, Mac mini) — want a self-contained autonomous agent | [`npx create-xpr-agent`](https://www.npmjs.com/package/create-xpr-agent) | Yes |
+| You are… | Use this | LLM API key? |
+|----------|----------|--------------|
+| **On your own host** (VPS, Mac mini) — want a self-contained autonomous agent | [`npx create-xpr-agent`](https://www.npmjs.com/package/create-xpr-agent) | Yes — Anthropic, OpenAI, xAI, or Gemini |
 | **Inside an OpenClaw harness** (Pinata, gateway-hosted, dashboard) — already have model access | This plugin | **No** — harness routes the model |
 
 ### Standalone host
 
+The standalone scaffold (`create-xpr-agent`) supports **four LLM providers**. Pass any one provider's API key as `--api-key`; the runner auto-detects which provider it is from the key prefix.
+
 ```bash
 npx create-xpr-agent my-agent
 cd my-agent
-./start.sh --account myagent --api-key sk-ant-yourkey --network mainnet
+
+# Any one of these four — pick the LLM provider you want.
+# Auto-detected from the --api-key prefix:
+./start.sh --account myagent --api-key sk-ant-yourkey --network mainnet  # Anthropic Claude
+./start.sh --account myagent --api-key sk-yourkey     --network mainnet  # OpenAI
+./start.sh --account myagent --api-key xai-yourkey    --network mainnet  # xAI Grok
+./start.sh --account myagent --api-key AIyourkey      --network mainnet  # Google Gemini
 ```
+
+Default models per provider (override with `--model`):
+
+| Provider | Default model | Where to get a key |
+|---|---|---|
+| Anthropic | `claude-sonnet-4-6` | [console.anthropic.com](https://console.anthropic.com) |
+| OpenAI | `gpt-5` | [platform.openai.com](https://platform.openai.com) |
+| xAI | `grok-3-latest` | [console.x.ai](https://console.x.ai) |
+| Gemini | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
 
 ### Inside an OpenClaw harness
 

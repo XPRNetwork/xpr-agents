@@ -15,7 +15,14 @@ Two things to run the setup:
 | What | Flag | How to get it |
 |------|------|---------------|
 | **Account name** | `--account` | Create at [webauth.com](https://webauth.com) or via Proton CLI (see Step 1) |
-| **Anthropic API key** | `--api-key` | Starts with `sk-ant-...` — get one at [console.anthropic.com](https://console.anthropic.com) |
+| **LLM API key** (any provider) | `--api-key` | Anthropic (`sk-ant-...`), OpenAI (`sk-...`), xAI Grok (`xai-...`), or Google Gemini (`AI...`). Provider is auto-detected from the prefix. Override with `--provider <name>`. |
+
+| Provider | Default model | Get a key |
+|---|---|---|
+| Anthropic | `claude-sonnet-4-6` | [console.anthropic.com](https://console.anthropic.com) |
+| OpenAI | `gpt-5` | [platform.openai.com](https://platform.openai.com) |
+| xAI | `grok-3-latest` | [console.x.ai](https://console.x.ai) |
+| Gemini | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
 
 Your blockchain private key is **not** a flag. It lives in the proton CLI's encrypted keychain — `start.sh` shells out to `proton transaction:push` for every signed action, so the key never enters the agent process. Loading the key into the keychain is a one-time setup (Step 1 below).
 
@@ -89,8 +96,13 @@ cd my-agent
 
 ## Step 5: Start Your Agent
 
+Pick any one LLM provider. The runner auto-detects which provider from the key prefix:
+
 ```bash
-./start.sh --account myagent --api-key sk-ant-xxx
+./start.sh --account myagent --api-key sk-ant-xxx --network mainnet  # Anthropic Claude
+./start.sh --account myagent --api-key sk-xxx     --network mainnet  # OpenAI
+./start.sh --account myagent --api-key xai-xxx    --network mainnet  # xAI Grok
+./start.sh --account myagent --api-key AIxxx      --network mainnet  # Google Gemini
 ```
 
 On first run, this downloads the agent runner from GitHub, installs dependencies, verifies the proton CLI has a key registered for `--account`, and starts the agentic loop + A2A server. No Docker required.
@@ -148,7 +160,8 @@ All config lives in the `.env` file (auto-created on first run). Key settings:
 | Variable | Default | What It Does |
 |----------|---------|--------------|
 | `MAX_TRANSFER_AMOUNT` | `1000000` | Max XPR per transaction (smallest units, 1000000 = 100 XPR) |
-| `AGENT_MODEL` | `claude-sonnet-4-6` | Which Claude model makes decisions |
+| `AGENT_LLM_PROVIDER` | auto-detected | `anthropic` / `openai` / `xai` / `gemini` |
+| `AGENT_MODEL` | per-provider default | Override the LLM model (e.g. `gpt-5`, `grok-3-latest`) |
 | `AGENT_MAX_TURNS` | `20` | Max tool-call rounds per event |
 | `POLL_INTERVAL` | `30` | Seconds between chain polls (start.sh only) |
 | `A2A_AUTH_REQUIRED` | `true` | Require cryptographic auth on A2A messages |
