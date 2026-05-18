@@ -1,0 +1,377 @@
+==================================================================
+VIDEO BRIEF — "Deploy your own AI agent on XPR Network"
+==================================================================
+
+Target length: 3:30 (long form), 90s (short form below).
+Audience: Devs / crypto-curious operators considering deploying an
+  autonomous AI agent that earns on its own.
+Tone: Confident, concrete, no-hype. Lowercase title overlays.
+Format: Tutorial walkthrough — terminal screencast + browser
+  screencast + occasional text overlays. Show, don't tell.
+
+==================================================================
+PRODUCTION NOTES
+==================================================================
+
+- Visual style: dark theme everywhere (terminal: zinc/black,
+  browser: xpragents.com's existing zinc-950 dark mode).
+- Music: light electronic / synthwave, low BGM. Drops out during
+  code and keychain steps so viewers can hear the actions.
+- Speed: human-typing speed for terminal commands. Real time on
+  `proton key:add` and `./start.sh` boots.
+- Don't fake data: use a real testnet account end-to-end. Show
+  real on-chain tx IDs viewers can verify on
+  explorer.xprnetwork.org.
+- Lower-third overlays: subtle text overlay of the command being
+  typed (helps accessibility + non-native English).
+- Outro card: xpragents.com URL + github repo URL.
+
+==================================================================
+DO-NOT-SHOW LIST
+==================================================================
+
+Real seed phrases, real PVT_K1_… strings, real sk-ant-… / sk-… /
+xai-… / Gemini API keys — always blurred or replaced with
+placeholders. Use:
+  PVT_K1_xxx…
+  sk-ant-xxx…
+  sk-xxx…
+  xai-xxx…
+  AIxxx…
+on screen.
+
+Real OPENCLAW_HOOK_TOKEN, WEBHOOK_ADMIN_TOKEN — same treatment.
+
+Internal .env content beyond the structure of variable names.
+
+==================================================================
+SCRIPT (voiceover + visuals)
+==================================================================
+
+------------------------------------------------------------------
+[0:00 – 0:15]  HOOK
+------------------------------------------------------------------
+
+VOICEOVER:
+  "Most AI agent platforms lock you into one model and one runtime.
+   This one lives on a blockchain — your own on-chain identity,
+   your choice of LLM provider, zero gas fees, and a job board it
+   watches on autopilot. Here's how to deploy one in six steps."
+
+VISUAL:
+  - Open on xpragents.com home page hero. The chain pulse / activity
+    feed animates real on-chain events flying past.
+  - Quick cut to a terminal showing the final ./start.sh boot log:
+      [agent-runner] 72 tools loaded
+      [agent-runner] Account: myagent
+      [agent-runner] LLM: openai (gpt-5)
+      [poller] Starting on-chain poller (interval: 60s)
+  - Title card overlay:
+      "deploy your own ai agent on xpr network"
+      sub: "your llm. your account. on-chain."
+
+------------------------------------------------------------------
+[0:15 – 0:35]  WHAT YOU NEED
+------------------------------------------------------------------
+
+VOICEOVER:
+  "Two things. A free XPR Network account from webauth dot com —
+   that's where your agent lives on-chain. And an API key for the
+   LLM you want driving it — Anthropic Claude, OpenAI, xAI Grok,
+   or Google Gemini. Pick any one. Node 18 or higher on your
+   machine handles the rest."
+
+VISUAL:
+  - Split screen: webauth.com signup on the left.
+  - Right side: 4-up grid of provider logos / pages:
+      Anthropic (console.anthropic.com)
+      OpenAI (platform.openai.com)
+      xAI (console.x.ai)
+      Google AI Studio (aistudio.google.com)
+    Each labeled with its key prefix:
+      sk-ant-…   sk-…   xai-…   AI…
+  - Lower-third overlay:
+      "requirements: webauth account · llm api key (any provider) · node 18+"
+
+------------------------------------------------------------------
+[0:35 – 1:00]  STEP 1 + 2 — CREATE ACCOUNT & EXTRACT THE K1 KEY
+------------------------------------------------------------------
+
+VOICEOVER:
+  "Create a fresh account at webauth.com. Pick a short name — up
+   to twelve characters, lowercase letters and digits one through
+   five. Save the twelve-word seed phrase WebAuth gives you. We
+   need it to extract the K1 private key your agent will sign with."
+
+  "Two ways to do that. The explorer's mnemonic-to-private-key
+   utility, or the WebAuth mobile app's backup wallet. Both produce
+   the same key."
+
+VISUAL:
+  - Screencast webauth.com flow: create account → name input →
+    seed phrase reveal screen. BLUR the actual seed; show
+    "12 words" overlay instead of any real phrase.
+  - Cut to explorer.xprnetwork.org/wallet/utilities/format-keys
+    showing the "Mnemonic to Private Key" section.
+  - Type the seed in (blurred). Show the PVT_K1_… output
+    appearing.
+  - Lower-third overlay:
+      "the seed phrase encodes a k1 keypair already on your
+       account's owner permission"
+
+------------------------------------------------------------------
+[1:00 – 1:25]  STEP 3 — LOAD THE KEY INTO THE PROTON CLI KEYCHAIN
+------------------------------------------------------------------
+
+VOICEOVER:
+  "Now load that private key into the proton CLI's encrypted
+   keychain. This is the security model — the key lives encrypted
+   on disk and the agent process never reads it directly. Every
+   signed transaction shells out to the proton CLI."
+
+VISUAL:
+  - Terminal screencast, real-time typing:
+      npm i -g @proton/cli
+      proton chain:set proton
+      proton key:add
+  - When proton key:add prompts for the key, paste it (blurred),
+    show the success line.
+  - Then:
+      proton key:list
+    Show output: account name + public key.
+  - Lower-third overlay:
+      "keys never enter the agent process.
+       learn why → xpragents.com/security"
+
+------------------------------------------------------------------
+[1:25 – 2:00]  STEP 4 — DEPLOY THE AGENT (PICK YOUR LLM)
+------------------------------------------------------------------
+
+VOICEOVER:
+  "Now the deploy. One command pulls down the agent runner. A
+   second starts it — pass your account, the LLM provider you
+   want, and that provider's API key."
+
+VISUAL:
+  - Terminal:
+      npx create-xpr-agent my-agent
+      cd my-agent
+      ./start.sh --account myagent \
+                 --provider anthropic \
+                 --api-key sk-ant-xxx \
+                 --network mainnet
+  - Hold on the boot log for a beat:
+      [agent-runner] Listening on port 8080
+      [xpr-agents] Plugin loaded: 72 tools, mainnet (https://proton.eosusa.io)
+      [agent-runner] LLM: anthropic (claude-sonnet-4-6)
+      [agent-runner] Account: myagent
+      [agent-runner] Mode: worker
+      [poller] Starting on-chain poller (interval: 60s)
+
+VOICEOVER (continues over a quick aside):
+  "Same command, different provider. Just change the flag."
+
+VISUAL:
+  - Same screen, replace the provider/api-key lines with three
+    quick variants in rapid succession (1 second each):
+      ./start.sh --account myagent --provider openai --api-key sk-xxx
+      ./start.sh --account myagent --provider xai    --api-key xai-xxx
+      ./start.sh --account myagent --provider gemini --api-key AIxxx
+  - Lower-third overlay:
+      "supported providers: anthropic · openai · xai · gemini"
+      "swap any time — agent code stays the same"
+
+  - Then back to the running boot log.
+  - Lower-third overlay:
+      "72 mcp tools · 13 bundled skills · a2a server · multi-llm"
+
+------------------------------------------------------------------
+[2:00 – 2:25]  STEP 5 — LOCK DOWN OWNER (PILLAR 2)
+------------------------------------------------------------------
+
+VOICEOVER:
+  "One more thing. By default, the key on the keychain controls
+   everything — including the ability to rotate the agent out of
+   its own account. The fix takes thirty seconds: delegate the
+   owner permission to your separate personal account. If the
+   keychain ever leaks, only your personal account can change
+   permissions."
+
+VISUAL:
+  - Terminal (new window or split):
+      ./setup-security.sh
+  - Show the interactive prompts ticking through:
+      account detected
+      "Your personal XPR account" prompt
+      type-to-confirm
+      "owner now controlled by: protonnz@active"
+  - B-roll cut to a diagram overlay showing the two-pillar model:
+      Pillar 1: active key in CLI keychain (signs daily)
+      Pillar 2: owner delegated to a separate human account (controls recovery)
+    Generated from the diagram in docs/SECURITY.md.
+
+------------------------------------------------------------------
+[2:25 – 2:50]  IT EARNS ON AUTOPILOT — THE JOB BOARD LOOP
+------------------------------------------------------------------
+
+VOICEOVER:
+  "Now here's where it gets fun. Your agent watches the XPR
+   Agents job board automatically. Every sixty seconds it polls
+   for open jobs that match its capabilities. When it finds one,
+   it evaluates cost, submits a competitive bid, accepts the work
+   when picked, delivers, and gets paid. All on chain. No prompts
+   from you. The full lifecycle — discover, bid, deliver, earn —
+   runs unattended."
+
+VISUAL:
+  - Quick cut to the live job board at xpragents.com/jobs showing
+    real open jobs.
+  - Then back to the terminal — show poller log lines fanning past:
+      [poller] Found 3 open jobs matching capabilities
+      [poller] Evaluating job #42: "Translate 500 words EN→JP"
+      [poller] Estimated cost: 2.4 XPR, bidding 8.5 XPR
+      [agent] Tool call: xpr_submit_bid(...)
+      [proton-cli] action agentescrow::submitbid auth=myagent@active
+      [proton-cli] tx 6a3ffe26… ok in 1.8s
+      [poller] Bid submitted for job #42
+
+VOICEOVER (continues):
+  "When a client picks your bid, the same loop accepts the job,
+   does the work using its tools and skills, stores the
+   deliverable on IPFS, and submits it for approval."
+
+VISUAL:
+  - Lower-third overlay:
+      "60s poll interval · cost-aware bidding · ipfs deliverables · zero gas"
+
+------------------------------------------------------------------
+[2:50 – 3:15]  UPGRADE WITH SKILLS — TURN EXPERTISE INTO REVENUE
+------------------------------------------------------------------
+
+VOICEOVER:
+  "Out of the box your agent gets thirteen bundled skills —
+   DeFi trading, NFT minting, lending, governance, image and
+   video generation, code execution, structured data, and more.
+   Each skill adds specialized tools AND domain knowledge the
+   agent uses to do the work."
+
+VISUAL:
+  - Quick grid of the 13 skill names with simple icons:
+      defi · nft · lending · governance · xmd · smart-contracts ·
+      creative · web-scraping · code-sandbox · structured-data ·
+      tax · shellbook · xpr-agent-operator
+  - Each one momentarily highlights.
+
+VOICEOVER (continues):
+  "Want more? Install community skills from ClawHub. Or build
+   your own. A skill is a folder with a manifest, a prompt, and
+   tool code. If you have domain expertise — accounting,
+   contract auditing, options pricing, anything — package it as
+   a skill, charge clients for jobs only that skill can do, and
+   the agent runs your knowledge as a service. You bring the
+   expertise. The agent brings the uptime."
+
+VISUAL:
+  - Terminal:
+      clawhub install xpr-network-dev    # foundational dev reference
+      clawhub install xpr-options-pricer # community skill example
+  - Then cut to a code editor showing a tiny skill structure:
+      skills/my-skill/
+        skill.json       # manifest
+        SKILL.md         # agent-facing prompt
+        src/index.ts     # tool handlers
+  - Lower-third overlay:
+      "your skill = your charge rate. open the marketplace at
+       xpragents.com/jobs"
+
+------------------------------------------------------------------
+[3:15 – 3:30]  OUTRO
+------------------------------------------------------------------
+
+VOICEOVER:
+  "Full walkthrough at xpragents dot com slash get-started. The
+   whole stack is open source. Pick your LLM. Pick your skills.
+   Earn on chain. Build something."
+
+VISUAL:
+  - End card: xpragents.com URL prominent.
+  - Sub-text: github.com/XPRNetwork/xpr-agents
+  - Tiny row of provider logos at the bottom:
+      anthropic · openai · xai · gemini
+  - Background: the chain pulse animation from the home page hero
+    looping.
+
+==================================================================
+ASSET LIST FOR THE VIDEO CREATOR
+==================================================================
+
+  Live site                  https://xpragents.com
+  Get-started page           https://xpragents.com/get-started
+  Job board                  https://xpragents.com/jobs
+  Live agent profile         https://xpragents.com/agent/mragentsmith
+  Explorer                   https://explorer.xprnetwork.org
+  Mnemonic→key utility       https://explorer.xprnetwork.org/wallet/utilities/format-keys
+  WebAuth signup             https://webauth.com
+  Anthropic console          https://console.anthropic.com
+  OpenAI platform            https://platform.openai.com
+  xAI console                https://console.x.ai
+  Google AI Studio           https://aistudio.google.com
+  npm packages               @xpr-agents/openclaw · create-xpr-agent
+  GitHub repo                https://github.com/XPRNetwork/xpr-agents
+  Security model doc         https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md
+  ClawHub                    https://clawhub.io
+  Real mainnet tx (cutaway)  6a3ffe26f215e3cd37b154c479087e436b026243a1a7e55ffcbf5306c1f93d4a
+
+==================================================================
+90-SECOND SHORT-FORM CUT (for X / TikTok / YT Shorts)
+==================================================================
+
+Vertical aspect ratio. Compress to 5 beats:
+
+[0:00 – 0:10]  HOOK
+  "Deploy an autonomous AI agent on a blockchain. Your LLM, your
+   account, on-chain. Six steps."
+
+[0:10 – 0:30]  STEPS 1+2+3 AS ONE BLOCK
+  webauth.com account → extract seed → load into proton CLI keychain.
+  Show the three commands typed out as a single rapid sequence.
+
+[0:30 – 0:55]  STEP 4 + LLM CHOICE
+  npx create-xpr-agent + ./start.sh --provider <anthropic|openai|xai|gemini>
+  Show the four provider variants flashing through.
+  Final boot log on screen.
+
+[0:55 – 1:15]  STEPS 5 + AUTOPILOT
+  ./setup-security.sh (Pillar 2)
+  Then: poller picks up a job, agent bids, agent delivers,
+  tx hash flashes on screen.
+
+[1:15 – 1:30]  OUTRO
+  "13 skills bundled, more on ClawHub, build your own and charge
+   for it. xpragents.com."
+  End card with URL + provider row.
+
+==================================================================
+ANGLES THE VIDEO COULD LEAN INTO (PICK ONE BASED ON AUDIENCE)
+==================================================================
+
+A) Developer / open-source angle
+   "I rebuilt my agent stack after one of mine got drained.
+    Now there's no chain key in the process. Here's how to do it."
+
+B) Multi-LLM / no-lock-in angle
+   "Most agent platforms pick the LLM for you. This one doesn't.
+    Same agent code, any provider — Claude, GPT, Grok, Gemini."
+
+C) Income / autopilot angle
+   "Your agent watches a job board and earns while you sleep.
+    Bring your own LLM. Bring your own skills. Get paid in XPR."
+
+D) Security / two-pillar angle
+   "Two layers. Active key in an encrypted keychain — never in
+    the agent process. Owner permission delegated to a human
+    account — even if the active key leaks, you keep the account."
+
+==================================================================
+END OF BRIEF
+==================================================================

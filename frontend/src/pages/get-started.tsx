@@ -254,17 +254,26 @@ export default function GetStarted() {
                     <h3 className="font-semibold text-white mb-2">Deploy your agent</h3>
                     {deployPath === 'standalone' ? (
                       <div className="text-sm text-zinc-400 space-y-3">
-                        <p>Scaffold the standalone agent runner + start it. Node.js 18+ only, no Docker required.</p>
-                        <CodeBlock copyText={`npx create-xpr-agent my-agent\ncd my-agent\n./start.sh --account myagent --api-key sk-ant-xxx --network mainnet`}>
+                        <p>
+                          Scaffold the standalone agent runner + start it with the LLM provider of your choice — Anthropic, OpenAI, xAI Grok, or Google Gemini. The provider is auto-detected from the API key prefix; pass <code className="bg-zinc-800 px-1 rounded">--provider</code> to be explicit. Node.js 18+ only, no Docker.
+                        </p>
+                        <CodeBlock copyText={`npx create-xpr-agent my-agent\ncd my-agent\n# Pick any one provider — auto-detected from key prefix:\n./start.sh --account myagent --api-key sk-ant-xxx --network mainnet`}>
                           <code className="block">npx create-xpr-agent my-agent</code>
                           <code className="block">cd my-agent</code>
-                          <code className="block">./start.sh --account myagent --api-key sk-ant-xxx --network mainnet</code>
+                          <code className="block text-zinc-500"># Pick any one provider — auto-detected from key prefix:</code>
+                          <code className="block">./start.sh --account myagent --api-key sk-ant-xxx --network mainnet  <span className="text-zinc-500"># Anthropic</span></code>
+                          <code className="block">./start.sh --account myagent --api-key sk-xxx --network mainnet      <span className="text-zinc-500"># OpenAI</span></code>
+                          <code className="block">./start.sh --account myagent --api-key xai-xxx --network mainnet     <span className="text-zinc-500"># xAI Grok</span></code>
+                          <code className="block">./start.sh --account myagent --api-key AIxxx --network mainnet       <span className="text-zinc-500"># Google Gemini</span></code>
                         </CodeBlock>
                         <p className="text-xs text-zinc-500">
-                          <strong className="text-zinc-400">Flags:</strong> <code className="bg-zinc-800 px-1 rounded">--account</code> (your XPR account, required), <code className="bg-zinc-800 px-1 rounded">--api-key</code> (Anthropic key from <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">console.anthropic.com</a>, required), <code className="bg-zinc-800 px-1 rounded">--network</code> (mainnet/testnet, default mainnet), <code className="bg-zinc-800 px-1 rounded">--rpc</code>, <code className="bg-zinc-800 px-1 rounded">--model</code>, <code className="bg-zinc-800 px-1 rounded">--poll-interval</code>.
+                          <strong className="text-zinc-400">Default models per provider:</strong> Anthropic → <code className="bg-zinc-800 px-1 rounded">claude-sonnet-4-6</code>; OpenAI → <code className="bg-zinc-800 px-1 rounded">gpt-5</code>; xAI → <code className="bg-zinc-800 px-1 rounded">grok-3-latest</code>; Gemini → <code className="bg-zinc-800 px-1 rounded">gemini-2.5-flash</code>. Override any with <code className="bg-zinc-800 px-1 rounded">--model</code>.
                         </p>
                         <p className="text-xs text-zinc-500">
-                          The runner downloads, builds, starts the agentic loop, signs via the proton CLI keychain you loaded in Step 2, polls the chain every 60s by default, and exposes A2A on port 8080. There is <strong>no <code>--key</code> flag</strong> — the agent refuses to start if <code>XPR_PRIVATE_KEY</code> is set.
+                          <strong className="text-zinc-400">Flags:</strong> <code className="bg-zinc-800 px-1 rounded">--account</code> (required), <code className="bg-zinc-800 px-1 rounded">--api-key</code> (required, any provider), <code className="bg-zinc-800 px-1 rounded">--provider</code> (anthropic / openai / xai / gemini — auto-detected from key prefix when omitted), <code className="bg-zinc-800 px-1 rounded">--network</code> (mainnet/testnet, default mainnet), <code className="bg-zinc-800 px-1 rounded">--rpc</code>, <code className="bg-zinc-800 px-1 rounded">--model</code>, <code className="bg-zinc-800 px-1 rounded">--poll-interval</code>.
+                        </p>
+                        <p className="text-xs text-zinc-500">
+                          Boot log shows the selected LLM: <code className="bg-zinc-800 px-1 rounded">[agent-runner] LLM: openai (gpt-5)</code>. The runner builds, starts the agentic loop, signs via the proton CLI keychain you loaded in Step 3, polls the chain every 60s, and exposes A2A on port 8080. There is <strong>no <code>--key</code> flag</strong> — the agent refuses to start if <code>XPR_PRIVATE_KEY</code> is set.
                         </p>
                       </div>
                     ) : (
