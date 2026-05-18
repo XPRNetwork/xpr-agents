@@ -5,26 +5,32 @@ import { getSelectedNetwork, switchNetwork, type NetworkId } from '@/lib/network
 
 export type Page = 'discover' | 'jobs' | 'leaderboard' | 'validators' | 'arbitrators' | 'how-it-works' | 'get-started' | 'dashboard';
 
-const NETWORK_PAGES: Page[] = ['validators', 'arbitrators', 'how-it-works'];
-const USER_PAGES: Page[] = ['dashboard', 'get-started'];
+// Pages collapsed under the "More" dropdown — secondary content the
+// average first-time visitor doesn't need surfaced.
+const MORE_PAGES: Page[] = ['leaderboard', 'validators', 'arbitrators'];
 
 interface NavItem { href: string; label: string; page: Page }
 
+// Primary nav — the four things a new visitor actually wants to do:
+//   1. browse Agents (the registry)
+//   2. browse Jobs (the marketplace)
+//   3. deploy their own agent (Get Started — has the video walkthrough)
+//   4. understand the system (How It Works)
 const MAIN_NAV: NavItem[] = [
-  { href: '/', label: 'Discover', page: 'discover' },
+  { href: '/', label: 'Agents', page: 'discover' },
   { href: '/jobs', label: 'Jobs', page: 'jobs' },
-  { href: '/leaderboard', label: 'Leaderboard', page: 'leaderboard' },
-];
-
-const NETWORK_ITEMS: NavItem[] = [
-  { href: '/validators', label: 'Validators', page: 'validators' },
-  { href: '/arbitrators', label: 'Arbitrators', page: 'arbitrators' },
+  { href: '/get-started', label: 'Get Started', page: 'get-started' },
   { href: '/how-it-works', label: 'How It Works', page: 'how-it-works' },
 ];
 
-const USER_MENU_ITEMS: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', page: 'dashboard' },
-  { href: '/get-started', label: 'Get Started', page: 'get-started' },
+// Secondary — power-user / network-participant content. Previously the
+// "Network" dropdown mixed entity types (Validators, Arbitrators) with
+// a docs page (How It Works) and clashed semantically with the
+// [mainnet] badge. Now: a clean "More" with only directories.
+const MORE_ITEMS: NavItem[] = [
+  { href: '/leaderboard', label: 'Leaderboard', page: 'leaderboard' },
+  { href: '/validators', label: 'Validators', page: 'validators' },
+  { href: '/arbitrators', label: 'Arbitrators', page: 'arbitrators' },
 ];
 
 function NetworkBadge() {
@@ -58,19 +64,18 @@ function NetworkBadge() {
 export function Header({ activePage }: { activePage?: Page }) {
   const { session, loading, login, logout } = useProton();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [networkOpen, setNetworkOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
-  const [mobileNetworkOpen, setMobileNetworkOpen] = useState(false);
-  const networkRef = useRef<HTMLDivElement>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
 
-  const isNetworkActive = NETWORK_PAGES.includes(activePage as Page);
-  const isUserActive = USER_PAGES.includes(activePage as Page);
+  const isMoreActive = MORE_PAGES.includes(activePage as Page);
+  const isUserActive = activePage === 'dashboard';
 
   // Close dropdowns on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (networkRef.current && !networkRef.current.contains(e.target as Node)) setNetworkOpen(false);
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
       if (userRef.current && !userRef.current.contains(e.target as Node)) setUserOpen(false);
     }
     document.addEventListener('mousedown', handleClick);
@@ -101,32 +106,32 @@ export function Header({ activePage }: { activePage?: Page }) {
           <NetworkBadge />
         </div>
 
-        {/* Desktop nav — center links */}
+        {/* Desktop nav — primary links + "More" dropdown */}
         <nav className="hidden md:flex items-center gap-5">
           {MAIN_NAV.map(({ href, label, page }) => (
             <Link key={page} href={href} className={linkClass(page)}>{label}</Link>
           ))}
 
-          {/* Network dropdown */}
-          <div ref={networkRef} className="relative">
+          {/* More dropdown — secondary pages */}
+          <div ref={moreRef} className="relative">
             <button
-              onClick={() => { setNetworkOpen(!networkOpen); setUserOpen(false); }}
+              onClick={() => { setMoreOpen(!moreOpen); setUserOpen(false); }}
               className={`flex items-center gap-1 text-sm transition-colors ${
-                isNetworkActive ? 'text-proton-purple font-medium' : 'text-zinc-400 hover:text-white'
+                isMoreActive ? 'text-proton-purple font-medium' : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Network
-              <svg className={`w-3.5 h-3.5 transition-transform ${networkOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              More
+              <svg className={`w-3.5 h-3.5 transition-transform ${moreOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
-            {networkOpen && (
+            {moreOpen && (
               <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-48 bg-zinc-900 border border-zinc-700/80 rounded-xl shadow-2xl shadow-black/40 py-2 z-50">
-                {NETWORK_ITEMS.map(({ href, label, page }) => (
+                {MORE_ITEMS.map(({ href, label, page }) => (
                   <Link
                     key={page}
                     href={href}
-                    onClick={() => setNetworkOpen(false)}
+                    onClick={() => setMoreOpen(false)}
                     className={`block px-4 py-2 text-sm transition-colors ${
                       activePage === page
                         ? 'text-proton-purple bg-proton-purple/5 font-medium'
@@ -148,7 +153,7 @@ export function Header({ activePage }: { activePage?: Page }) {
           ) : session ? (
             <div ref={userRef} className="relative">
               <button
-                onClick={() => { setUserOpen(!userOpen); setNetworkOpen(false); }}
+                onClick={() => { setUserOpen(!userOpen); setMoreOpen(false); }}
                 className={`flex items-center gap-2 px-2 py-1 rounded-lg transition-colors ${
                   userOpen || isUserActive ? 'bg-zinc-800' : 'hover:bg-zinc-800/60'
                 }`}
@@ -163,20 +168,17 @@ export function Header({ activePage }: { activePage?: Page }) {
               </button>
               {userOpen && (
                 <div className="absolute top-full right-0 mt-3 w-48 bg-zinc-900 border border-zinc-700/80 rounded-xl shadow-2xl shadow-black/40 py-2 z-50">
-                  {USER_MENU_ITEMS.map(({ href, label, page }) => (
-                    <Link
-                      key={page}
-                      href={href}
-                      onClick={() => setUserOpen(false)}
-                      className={`block px-4 py-2 text-sm transition-colors ${
-                        activePage === page
-                          ? 'text-proton-purple bg-proton-purple/5 font-medium'
-                          : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
-                      }`}
-                    >
-                      {label}
-                    </Link>
-                  ))}
+                  <Link
+                    href="/dashboard"
+                    onClick={() => setUserOpen(false)}
+                    className={`block px-4 py-2 text-sm transition-colors ${
+                      activePage === 'dashboard'
+                        ? 'text-proton-purple bg-proton-purple/5 font-medium'
+                        : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60'
+                    }`}
+                  >
+                    Dashboard
+                  </Link>
                   <div className="my-1 border-t border-zinc-800" />
                   <button
                     onClick={() => { setUserOpen(false); logout(); }}
@@ -222,44 +224,39 @@ export function Header({ activePage }: { activePage?: Page }) {
         </div>
       </div>
 
-      {/* Mobile menu */}
+      {/* Mobile menu — flat list, primary then secondary */}
       {menuOpen && (
         <nav className="md:hidden border-t border-zinc-800 px-4 py-3 space-y-1">
+          {/* Primary nav */}
           {MAIN_NAV.map(({ href, label, page }) => (
             <Link key={page} href={href} onClick={() => setMenuOpen(false)} className={mobileLinkClass(page)}>
               {label}
             </Link>
           ))}
 
-          {/* Network group */}
-          <button
-            onClick={() => setMobileNetworkOpen(!mobileNetworkOpen)}
-            className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm ${
-              isNetworkActive ? 'text-proton-purple bg-proton-purple/10 font-medium' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-            }`}
-          >
-            Network
-            <svg className={`w-4 h-4 transition-transform ${mobileNetworkOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          {mobileNetworkOpen && (
-            <div className="pl-4 space-y-1">
-              {NETWORK_ITEMS.map(({ href, label, page }) => (
-                <Link key={page} href={href} onClick={() => setMenuOpen(false)} className={mobileLinkClass(page)}>
-                  {label}
-                </Link>
-              ))}
-            </div>
-          )}
-
           <div className="my-2 border-t border-zinc-800" />
 
-          {USER_MENU_ITEMS.map(({ href, label, page }) => (
+          {/* Secondary — flat (no nested dropdown on mobile) */}
+          <div className="px-3 pt-1 pb-1 text-[11px] uppercase tracking-wider text-zinc-600 font-semibold">More</div>
+          {MORE_ITEMS.map(({ href, label, page }) => (
             <Link key={page} href={href} onClick={() => setMenuOpen(false)} className={mobileLinkClass(page)}>
               {label}
             </Link>
           ))}
+
+          {/* User actions — only when logged in */}
+          {session && (
+            <>
+              <div className="my-2 border-t border-zinc-800" />
+              <Link
+                href="/dashboard"
+                onClick={() => setMenuOpen(false)}
+                className={mobileLinkClass('dashboard')}
+              >
+                Dashboard
+              </Link>
+            </>
+          )}
 
           <div className="my-2 border-t border-zinc-800" />
 
