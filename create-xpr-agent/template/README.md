@@ -4,13 +4,13 @@ Deploy an autonomous AI agent on XPR Network in one command. The agent monitors 
 
 ## Two ways to deploy — pick the right one
 
-This starter kit is the **standalone** path — you run a self-contained Node.js process on a host you own (VPS, Mac mini, dedicated server), and that process owns its own model access (Anthropic API key).
+This starter kit is the **standalone** path — you run a self-contained Node.js process on a host you own (VPS, Mac mini, dedicated server), and that process owns its own LLM access. **Your choice of LLM provider** — Anthropic, OpenAI, xAI Grok, or Google Gemini.
 
 If you're already inside an OpenClaw harness (**Pinata Agents, gateway-hosted OpenClaw, dashboard runtime**) that already provides model access, **don't use this starter** — use the plugin path instead:
 
-| You are… | Use this | Anthropic API key? |
-|----------|----------|--------------------|
-| **On your own host** | This starter kit (`./start.sh`) | Yes |
+| You are… | Use this | LLM API key? |
+|----------|----------|--------------|
+| **On your own host** | This starter kit (`./start.sh`) | Yes — Anthropic, OpenAI, xAI, or Gemini |
 | **Inside Pinata / OpenClaw harness** | `npm i @xpr-agents/openclaw` plugin + `xpr-*` skills on ClawHub | **No** — harness routes the model |
 
 Step-by-step for the harness path: see [`docs/PINATA.md`](../../docs/PINATA.md).
@@ -33,10 +33,15 @@ proton key:add                       # interactive — entered once, stored encr
 # 2. Bootstrap the agent
 npx create-xpr-agent my-agent
 cd my-agent
-./start.sh --account myagent --api-key sk-ant-xxx
+
+# 3. Start it. Pick any one LLM provider — auto-detected from key prefix.
+./start.sh --account myagent --api-key sk-ant-xxx    # Anthropic Claude
+./start.sh --account myagent --api-key sk-xxx        # OpenAI
+./start.sh --account myagent --api-key xai-xxx       # xAI Grok
+./start.sh --account myagent --api-key AIxxx         # Google Gemini
 ```
 
-`start.sh` downloads the agent runner, installs deps, verifies the proton CLI has your account key, and starts the agentic loop + A2A server. Run with no arguments for interactive mode.
+`start.sh` downloads the agent runner, installs deps, verifies the proton CLI has your account key, resolves the LLM provider from the key prefix (or use `--provider <name>` to be explicit), and starts the agentic loop + A2A server. Run with no arguments for interactive mode.
 
 The agent process **never reads your blockchain key** — every signed transaction shells out to `proton transaction:push`, which signs from the encrypted keychain.
 
@@ -74,9 +79,18 @@ If you later want the keychain encrypted, `proton key:lock` will prompt for a pa
 | Flag | What it is | Example |
 |------|-----------|---------|
 | `--account` | Your XPR Network account name (1-12 chars: a-z, 1-5, dots) | `myagent` |
-| `--api-key` | Anthropic API key for Claude AI | `sk-ant-api03-...` |
+| `--api-key` | An LLM API key from any supported provider | `sk-ant-...` / `sk-...` / `xai-...` / `AI...` |
 
-Get an Anthropic API key at [console.anthropic.com](https://console.anthropic.com). The agent's signing key is **not** passed via CLI — `start.sh` calls `proton key:list` at boot to verify your account has a key in the keychain.
+Supported providers — the runner detects which one from the key prefix:
+
+| Provider | Key prefix | Default model | Get a key |
+|---|---|---|---|
+| Anthropic | `sk-ant-...` | `claude-sonnet-4-6` | [console.anthropic.com](https://console.anthropic.com) |
+| OpenAI | `sk-...` / `sk-proj-...` | `gpt-5` | [platform.openai.com](https://platform.openai.com) |
+| xAI | `xai-...` | `grok-3-latest` | [console.x.ai](https://console.x.ai) |
+| Gemini | `AI...` | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
+
+Override the auto-detection with `--provider <anthropic|openai|xai|gemini>`. Override the model with `--model <model-id>`. The agent's blockchain signing key is **not** passed via CLI — `start.sh` calls `proton key:list` at boot to verify your account has a key in the keychain.
 
 ### Creating an Account & Loading the Signing Key
 
@@ -146,10 +160,11 @@ The key now lives encrypted on disk. The agent shells out to `proton transaction
 
 OPTIONS:
     --account <name>      XPR Network account name (required)
-    --api-key <key>       Anthropic API key (required)
-    --network <net>       Network: mainnet (default) or testnet
-    --model <model>       Claude model (default: claude-sonnet-4-6)
-    --poll-interval <n>   Seconds between chain polls (default: 30)
+    --api-key <key>       LLM API key — any of: sk-ant-... / sk-... / xai-... / AI... (required)
+    --provider <name>     anthropic | openai | xai | gemini (auto-detected from key prefix when omitted)
+    --network <net>       mainnet (default) or testnet
+    --model <model>       LLM model override (per-provider default applied when omitted)
+    --poll-interval <n>   Seconds between chain polls (default: 60)
     --rpc <url>           Custom RPC endpoint
 ```
 
@@ -168,14 +183,18 @@ All configuration is stored in `.env` (auto-generated by `start.sh`). **There is
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `XPR_ACCOUNT` | Yes | — | Agent account name (proton CLI must have its key loaded). Without this, the plugin loads in read-only mode and every write tool silently fails. |
-| `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key |
+| `AGENT_LLM_PROVIDER` | No | auto-detected | `anthropic` / `openai` / `xai` / `gemini`. When unset, auto-detected from whichever provider's API key env var is populated. |
+| `ANTHROPIC_API_KEY` | one-of | — | Anthropic Claude key (`sk-ant-...`). Set this OR one of the three below. |
+| `OPENAI_API_KEY` | one-of | — | OpenAI key (`sk-...` / `sk-proj-...`). |
+| `XAI_API_KEY` | one-of | — | xAI Grok key (`xai-...`). |
+| `GEMINI_API_KEY` | one-of | — | Google Gemini key (`AI...`). |
 | `XPR_NETWORK` | No | `mainnet` | Network (`mainnet` or `testnet`) |
 | `XPR_RPC_ENDPOINT` | No | auto from network | Chain RPC endpoint — leave unset to auto-select |
 | `INDEXER_URL` | No | `https://indexer.xpragents.com` | Public XPR Agents indexer. 4 read tools depend on this. Override only if you run your own. |
 | `AGENT_MODE` | No | `worker` | `worker` / `delegator` / `hybrid` / `validator` / `social` |
 | `AGENT_PUBLIC_URL` | No\* | — | Public URL where this agent can be reached for A2A. **\*Required if other agents need to discover yours** — without it the agent registers on chain as `http://localhost:8080` and A2A discovery fails. |
 | `A2A_SIGNING_KEY` | No | — | Separate EOSIO key for outbound A2A signatures (limited blast radius — register on a custom permission with no powers). If unset, A2A runs receive-only. |
-| `AGENT_MODEL` | No | `claude-sonnet-4-6` | Claude model for decisions |
+| `AGENT_MODEL` | No | per-provider default | Override the LLM model. Defaults: `claude-sonnet-4-6` (anthropic), `gpt-5` (openai), `grok-3-latest` (xai), `gemini-2.5-flash` (gemini). |
 | `AGENT_MAX_TURNS` | No | `20` | Max tool-call turns per event |
 | `MAX_TRANSFER_AMOUNT` | No | `10000000` | Max XPR per transfer (smallest units, 10000000 = 1000 XPR) |
 | `XPR_PERMISSION` | No | `active` | Permission level |

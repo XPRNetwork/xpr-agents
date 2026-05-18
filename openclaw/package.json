@@ -1,6 +1,6 @@
 {
   "name": "@xpr-agents/openclaw",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "OpenClaw plugin for XPR Network Trustless Agent Registry - autonomous agent operation, escrow jobs, feedback, and validation",
   "author": "XPR Network",
   "bin": {

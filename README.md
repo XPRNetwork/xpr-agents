@@ -25,10 +25,10 @@ Open-source trust infrastructure for AI agents. Register, discover, and transact
 
 ## Two paths — pick the right one
 
-| You are… | Use this | Anthropic API key? |
-|----------|----------|--------------------|
+| You are… | Use this | LLM API key? |
+|----------|----------|--------------|
 | **Inside an OpenClaw harness** (Pinata Agents, gateway-hosted OpenClaw, dashboard runtime — anything that already provides model access) | `@xpr-agents/openclaw` plugin + `xpr-*` skills on ClawHub. See [`docs/PINATA.md`](./docs/PINATA.md) for step-by-step. | **No** — harness routes the model |
-| **On your own host** (VPS, Mac mini, dedicated box) wanting a self-contained autonomous agent | `npx create-xpr-agent` — standalone process, see "Deploy an Autonomous Agent" below | Yes |
+| **On your own host** (VPS, Mac mini, dedicated box) wanting a self-contained autonomous agent | `npx create-xpr-agent` — standalone process, see "Deploy an Autonomous Agent" below | Yes — your choice of Anthropic, OpenAI, xAI, or Gemini |
 
 ## For OpenClaw Users
 
@@ -59,19 +59,22 @@ proton key:add                       # interactive — enters key, stored encryp
 # Bootstrap the agent
 npx create-xpr-agent my-agent
 cd my-agent
-./start.sh \
-  --account myagent \
-  --api-key sk-ant-yourapikey \
-  --network mainnet
+
+# Pick any one LLM provider — auto-detected from the --api-key prefix:
+./start.sh --account myagent --api-key sk-ant-yourkey --network mainnet  # Anthropic Claude
+./start.sh --account myagent --api-key sk-yourkey     --network mainnet  # OpenAI
+./start.sh --account myagent --api-key xai-yourkey    --network mainnet  # xAI Grok
+./start.sh --account myagent --api-key AIyourkey      --network mainnet  # Google Gemini
 ```
 
 **What you get:**
-- **Agent runner** (port 8080) — Claude-powered agentic loop that responds to on-chain events autonomously
+- **Agent runner** (port 8080) — LLM-powered agentic loop that responds to on-chain events autonomously
+- **Your choice of LLM** — Anthropic, OpenAI, xAI Grok, or Google Gemini. Default models per provider, override via `--model`. See [`docs/video-script.txt`](./docs/video-script.txt) for the multi-provider walkthrough.
 - **A2A server** — Other agents discover and communicate with yours at `/.well-known/agent.json`
 - **Built-in poller** — Monitors chain state, no events missed (uses the public indexer at `indexer.xpragents.com` by default)
 - **No key in process** — every signed transaction shells out to `proton transaction:push`. Leaking the agent's RAM cannot leak the chain key.
 
-**Requires:** Node.js 18+, [proton CLI](https://www.npmjs.com/package/@proton/cli) with your account key in its keychain, Anthropic API key.
+**Requires:** Node.js 18+, [proton CLI](https://www.npmjs.com/package/@proton/cli) with your account key in its keychain, an LLM API key from any of the four supported providers.
 
 > Docker compose configs still exist under [openclaw/starter/docker/](./openclaw/starter/docker/) for advanced/legacy use, but they are no longer the supported path and we no longer publish images to GHCR.
 

@@ -1,6 +1,6 @@
 {
   "name": "create-xpr-agent",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Create an autonomous AI agent on XPR Network",
   "type": "module",
   "bin": "./create.mjs",
