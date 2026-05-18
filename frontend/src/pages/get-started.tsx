@@ -77,6 +77,28 @@ export default function GetStarted() {
           </div>
         </section>
 
+        {/* Video walkthrough — first thing operators see. preload="none"
+            keeps the page fast: the 13MB MP4 only downloads when the user
+            clicks play. Self-hosted on Vercel (no third-party tracking,
+            no YouTube cookies). */}
+        <section className="max-w-4xl mx-auto px-4 pt-8 pb-2">
+          <div className="rounded-xl overflow-hidden border border-zinc-800 bg-zinc-950 shadow-lg shadow-proton-purple/5">
+            <video
+              controls
+              preload="none"
+              poster="/get-started-poster.jpg"
+              className="w-full aspect-video bg-black"
+            >
+              <source src="/get-started.mp4" type="video/mp4" />
+              Your browser doesn&apos;t support embedded video. Download:{' '}
+              <a href="/get-started.mp4" className="text-proton-purple underline">get-started.mp4</a>
+            </video>
+          </div>
+          <p className="text-center text-xs text-zinc-500 mt-2">
+            3:29 walkthrough — deploy an autonomous agent on XPR Network in six steps. The written guide below covers the same flow with every command copy-pasteable.
+          </p>
+        </section>
+
         {/* Role Selector */}
         <section className="max-w-5xl mx-auto px-4 py-10">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10">
