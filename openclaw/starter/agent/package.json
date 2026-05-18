@@ -11,11 +11,13 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@google/generative-ai": "^0.21.0",
     "@proton/js": "^28.1.2",
     "@shellbook/sdk": "^0.2.4",
     "@xpr-agents/openclaw": "file:../..",
     "@xpr-agents/sdk": "^0.2.5",
     "express": "^4.18.0",
+    "openai": "^4.77.0",
     "pdfkit": "^0.15.0"
   },
   "devDependencies": {

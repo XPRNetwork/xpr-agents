@@ -50,10 +50,21 @@ log "Node.js $(node -v)"
 # runner's own env-var defaults — drift causes operator surprise
 # (e.g. .env says 1000 XPR cap but agent applies 100 XPR).
 XPR_ACCOUNT="${XPR_ACCOUNT:-}"
+# Generic --api-key value before we know which provider it's for. Auto-
+# detected from the key prefix (sk-ant-/sk-/xai-/AI…) when --provider
+# isn't given explicitly.
+API_KEY=""
+AGENT_LLM_PROVIDER="${AGENT_LLM_PROVIDER:-}"
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
+OPENAI_API_KEY="${OPENAI_API_KEY:-}"
+XAI_API_KEY="${XAI_API_KEY:-}"
+GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 XPR_NETWORK="${XPR_NETWORK:-mainnet}"
 XPR_RPC_ENDPOINT="${XPR_RPC_ENDPOINT:-}"
-AGENT_MODEL="${AGENT_MODEL:-claude-sonnet-4-6}"
+# AGENT_MODEL stays empty by default — the agent runner picks the right
+# default per provider (claude-sonnet-4-6, gpt-5, grok-3-latest,
+# gemini-2.5-flash). Override here only if you want a specific model.
+AGENT_MODEL="${AGENT_MODEL:-}"
 # 60s default — fast enough to feel responsive on the job board, slow
 # enough not to rate-limit on shared RPC. Tune via --poll-interval or
 # POLL_INTERVAL in .env (the agent runner itself accepts down to 5s).
@@ -72,7 +83,8 @@ while [[ $# -gt 0 ]]; do
       echo "  proton key:add"
       exit 1
       ;;
-    --api-key) ANTHROPIC_API_KEY="$2"; shift 2 ;;
+    --api-key) API_KEY="$2"; shift 2 ;;
+    --provider) AGENT_LLM_PROVIDER="$2"; shift 2 ;;
     --network) XPR_NETWORK="$2"; shift 2 ;;
     --rpc) XPR_RPC_ENDPOINT="$2"; shift 2 ;;
     --model) AGENT_MODEL="$2"; shift 2 ;;
@@ -80,6 +92,39 @@ while [[ $# -gt 0 ]]; do
     *) warn "Unknown arg: $1"; shift ;;
   esac
 done
+
+# ── Resolve LLM provider + API key ──────────────
+# Order: explicit --provider wins. Otherwise auto-detect from --api-key
+# prefix. Otherwise scan per-provider env vars. Default 'anthropic' if
+# we still don't know.
+if [ -z "$AGENT_LLM_PROVIDER" ] && [ -n "$API_KEY" ]; then
+  case "$API_KEY" in
+    sk-ant-*)        AGENT_LLM_PROVIDER="anthropic" ;;
+    xai-*)           AGENT_LLM_PROVIDER="xai" ;;
+    sk-proj-*|sk-*)  AGENT_LLM_PROVIDER="openai" ;;
+    AI*)             AGENT_LLM_PROVIDER="gemini" ;;
+  esac
+fi
+if [ -z "$AGENT_LLM_PROVIDER" ]; then
+  if [ -n "$ANTHROPIC_API_KEY" ]; then AGENT_LLM_PROVIDER="anthropic"
+  elif [ -n "$OPENAI_API_KEY" ]; then AGENT_LLM_PROVIDER="openai"
+  elif [ -n "$XAI_API_KEY" ]; then AGENT_LLM_PROVIDER="xai"
+  elif [ -n "$GEMINI_API_KEY" ]; then AGENT_LLM_PROVIDER="gemini"
+  else AGENT_LLM_PROVIDER="anthropic"
+  fi
+fi
+
+# If --api-key was passed, route it into the right env var for the
+# resolved provider. The agent runner reads these env vars (preferred)
+# or falls back to the legacy ANTHROPIC_API_KEY for back-compat.
+if [ -n "$API_KEY" ]; then
+  case "$AGENT_LLM_PROVIDER" in
+    anthropic) ANTHROPIC_API_KEY="$API_KEY" ;;
+    openai)    OPENAI_API_KEY="$API_KEY" ;;
+    xai)       XAI_API_KEY="$API_KEY" ;;
+    gemini)    GEMINI_API_KEY="$API_KEY" ;;
+  esac
+fi
 
 # ── Refuse legacy XPR_PRIVATE_KEY env var ──────
 if [ -n "${XPR_PRIVATE_KEY:-}" ]; then
@@ -114,6 +159,18 @@ if [ -z "$XPR_RPC_ENDPOINT" ]; then
   fi
 fi
 
+# ── Resolve which key to actually use for the chosen provider ──
+case "$AGENT_LLM_PROVIDER" in
+  anthropic) RESOLVED_API_KEY="$ANTHROPIC_API_KEY"; KEY_NAME="ANTHROPIC_API_KEY"; KEY_HINT="sk-ant-..." ;;
+  openai)    RESOLVED_API_KEY="$OPENAI_API_KEY";    KEY_NAME="OPENAI_API_KEY";    KEY_HINT="sk-... or sk-proj-..." ;;
+  xai)       RESOLVED_API_KEY="$XAI_API_KEY";       KEY_NAME="XAI_API_KEY";       KEY_HINT="xai-..." ;;
+  gemini)    RESOLVED_API_KEY="$GEMINI_API_KEY";    KEY_NAME="GEMINI_API_KEY";    KEY_HINT="AI..." ;;
+  *)
+    err "Unknown LLM provider: '$AGENT_LLM_PROVIDER'. Supported: anthropic, openai, xai, gemini."
+    exit 1
+    ;;
+esac
+
 # ── Interactive prompts if missing ─────────────
 if [ -t 0 ]; then
   banner "XPR Agent — Lightweight Setup"
@@ -121,19 +178,34 @@ if [ -t 0 ]; then
   if [ -z "$XPR_ACCOUNT" ]; then
     read -rp "XPR account name: " XPR_ACCOUNT
   fi
-  if [ -z "$ANTHROPIC_API_KEY" ]; then
-    read -rsp "Anthropic API key (sk-ant-...): " ANTHROPIC_API_KEY
+  if [ -z "$RESOLVED_API_KEY" ]; then
+    read -rsp "LLM API key for ${AGENT_LLM_PROVIDER} (${KEY_HINT}): " RESOLVED_API_KEY
     echo
+    # Stash it back into the correct env-var slot for downstream code
+    case "$AGENT_LLM_PROVIDER" in
+      anthropic) ANTHROPIC_API_KEY="$RESOLVED_API_KEY" ;;
+      openai)    OPENAI_API_KEY="$RESOLVED_API_KEY" ;;
+      xai)       XAI_API_KEY="$RESOLVED_API_KEY" ;;
+      gemini)    GEMINI_API_KEY="$RESOLVED_API_KEY" ;;
+    esac
   fi
 fi
 
 # ── Validate ───────────────────────────────────
-if [ -z "$XPR_ACCOUNT" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
+if [ -z "$XPR_ACCOUNT" ] || [ -z "$RESOLVED_API_KEY" ]; then
   err "Missing required config. Provide via CLI args, .env file, or environment variables."
   echo ""
   echo "  Required:"
   echo "    --account <name>          XPR account name"
-  echo "    --api-key <sk-ant-...>    Anthropic API key"
+  echo "    --api-key <key>           LLM API key for the chosen provider"
+  echo ""
+  echo "  LLM provider auto-detected from --api-key prefix when omitted:"
+  echo "    sk-ant-...       → anthropic (default model: claude-sonnet-4-6)"
+  echo "    sk-... / sk-proj → openai    (default model: gpt-5)"
+  echo "    xai-...          → xai       (default model: grok-3-latest)"
+  echo "    AI...            → gemini    (default model: gemini-2.5-flash)"
+  echo ""
+  echo "  Or set explicitly:  --provider <anthropic|openai|xai|gemini>"
   echo ""
   echo "  Signing key (no flag — handled by proton CLI):"
   echo "    proton key:add            # one-time setup"
@@ -191,7 +263,7 @@ fi
 
 log "Account: ${XPR_ACCOUNT}"
 log "Network: ${XPR_NETWORK} (${XPR_RPC_ENDPOINT})"
-log "Model: ${AGENT_MODEL}"
+log "LLM: ${AGENT_LLM_PROVIDER}${AGENT_MODEL:+ (${AGENT_MODEL})}"
 log "Poll interval: ${POLL_INTERVAL}s"
 
 # ── Pillar 2 diagnostic (recommend owner-permission lockdown) ────
@@ -288,7 +360,17 @@ XPR_PERMISSION=active
 XPR_NETWORK=${XPR_NETWORK}
 XPR_RPC_ENDPOINT=${XPR_RPC_ENDPOINT}
 INDEXER_URL=${INDEXER_URL:-https://indexer.xpragents.com}
+# LLM provider — anthropic | openai | xai | gemini. Set only ONE key.
+AGENT_LLM_PROVIDER=${AGENT_LLM_PROVIDER}
 ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+OPENAI_API_KEY=${OPENAI_API_KEY}
+XAI_API_KEY=${XAI_API_KEY}
+GEMINI_API_KEY=${GEMINI_API_KEY}
+# Optional — override the default model for the chosen provider:
+#   anthropic → claude-sonnet-4-6
+#   openai    → gpt-5
+#   xai       → grok-3-latest
+#   gemini    → gemini-2.5-flash
 AGENT_MODEL=${AGENT_MODEL}
 AGENT_MODE=worker
 AGENT_MAX_TURNS=20
@@ -321,7 +403,8 @@ fi
 # ── Export all env vars ───────────────────────
 # These mirror the .env defaults — keep in sync.
 export XPR_ACCOUNT XPR_NETWORK XPR_RPC_ENDPOINT
-export ANTHROPIC_API_KEY AGENT_MODEL OPENCLAW_HOOK_TOKEN
+export AGENT_LLM_PROVIDER AGENT_MODEL OPENCLAW_HOOK_TOKEN
+export ANTHROPIC_API_KEY OPENAI_API_KEY XAI_API_KEY GEMINI_API_KEY
 export POLL_ENABLED=true POLL_INTERVAL
 export INDEXER_URL="${INDEXER_URL:-https://indexer.xpragents.com}"
 export XPR_PERMISSION="${XPR_PERMISSION:-active}"
@@ -341,7 +424,7 @@ export PORT="${PORT:-8080}"
 banner "Starting XPR Agent..."
 echo -e "  Account:  ${BOLD}${XPR_ACCOUNT}${NC}"
 echo -e "  Network:  ${XPR_NETWORK}"
-echo -e "  Model:    ${AGENT_MODEL}"
+echo -e "  LLM:      ${AGENT_LLM_PROVIDER}${AGENT_MODEL:+ (${AGENT_MODEL})}"
 echo -e "  Poller:   every ${POLL_INTERVAL}s"
 echo -e "  Telegram: ${TELEGRAM_BOT_TOKEN:+enabled}${TELEGRAM_BOT_TOKEN:-disabled}"
 echo -e "  Port:     ${PORT}"

@@ -588,16 +588,17 @@ export default function Register() {
                 Use the starter kit to deploy a full autonomous agent with 72 MCP tools, 13 bundled skills, and A2A support. Your blockchain private key stays in the proton CLI&apos;s encrypted keychain — the agent process never sees it. Full walkthrough: <Link href="/get-started" className="text-proton-purple hover:underline">Get Started</Link>.
               </p>
               <div className="mb-3">
-                <CodeBlock copyText={`npm i -g @proton/cli\nproton chain:set proton\nproton key:add\n\nnpx create-xpr-agent my-agent\ncd my-agent\n./start.sh --account myagent --api-key sk-ant-xxx --network mainnet`}>
-                  <code className="block text-zinc-500"># One-time: load your key into the keychain</code>
+                <CodeBlock copyText={`npm i -g @proton/cli\nproton chain:set proton\nproton key:add\n\nnpx create-xpr-agent my-agent\ncd my-agent\n# LLM provider auto-detected from key prefix — anthropic, openai, xai, or gemini\n./start.sh --account myagent --api-key sk-ant-xxx --network mainnet`}>
+                  <code className="block text-zinc-500"># One-time: load your XPR key into the proton CLI keychain</code>
                   <code className="block">npm i -g @proton/cli</code>
                   <code className="block">proton chain:set proton          <span className="text-zinc-500"># or proton-test</span></code>
                   <code className="block">proton key:add                   <span className="text-zinc-500"># paste PVT_K1_...</span></code>
                   <code className="block">&nbsp;</code>
-                  <code className="block text-zinc-500"># Then scaffold + start</code>
+                  <code className="block text-zinc-500"># Scaffold + start. LLM provider auto-detected from --api-key prefix.</code>
                   <code className="block">npx create-xpr-agent my-agent</code>
                   <code className="block">cd my-agent</code>
                   <code className="block">./start.sh --account myagent --api-key sk-ant-xxx --network mainnet</code>
+                  <code className="block text-zinc-500"># or: --api-key sk-xxx (OpenAI), xai-xxx (xAI), AIxxx (Gemini)</code>
                 </CodeBlock>
               </div>
               <div className="text-sm text-zinc-400 space-y-3">
@@ -610,9 +611,11 @@ export default function Register() {
                       </tr>
                       <tr className="border-b border-zinc-800">
                         <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--api-key</td>
-                        <td className="py-1">Anthropic API key (<code className="bg-zinc-800 px-1 rounded">sk-ant-...</code>) from{' '}
-                          <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="text-proton-purple hover:underline">console.anthropic.com</a>
-                        </td>
+                        <td className="py-1">LLM API key — any of: Anthropic (<code className="bg-zinc-800 px-1 rounded">sk-ant-...</code>), OpenAI (<code className="bg-zinc-800 px-1 rounded">sk-...</code>), xAI (<code className="bg-zinc-800 px-1 rounded">xai-...</code>), or Google Gemini (<code className="bg-zinc-800 px-1 rounded">AI...</code>). Provider is auto-detected from the prefix.</td>
+                      </tr>
+                      <tr className="border-b border-zinc-800">
+                        <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--provider</td>
+                        <td className="py-1">Override auto-detection: <code className="bg-zinc-800 px-1 rounded">anthropic</code>, <code className="bg-zinc-800 px-1 rounded">openai</code>, <code className="bg-zinc-800 px-1 rounded">xai</code>, or <code className="bg-zinc-800 px-1 rounded">gemini</code></td>
                       </tr>
                       <tr className="border-b border-zinc-800">
                         <td className="py-1 pr-3 text-zinc-300 font-medium whitespace-nowrap">--network</td>

@@ -12,7 +12,7 @@
  */
 
 import express from 'express';
-import Anthropic from '@anthropic-ai/sdk';
+import { createLlmClientFromEnv, LlmMessage, LlmTextBlock, LlmTool, LlmToolResultBlock, LlmToolUseBlock } from './llm';
 import fs from 'fs';
 import path from 'path';
 import { verifyA2ARequest, A2AAuthError } from './a2a-auth';
@@ -494,24 +494,27 @@ for (const section of skillResult.promptSections) {
 systemPrompt += `\n\n## Memory
 You have persistent memory that survives across conversations. Your memory entries are shown at the start of each message. Use memory_save to record important outcomes, lessons, and context. Use memory_delete to remove outdated entries. Be selective — save what matters, not everything.`;
 
-// Convert tools to Anthropic API format (lazy — picks up tools added later like store_deliverable)
-// Includes Anthropic's built-in web search tool for real-time internet access
-function getAnthropicTools(): Anthropic.Messages.Tool[] {
-  return [
-    // Built-in web search — Claude handles it server-side, no custom handler needed
-    { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Messages.Tool,
-    ...tools.map(t => ({
-      type: 'custom' as const,
-      name: t.name,
-      description: t.description,
-      input_schema: t.parameters as Anthropic.Tool.InputSchema,
-    })),
-  ];
+// Convert local tools to the unified LlmTool shape. Lazy — picks up tools
+// registered later (e.g. store_deliverable added at boot time after a skill
+// loads).
+//
+// Note: the previous Anthropic-only path also exposed Anthropic's built-in
+// `web_search_20250305` server-side tool. That doesn't have a cross-provider
+// equivalent yet, so it's dropped from the unified surface. The skills
+// already ship `web_fetch` / `web_search` tools that work across providers.
+function buildLlmTools(toolList: typeof tools): LlmTool[] {
+  return toolList.map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.parameters as LlmTool['input_schema'],
+  }));
 }
 
-const anthropic = new Anthropic();
+// LLM client — resolves provider, model, and API key from env / flags.
+// See src/llm/factory.ts for the resolution order.
+const llmClient = createLlmClientFromEnv();
 const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '20');
-const MODEL = process.env.AGENT_MODEL || 'claude-sonnet-4-6';
+const MODEL = llmClient.model;
 
 // A2A authentication config
 const a2aAuthConfig: A2AAuthConfig = {
@@ -527,16 +530,9 @@ const a2aAuthConfig: A2AAuthConfig = {
 // A2A tool sandboxing
 const a2aToolMode = (process.env.A2A_TOOL_MODE || 'full') as 'full' | 'readonly';
 const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_get_') || t.name.startsWith('defi_list_') || t.name.startsWith('nft_get_') || t.name.startsWith('nft_list_') || t.name.startsWith('nft_search_') || t.name.startsWith('tax_') || t.name.startsWith('loan_list_') || t.name.startsWith('loan_get_') || t.name.startsWith('gov_list_') || t.name.startsWith('gov_get_') || t.name.startsWith('xmd_get_') || t.name.startsWith('xmd_list_') || t.name.startsWith('sc_get_') || t.name === 'sc_read_table' || t.name.startsWith('shell_list_') || t.name === 'shell_get_comments' || t.name === 'shell_search' || t.name === 'shell_get_profile');
-function getReadonlyAnthropicTools(): Anthropic.Messages.Tool[] {
-  return [
-    { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } as unknown as Anthropic.Messages.Tool,
-    ...readonlyTools.map(t => ({
-      type: 'custom' as const,
-      name: t.name,
-      description: t.description,
-      input_schema: t.parameters as Anthropic.Tool.InputSchema,
-    })),
-  ];
+// readonly LLM tools — same shape, smaller list
+function buildReadonlyLlmTools(): LlmTool[] {
+  return buildLlmTools(readonlyTools);
 }
 
 // A2A task store (in-memory with TTL eviction)
@@ -602,7 +598,7 @@ async function runAgent(eventType: string, data: any, message: string, options?:
 
   const useReadonly = options?.toolSet === 'readonly';
   const activeTools = useReadonly ? readonlyTools : tools;
-  const activeAnthropicTools = useReadonly ? getReadonlyAnthropicTools() : getAnthropicTools();
+  const activeLlmTools = useReadonly ? buildReadonlyLlmTools() : buildLlmTools(tools);
 
   try {
     const userMessage = [
@@ -624,21 +620,21 @@ async function runAgent(eventType: string, data: any, message: string, options?:
       ? `${memoryContext}\n\n---\n\n${userMessage}`
       : userMessage;
 
-    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: fullUserMessage }];
+    const messages: LlmMessage[] = [{ role: 'user', content: fullUserMessage }];
 
     for (let turn = 0; turn < MAX_TURNS; turn++) {
-      const response = await anthropic.messages.create({
+      const response = await llmClient.complete({
         model: MODEL,
         max_tokens: 4096,
         system: systemPrompt,
-        tools: activeAnthropicTools,
+        tools: activeLlmTools,
         messages,
       });
 
       // If done, return the text response
       if (response.stop_reason === 'end_turn') {
         const text = response.content
-          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+          .filter((b): b is LlmTextBlock => b.type === 'text')
           .map(b => b.text)
           .join('\n');
         console.log(`[agent] Completed in ${turn + 1} turn(s): ${text.slice(0, 200)}`);
@@ -646,65 +642,57 @@ async function runAgent(eventType: string, data: any, message: string, options?:
       }
 
       // Add assistant response to messages
-      messages.push({ role: 'assistant', content: response.content as any });
+      messages.push({ role: 'assistant', content: response.content });
 
-      // Handle pause_turn (long-running server tool like web search)
-      // Just continue the loop — pass the response back to let Claude continue
-      if ((response.stop_reason as string) === 'pause_turn') {
-        console.log(`[agent] pause_turn — continuing`);
-        messages.push({ role: 'user', content: [{ type: 'text', text: 'Continue.' }] });
-        continue;
-      }
-
-      // Execute local tool calls (skip server_tool_use — handled by API)
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      // Execute local tool calls
+      const toolResults: LlmToolResultBlock[] = [];
       for (const block of response.content) {
-        if (block.type === 'tool_use') {
-          const tool = activeTools.find(t => t.name === block.name);
-          if (!tool) {
-            toolResults.push({
-              type: 'tool_result',
-              tool_use_id: block.id,
-              content: JSON.stringify({ error: `Unknown tool: ${block.name}` }),
-            });
-            continue;
+        if (block.type !== 'tool_use') continue;
+        const toolUse = block as LlmToolUseBlock;
+        const tool = activeTools.find(t => t.name === toolUse.name);
+        if (!tool) {
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: JSON.stringify({ error: `Unknown tool: ${toolUse.name}` }),
+          });
+          continue;
+        }
+
+        console.log(`[agent] Tool call: ${toolUse.name}(${JSON.stringify(toolUse.input).slice(0, 100)})`);
+
+        try {
+          const result = await tool.handler(toolUse.input);
+          const resultStr = JSON.stringify(result);
+          // Log result for key tools (truncated for readability)
+          if (['generate_image', 'generate_video', 'store_deliverable'].includes(toolUse.name)) {
+            console.log(`[agent] Tool result (${toolUse.name}): ${resultStr.slice(0, 200)}`);
           }
-
-          console.log(`[agent] Tool call: ${block.name}(${JSON.stringify(block.input).slice(0, 100)})`);
-
-          try {
-            const result = await tool.handler(block.input);
-            const resultStr = JSON.stringify(result);
-            // Log result for key tools (truncated for readability)
-            if (['generate_image', 'generate_video', 'store_deliverable'].includes(block.name)) {
-              console.log(`[agent] Tool result (${block.name}): ${resultStr.slice(0, 200)}`);
-            }
-            // Security scan tool output before feeding back to Claude
-            const outputScan = scanOutput(block.name, resultStr);
-            if (outputScan.action === 'block') {
-              console.warn(`[security] Blocked output from ${block.name}: ${outputScan.flagged.join(', ')}`);
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: JSON.stringify({ error: 'Output blocked by security policy' }),
-                is_error: true,
-              });
-            } else {
-              toolResults.push({
-                type: 'tool_result',
-                tool_use_id: block.id,
-                content: outputScan.text,
-              });
-            }
-          } catch (err: any) {
-            console.error(`[agent] Tool error (${block.name}):`, err.message);
+          // Security scan tool output before feeding back to the LLM
+          const outputScan = scanOutput(toolUse.name, resultStr);
+          if (outputScan.action === 'block') {
+            console.warn(`[security] Blocked output from ${toolUse.name}: ${outputScan.flagged.join(', ')}`);
             toolResults.push({
               type: 'tool_result',
-              tool_use_id: block.id,
-              content: JSON.stringify({ error: err.message }),
+              tool_use_id: toolUse.id,
+              content: JSON.stringify({ error: 'Output blocked by security policy' }),
               is_error: true,
             });
+          } else {
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              content: outputScan.text,
+            });
           }
+        } catch (err: any) {
+          console.error(`[agent] Tool error (${toolUse.name}):`, err.message);
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: JSON.stringify({ error: err.message }),
+            is_error: true,
+          });
         }
       }
 
@@ -1854,7 +1842,7 @@ const server = app.listen(port, () => {
   console.log(`[agent-runner] ${tools.length} tools loaded (A2A mode: ${a2aToolMode}, ${a2aToolMode === 'readonly' ? readonlyTools.length : tools.length} tools for A2A)`);
   console.log(`[agent-runner] Account: ${process.env.XPR_ACCOUNT}`);
   console.log(`[agent-runner] Mode: ${AGENT_MODE}`);
-  console.log(`[agent-runner] Model: ${MODEL}`);
+  console.log(`[agent-runner] LLM: ${llmClient.provider} (${MODEL})`);
   console.log(`[agent-runner] Network: ${process.env.XPR_NETWORK || 'mainnet'}`);
   console.log(`[agent-runner] A2A auth: ${a2aAuthConfig.authRequired ? 'required' : 'optional'}, rate limit: ${a2aAuthConfig.rateLimit}/min`);
   if (a2aAuthConfig.minTrustScore > 0) console.log(`[agent-runner] A2A min trust score: ${a2aAuthConfig.minTrustScore}`);
