@@ -100,7 +100,7 @@ export interface LlmClientOptions {
 export const DEFAULT_MODELS: Record<LlmProvider, string> = {
   anthropic: 'claude-sonnet-4-6',
   openai: 'gpt-5',
-  xai: 'grok-3-latest',
+  xai: 'grok-4.3',
   gemini: 'gemini-2.5-flash',
 };
 

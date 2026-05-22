@@ -99,9 +99,18 @@ export class OpenAiLlmClient implements LlmClient {
       }
     }
 
+    // GPT-5 / o-series require `max_completion_tokens`; the legacy
+    // `max_tokens` field is rejected with a 400. xAI still uses the
+    // older OpenAI shape and only accepts `max_tokens`. Branch on
+    // the provider flavor so the right field gets sent.
+    const isOpenAi = this.provider === 'openai';
+    const tokenLimitField = isOpenAi
+      ? { max_completion_tokens: req.max_tokens }
+      : { max_tokens: req.max_tokens };
+
     const response = await this.client.chat.completions.create({
       model: req.model || this.model,
-      max_tokens: req.max_tokens,
+      ...tokenLimitField,
       messages: openaiMessages,
       tools: req.tools.length > 0
         ? req.tools.map((t) => ({

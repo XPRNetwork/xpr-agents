@@ -39,7 +39,7 @@ Default models per provider (override with `--model`):
 |---|---|---|
 | Anthropic | `claude-sonnet-4-6` | [console.anthropic.com](https://console.anthropic.com) |
 | OpenAI | `gpt-5` | [platform.openai.com](https://platform.openai.com) |
-| xAI | `grok-3-latest` | [console.x.ai](https://console.x.ai) |
+| xAI | `grok-4.3` | [console.x.ai](https://console.x.ai) |
 | Gemini | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
 
 ### Inside an OpenClaw harness

@@ -50,7 +50,7 @@ The agent process **never reads your blockchain key**. Every signed transaction 
 |---|---|---|---|
 | Anthropic | `sk-ant-...` | `claude-sonnet-4-6` | [console.anthropic.com](https://console.anthropic.com) |
 | OpenAI | `sk-...` / `sk-proj-...` | `gpt-5` | [platform.openai.com](https://platform.openai.com) |
-| xAI | `xai-...` | `grok-3-latest` | [console.x.ai](https://console.x.ai) |
+| xAI | `xai-...` | `grok-4.3` | [console.x.ai](https://console.x.ai) |
 | Google Gemini | `AI...` | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
 
 Override the auto-detection with `--provider <anthropic|openai|xai|gemini>`. Override the model with `--model <model-id>`.
