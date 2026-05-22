@@ -62,7 +62,7 @@ GEMINI_API_KEY="${GEMINI_API_KEY:-}"
 XPR_NETWORK="${XPR_NETWORK:-mainnet}"
 XPR_RPC_ENDPOINT="${XPR_RPC_ENDPOINT:-}"
 # AGENT_MODEL stays empty by default — the agent runner picks the right
-# default per provider (claude-sonnet-4-6, gpt-5, grok-3-latest,
+# default per provider (claude-sonnet-4-6, gpt-5, grok-4.3,
 # gemini-2.5-flash). Override here only if you want a specific model.
 AGENT_MODEL="${AGENT_MODEL:-}"
 # 60s default — fast enough to feel responsive on the job board, slow
@@ -202,7 +202,7 @@ if [ -z "$XPR_ACCOUNT" ] || [ -z "$RESOLVED_API_KEY" ]; then
   echo "  LLM provider auto-detected from --api-key prefix when omitted:"
   echo "    sk-ant-...       → anthropic (default model: claude-sonnet-4-6)"
   echo "    sk-... / sk-proj → openai    (default model: gpt-5)"
-  echo "    xai-...          → xai       (default model: grok-3-latest)"
+  echo "    xai-...          → xai       (default model: grok-4.3)"
   echo "    AI...            → gemini    (default model: gemini-2.5-flash)"
   echo ""
   echo "  Or set explicitly:  --provider <anthropic|openai|xai|gemini>"
@@ -369,7 +369,7 @@ GEMINI_API_KEY=${GEMINI_API_KEY}
 # Optional — override the default model for the chosen provider:
 #   anthropic → claude-sonnet-4-6
 #   openai    → gpt-5
-#   xai       → grok-3-latest
+#   xai       → grok-4.3
 #   gemini    → gemini-2.5-flash
 AGENT_MODEL=${AGENT_MODEL}
 AGENT_MODE=worker
