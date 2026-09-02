@@ -559,10 +559,10 @@ export function formatTimeline(seconds: number): string {
 }
 
 export function formatXpr(amount: number): string {
+  // Raw units (4 decimals) → "1,234.5 XPR"; whole amounts drop the decimals.
   const xpr = amount / 10000;
-  // Clean display: drop trailing zeros, max 2 decimals for readability
-  if (xpr === Math.floor(xpr)) return `${xpr} XPR`;
-  return `${parseFloat(xpr.toFixed(2))} XPR`;
+  const decimals = Number.isInteger(xpr) ? 0 : Math.min(2, (xpr.toString().split('.')[1] || '').length);
+  return `${xpr.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: decimals })} XPR`;
 }
 
 export function formatDate(timestamp: number): string {

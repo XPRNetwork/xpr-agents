@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
-import Head from 'next/head';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
+import { SiteHead } from '@/components/SiteHead';
 import { AccountAvatar } from '@/components/AccountAvatar';
+import { Modal, Field, inputClass } from '@/components/Modal';
+import { Pagination } from '@/components/Pagination';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
 import { useChainStream } from '@/hooks/useChainStream';
@@ -11,32 +13,36 @@ import {
   CONTRACTS,
   formatXpr,
   formatDate,
+  formatRelativeTime,
   getAllJobs,
   getBidCounts,
   getJobStateLabel,
+  isEmptyName,
   type Job,
 } from '@/lib/registry';
 import { STATE_COLORS, getTxId } from '@/lib/job-constants';
 
-type FilterMode = 'all' | 'mine' | 'open';
+type FilterMode = 'all' | 'open' | 'mine';
 type SortMode = 'newest' | 'oldest' | 'amount-high' | 'amount-low';
 
 const STATE_FILTERS: { value: number | null; label: string }[] = [
-  { value: null, label: 'All States' },
+  { value: null, label: 'All' },
   { value: 0, label: 'Created' },
   { value: 1, label: 'Funded' },
   { value: 2, label: 'Accepted' },
-  { value: 3, label: 'In Progress' },
+  { value: 3, label: 'In progress' },
   { value: 4, label: 'Delivered' },
   { value: 5, label: 'Disputed' },
   { value: 6, label: 'Completed' },
   { value: 7, label: 'Refunded' },
+  { value: 8, label: 'Arbitrated' },
 ];
 
-const JOBS_PER_PAGE = 12;
+const JOBS_PER_PAGE = 15;
+const EMPTY_FORM = { title: '', description: '', amount: '', deadline: '', deliverables: '', agent: '', arbitrator: '' };
 
 export default function Jobs() {
-  const { session, transact } = useProton();
+  const { session, transact, login } = useProton();
   const { addToast } = useToast();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,29 +50,22 @@ export default function Jobs() {
   const [stateFilter, setStateFilter] = useState<number | null>(null);
   const [sort, setSort] = useState<SortMode>('newest');
   const [page, setPage] = useState(0);
+  const [bidCounts, setBidCounts] = useState<Map<number, number>>(new Map());
 
-  // Create job form
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newJob, setNewJob] = useState({ title: '', description: '', amount: '', deadline: '', deliverables: '', arbitrator: '' });
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
   const [processing, setProcessing] = useState(false);
   const submittingRef = useRef(false);
 
-  // Bid counts for job cards
-  const [bidCounts, setBidCounts] = useState<Map<number, number>>(new Map());
-
-  // Chain stream for live updates
   const { lastEvent } = useChainStream();
   const lastEventKeyRef = useRef(0);
 
-  useEffect(() => {
-    loadJobs();
-  }, []);
+  useEffect(() => { loadJobs(); }, []);
 
-  // Auto-refresh on chain events
   useEffect(() => {
     if (!lastEvent || lastEvent.key === lastEventKeyRef.current) return;
     lastEventKeyRef.current = lastEvent.key;
-    if (lastEvent.label.startsWith('Job') || lastEvent.label === 'Bid Submitted' || lastEvent.label === 'Dispute Raised') {
+    if (lastEvent.label.startsWith('Job') || lastEvent.label === 'Bid Submitted' || lastEvent.label === 'Dispute Raised' || lastEvent.label === 'Bid Selected') {
       loadJobs();
       addToast({ type: 'info', message: lastEvent.detail || lastEvent.label });
     }
@@ -85,14 +84,14 @@ export default function Jobs() {
     }
   }
 
-  const filteredJobs = jobs
-    .filter((job) => {
-      if (filter === 'open') return !job.agent || job.agent === '.............';
-      if (filter === 'mine' && session) {
-        return job.client === session.auth.actor || job.agent === session.auth.actor;
-      }
-      return true;
-    })
+  const passesMode = (job: Job) => {
+    if (filter === 'open') return isEmptyName(job.agent) && job.state === 0;
+    if (filter === 'mine') return !!session && (job.client === session.auth.actor || job.agent === session.auth.actor);
+    return true;
+  };
+
+  const filteredJobs = useMemo(() => jobs
+    .filter(passesMode)
     .filter((job) => stateFilter === null || job.state === stateFilter)
     .sort((a, b) => {
       switch (sort) {
@@ -101,26 +100,26 @@ export default function Jobs() {
         case 'amount-low': return a.amount - b.amount;
         default: return b.created_at - a.created_at;
       }
-    });
+    }), [jobs, filter, stateFilter, sort, session]);
 
-  const stateCounts = jobs.reduce<Record<number, number>>((acc, job) => {
-    const passesMode =
-      filter === 'open'
-        ? !job.agent || job.agent === '.............'
-        : filter === 'mine' && session
-          ? job.client === session.auth.actor || job.agent === session.auth.actor
-          : true;
-    if (passesMode) {
-      acc[job.state] = (acc[job.state] || 0) + 1;
-    }
+  const stateCounts = useMemo(() => jobs.reduce<Record<number, number>>((acc, job) => {
+    if (passesMode(job)) acc[job.state] = (acc[job.state] || 0) + 1;
     return acc;
-  }, {});
+  }, {}), [jobs, filter, session]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / JOBS_PER_PAGE));
-  const currentPage = Math.min(page, totalPages - 1);
+  const openJobs = useMemo(() => jobs.filter(j => isEmptyName(j.agent) && j.state === 0), [jobs]);
+  const openBudget = openJobs.reduce((s, j) => s + j.amount, 0);
+
+  const pageCount = Math.max(1, Math.ceil(filteredJobs.length / JOBS_PER_PAGE));
+  const currentPage = Math.min(page, pageCount - 1);
   const pagedJobs = filteredJobs.slice(currentPage * JOBS_PER_PAGE, (currentPage + 1) * JOBS_PER_PAGE);
 
   useEffect(() => { setPage(0); }, [filter, stateFilter, sort]);
+
+  const openCreate = () => {
+    if (!session) { login(); return; }
+    setShowCreate(true);
+  };
 
   async function handleCreateJob(e: React.FormEvent) {
     e.preventDefault();
@@ -128,337 +127,236 @@ export default function Jobs() {
     submittingRef.current = true;
     setProcessing(true);
     try {
-      const amount = Math.floor(parseFloat(newJob.amount) * 10000);
-      const deadlineSeconds = Math.floor(Date.now() / 1000) + parseInt(newJob.deadline) * 86400;
-      const deliverables = JSON.stringify(
-        newJob.deliverables.split('\n').map(d => d.trim()).filter(Boolean)
-      );
-      const result = await transact([
-        {
-          account: CONTRACTS.AGENT_ESCROW,
-          name: 'createjob',
-          data: {
-            client: session.auth.actor,
-            agent: '',
-            title: newJob.title,
-            description: newJob.description,
-            deliverables,
-            amount,
-            symbol: 'XPR',
-            deadline: deadlineSeconds,
-            arbitrator: newJob.arbitrator || '',
-            job_hash: '',
-          },
+      const amount = Math.floor(parseFloat(form.amount) * 10000);
+      const deadlineSeconds = Math.floor(Date.now() / 1000) + parseInt(form.deadline) * 86400;
+      const deliverables = JSON.stringify(form.deliverables.split('\n').map(d => d.trim()).filter(Boolean));
+      const agent = form.agent.trim().toLowerCase();
+      const result = await transact([{
+        account: CONTRACTS.AGENT_ESCROW,
+        name: 'createjob',
+        data: {
+          client: session.auth.actor,
+          agent, // empty = open for bids; set = direct hire (fund next, then the agent accepts)
+          title: form.title,
+          description: form.description,
+          deliverables,
+          amount,
+          symbol: 'XPR',
+          deadline: deadlineSeconds,
+          arbitrator: form.arbitrator.trim().toLowerCase(),
+          job_hash: '',
         },
-      ]);
-      addToast({ type: 'success', message: 'Job posted! Agents can now submit bids.', txId: getTxId(result) });
-      setShowCreateForm(false);
-      setNewJob({ title: '', description: '', amount: '', deadline: '', deliverables: '', arbitrator: '' });
+      }]);
+      addToast({
+        type: 'success',
+        message: agent ? `Job posted for ${agent}. Fund it from the job page to start.` : 'Job posted. Agents can now bid.',
+        txId: getTxId(result),
+      });
+      setShowCreate(false);
+      setForm(EMPTY_FORM);
       await new Promise(r => setTimeout(r, 1500));
       await loadJobs();
     } catch (e: any) {
-      addToast({ type: 'error', message: e.message || 'Failed to create job' });
+      addToast({ type: 'error', message: e.message || 'Failed to post job' });
     } finally {
       submittingRef.current = false;
       setProcessing(false);
     }
   }
 
+  const set = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm({ ...form, [k]: e.target.value });
+
   return (
     <>
-      <Head>
-        <title>Job Board - XPR Agents</title>
-        <meta name="description" content="Browse open jobs and submit bids on XPR Network" />
-      </Head>
+      <SiteHead title="Jobs" description="Post a job, take bids from registered agents and pay through escrow on XPR Network." path="/jobs" />
 
       <div className="min-h-screen bg-canvas">
         <Header activePage="jobs" />
 
-        <main className="max-w-6xl mx-auto px-4 py-8">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <main className="mx-auto max-w-6xl px-4 py-10">
+          {/* Page header */}
+          <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-bold text-ink">Job Board</h1>
-              <p className="text-sm text-muted mt-1">{filteredJobs.length} job{filteredJobs.length !== 1 ? 's' : ''}</p>
+              <p className="label mb-2">Job board</p>
+              <h1 className="font-display text-3xl font-semibold text-ink">Jobs</h1>
+              <p className="mt-1 text-sm text-ink-2">
+                {loading ? 'Loading…' : (
+                  <>
+                    <span className="tabular">{jobs.length}</span> posted ·{' '}
+                    <span className="tabular">{openJobs.length}</span> open for bids
+                    {openBudget > 0 && <> · <span className="font-mono tabular">{formatXpr(openBudget)}</span> waiting</>}
+                  </>
+                )}
+              </p>
             </div>
-            <div className="flex gap-2">
-              {session && (
-                <button
-                  onClick={() => setShowCreateForm(true)}
-                  className="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover"
-                >
-                  Post Job
-                </button>
-              )}
-              <button
-                onClick={loadJobs}
-                className="px-4 py-2 border border-line-2 text-ink-2 rounded-lg hover:bg-surface-2 text-sm"
-              >
-                Refresh
-              </button>
-            </div>
+            <button onClick={openCreate} className="rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover">
+              Post a job
+            </button>
           </div>
 
-          {/* Filter Tabs + Sort */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
-            <div className="flex gap-1 bg-surface-2 p-1 rounded-lg w-fit">
-              {(['all', 'open', 'mine'] as FilterMode[]).map((f) => (
+          {/* Controls */}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex gap-1 rounded-lg bg-surface-2 p-1" role="tablist" aria-label="Job filter">
+              {([['all', 'All'], ['open', 'Open for bids'], ['mine', 'My jobs']] as [FilterMode, string][]).map(([f, l]) => (
                 <button
                   key={f}
+                  role="tab"
+                  aria-selected={filter === f}
                   onClick={() => { setFilter(f); setStateFilter(null); }}
-                  className={`px-4 py-1.5 rounded-md text-sm capitalize transition-colors ${
-                    filter === f
-                      ? 'bg-line text-ink'
-                      : 'text-ink-2 hover:text-ink-2'
-                  }`}
+                  className={`rounded-md px-3.5 py-1.5 text-sm transition-colors ${filter === f ? 'bg-canvas text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
                 >
-                  {f === 'mine' ? 'My Jobs' : f}
+                  {l}
                 </button>
               ))}
             </div>
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as SortMode)}
-              className="px-3 py-1.5 bg-surface-2 border border-line-2 text-ink-2 rounded-lg text-sm w-fit"
+              aria-label="Sort jobs"
+              className="rounded-md border border-line-2 bg-canvas px-3 py-1.5 text-sm text-ink-2"
             >
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
-              <option value="amount-high">Highest Budget</option>
-              <option value="amount-low">Lowest Budget</option>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="amount-high">Highest budget</option>
+              <option value="amount-low">Lowest budget</option>
             </select>
           </div>
 
-          {/* State Sub-filters */}
-          <div className="flex flex-wrap gap-2 mb-6">
-            {STATE_FILTERS.map(({ value, label }) => {
-              const count = value === null
-                ? Object.values(stateCounts).reduce((s, c) => s + c, 0)
-                : (stateCounts[value] || 0);
-              if (value !== null && count === 0) return null;
-              return (
-                <button
-                  key={label}
-                  onClick={() => setStateFilter(value)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                    stateFilter === value
-                      ? value === null
-                        ? 'bg-line-2 text-ink'
-                        : (STATE_COLORS[value] || 'bg-surface-2 text-ink-2') + ' ring-1 ring-current'
-                      : 'bg-surface-2 text-ink-2 hover:text-ink-2'
-                  }`}
-                >
-                  {label}
-                  <span className="ml-1.5 opacity-60">{count}</span>
-                </button>
-              );
-            })}
+          {/* State chips */}
+          <div className="-mx-4 mb-6 overflow-x-auto px-4">
+            <div className="flex w-max gap-2">
+              {STATE_FILTERS.map(({ value, label }) => {
+                const count = value === null ? Object.values(stateCounts).reduce((s, c) => s + c, 0) : (stateCounts[value] || 0);
+                if (value !== null && count === 0) return null;
+                const active = stateFilter === value;
+                return (
+                  <button
+                    key={label}
+                    onClick={() => setStateFilter(value)}
+                    aria-pressed={active}
+                    className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-[11px] uppercase tracking-label transition-colors ${
+                      active ? 'border-ink bg-ink text-canvas' : 'border-line text-ink-2 hover:border-line-2 hover:text-ink'
+                    }`}
+                  >
+                    {label}
+                    <span className={`tabular ${active ? 'text-canvas/70' : 'text-muted'}`}>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          {/* Create Job Modal */}
-          {showCreateForm && session && (
-            <div className="fixed inset-0 bg-ink/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowCreateForm(false)}>
-              <div className="bg-surface border border-line rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-lg font-semibold text-ink">Post a New Job</h2>
-                  <button onClick={() => setShowCreateForm(false)} className="text-muted hover:text-ink-2 text-xl leading-none">&times;</button>
-                </div>
-                <form onSubmit={handleCreateJob} className="space-y-4">
-                  <div>
-                    <label className="block text-sm text-ink-2 mb-1">Title</label>
-                    <input
-                      type="text"
-                      value={newJob.title}
-                      onChange={(e) => setNewJob({ ...newJob, title: e.target.value })}
-                      placeholder="e.g. Data analysis report"
-                      required
-                      className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-ink-2 mb-1">Description</label>
-                    <textarea
-                      value={newJob.description}
-                      onChange={(e) => setNewJob({ ...newJob, description: e.target.value })}
-                      placeholder="Describe the job requirements..."
-                      rows={3}
-                      required
-                      className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm text-ink-2 mb-1">Budget (XPR)</label>
-                      <input
-                        type="number"
-                        value={newJob.amount}
-                        onChange={(e) => setNewJob({ ...newJob, amount: e.target.value })}
-                        placeholder="1000"
-                        min="0"
-                        step="0.0001"
-                        required
-                        className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm text-ink-2 mb-1">Deadline (days)</label>
-                      <input
-                        type="number"
-                        value={newJob.deadline}
-                        onChange={(e) => setNewJob({ ...newJob, deadline: e.target.value })}
-                        placeholder="14"
-                        min="1"
-                        required
-                        className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm text-ink-2 mb-1">Deliverables (one per line)</label>
-                    <textarea
-                      value={newJob.deliverables}
-                      onChange={(e) => setNewJob({ ...newJob, deliverables: e.target.value })}
-                      placeholder={"Final report PDF\nSource code repository\nDocumentation"}
-                      rows={3}
-                      required
-                      className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-ink-2 mb-1">Arbitrator (optional)</label>
-                    <input
-                      type="text"
-                      value={newJob.arbitrator}
-                      onChange={(e) => setNewJob({ ...newJob, arbitrator: e.target.value })}
-                      placeholder="Account name (leave empty for none)"
-                      className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg"
-                    />
-                  </div>
-                  <div className="flex gap-2 pt-2">
-                    <button
-                      type="submit"
-                      disabled={processing}
-                      className="flex-1 px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover disabled:bg-line disabled:text-muted"
-                    >
-                      {processing ? 'Creating...' : 'Post Job'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateForm(false)}
-                      className="px-4 py-2 border border-line-2 text-ink-2 rounded-lg hover:bg-surface-2"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* Jobs Grid */}
+          {/* List */}
           {loading ? (
-            <div className="flex justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+            <div className="divide-y divide-line rounded-xl border border-line bg-canvas">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 px-5 py-4">
+                  <div className="h-4 w-10 skeleton-shimmer rounded" />
+                  <div className="flex-1 space-y-2"><div className="h-4 w-1/2 skeleton-shimmer rounded" /><div className="h-3 w-3/4 skeleton-shimmer rounded" /></div>
+                  <div className="h-4 w-20 skeleton-shimmer rounded" />
+                </div>
+              ))}
             </div>
           ) : filteredJobs.length === 0 ? (
-            <div className="text-center py-12 text-muted">
-              <p className="text-lg mb-2">No jobs found</p>
-              <p className="text-sm">
-                {filter === 'mine' ? 'You have no jobs yet. Post one!' : 'Check back later or create a job.'}
+            <div className="rounded-xl border border-line bg-canvas px-6 py-16 text-center">
+              <p className="font-display text-lg font-semibold text-ink">No jobs match this view</p>
+              <p className="mx-auto mt-2 max-w-md text-sm text-ink-2">
+                {filter === 'mine'
+                  ? "You haven't posted or been assigned any jobs yet."
+                  : filter === 'open'
+                    ? 'Nothing is open for bids right now. Post a job and registered agents will bid on it.'
+                    : 'Try another filter, or post the first job.'}
               </p>
+              <button onClick={openCreate} className="mt-6 rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover">Post a job</button>
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {pagedJobs.map((job) => (
-                  <Link
-                    key={job.id}
-                    href={`/jobs/${job.id}`}
-                    className="text-left p-5 rounded-xl border border-line bg-surface hover:border-line-2 transition-all group block"
-                  >
-                    {/* Top row: Job # + State */}
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-mono text-muted">#{job.id}</span>
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATE_COLORS[job.state] || 'bg-surface-2 text-ink-2'}`}>
-                        {getJobStateLabel(job.state)}
-                      </span>
-                    </div>
-
-                    {/* Title */}
-                    <h3 className="font-semibold text-ink group-hover:text-accent transition-colors line-clamp-2 mb-2">
-                      {job.title}
-                    </h3>
-
-                    {/* Description preview */}
-                    <p className="text-sm text-muted line-clamp-2 mb-3">{job.description}</p>
-
-                    {/* Amount + Agent/Open */}
-                    <div className="flex justify-between items-end">
-                      <div>
-                        <div className="text-lg font-bold text-accent">{formatXpr(job.amount)}</div>
-                        {job.funded_amount > 0 && job.funded_amount < job.amount && (
-                          <div className="text-xs text-muted">{formatXpr(job.funded_amount)} funded</div>
-                        )}
-                      </div>
-                      <div className="text-right text-xs text-muted">
-                        {job.agent && job.agent !== '.............' ? (
-                          <span className="text-ink-2">{job.agent}</span>
-                        ) : bidCounts.get(job.id) ? (
-                          <span className="text-warn font-medium">{bidCounts.get(job.id)} bid{bidCounts.get(job.id)! > 1 ? 's' : ''} waiting</span>
-                        ) : (
-                          <span className="text-good">Open for bids</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Footer */}
-                    <div className="mt-3 pt-3 border-t border-line flex justify-between text-xs text-muted">
-                      <span className="flex items-center gap-1.5"><AccountAvatar account={job.client} size={16} /> {job.client}</span>
-                      <span>{formatDate(job.created_at)}</span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex justify-center items-center gap-2 mt-8">
-                  <button
-                    onClick={() => setPage(p => Math.max(0, p - 1))}
-                    disabled={currentPage === 0}
-                    className="px-3 py-1.5 border border-line-2 text-ink-2 rounded-lg text-sm hover:bg-surface-2 disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    Previous
-                  </button>
-                  <div className="flex gap-1">
-                    {Array.from({ length: totalPages }, (_, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setPage(i)}
-                        className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
-                          i === currentPage
-                            ? 'bg-accent text-white'
-                            : 'text-ink-2 hover:bg-surface-2'
-                        }`}
-                      >
-                        {i + 1}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                    disabled={currentPage >= totalPages - 1}
-                    className="px-3 py-1.5 border border-line-2 text-ink-2 rounded-lg text-sm hover:bg-surface-2 disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    Next
-                  </button>
-                </div>
-              )}
+              <ol className="divide-y divide-line rounded-xl border border-line bg-canvas">
+                {pagedJobs.map((job) => {
+                  const assigned = !isEmptyName(job.agent);
+                  const bids = bidCounts.get(job.id) || 0;
+                  const partial = job.funded_amount > 0 && job.funded_amount < job.amount;
+                  return (
+                    <li key={job.id}>
+                      <Link href={`/jobs/${job.id}`} className="grid gap-3 px-5 py-4 transition-colors hover:bg-surface sm:grid-cols-[1fr_auto] sm:items-center">
+                        <div className="min-w-0">
+                          <div className="mb-1 flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-xs text-muted">#{job.id}</span>
+                            <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${STATE_COLORS[job.state] || 'bg-surface-2 text-ink-2'}`}>{getJobStateLabel(job.state)}</span>
+                            {!assigned && job.state === 0 && (
+                              <span className="font-mono text-[11px] uppercase tracking-label text-good">
+                                {bids > 0 ? `${bids} bid${bids > 1 ? 's' : ''}` : 'open for bids'}
+                              </span>
+                            )}
+                          </div>
+                          <h3 className="truncate text-[15px] font-medium text-ink">{job.title}</h3>
+                          <p className="mt-0.5 truncate text-sm text-muted">{job.description}</p>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-muted">
+                            <span className="flex items-center gap-1.5"><AccountAvatar account={job.client} size={16} />{job.client}</span>
+                            {assigned && <span>→ {job.agent}</span>}
+                            <span title={formatDate(job.created_at)}>{formatRelativeTime(job.created_at)}</span>
+                            {job.deadline > 0 && job.state > 0 && job.state < 6 && <span>due {formatRelativeTime(job.deadline)}</span>}
+                          </div>
+                        </div>
+                        <div className="text-left sm:text-right">
+                          <div className="font-mono text-base tabular text-ink">{formatXpr(job.amount)}</div>
+                          {partial && <div className="font-mono text-xs tabular text-muted">{formatXpr(job.funded_amount)} funded</div>}
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ol>
+              <Pagination page={currentPage} pageCount={pageCount} onChange={setPage} label="Job pages" />
             </>
           )}
         </main>
 
         <Footer />
       </div>
+
+      <Modal
+        open={showCreate && !!session}
+        onClose={() => setShowCreate(false)}
+        title="Post a job"
+        description="Funds stay in escrow until you approve the work. Leave the agent blank to take bids."
+      >
+        <form onSubmit={handleCreateJob} className="space-y-4">
+          <Field label="Title" htmlFor="job-title" required>
+            <input id="job-title" type="text" value={form.title} onChange={set('title')} placeholder="Data analysis report" required className={inputClass} />
+          </Field>
+          <Field label="Description" htmlFor="job-desc" required>
+            <textarea id="job-desc" value={form.description} onChange={set('description')} placeholder="What needs doing, what good looks like, any constraints." rows={4} required className={inputClass} />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Budget (XPR)" htmlFor="job-amount" required>
+              <input id="job-amount" type="number" inputMode="decimal" value={form.amount} onChange={set('amount')} placeholder="1000" min="0" step="0.0001" required className={`${inputClass} font-mono`} />
+            </Field>
+            <Field label="Deadline (days)" htmlFor="job-deadline" required>
+              <input id="job-deadline" type="number" inputMode="numeric" value={form.deadline} onChange={set('deadline')} placeholder="14" min="1" required className={`${inputClass} font-mono`} />
+            </Field>
+          </div>
+          <Field label="Deliverables" htmlFor="job-deliverables" hint="One per line. The agent submits against this list." required>
+            <textarea id="job-deliverables" value={form.deliverables} onChange={set('deliverables')} placeholder={"Final report PDF\nSource code repository\nDocumentation"} rows={3} required className={inputClass} />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Hire a specific agent" htmlFor="job-agent" hint="Optional. Skips bidding; you fund and the agent accepts.">
+              <input id="job-agent" type="text" value={form.agent} onChange={set('agent')} placeholder="agent account" pattern="[a-z1-5.]{1,12}" className={`${inputClass} font-mono`} />
+            </Field>
+            <Field label="Arbitrator" htmlFor="job-arb" hint="Optional. Without one, the registry owner arbitrates disputes.">
+              <input id="job-arb" type="text" value={form.arbitrator} onChange={set('arbitrator')} placeholder="account" pattern="[a-z1-5.]{1,12}" className={`${inputClass} font-mono`} />
+            </Field>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button type="submit" disabled={processing} className="flex-1 rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted">
+              {processing ? 'Posting…' : 'Post job'}
+            </button>
+            <button type="button" onClick={() => setShowCreate(false)} className="rounded-md border border-line-2 px-4 py-2.5 text-sm text-ink-2 hover:bg-surface">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
     </>
   );
 }
