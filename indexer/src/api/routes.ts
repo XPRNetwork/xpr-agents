@@ -1,37 +1,62 @@
 import { Router, Request, Response } from 'express';
 import Database from 'better-sqlite3';
 import { WebhookDispatcher } from '../webhooks/dispatcher';
+import { enrichAgents } from '../enrich';
+import { updateStats } from '../db/schema';
 
-export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatcher): Router {
+export interface RouteOptions {
+  /** nodeos RPC endpoint used by on-demand enrichment (POST /admin/sync-kyc). */
+  rpcEndpoint?: string;
+}
+
+export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatcher, opts: RouteOptions = {}): Router {
   const router = Router();
 
   // ============== AGENTS ==============
 
   // List agents
+  // Paginated, sortable agent listing. `total` is the full count for the
+  // filter (not the page length) so clients can paginate. Sorting by trust
+  // relies on the enrichment job (src/enrich.ts) having populated trust_score.
   router.get('/agents', (req: Request, res: Response) => {
-    const { limit = '100', offset = '0', active_only = 'true', sort = 'trust_score' } = req.query;
+    const { limit = '24', offset = '0', active_only = 'true', sort = 'trust' } = req.query;
 
-    const limitNum = Math.min(parseInt(limit as string) || 100, 500);
-    const offsetNum = parseInt(offset as string) || 0;
-    const activeOnly = active_only === 'true';
+    const limitNum = Math.min(Math.max(parseInt(limit as string) || 24, 1), 500);
+    const offsetNum = Math.max(parseInt(offset as string) || 0, 0);
+    const where = active_only === 'true' ? 'WHERE a.active = 1' : '';
 
-    let query = `
-      SELECT a.*, s.avg_score, s.feedback_count
+    const sortMap: Record<string, string> = {
+      trust: 'a.trust_score DESC, a.total_jobs DESC',
+      trust_score: 'a.trust_score DESC, a.total_jobs DESC',
+      stake: 'a.system_stake DESC',
+      jobs: 'a.total_jobs DESC',
+      earnings: 'COALESCE(e.earnings, 0) DESC',
+      score: 'COALESCE(s.avg_score, 0) DESC',
+      newest: 'a.registered_at DESC',
+    };
+    const orderBy = sortMap[String(sort)] || sortMap.trust;
+
+    const { c: total } = db.prepare(`SELECT COUNT(*) AS c FROM agents a ${where}`).get() as { c: number };
+
+    const agents = db.prepare(`
+      SELECT a.*,
+             COALESCE(s.avg_score, 0) AS avg_score,
+             COALESCE(s.feedback_count, 0) AS feedback_count,
+             COALESCE(s.total_weight, 0) AS total_weight,
+             COALESCE(e.earnings, 0) AS earnings,
+             COALESCE(e.completed_jobs, 0) AS completed_jobs
       FROM agents a
       LEFT JOIN agent_scores s ON a.account = s.agent
-    `;
+      LEFT JOIN (
+        SELECT agent, SUM(amount) AS earnings, COUNT(*) AS completed_jobs
+        FROM jobs WHERE state IN (6, 8) GROUP BY agent
+      ) e ON e.agent = a.account
+      ${where}
+      ORDER BY ${orderBy}, a.account ASC
+      LIMIT ? OFFSET ?
+    `).all(limitNum, offsetNum);
 
-    if (activeOnly) {
-      query += ' WHERE a.active = 1';
-    }
-
-    const sortColumn = sort === 'stake' ? 'a.stake' : sort === 'jobs' ? 'a.total_jobs' : 's.avg_score';
-    query += ` ORDER BY ${sortColumn} DESC LIMIT ? OFFSET ?`;
-
-    const stmt = db.prepare(query);
-    const agents = stmt.all(limitNum, offsetNum);
-
-    res.json({ agents, total: agents.length });
+    res.json({ agents, total, limit: limitNum, offset: offsetNum });
   });
 
   // Last activity per agent (most recent completed/delivered job)
@@ -445,13 +470,20 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
   }
 
   // KYC sync stub
-  router.post('/admin/sync-kyc', (req: Request, res: Response) => {
+  // On-demand agent enrichment: KYC level, system stake, trust score.
+  // The same job runs on a schedule from index.ts.
+  router.post('/admin/sync-kyc', async (req: Request, res: Response) => {
     if (!requireAdminAuth(req, res)) return;
-
-    // TODO: Implement actual KYC sync from eosio.proton::usersinfo table
-    // This would query the chain for current KYC levels and update
-    // feedback scores that were indexed without proper KYC weight
-    res.json({ status: 'not_implemented' });
+    if (!opts.rpcEndpoint) {
+      return res.status(503).json({ error: 'Enrichment not configured (RPC_ENDPOINT not set)' });
+    }
+    try {
+      const result = await enrichAgents(db, opts.rpcEndpoint, { log: (m) => console.warn(m) });
+      updateStats(db);
+      return res.json({ status: 'ok', ...result });
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // ============== WEBHOOKS ==============

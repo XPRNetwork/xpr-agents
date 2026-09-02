@@ -1,103 +1,91 @@
-import { useState, useEffect } from 'react';
-import { Agent, TrustScore, getAgents, getAgentScore, getKycLevel, getSystemStake, calculateTrustScore, getAgentLastActivity } from '@/lib/registry';
+import { useState, useEffect, useRef } from 'react';
+import { getAgentsPage, getAgentLastActivity, type LeaderboardEntry, type AgentSort } from '@/lib/registry';
 import { AgentCard } from './AgentCard';
 import { SkeletonCard } from './SkeletonCard';
 
-interface AgentWithTrust {
-  agent: Agent;
-  trustScore: TrustScore | null;
+const PAGE_SIZE = 12;
+
+type Filter = 'active' | 'all';
+
+const SORT_OPTIONS: Array<{ value: AgentSort; label: string }> = [
+  { value: 'trust', label: 'Sort by Trust' },
+  { value: 'jobs', label: 'Sort by Jobs' },
+  { value: 'earnings', label: 'Sort by Earnings' },
+  { value: 'stake', label: 'Sort by Stake' },
+  { value: 'newest', label: 'Newest First' },
+];
+
+/** Compact page list: always first/last, a window around the current page, gaps as null. */
+function pageWindow(current: number, count: number): Array<number | null> {
+  if (count <= 7) return Array.from({ length: count }, (_, i) => i);
+  const pages = new Set<number>([0, count - 1, current - 1, current, current + 1]);
+  const list = [...pages].filter(p => p >= 0 && p < count).sort((a, b) => a - b);
+  const out: Array<number | null> = [];
+  for (let i = 0; i < list.length; i++) {
+    if (i > 0 && list[i] - list[i - 1] > 1) out.push(null);
+    out.push(list[i]);
+  }
+  return out;
 }
 
 export function AgentList() {
-  const [agents, setAgents] = useState<AgentWithTrust[]>([]);
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [lastActivity, setLastActivity] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | 'active'>('active');
-  const [sortBy, setSortBy] = useState<'trust' | 'stake' | 'jobs'>('trust');
+  const [filter, setFilter] = useState<Filter>('active');
+  const [sortBy, setSortBy] = useState<AgentSort>('trust');
+  const topRef = useRef<HTMLDivElement>(null);
+  const requestSeq = useRef(0);
 
+  // Last-activity map is small and shared by every page; load it once.
   useEffect(() => {
-    const fetchAgents = async () => {
-      setLoading(true);
-      try {
-        const [agentList, activity] = await Promise.all([
-          getAgents(),
-          getAgentLastActivity(),
-        ]);
-        setLastActivity(activity);
-
-        // Fetch trust scores for each agent
-        const agentsWithTrust = await Promise.all(
-          agentList.map(async (agent) => {
-            try {
-              const [score, systemStake] = await Promise.all([
-                getAgentScore(agent.account),
-                getSystemStake(agent.account),
-              ]);
-              const kycLevel = await getKycLevel(agent.account, agent.owner);
-              // Populate agent.stake from system staking (agentcore table has no stake column)
-              agent.stake = systemStake;
-              return {
-                agent,
-                trustScore: calculateTrustScore(agent, score, kycLevel, systemStake),
-              };
-            } catch {
-              return { agent, trustScore: null };
-            }
-          })
-        );
-
-        setAgents(agentsWithTrust);
-      } catch (e: any) {
-        setError(e.message || 'Failed to fetch agents');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchAgents();
+    getAgentLastActivity().then(setLastActivity).catch(() => {});
   }, []);
 
-  const filteredAgents = agents
-    .filter((a) => filter === 'all' || a.agent.active)
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'trust':
-          return (b.trustScore?.total || 0) - (a.trustScore?.total || 0);
-        case 'stake':
-          return b.agent.stake - a.agent.stake;
-        case 'jobs':
-          return b.agent.total_jobs - a.agent.total_jobs;
-        default:
-          return 0;
-      }
-    });
+  useEffect(() => {
+    const seq = ++requestSeq.current;
+    setLoading(true);
+    setError(null);
+    getAgentsPage({ limit: PAGE_SIZE, offset: page * PAGE_SIZE, sort: sortBy, activeOnly: filter === 'active' })
+      .then((result) => {
+        if (seq !== requestSeq.current || !result) return;
+        setEntries(result.entries);
+        setTotal(result.total);
+      })
+      .catch((e: any) => {
+        if (seq !== requestSeq.current) return;
+        setError(e?.message || 'Failed to fetch agents');
+      })
+      .finally(() => {
+        if (seq === requestSeq.current) setLoading(false);
+      });
+  }, [page, sortBy, filter]);
 
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <SkeletonCard key={i} />
-        ))}
-      </div>
-    );
-  }
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  if (error) {
-    return (
-      <div className="text-center py-12 text-red-400">
-        <p>{error}</p>
-      </div>
-    );
-  }
+  const goToPage = (next: number) => {
+    const clamped = Math.min(Math.max(next, 0), pageCount - 1);
+    if (clamped === page) return;
+    setPage(clamped);
+    topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const changeFilter = (next: Filter) => { setFilter(next); setPage(0); };
+  const changeSort = (next: AgentSort) => { setSortBy(next); setPage(0); };
+
+  const from = total === 0 ? 0 : page * PAGE_SIZE + 1;
+  const to = Math.min(total, (page + 1) * PAGE_SIZE);
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
+    <div ref={topRef} className="scroll-mt-24">
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
         <div className="flex gap-2">
           <button
-            onClick={() => setFilter('active')}
-            className={`px-3 py-1 rounded-lg text-sm ${
+            onClick={() => changeFilter('active')}
+            className={`px-3 py-1.5 rounded-lg text-sm ${
               filter === 'active'
                 ? 'bg-proton-purple text-white'
                 : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
@@ -106,8 +94,8 @@ export function AgentList() {
             Active
           </button>
           <button
-            onClick={() => setFilter('all')}
-            className={`px-3 py-1 rounded-lg text-sm ${
+            onClick={() => changeFilter('all')}
+            className={`px-3 py-1.5 rounded-lg text-sm ${
               filter === 'all'
                 ? 'bg-proton-purple text-white'
                 : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
@@ -117,24 +105,42 @@ export function AgentList() {
           </button>
         </div>
 
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as any)}
-          className="px-3 py-1 bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-lg text-sm"
-        >
-          <option value="trust">Sort by Trust</option>
-          <option value="stake">Sort by Stake</option>
-          <option value="jobs">Sort by Jobs</option>
-        </select>
+        <div className="flex items-center gap-3">
+          {!loading && !error && (
+            <span className="text-sm text-zinc-400 tabular-nums" aria-live="polite">
+              {total === 0 ? 'No agents' : `Showing ${from}–${to} of ${total}`}
+            </span>
+          )}
+          <select
+            value={sortBy}
+            onChange={(e) => changeSort(e.target.value as AgentSort)}
+            aria-label="Sort agents"
+            className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-lg text-sm"
+          >
+            {SORT_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {filteredAgents.length === 0 ? (
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: Math.min(PAGE_SIZE, 6) }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      ) : error ? (
+        <div className="text-center py-12 text-red-400">
+          <p>{error}</p>
+        </div>
+      ) : entries.length === 0 ? (
         <div className="text-center py-12 text-zinc-500">
           <p>No agents found</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredAgents.map(({ agent, trustScore }, i) => (
+          {entries.map(({ agent, trustScore }, i) => (
             <div
               key={agent.account}
               className="animate-stagger animate-fade-in-up"
@@ -144,6 +150,44 @@ export function AgentList() {
             </div>
           ))}
         </div>
+      )}
+
+      {pageCount > 1 && (
+        <nav className="flex items-center justify-center gap-1 mt-8" aria-label="Agent pages">
+          <button
+            onClick={() => goToPage(page - 1)}
+            disabled={page === 0 || loading}
+            className="px-3 py-2 rounded-lg text-sm bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Previous
+          </button>
+          {pageWindow(page, pageCount).map((p, i) =>
+            p === null ? (
+              <span key={`gap-${i}`} className="px-2 text-zinc-600">…</span>
+            ) : (
+              <button
+                key={p}
+                onClick={() => goToPage(p)}
+                disabled={loading}
+                aria-current={p === page ? 'page' : undefined}
+                className={`min-w-[40px] px-3 py-2 rounded-lg text-sm tabular-nums ${
+                  p === page
+                    ? 'bg-proton-purple text-white'
+                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                }`}
+              >
+                {p + 1}
+              </button>
+            )
+          )}
+          <button
+            onClick={() => goToPage(page + 1)}
+            disabled={page >= pageCount - 1 || loading}
+            className="px-3 py-2 rounded-lg text-sm bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Next
+          </button>
+        </nav>
       )}
     </div>
   );

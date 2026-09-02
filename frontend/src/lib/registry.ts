@@ -1,5 +1,6 @@
 import { JsonRpc } from '@proton/js';
 import { getSelectedNetwork, getNetworkConfig, NETWORKS } from './networks';
+import { indexerFetch } from './indexer';
 
 // Network configuration — reads from localStorage, defaults to mainnet
 const networkConfig = getNetworkConfig();
@@ -525,6 +526,12 @@ export async function getBidsByAgent(agent: string): Promise<Bid[]> {
 
 // Returns last activity timestamp (in seconds) per agent from completed/delivered/arbitrated jobs
 export async function getAgentLastActivity(): Promise<Record<string, number>> {
+  const fromIndexer = await indexerFetch<Record<string, number>>('/agents/activity');
+  if (fromIndexer && typeof fromIndexer === 'object') return fromIndexer;
+  return getAgentLastActivityRpc();
+}
+
+async function getAgentLastActivityRpc(): Promise<Record<string, number>> {
   const jobs = await getAllJobs(500);
   const activity: Record<string, number> = {};
   for (const job of jobs) {
@@ -582,6 +589,19 @@ export interface RegistryStats {
 }
 
 export async function getRegistryStats(): Promise<RegistryStats> {
+  const stats = await indexerFetch<Record<string, number>>('/stats');
+  if (stats && typeof stats.active_agents === 'number') {
+    return {
+      activeAgents: stats.active_agents,
+      totalJobs: stats.total_jobs_escrow ?? stats.total_jobs ?? 0,
+      validators: stats.total_validators ?? 0,
+      feedbacks: stats.total_feedback ?? 0,
+    };
+  }
+  return getRegistryStatsRpc();
+}
+
+async function getRegistryStatsRpc(): Promise<RegistryStats> {
   const [agents, jobs, validators, feedbackRows] = await Promise.all([
     rpc.get_table_rows({ json: true, code: CONTRACTS.AGENT_CORE, scope: CONTRACTS.AGENT_CORE, table: 'agents', limit: 500 }),
     rpc.get_table_rows({ json: true, code: CONTRACTS.AGENT_ESCROW, scope: CONTRACTS.AGENT_ESCROW, table: 'jobs', limit: 500 }),
@@ -620,6 +640,137 @@ export interface LeaderboardEntry {
   completedJobs: number;
 }
 
+// ============== PAGINATED AGENT LISTING (indexer-first) ==============
+
+export type AgentSort = 'trust' | 'stake' | 'jobs' | 'earnings' | 'newest';
+
+export interface AgentPage {
+  entries: LeaderboardEntry[];
+  total: number;
+  source: 'indexer' | 'rpc';
+}
+
+interface IndexerAgentRow {
+  account: string;
+  owner?: string | null;
+  name: string;
+  description?: string;
+  endpoint?: string;
+  protocol?: string;
+  capabilities?: string;
+  total_jobs?: number;
+  registered_at?: number;
+  active?: number;
+  kyc_level?: number;
+  system_stake?: number;
+  avg_score?: number;
+  feedback_count?: number;
+  total_weight?: number;
+  earnings?: number;
+  completed_jobs?: number;
+}
+
+function agentFromIndexerRow(row: IndexerAgentRow): Agent {
+  let capabilities: string[] = [];
+  try { capabilities = JSON.parse(row.capabilities || '[]'); } catch { /* malformed */ }
+  const ownerRaw = row.owner || '';
+  return {
+    account: row.account,
+    owner: ownerRaw && ownerRaw !== '.............' ? ownerRaw : null,
+    name: row.name || row.account,
+    description: row.description || '',
+    endpoint: row.endpoint || '',
+    protocol: row.protocol || '',
+    capabilities,
+    stake: row.system_stake ?? 0,
+    total_jobs: row.total_jobs ?? 0,
+    registered_at: row.registered_at ?? 0,
+    active: row.active === 1 || row.active === undefined,
+  };
+}
+
+function entryFromIndexerRow(row: IndexerAgentRow): LeaderboardEntry {
+  const agent = agentFromIndexerRow(row);
+  const feedbackCount = row.feedback_count ?? 0;
+  const score: AgentScore = {
+    agent: row.account,
+    total_score: 0,
+    total_weight: row.total_weight ?? (feedbackCount > 0 ? 1 : 0),
+    feedback_count: feedbackCount,
+    avg_score: row.avg_score ?? 0,
+    last_updated: 0,
+  };
+  return {
+    agent,
+    trustScore: calculateTrustScore(agent, score, row.kyc_level ?? 0, row.system_stake ?? 0),
+    earnings: row.earnings ?? 0,
+    completedJobs: row.completed_jobs ?? 0,
+  };
+}
+
+/**
+ * One page of agents with trust scores and earnings.
+ * Indexer path: a single request. RPC fallback: one agents read, one jobs read,
+ * then per-agent enrichment for the requested page only (never the whole registry).
+ * With `rpcFallback: false` it returns null when the indexer is unavailable.
+ */
+export async function getAgentsPage(opts: {
+  limit?: number;
+  offset?: number;
+  sort?: AgentSort;
+  activeOnly?: boolean;
+  rpcFallback?: boolean;
+} = {}): Promise<AgentPage | null> {
+  const limit = opts.limit ?? 12;
+  const offset = opts.offset ?? 0;
+  const sort: AgentSort = opts.sort ?? 'trust';
+  const activeOnly = opts.activeOnly ?? true;
+
+  const data = await indexerFetch<{ agents: IndexerAgentRow[]; total?: number }>(
+    `/agents?limit=${limit}&offset=${offset}&sort=${sort}&active_only=${activeOnly}`
+  );
+  if (data && Array.isArray(data.agents)) {
+    const entries = data.agents.map(entryFromIndexerRow);
+    return { entries, total: typeof data.total === 'number' ? data.total : entries.length, source: 'indexer' };
+  }
+  if (opts.rpcFallback === false) return null;
+  return getAgentsPageRpc({ limit, offset, sort, activeOnly });
+}
+
+async function getAgentsPageRpc(opts: { limit: number; offset: number; sort: AgentSort; activeOnly: boolean }): Promise<AgentPage> {
+  const [agents, jobs] = await Promise.all([getAgents(500), getAllJobs(500).catch(() => [] as Job[])]);
+  const earningsByAgent = new Map<string, { total: number; completedJobs: number }>();
+  for (const j of jobs) {
+    if (j.state !== 6 && j.state !== 8) continue;
+    const cur = earningsByAgent.get(j.agent) || { total: 0, completedJobs: 0 };
+    cur.total += j.amount; cur.completedJobs += 1;
+    earningsByAgent.set(j.agent, cur);
+  }
+
+  const filtered = agents.filter(a => !opts.activeOnly || a.active);
+  // Trust and stake need per-agent RPC enrichment, so without the indexer we
+  // order by activity (jobs, then age) and enrich only the visible page.
+  filtered.sort((a, b) => {
+    if (opts.sort === 'newest') return b.registered_at - a.registered_at;
+    if (opts.sort === 'earnings') return (earningsByAgent.get(b.account)?.total || 0) - (earningsByAgent.get(a.account)?.total || 0);
+    return (b.total_jobs - a.total_jobs) || (b.registered_at - a.registered_at);
+  });
+
+  const page = filtered.slice(opts.offset, opts.offset + opts.limit);
+  const entries = await Promise.all(page.map(async (agent) => {
+    const [score, systemStake] = await Promise.all([
+      getAgentScore(agent.account).catch(() => null),
+      getSystemStake(agent.account).catch(() => 0),
+    ]);
+    const kycLevel = await getKycLevel(agent.account, agent.owner).catch(() => 0);
+    agent.stake = systemStake;
+    const e = earningsByAgent.get(agent.account) || { total: 0, completedJobs: 0 };
+    return { agent, trustScore: calculateTrustScore(agent, score, kycLevel, systemStake), earnings: e.total, completedJobs: e.completedJobs };
+  }));
+
+  return { entries, total: filtered.length, source: 'rpc' };
+}
+
 export async function getAgentEarnings(account: string): Promise<{ total: number; completedJobs: number }> {
   const jobs = await getJobsByAgent(account);
   const completed = jobs.filter(j => j.state === 6 || j.state === 8);
@@ -628,7 +779,14 @@ export async function getAgentEarnings(account: string): Promise<{ total: number
 }
 
 export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
-  const agents = await getAgents(500);
+  const page = await getAgentsPage({ limit: 200, offset: 0, sort: 'trust', activeOnly: true, rpcFallback: false });
+  if (page) return page.entries;
+  return getLeaderboardRpc();
+}
+
+/** RPC fallback: one table read plus ~4 RPC calls per agent. Bounded to 100 agents. */
+async function getLeaderboardRpc(): Promise<LeaderboardEntry[]> {
+  const agents = await getAgents(100);
   const activeAgents = agents.filter(a => a.active);
 
   const entries = await Promise.all(
@@ -1086,6 +1244,8 @@ export async function getXprBalance(account: string): Promise<number> {
 }
 
 export async function getNetworkEarnings(): Promise<number> {
+  const stats = await indexerFetch<Record<string, number>>('/stats');
+  if (stats && typeof stats.network_earnings === 'number') return stats.network_earnings;
   const jobs = await getAllJobs(500);
   return jobs
     .filter(j => j.state === 6 || j.state === 8)

@@ -368,6 +368,12 @@ export function initDatabase(dbPath: string): Database.Database {
     //   2 = lost     (other bids on the same job after selectbid)
     //   3 = withdrawn (agent withdrew their bid)
     'ALTER TABLE bids ADD COLUMN state INTEGER NOT NULL DEFAULT 0',
+    // Agent enrichment (src/enrich.ts): KYC level of owner/agent, system stake
+    // from eosio::voters, and when the row was last enriched. trust_score
+    // already exists on the table and is now actually populated.
+    'ALTER TABLE agents ADD COLUMN kyc_level INTEGER DEFAULT 0',
+    'ALTER TABLE agents ADD COLUMN system_stake INTEGER DEFAULT 0',
+    'ALTER TABLE agents ADD COLUMN enriched_at INTEGER DEFAULT 0',
   ];
 
   // Migrate processed_actions from INTEGER to TEXT key if needed.
@@ -402,6 +408,10 @@ export function updateStats(db: Database.Database): void {
     UPDATE stats SET value = (SELECT COUNT(*) FROM jobs WHERE agent = '' OR agent IS NULL), updated_at = strftime('%s', 'now') WHERE key = 'total_open_jobs';
     UPDATE stats SET value = (SELECT COUNT(*) FROM bids), updated_at = strftime('%s', 'now') WHERE key = 'total_bids';
     UPDATE stats SET value = (SELECT COUNT(*) FROM arbitrators), updated_at = strftime('%s', 'now') WHERE key = 'total_arbitrators';
+    INSERT OR IGNORE INTO stats (key, value) VALUES ('network_earnings', 0);
+    INSERT OR IGNORE INTO stats (key, value) VALUES ('completed_jobs', 0);
+    UPDATE stats SET value = (SELECT COALESCE(SUM(amount), 0) FROM jobs WHERE state IN (6, 8)), updated_at = strftime('%s', 'now') WHERE key = 'network_earnings';
+    UPDATE stats SET value = (SELECT COUNT(*) FROM jobs WHERE state IN (6, 8)), updated_at = strftime('%s', 'now') WHERE key = 'completed_jobs';
   `);
 }
 
