@@ -12,17 +12,13 @@ function readStored(): Theme | null {
   }
 }
 
-function systemTheme(): Theme {
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
 function apply(theme: Theme) {
   document.documentElement.classList.toggle('dark', theme === 'dark');
 }
 
 /**
- * Current theme plus a setter. Follows the OS until the user picks one;
- * the choice is remembered per browser. The <html> class is applied before
+ * Current theme plus a setter. Light by default; a visitor's choice of dark
+ * is remembered per browser. The <html> class is applied before
  * first paint by _document.tsx, so this hook only keeps React in sync.
  */
 export function useTheme(): { theme: Theme; setTheme: (t: Theme) => void; toggle: () => void; isSystem: boolean } {
@@ -30,20 +26,11 @@ export function useTheme(): { theme: Theme; setTheme: (t: Theme) => void; toggle
   const [isSystem, setIsSystem] = useState(true);
 
   useEffect(() => {
+    // Light is the site default; dark only when the visitor chose it.
     const stored = readStored();
     setIsSystem(stored === null);
-    setThemeState(stored ?? systemTheme());
-
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = () => {
-      if (readStored() === null) {
-        const next = systemTheme();
-        setThemeState(next);
-        apply(next);
-      }
-    };
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
+    setThemeState(stored ?? 'light');
+    apply(stored ?? 'light');
   }, []);
 
   const setTheme = useCallback((t: Theme) => {

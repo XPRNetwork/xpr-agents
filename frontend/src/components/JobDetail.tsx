@@ -1140,7 +1140,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                           </div>
                           <div className="flex items-baseline gap-2 mt-1">
                             <span className="text-base font-bold text-accent">{formatXpr(bid.amount)}</span>
-                            <span className="text-xs text-muted">{formatTimeline(bid.timeline)}</span>
+                            <span className="text-xs text-muted" title="Proposed delivery time if this bid is selected">delivers in {formatTimeline(bid.timeline)}</span>
                           </div>
                         </div>
                         <div className="flex gap-2">
