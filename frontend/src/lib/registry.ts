@@ -103,6 +103,22 @@ export async function getAgents(limit = 100): Promise<Agent[]> {
   });
 }
 
+/** Agents whose on-chain owner is `owner` (agents.byOwner secondary index). */
+export async function getAgentsByOwner(owner: string, limit = 50): Promise<Agent[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_CORE,
+    scope: CONTRACTS.AGENT_CORE,
+    table: 'agents',
+    index_position: 2,
+    key_type: 'name',
+    lower_bound: owner,
+    upper_bound: owner,
+    limit,
+  });
+  return (result.rows as Agent[]).filter(a => a.owner === owner);
+}
+
 export async function getAgent(account: string): Promise<Agent | null> {
   const result = await rpc.get_table_rows({
     json: true,

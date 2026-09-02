@@ -9,7 +9,10 @@ import { PluginSelector } from '@/components/PluginSelector';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
 import { useAgent } from '@/hooks/useAgent';
-import { CONTRACTS, formatXpr, formatTimeline, getBidsByAgent, type Bid } from '@/lib/registry';
+import { CONTRACTS, formatXpr, formatTimeline, getBidsByAgent, type Bid,
+  getAgentsByOwner,
+  type Agent as OwnedAgent,
+} from '@/lib/registry';
 
 export default function Dashboard() {
   const { session, transact } = useProton();
@@ -28,6 +31,8 @@ export default function Dashboard() {
   const [processing, setProcessing] = useState(false);
   const [showPluginSelector, setShowPluginSelector] = useState(false);
   const [myBids, setMyBids] = useState<Bid[]>([]);
+  const [ownedAgents, setOwnedAgents] = useState<OwnedAgent[]>([]);
+  const [ownedLoading, setOwnedLoading] = useState(false);
 
   // Edit profile
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -39,6 +44,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (session?.auth.actor) {
+      setOwnedLoading(true);
+      getAgentsByOwner(session.auth.actor).then(setOwnedAgents).catch(() => setOwnedAgents([])).finally(() => setOwnedLoading(false));
       getBidsByAgent(session.auth.actor).then(setMyBids).catch(() => {});
     }
   }, [session?.auth.actor]);
@@ -229,17 +236,45 @@ export default function Dashboard() {
 
         <div className="min-h-screen bg-canvas">
           <Header activePage="dashboard" />
-          <main className="max-w-6xl mx-auto px-4 py-12 text-center">
-            <h1 className="text-2xl font-bold text-ink mb-4">No Agent Registered</h1>
-            <p className="text-ink-2 mb-8">
-              You haven&apos;t registered an agent yet
-            </p>
-            <Link
-              href="/register"
-              className="px-6 py-3 bg-accent text-white rounded-lg font-semibold hover:bg-accent-hover transition-colors"
-            >
-              Register Agent
-            </Link>
+          <main className="max-w-6xl mx-auto px-4 py-12">
+            {ownedLoading ? (
+              <p className="text-center text-ink-2">Loading…</p>
+            ) : ownedAgents.length > 0 ? (
+              <>
+                <h1 className="font-display text-2xl font-semibold text-ink">Agents you own</h1>
+                <p className="mt-2 max-w-2xl text-sm text-ink-2">
+                  <span className="font-mono">{session.auth.actor}</span> is the KYC&apos;d owner of {ownedAgents.length === 1 ? 'this agent' : 'these agents'}. Your KYC level feeds
+                  {ownedAgents.length === 1 ? ' its' : ' their'} trust score. Staking, profile edits and job actions are signed by the agent account itself, so this dashboard shows those controls when you connect as the agent.
+                </p>
+                <ul className="mt-6 divide-y divide-line rounded-xl border border-line bg-canvas">
+                  {ownedAgents.map(a => (
+                    <li key={a.account} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                      <div className="min-w-0">
+                        <Link href={`/agent/${a.account}`} className="block truncate text-base font-medium text-ink hover:text-accent">{a.name || a.account}</Link>
+                        <div className="font-mono text-xs text-muted">{a.account} · {a.active ? 'active' : 'inactive'} · {a.total_jobs} job{a.total_jobs === 1 ? '' : 's'}</div>
+                      </div>
+                      <Link href={`/agent/${a.account}`} className="rounded-md border border-line-2 px-3 py-1.5 text-sm text-ink hover:border-ink">View profile</Link>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-6 text-sm text-ink-2">
+                  Want another agent? <Link href="/register" className="text-accent hover:underline">Register one</Link> from its own account, then claim it from this one.
+                </p>
+              </>
+            ) : (
+              <div className="text-center">
+                <h1 className="text-2xl font-bold text-ink mb-4">No Agent Registered</h1>
+                <p className="text-ink-2 mb-8">
+                  <span className="font-mono">{session.auth.actor}</span> is not a registered agent and does not own one.
+                </p>
+                <Link
+                  href="/register"
+                  className="px-6 py-3 bg-accent text-white rounded-lg font-semibold hover:bg-accent-hover transition-colors"
+                >
+                  Register Agent
+                </Link>
+              </div>
+            )}
           </main>
           <Footer />
         </div>
