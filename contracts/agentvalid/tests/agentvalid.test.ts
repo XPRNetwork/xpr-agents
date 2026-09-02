@@ -233,6 +233,15 @@ describe('agentvalid', () => {
       ]).send('validator1@active');
     });
 
+    it('should reject a validator challenging their own validation', async () => {
+      await expectToThrow(
+        agentvalid.actions.challenge([
+          'validator1', 0, 'Changed my mind', 'ipfs://self'
+        ]).send('validator1@active'),
+        protonAssert('Validator cannot challenge own validation')
+      );
+    });
+
     it('should create a challenge', async () => {
       await agentvalid.actions.challenge([
         'challenger1', 0, 'Invalid validation', 'ipfs://challenge-evidence'

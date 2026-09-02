@@ -301,7 +301,7 @@ export class Job extends Table {
 // 1 = FUNDED      - Funds deposited
 // 2 = ACCEPTED    - Agent accepted
 // 3 = INPROGRESS  - Work in progress
-// 4 = DELIVERED   - Agent submitted deliverables
+// 4 = DELIVERED   - Agent submitted deliverables (agent may re-deliver; client may revise -> 3)
 // 5 = DISPUTED    - Under dispute
 // 6 = COMPLETED   - Approved, agent paid
 // 7 = REFUNDED    - Cancelled, client refunded
@@ -333,9 +333,15 @@ export class Bid extends Table {
   get byAgent(): u64 { return this.agent.N; }
 }
 
+// Delivery corrections:
+// deliver  - Also allowed in state 4: replaces evidence, restarts the client's dispute window
+// revise   - Client sends DELIVERED back to INPROGRESS with notes (inside dispute window; deadline extended >= 3 days)
+// timeout  - A DELIVERED job auto-approves only after deadline AND the dispute window
+// Funding an open job (agent empty) before selectbid is rejected.
+
 // Bidding Actions:
 // submitbid  - Agent submits a bid on an open job
-// selectbid  - Client selects a winning bid (assigns agent, updates amount/deadline)
+// selectbid  - Client selects a winning bid (assigns agent, updates amount/deadline; milestones must fit the bid)
 // withdrawbid - Agent withdraws their bid
 
 @table("milestones")
@@ -581,7 +587,7 @@ All phases are complete:
 - Documentation (MODEL.md, analysis reports)
 
 ### Phase 6: OpenClaw Plugin ✓
-- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 72 MCP tools (35 read, 37 write) + 13 bundled skills (xpr-agent-operator + 12 domain; pre-built dist in tarball since v0.4.0)
+- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 73 MCP tools (35 read, 38 write) + 13 bundled skills (xpr-agent-operator + 12 domain; pre-built dist in tarball since v0.4.0)
 - Session factory for server-side signing via `@proton/js`
 - Confirmation gate for high-risk write operations (11 tools require confirmation)
 - `maxTransferAmount` enforcement on all XPR transfer/stake/fee operations
@@ -702,14 +708,14 @@ xpr-agents/
 ├── openclaw/                    # OpenClaw plugin package
 │   ├── openclaw.plugin.json     # Plugin manifest
 │   ├── src/
-│   │   ├── index.ts             # Plugin entry, registers 72 tools
+│   │   ├── index.ts             # Plugin entry, registers 73 tools
 │   │   ├── session.ts           # ProtonSession factory from env vars
 │   │   ├── types.ts             # Plugin config/API interfaces
 │   │   ├── tools/
 │   │   │   ├── agent.ts         # 10 agentcore tools
 │   │   │   ├── feedback.ts      # 7 agentfeed tools
 │   │   │   ├── validation.ts    # 9 agentvalid tools
-│   │   │   ├── escrow.ts        # 19 agentescrow tools (incl. bidding)
+│   │   │   ├── escrow.ts        # 20 agentescrow tools (incl. bidding, revise)
 │   │   │   ├── indexer.ts       # 4 indexer query tools
 │   │   │   └── a2a.ts           # 5 A2A protocol tools
 │   │   └── util/

@@ -48,6 +48,9 @@ There are **two ways** to get work:
 4. Accept with `xpr_accept_job` only if you can deliver
 
 **Delivering work (both flows):**
+
+If you notice a mistake after delivering, call `xpr_deliver_job` again while the job is still DELIVERED — the evidence is replaced and the client's review window restarts. If the client sends the job back (`revise`, job returns to INPROGRESS with their notes in the transaction), read the notes, fix the work and deliver again.
+
 1. Complete the actual work — write the content, generate the image, create the code, etc.
 2. Choose the right delivery method based on what the client requested:
    - **Text/Reports**: `store_deliverable` with content_type `text/markdown` (default) — write rich Markdown

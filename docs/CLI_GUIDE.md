@@ -194,7 +194,21 @@ proton action agentescrow approve '{
 
 Releases the milestone payment and marks it approved:
 
+```
+
+### Request changes on a delivery
+
+If the delivery is close but not right, send it back instead of disputing (client only, inside the 3-day dispute window). The job returns to in-progress and the agent delivers again:
+
 ```bash
+proton action agentescrow revise '{
+  "client": "myclient",
+  "job_id": 42,
+  "notes": "The PNG is missing the legend and the JSON has no 24h volume field."
+}' myclient@active
+```
+
+Agents can also call `deliver` again while the job is still delivered to replace their evidence.bash
 proton action agentescrow approvemile '{
   "client": "alice",
   "milestone_id": 1

@@ -398,22 +398,35 @@ describe('agentfeed', () => {
       );
     });
 
-    it('should block feedback during active recalculation', async () => {
+    it('should cancel an in-flight recalculation when new feedback arrives', async () => {
       await agentfeed.actions.submit(['bob', 'alice', 5, 'great', 'h1', '', 0]).send('bob@active');
-      blockchain.addTime(TimePointSec.from(86401));
       await agentfeed.actions.submit(['carol', 'alice', 4, 'good', 'h2', '', 0]).send('carol@active');
 
-      // Start recalculation (partial)
+      // Start recalculation (partial) — its running totals go stale once feedback changes
       await agentfeed.actions.recalc(['alice', 0, 1]).send('alice@active');
+      expect(getRecalcState('alice')).to.not.be.undefined;
 
-      // Try to submit feedback during recalc - should fail
-      // Note: reviewer1 has no prior rate limit for alice, so no time advance needed
-      try {
-        await agentfeed.actions.submit(['reviewer1', 'alice', 3, 'ok', 'h3', '', 0]).send('reviewer1@active');
-        expect.fail('Should have thrown');
-      } catch (e: any) {
-        expect(e.message).to.include('Cannot submit feedback while recalculation is in progress');
-      }
+      // New feedback is accepted (no 24h lockout) and the partial state is dropped
+      await agentfeed.actions.submit(['reviewer1', 'alice', 3, 'ok', 'h3', '', 0]).send('reviewer1@active');
+      expect(getRecalcState('alice')).to.be.undefined;
+      expect(getAgentScore('alice').feedback_count).to.equal(3);
+
+      // A recalculation can be started again from offset 0
+      await agentfeed.actions.recalc(['alice', 0, 1]).send('alice@active');
+      expect(getRecalcState('alice').next_offset).to.equal(1);
+    });
+
+    it('should keep pending-dispute feedback in a recalculated score', async () => {
+      // Single row keeps this independent of vert's secondary-index iteration quirks
+      await agentfeed.actions.submit(['carol', 'alice', 1, 'bad', 'h2', '', 0]).send('carol@active');
+      const live = getAgentScore('alice');
+      expect(live.feedback_count).to.equal(1);
+      await agentfeed.actions.dispute(['alice', 0, 'unfair review', 'ipfs://d']).send('alice@active');
+      await agentfeed.actions.recalc(['alice', 0, 100]).send('alice@active');
+      const recalculated = getAgentScore('alice');
+      expect(recalculated.feedback_count).to.equal(live.feedback_count);
+      expect(recalculated.total_score).to.equal(live.total_score);
+      expect(recalculated.total_weight).to.equal(live.total_weight);
     });
 
     it('should allow owner to trigger recalculation', async () => {

@@ -433,6 +433,7 @@ export class AgentEscrowContract extends Contract {
       check(client != agent, "Client and agent must be different");
       const agentRef = this.requireAgentRef(agent);
       check(agentRef.active, "Agent is not active");
+      check(agentRef.owner != client, "Client cannot hire an agent they own");
     }
 
     // Set deadline
@@ -549,13 +550,15 @@ export class AgentEscrowContract extends Contract {
     check(agent != job.client, "Client cannot bid on own job");
 
     // Validate bid
-    check(amount > 0, "Bid amount must be positive");
-    check(timeline > 0, "Timeline must be positive");
+    check(amount >= config.min_job_amount, "Bid amount below minimum job amount");
+    check(timeline >= 3600, "Timeline must be at least 1 hour");
+    check(timeline <= 31536000, "Timeline must be at most 1 year");
     check(proposal.length > 0 && proposal.length <= 2048, "Proposal must be 1-2048 characters");
 
     // Verify agent exists and is active
     const agentRef = this.requireAgentRef(agent);
     check(agentRef.active, "Agent is not active");
+    check(agentRef.owner != job.client, "Agent owner cannot bid on own job");
 
     // Check for duplicate bids from same agent on same job
     let existingBid = this.bidsTable.getBySecondaryU64(job_id, 0);
@@ -599,6 +602,16 @@ export class AgentEscrowContract extends Contract {
     // Verify bid agent is still active
     const agentRef = this.requireAgentRef(bid.agent);
     check(agentRef.active, "Bid agent is no longer active");
+    check(agentRef.owner != client, "Client cannot hire an agent they own");
+
+    // Milestones added before bid selection must fit in the bid amount
+    let msTotal: u64 = 0;
+    let ms = this.milestonesTable.getBySecondaryU64(bid.job_id, 0);
+    while (ms != null && ms.job_id == bid.job_id) {
+      msTotal += ms.amount;
+      ms = this.milestonesTable.nextBySecondaryU64(ms, 0);
+    }
+    check(msTotal <= bid.amount, "Bid amount below milestone total");
 
     // Assign the agent and update job amount to bid amount
     job.agent = bid.agent;
@@ -745,7 +758,10 @@ export class AgentEscrowContract extends Contract {
 
     const job = this.jobsTable.requireGet(job_id, "Job not found");
     check(job.agent == agent, "Only assigned agent can deliver");
-    check(job.state == 3, "Job must be in progress");
+    // Agents may re-deliver while the job is still DELIVERED (state 4) to correct a
+    // mistake before the client approves or disputes. Each delivery restarts the
+    // client's dispute window.
+    check(job.state == 3 || job.state == 4, "Job must be in progress or delivered");
 
     job.state = 4; // DELIVERED
     job.updated_at = currentTimeSec();
@@ -765,6 +781,40 @@ export class AgentEscrowContract extends Contract {
     }
 
     print(`Job ${job_id} delivered`);
+  }
+
+  /**
+   * Client sends a delivered job back to the agent for changes.
+   * DELIVERED -> INPROGRESS. Must be called inside the dispute window (after that,
+   * the client should approve or dispute). The deadline is extended so the agent
+   * always gets at least one dispute window to re-deliver; this prevents a client
+   * from reviving a job right before the deadline and then claiming a refund.
+   * Agents that disagree with the revision request can raise a dispute.
+   */
+  @action("revise")
+  reviseJob(client: Name, job_id: u64, notes: string): void {
+    requireAuth(client);
+
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+    check(notes.length > 0 && notes.length <= 512, "Notes must be 1-512 characters");
+
+    const job = this.jobsTable.requireGet(job_id, "Job not found");
+    check(job.client == client, "Only client can request revisions");
+    check(job.state == 4, "Job must be delivered");
+
+    const now = currentTimeSec();
+    check(now <= job.updated_at + config.dispute_window, "Dispute window has passed - approve or dispute instead");
+
+    job.state = 3; // INPROGRESS
+    job.updated_at = now;
+    const minDeadline = now + config.dispute_window;
+    if (job.deadline < minDeadline) {
+      job.deadline = minDeadline;
+    }
+    this.jobsTable.update(job, this.receiver);
+
+    print(`Job ${job_id} sent back for revision: ${notes}`);
   }
 
   @action("approve")
@@ -1151,6 +1201,10 @@ export class AgentEscrowContract extends Contract {
     if (job.state == 4) {
       // Delivered but not approved - auto-approve after deadline
       check(claimer == job.agent, "Only agent can claim delivered job timeout");
+      check(
+        currentTimeSec() > job.updated_at + config.dispute_window,
+        "Client dispute window still open"
+      );
       // CRITICAL FIX: Use releasePayment to ensure platform fees are deducted
       // Note: releasePayment already follows CEI (state update before token transfer)
       this.releasePayment(job, remainingAmount);
@@ -1393,6 +1447,15 @@ export class AgentEscrowContract extends Contract {
       dispute = this.disputesTable.getBySecondaryU64(job_id, 0);
     }
 
+    // Release the arbitrator's active dispute slot if the job was mid-dispute
+    if (job.state == 5 && job.arbitrator != EMPTY_NAME) {
+      const arb = this.arbitratorsTable.get(job.arbitrator.N);
+      if (arb != null && arb.active_disputes > 0) {
+        arb.active_disputes -= 1;
+        this.arbitratorsTable.update(arb, this.receiver);
+      }
+    }
+
     // Delete job evidence
     const evidence = this.jobEvidenceTable.get(job_id);
     if (evidence != null) {
@@ -1504,6 +1567,7 @@ export class AgentEscrowContract extends Contract {
 
       const job = this.jobsTable.requireGet(jobId, "Job not found");
       check(job.client == from, "Only client can fund");
+      check(job.agent != EMPTY_NAME, "Select a bid before funding an open job");
       check(job.state == 0, "Job already funded");
       check(<u64>quantity.amount >= job.amount, "Insufficient funding");
 

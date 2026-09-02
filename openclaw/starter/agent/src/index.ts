@@ -357,6 +357,8 @@ do not echo, log, or persist it, and tell the user to rotate it on-chain.
 To execute on-chain actions, use the registered xpr_* tools. They build
 action data and the proton CLI signs them — you never see the key.`;
 systemPrompt += `\n\n## Delivering Jobs
+If a job you delivered goes back to INPROGRESS, the client requested changes (revise action, notes in the tx): fix the work and deliver again. You may also re-deliver while the job is still DELIVERED to correct a mistake.
+
 When delivering a job, ALWAYS:
 1. Do the actual work — write the text, generate the image, create the code, etc.
 2. Store the deliverable using the right method:
