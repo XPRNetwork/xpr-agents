@@ -502,6 +502,30 @@ export class EscrowRegistry {
   }
 
   /**
+   * Send a delivered job back to the agent for changes (as client).
+   * DELIVERED -> INPROGRESS. Only valid inside the dispute window.
+   */
+  async reviseJob(jobId: number, notes: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'revise',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          client: this.session!.auth.actor,
+          job_id: jobId,
+          notes,
+        },
+      }],
+    });
+  }
+
+  /**
    * Approve delivery (as client)
    */
   async approveDelivery(jobId: number): Promise<TransactionResult> {

@@ -78,6 +78,19 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
         );
       }
       break;
+    case 'revise':
+      handleRevise(db, data);
+      if (dispatcher) {
+        const reviseJob = db.prepare('SELECT client, agent FROM jobs WHERE id = ?').get(data.job_id) as { client: string; agent: string } | undefined;
+        dispatcher.dispatch(
+          'job.revised',
+          reviseJob ? [reviseJob.client, reviseJob.agent] : [],
+          data,
+          `Job #${data.job_id} sent back for revision`,
+          action.block_num
+        );
+      }
+      break;
     case 'approve':
       handleApprove(db, data);
       if (dispatcher) {
@@ -339,6 +352,16 @@ function handleDeliver(db: Database.Database, data: any): void {
   }
 
   console.log(`Job ${data.job_id} delivered`);
+}
+
+function handleRevise(db: Database.Database, data: any): void {
+  // Client sent a delivery back for changes: DELIVERED -> INPROGRESS.
+  // Evidence is kept until the agent delivers again.
+  db.prepare(`
+    UPDATE jobs SET state = 3, updated_at = strftime('%s', 'now') WHERE id = ? AND state = 4
+  `).run(data.job_id);
+
+  console.log(`Job ${data.job_id} sent back for revision`);
 }
 
 function handleApprove(db: Database.Database, data: any): void {

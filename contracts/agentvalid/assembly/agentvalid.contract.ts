@@ -559,6 +559,7 @@ export class AgentValidContract extends Contract {
 
     const validation = this.validationsTable.requireGet(validation_id, "Validation not found");
     check(!validation.challenged, "Validation already challenged");
+    check(challenger != validation.validator, "Validator cannot challenge own validation");
 
     // C3 FIX: Rewrite to avoid timestamp overflow
     // C5 FIX: Also check for underflow (timestamp in future)

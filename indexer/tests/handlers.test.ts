@@ -548,6 +548,32 @@ describe('Escrow Handlers', () => {
     expect(job.state).toBe(6); // COMPLETED
   });
 
+  it('revise moves a delivered job back to in-progress and keeps evidence', () => {
+    handleEscrowAction(db, createAction('agentescrow', 'createjob', {
+      client: 'bob', agent: 'alice', title: 'Job', description: '', deliverables: '', amount: 50000, deadline: 0, arbitrator: '',
+    }));
+
+    // Accept
+    handleEscrowAction(db, createAction('agentescrow', 'acceptjob', { job_id: 1, agent: 'alice' }));
+
+    // Start
+    handleEscrowAction(db, createAction('agentescrow', 'startjob', { job_id: 1 }));
+    let job = db.prepare('SELECT state FROM jobs WHERE id = 1').get() as any;
+    expect(job.state).toBe(3); // ACTIVE
+
+    // Deliver
+    handleEscrowAction(db, createAction('agentescrow', 'deliver', { job_id: 1, evidence_uri: 'ipfs://result' }));
+    handleEscrowAction(db, createAction('agentescrow', 'revise', { client: 'bob', job_id: 1, notes: 'missing legend' }));
+    job = db.prepare('SELECT state FROM jobs WHERE id = 1').get() as any;
+    expect(job.state).toBe(3);
+    const ev = db.prepare('SELECT evidence_uri FROM job_evidence WHERE job_id = 1').get() as any;
+    expect(ev.evidence_uri).toBe('ipfs://result');
+    // re-delivery overwrites evidence
+    handleEscrowAction(db, createAction('agentescrow', 'deliver', { job_id: 1, evidence_uri: 'ipfs://result-v2' }));
+    expect((db.prepare('SELECT state FROM jobs WHERE id = 1').get() as any).state).toBe(4);
+    expect((db.prepare('SELECT evidence_uri FROM job_evidence WHERE job_id = 1').get() as any).evidence_uri).toBe('ipfs://result-v2');
+  });
+
   it('should handle dispute and arbitrate', () => {
     // Create and start job
     handleEscrowAction(db, createAction('agentescrow', 'createjob', {

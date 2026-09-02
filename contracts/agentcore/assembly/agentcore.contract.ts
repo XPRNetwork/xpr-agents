@@ -625,9 +625,6 @@ export class AgentCoreContract extends Contract {
     // Allow agentfeed, agentvalid, agentescrow, or owner to call this
     const config = this.configSingleton.get();
 
-    // H5 FIX: Respect paused flag
-    check(!config.paused, "Contract is paused");
-
     const isOwner = hasAuth(config.owner);
     const isSelf = hasAuth(this.receiver);
     const isFeedContract = config.feed_contract != EMPTY_NAME && hasAuth(config.feed_contract);
@@ -639,10 +636,22 @@ export class AgentCoreContract extends Contract {
       "Only authorized contracts can increment jobs"
     );
 
-    const agent = this.agentsTable.requireGet(account.N, "Agent not found");
-
-    // C2 FIX: Overflow protection for job counter
-    check(agent.total_jobs < U64.MAX_VALUE, "Job counter would overflow");
+    // incjobs is sent inline from agentescrow::approve / arbitrate. It must never
+    // revert, or a paused registry / removed agent would trap escrowed funds.
+    // The counter is a stat, not a balance: log and skip instead of asserting.
+    if (config.paused) {
+      print("Contract is paused - job counter not updated");
+      return;
+    }
+    const agent = this.agentsTable.get(account.N);
+    if (agent == null) {
+      print(`Agent ${account.toString()} not found - job counter not updated`);
+      return;
+    }
+    if (agent.total_jobs >= U64.MAX_VALUE) {
+      print("Job counter at max - not updated");
+      return;
+    }
     agent.total_jobs += 1;
 
     this.agentsTable.update(agent, this.receiver);

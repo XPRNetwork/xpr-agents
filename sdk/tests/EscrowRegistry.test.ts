@@ -154,6 +154,19 @@ describe('EscrowRegistry write operations', () => {
     });
   });
 
+  describe('reviseJob()', () => {
+    it('sends "revise" action with {client, job_id, notes}', async () => {
+      const session = mockSession();
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.reviseJob(1, 'missing legend');
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.name).toBe('revise');
+      expect(action.data).toEqual({ client: 'testuser', job_id: 1, notes: 'missing legend' });
+    });
+  });
+
   describe('addMilestone()', () => {
     it('sends "addmilestone" action with correct fields', async () => {
       const session = mockSession();

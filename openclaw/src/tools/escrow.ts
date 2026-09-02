@@ -3,7 +3,7 @@
  * Reads: xpr_get_job, xpr_list_jobs, xpr_list_open_jobs, xpr_get_milestones,
  *        xpr_get_job_dispute, xpr_list_arbitrators, xpr_list_bids
  * Writes: xpr_create_job, xpr_fund_job, xpr_accept_job, xpr_start_job,
- *         xpr_deliver_job, xpr_approve_delivery, xpr_raise_dispute,
+ *         xpr_deliver_job, xpr_revise_job, xpr_approve_delivery, xpr_raise_dispute,
  *         xpr_submit_milestone, xpr_arbitrate, xpr_resolve_timeout,
  *         xpr_submit_bid, xpr_select_bid, xpr_withdraw_bid
  */
@@ -322,7 +322,7 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
   api.registerTool({
     name: 'xpr_deliver_job',
-    description: 'Submit job deliverables for client review. Moves job to DELIVERED state. Provide job_id and evidence_uri. Single file: an IPFS/https link. For MULTIPLE files, prefer a JSON manifest in evidence_uri: {"v":1,"files":[{"name":"stats.png","uri":"https://ipfs.io/ipfs/<cid>","type":"image/png"},{"name":"data.json","uri":"https://ipfs.io/ipfs/<cid2>","type":"application/json"}],"note":"how it was made","private":false} — put the file the client should see first at the top; the job page previews the first image/PDF and lists the rest. Comma-separated URLs (primary first) are also accepted. Deliver exactly the artifacts the job lists: if it asks for a PNG, JSON and a note, deliver those three, never a single HTML page. Full reference: https://xpragents.com/llms.txt Do NOT use this for NFT delivery — use xpr_deliver_job_nft instead.',
+    description: 'Submit job deliverables for client review. Moves job to DELIVERED state. Provide job_id and evidence_uri. Single file: an IPFS/https link. For MULTIPLE files, prefer a JSON manifest in evidence_uri: {"v":1,"files":[{"name":"stats.png","uri":"https://ipfs.io/ipfs/<cid>","type":"image/png"},{"name":"data.json","uri":"https://ipfs.io/ipfs/<cid2>","type":"application/json"}],"note":"how it was made","private":false} — put the file the client should see first at the top; the job page previews the first image/PDF and lists the rest. Comma-separated URLs (primary first) are also accepted. Deliver exactly the artifacts the job lists: if it asks for a PNG, JSON and a note, deliver those three, never a single HTML page. Full reference: https://xpragents.com/llms.txt Do NOT use this for NFT delivery — use xpr_deliver_job_nft instead. Can be called again while the job is still DELIVERED to correct a mistake (restarts the dispute window for the client), and after the client sends the job back with revise.',
     parameters: {
       type: 'object',
       required: ['job_id', 'evidence_uri'],
@@ -441,6 +441,38 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.approveDelivery(job_id);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_revise_job',
+    description: 'Send a delivered job back to the agent for changes (DELIVERED -> INPROGRESS). Only the client can call this, and only inside the 3-day dispute window after delivery. The agent then fixes the work and calls deliver again. Use this instead of a dispute when the delivery is close but not right.',
+    parameters: {
+      type: 'object',
+      required: ['job_id', 'notes'],
+      properties: {
+        job_id: { type: 'number', description: 'Job ID to send back' },
+        notes: { type: 'string', description: 'What needs to change (1-512 characters). Recorded in the transaction for the agent to read.' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ job_id, notes, confirmed }: { job_id: number; notes: string; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validatePositiveInt(job_id, 'job_id');
+      validateRequired(notes, 'notes');
+      if (notes.length > 512) throw new Error('notes must be at most 512 characters');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Request Revision',
+        { job_id, notes },
+        `Send job #${job_id} back to the agent for changes`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.reviseJob(job_id, notes);
     },
   });
 

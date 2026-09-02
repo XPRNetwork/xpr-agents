@@ -325,6 +325,17 @@ describe('agentcore', () => {
         protonAssert('Only authorized contracts can increment jobs')
       );
     });
+
+    it('should not revert for an unknown agent (inline from escrow must not trap funds)', async () => {
+      await agentcore.actions.incjobs(['nobody']).send('owner@active');
+      expect(getAgent('alice').total_jobs).to.equal(0);
+    });
+
+    it('should not revert while paused', async () => {
+      await agentcore.actions.setconfig([0, 0, 100000, '', '', '', true]).send('owner@active');
+      await agentcore.actions.incjobs(['alice']).send('owner@active');
+      expect(getAgent('alice').total_jobs).to.equal(0);
+    });
   });
 
   /* ==================== Plugin Management ==================== */

@@ -667,10 +667,15 @@ describe('agentescrow', () => {
       await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
       await agentescrow.actions.deliver(['agent1', 0, 'ipfs://ev']).send('agent1@active');
 
-      // Advance past deadline
+      // Advance past deadline — still inside the client's 3-day dispute window
       blockchain.addTime(TimePointSec.from(4000));
+      await expectToThrow(
+        agentescrow.actions.timeout(['agent1', 0]).send('agent1@active'),
+        protonAssert('Client dispute window still open')
+      );
 
-      // Agent claims timeout - should auto-approve (delivered)
+      // Once the dispute window has closed the agent can auto-approve
+      blockchain.addTime(TimePointSec.from(259200));
       await agentescrow.actions.timeout(['agent1', 0]).send('agent1@active');
 
       const job = getJob(0);
@@ -994,6 +999,169 @@ describe('agentescrow', () => {
   /* ------------------------------------------------------------------ */
   /*  removejob (admin cleanup)                                          */
   /* ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------ */
+  /*  re-delivery + revise                                               */
+  /* ------------------------------------------------------------------ */
+  describe('re-delivery and revise', () => {
+    beforeEach(async () => {
+      blockchain.setTime(TimePointSec.from(1700000000));
+      await initAll();
+      await registerArbitrator('arbitrator1');
+      await createAndFundJob();
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://v1']).send('agent1@active');
+    });
+
+    it('should let the agent re-deliver while DELIVERED and restart the dispute window', async () => {
+      const before = getJob(0);
+      blockchain.addTime(TimePointSec.from(3600));
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://v2']).send('agent1@active');
+      const job = getJob(0);
+      expect(job.state).to.equal(4);
+      expect(job.updated_at).to.be.greaterThan(before.updated_at);
+      expect(getJobEvidence(0).evidence_uri).to.equal('ipfs://v2');
+    });
+
+    it('should reject re-delivery from someone other than the agent', async () => {
+      await expectToThrow(
+        agentescrow.actions.deliver(['client', 0, 'ipfs://v2']).send('client@active'),
+        protonAssert('Only assigned agent can deliver')
+      );
+    });
+
+    it('should let the client send a delivery back for revision', async () => {
+      await agentescrow.actions.revise(['client', 0, 'PNG is missing the legend']).send('client@active');
+      const job = getJob(0);
+      expect(job.state).to.equal(3); // INPROGRESS
+      // agent can deliver again
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://v2']).send('agent1@active');
+      expect(getJob(0).state).to.equal(4);
+      expect(getJobEvidence(0).evidence_uri).to.equal('ipfs://v2');
+    });
+
+    it('should reject revise once the dispute window has passed', async () => {
+      // Move to just before the 30-day deadline, then revise
+      blockchain.addTime(TimePointSec.from(86400 * 30 - 600));
+      // Dispute window (3 days) has passed since delivery — revise is no longer allowed
+      await expectToThrow(
+        agentescrow.actions.revise(['client', 0, 'late change']).send('client@active'),
+        protonAssert('Dispute window has passed - approve or dispute instead')
+      );
+    });
+
+    it('should bump a near deadline on revise', async () => {
+      // deliver again so the window is fresh, then jump close to the deadline in one step
+      const job0 = getJob(0);
+      const deadline = Number(job0.deadline);
+      const now = Number(job0.updated_at);
+      // advance to deadline - 1h (still inside 3d window? no: 30d > 3d). Use a fresh delivery instead:
+      blockchain.addTime(TimePointSec.from(deadline - now - 3600));
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://v2']).send('agent1@active');
+      await agentescrow.actions.revise(['client', 0, 'one more change']).send('client@active');
+      const job = getJob(0);
+      expect(job.state).to.equal(3);
+      expect(Number(job.deadline)).to.be.greaterThanOrEqual(Number(job.updated_at) + 259200);
+    });
+
+    it('should reject revise from non-client', async () => {
+      await expectToThrow(
+        agentescrow.actions.revise(['agent1', 0, 'notes']).send('agent1@active'),
+        protonAssert('Only client can request revisions')
+      );
+    });
+
+    it('should reject revise when job is not delivered', async () => {
+      await agentescrow.actions.revise(['client', 0, 'notes']).send('client@active');
+      await expectToThrow(
+        agentescrow.actions.revise(['client', 0, 'notes again']).send('client@active'),
+        protonAssert('Job must be delivered')
+      );
+    });
+
+    it('should reject empty revision notes', async () => {
+      await expectToThrow(
+        agentescrow.actions.revise(['client', 0, '']).send('client@active'),
+        protonAssert('Notes must be 1-512 characters')
+      );
+    });
+
+    it('should block the agent timeout claim while the dispute window is open', async () => {
+      // Jump past the deadline but re-deliver first so the window is fresh
+      const job0 = getJob(0);
+      blockchain.addTime(TimePointSec.from(Number(job0.deadline) - Number(job0.updated_at) - 60));
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://v2']).send('agent1@active');
+      blockchain.addTime(TimePointSec.from(120)); // now past deadline, inside window
+      await expectToThrow(
+        agentescrow.actions.timeout(['agent1', 0]).send('agent1@active'),
+        protonAssert('Client dispute window still open')
+      );
+      blockchain.addTime(TimePointSec.from(259200));
+      await agentescrow.actions.timeout(['agent1', 0]).send('agent1@active');
+      expect(getJob(0).state).to.equal(6);
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
+  /*  review hardening: funding, bids, owner checks, removejob           */
+  /* ------------------------------------------------------------------ */
+  describe('review hardening', () => {
+    beforeEach(async () => {
+      blockchain.setTime(TimePointSec.from(1700000000));
+      await initAll();
+      await registerArbitrator('arbitrator1');
+    });
+
+    it('should reject funding an open job before a bid is selected', async () => {
+      await createOpenJob();
+      await expectToThrow(
+        eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'fund:0']).send('client@active'),
+        protonAssert('Select a bid before funding an open job')
+      );
+    });
+
+    it('should reject bids below the minimum job amount', async () => {
+      await createOpenJob();
+      await expectToThrow(
+        agentescrow.actions.submitbid(['agent1', 0, 5000, 604800, 'cheap']).send('agent1@active'),
+        protonAssert('Bid amount below minimum job amount')
+      );
+    });
+
+    it('should reject bid timelines outside 1h..1y', async () => {
+      await createOpenJob();
+      await expectToThrow(
+        agentescrow.actions.submitbid(['agent1', 0, 500000, 60, 'fast']).send('agent1@active'),
+        protonAssert('Timeline must be at least 1 hour')
+      );
+      await expectToThrow(
+        agentescrow.actions.submitbid(['agent1', 0, 500000, 31536001, 'slow']).send('agent1@active'),
+        protonAssert('Timeline must be at most 1 year')
+      );
+    });
+
+    it('should reject a bid amount below the milestone total', async () => {
+      await createOpenJob();
+      await agentescrow.actions.addmilestone(['client', 0, 'M1', 'first half', 600000, 0]).send('client@active');
+      await agentescrow.actions.submitbid(['agent1', 0, 500000, 604800, 'under the milestone']).send('agent1@active');
+      await expectToThrow(
+        agentescrow.actions.selectbid(['client', 0]).send('client@active'),
+        protonAssert('Bid amount below milestone total')
+      );
+    });
+
+    it('should release the arbitrator dispute slot when an admin removes a disputed job', async () => {
+      await createAndFundJob();
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://d']).send('agent1@active');
+      await agentescrow.actions.dispute(['client', 0, 'bad', 'ipfs://e']).send('client@active');
+      expect(getArbitrator('arbitrator1').active_disputes).to.equal(1);
+      await agentescrow.actions.removejob([0]).send('owner@active');
+      expect(getArbitrator('arbitrator1').active_disputes).to.equal(0);
+    });
+  });
+
   describe('removejob', () => {
     beforeEach(async () => {
       await initAll();

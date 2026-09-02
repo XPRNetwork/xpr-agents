@@ -69,6 +69,9 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
   // Dispute form state
   const [showDispute, setShowDispute] = useState(false);
+  // Revision request state
+  const [showRevise, setShowRevise] = useState(false);
+  const [reviseNotes, setReviseNotes] = useState('');
   const [disputeReason, setDisputeReason] = useState('');
   const [disputeEvidence, setDisputeEvidence] = useState('');
 
@@ -339,6 +342,33 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
       await refreshJob();
     } catch (e: any) {
       addToast({ type: 'error', message: e.message || 'Failed to approve delivery' });
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function handleRevise() {
+    if (!session || !reviseNotes.trim()) return;
+    setProcessing(true);
+    try {
+      const result = await transact([
+        {
+          account: CONTRACTS.AGENT_ESCROW,
+          name: 'revise',
+          data: {
+            client: session.auth.actor,
+            job_id: job.id,
+            notes: reviseNotes.trim().slice(0, 512),
+          },
+        },
+      ]);
+      addToast({ type: 'success', message: `Job #${job.id} sent back to ${job.agent} for changes.`, txId: getTxId(result) });
+      setShowRevise(false);
+      setReviseNotes('');
+      await new Promise(r => setTimeout(r, 1500));
+      await refreshJob();
+    } catch (e: any) {
+      addToast({ type: 'error', message: e.message || 'Failed to request changes' });
     } finally {
       setProcessing(false);
     }
@@ -910,6 +940,42 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
 
         {/* Dispute Form */}
+        {showRevise && (
+          <div className="p-4 bg-surface-2 border border-line-2 rounded-lg space-y-3">
+            <h3 className="font-display text-base font-semibold text-ink">Request changes</h3>
+            <p className="text-xs text-ink-2">
+              The job goes back to in progress and the agent delivers again. Your notes are recorded on chain. Use a dispute instead if the work is not salvageable.
+            </p>
+            <div>
+              <label className="text-xs text-muted block mb-1">What needs to change *</label>
+              <textarea
+                value={reviseNotes}
+                onChange={e => setReviseNotes(e.target.value)}
+                maxLength={512}
+                placeholder="e.g. The PNG is missing the legend and the JSON has no 24h volume field."
+                className="w-full bg-surface border border-line-2 rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:ring-1 focus:ring-accent focus:border-accent"
+                rows={3}
+              />
+              <p className="mt-1 text-[11px] text-muted">{reviseNotes.length}/512</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleRevise}
+                disabled={processing || !reviseNotes.trim()}
+                className="px-4 py-2 bg-ink text-canvas rounded-lg text-sm hover:opacity-90 disabled:bg-line disabled:text-muted"
+              >
+                {processing ? 'Sending…' : 'Send back for changes'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowRevise(false); setReviseNotes(''); }}
+                className="px-4 py-2 text-ink-2 hover:text-ink text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         {showDispute && (
           <div className="p-4 bg-warn-soft border border-warn/30 rounded-lg space-y-3">
             <h3 className="font-display text-base font-semibold text-warn">Raise a dispute</h3>
@@ -1288,9 +1354,14 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                       </button>
                     )}
                     {canDispute && (
-                      <button onClick={() => setShowDispute(true)} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-warn hover:text-warn disabled:opacity-50">
+                      <>
+                      <button onClick={() => { setShowRevise(true); setShowDispute(false); }} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-ink disabled:opacity-50">
+                        Request changes
+                      </button>
+                      <button onClick={() => { setShowDispute(true); setShowRevise(false); }} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-warn hover:text-warn disabled:opacity-50">
                         Raise a dispute
                       </button>
+                      </>
                     )}
                     {canCancel && (
                       <button onClick={handleCancelJob} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-crit hover:border-crit disabled:opacity-50">

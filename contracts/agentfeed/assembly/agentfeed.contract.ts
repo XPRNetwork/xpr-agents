@@ -500,15 +500,17 @@ export class AgentFeedContract extends Contract {
    * This prevents a race condition where feedback submitted during recalculation
    * would be lost when the recalculation completes and overwrites the scores.
    */
+  /**
+   * New feedback invalidates any in-flight paginated recalculation (its running
+   * totals would no longer match the feedback set). Instead of locking reviewers
+   * out for up to 24h, drop the partial state so it can be restarted. Committed
+   * scores are untouched: recalc only writes agentscores on completion.
+   */
   private requireNoActiveRecalc(agent: Name): void {
     const recalcState = this.recalcStateTable.get(agent.N);
     if (recalcState != null) {
-      const now = currentTimeSec();
-      // Only block if recalculation is still active (not expired)
-      check(
-        now >= recalcState.expires_at,
-        "Cannot submit feedback while recalculation is in progress. Wait for completion or expiry."
-      );
+      this.recalcStateTable.remove(recalcState);
+      print(`Recalculation for ${agent.toString()} cancelled by new feedback. `);
     }
   }
 
@@ -690,6 +692,7 @@ export class AgentFeedContract extends Contract {
     // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
     const agentRef = this.requireAgentRef(agent);
     check(agentRef.active, "Agent is not active");
+    check(agentRef.owner != reviewer, "Agent owner cannot review own agent");
 
     // C1 FIX: Block feedback during active recalculation to prevent race condition
     // where new feedback is added but then overwritten when recalc completes
@@ -987,13 +990,9 @@ export class AgentFeedContract extends Contract {
 
     while (fb != null && processed < limit) {
       const currentFb = fb!;
-      // Skip disputed but unresolved feedback
-      if (currentFb.disputed && !currentFb.resolved) {
-        fb = this.feedbackTable.nextBySecondaryU64(currentFb, 0);
-        if (fb != null && fb!.agent != agent) { fb = null; }
-        processed++;
-        continue;
-      }
+      // Pending (unresolved) disputes still count: updateAgentScore only removes a
+      // feedback's weight once a dispute is upheld, so recalc must mirror that or
+      // the recomputed score drifts from the live one.
       // Skip upheld disputes (removed from scoring)
       if (currentFb.disputed && currentFb.resolved) {
         const dispute = this.disputesTable.getBySecondaryU64(currentFb.id, 0);
@@ -1300,6 +1299,7 @@ export class AgentFeedContract extends Contract {
     // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
     const agentRef = this.requireAgentRef(agent);
     check(agentRef.active, "Agent is not active");
+    check(agentRef.owner != reviewer, "Agent owner cannot review own agent");
 
     // C1 FIX: Block feedback during active recalculation to prevent race condition
     // where new feedback is added but then overwritten when recalc completes
@@ -1523,6 +1523,7 @@ export class AgentFeedContract extends Contract {
     // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
     const agentRef = this.requireAgentRef(agent);
     check(agentRef.active, "Agent is not active");
+    check(agentRef.owner != reviewer, "Agent owner cannot review own agent");
 
     // C1 FIX: Block feedback during active recalculation to prevent race condition
     // where new feedback is added but then overwritten when recalc completes
