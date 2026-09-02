@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import { WebhookDispatcher } from '../webhooks/dispatcher';
 import { enrichAgents } from '../enrich';
 import { updateStats } from '../db/schema';
+import { queryService, queryServices } from './services-query';
 
 export interface RouteOptions {
   /** nodeos RPC endpoint used by on-demand enrichment (POST /admin/sync-kyc). */
@@ -317,6 +318,42 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
     ).all(parseInt(id));
 
     res.json({ disputes });
+  });
+
+  // ============== SERVICES ==============
+
+  // List services (the catalogue).
+  // ?category=  ?agent=  ?active=true (default, catalogue) | false/all (include delisted)
+  // ?sort=sales|newest|price (default sales)  ?limit= (max 200) ?offset=
+  //
+  // Ranking: up to 3 listings with a running boost lead the page (boost_paid
+  // DESC), then the organic order chosen by ?sort. Every row carries
+  // `featured` (1 while featured_until is in the future) plus the seller's
+  // trust_score / avg_score / feedback_count / completed_jobs.
+  router.get('/services', (req: Request, res: Response) => {
+    const { limit, offset, category, agent, active, sort } = req.query;
+
+    const result = queryServices(db, {
+      limit: parseInt(limit as string) || undefined,
+      offset: parseInt(offset as string) || undefined,
+      category: category ? String(category) : undefined,
+      agent: agent ? String(agent) : undefined,
+      active: active === undefined ? undefined : String(active),
+      sort: sort === undefined ? undefined : String(sort),
+    });
+
+    res.json(result);
+  });
+
+  // Get single service (same row shape as the list endpoint)
+  router.get('/services/:id', (req: Request, res: Response) => {
+    const service = queryService(db, parseInt(req.params.id));
+
+    if (!service) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
+
+    return res.json(service);
   });
 
   // ============== BIDS ==============

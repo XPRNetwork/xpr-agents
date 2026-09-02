@@ -830,3 +830,527 @@ describe('EscrowRegistry error handling', () => {
     ).rejects.toThrow('Session required');
   });
 });
+
+// ============== Services Market ==============
+
+describe('EscrowRegistry service write operations', () => {
+  describe('listService()', () => {
+    it('sends "listsvc" action with deliverables JSON.stringify\'d', async () => {
+      const session = mockSession();
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.listService({
+        title: 'Logo design',
+        description: 'A vector logo in three concepts',
+        deliverables: ['logo.svg', 'logo.png', 'brief.md'],
+        price: 250000,
+        turnaround: 86400,
+        category: 'image',
+        sampleUri: 'https://ipfs.io/ipfs/Qmsample',
+      });
+
+      const call = (session.link.transact as jest.Mock).mock.calls[0][0];
+      const action = call.actions[0];
+      expect(action.account).toBe('agentescrow');
+      expect(action.name).toBe('listsvc');
+      expect(action.data).toEqual({
+        agent: 'testuser',
+        title: 'Logo design',
+        description: 'A vector logo in three concepts',
+        deliverables: '["logo.svg","logo.png","brief.md"]',
+        price: 250000,
+        turnaround: 86400,
+        category: 'image',
+        sample_uri: 'https://ipfs.io/ipfs/Qmsample',
+      });
+    });
+
+    it('defaults category and sample_uri to empty strings', async () => {
+      const session = mockSession();
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.listService({
+        title: 'Data cleanup',
+        description: 'CSV normalisation',
+        deliverables: ['clean.csv'],
+        price: 10000,
+        turnaround: 3600,
+      });
+
+      const data = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0].data;
+      expect(data.category).toBe('');
+      expect(data.sample_uri).toBe('');
+    });
+  });
+
+  describe('updateService()', () => {
+    it('sends "updatesvc" action with service_id', async () => {
+      const session = mockSession();
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.updateService(7, {
+        title: 'Logo design v2',
+        description: 'Now with five concepts',
+        deliverables: ['logo.svg'],
+        price: 300000,
+        turnaround: 172800,
+        category: 'image',
+        sampleUri: 'https://ipfs.io/ipfs/Qmsample2',
+      });
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.name).toBe('updatesvc');
+      expect(action.data).toEqual({
+        agent: 'testuser',
+        service_id: 7,
+        title: 'Logo design v2',
+        description: 'Now with five concepts',
+        deliverables: '["logo.svg"]',
+        price: 300000,
+        turnaround: 172800,
+        category: 'image',
+        sample_uri: 'https://ipfs.io/ipfs/Qmsample2',
+      });
+    });
+  });
+
+  describe('delistService()', () => {
+    it('sends "delistsvc" action with {agent, service_id}', async () => {
+      const session = mockSession();
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.delistService(7);
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.name).toBe('delistsvc');
+      expect(action.data).toEqual({ agent: 'testuser', service_id: 7 });
+    });
+  });
+
+  describe('relistService()', () => {
+    it('sends "relistsvc" action with {agent, service_id}', async () => {
+      const session = mockSession();
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.relistService(7);
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.name).toBe('relistsvc');
+      expect(action.data).toEqual({ agent: 'testuser', service_id: 7 });
+    });
+  });
+
+  describe('buyService()', () => {
+    it('sends transfer to the escrow contract with memo "buy:ID"', async () => {
+      const session = mockSession('buyer');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.buyService(3, 250000);
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.account).toBe('eosio.token');
+      expect(action.name).toBe('transfer');
+      expect(action.data).toEqual({
+        from: 'buyer',
+        to: 'agentescrow',
+        quantity: '25.0000 XPR',
+        memo: 'buy:3',
+      });
+    });
+
+    it('formats fractional prices with 4 decimals', async () => {
+      const session = mockSession('buyer');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.buyService(9, 12345);
+
+      const data = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0].data;
+      expect(data.quantity).toBe('1.2345 XPR');
+    });
+  });
+});
+
+describe('EscrowRegistry service read operations', () => {
+  const rawService = {
+    id: '3',
+    agent: 'seller',
+    title: 'Logo design',
+    description: 'A vector logo',
+    deliverables: '["logo.svg","logo.png"]',
+    price: '250000',
+    turnaround: '86400',
+    category: 'image',
+    sample_uri: 'https://ipfs.io/ipfs/Qmsample',
+    active: 1,
+    sales: '4',
+    created_at: '1704067200',
+    updated_at: '1704070800',
+  };
+
+  describe('getService()', () => {
+    it('queries the services table with correct bounds', async () => {
+      const rpc = mockRpc();
+      const registry = new EscrowRegistry(rpc);
+
+      await registry.getService(3);
+
+      expect(rpc.get_table_rows).toHaveBeenCalledWith({
+        json: true,
+        code: 'agentescrow',
+        scope: 'agentescrow',
+        table: 'services',
+        lower_bound: '3',
+        upper_bound: '3',
+        limit: 1,
+      });
+    });
+
+    it('parses the row, keeping price raw and deliverables as an array', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({ rows: [rawService], more: false });
+      const registry = new EscrowRegistry(rpc);
+
+      const service = await registry.getService(3);
+
+      expect(service).not.toBeNull();
+      expect(service!.id).toBe(3);
+      expect(service!.agent).toBe('seller');
+      expect(service!.deliverables).toEqual(['logo.svg', 'logo.png']);
+      expect(service!.price).toBe(250000); // raw units, not divided
+      expect(service!.turnaround).toBe(86400);
+      expect(service!.category).toBe('image');
+      expect(service!.active).toBe(true);
+      expect(service!.sales).toBe(4);
+      expect(service!.created_at).toBe(1704067200);
+      expect(service!.updated_at).toBe(1704070800);
+    });
+
+    it('falls back to an empty deliverables array on bad JSON', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [{ ...rawService, deliverables: 'not json' }],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const service = await registry.getService(3);
+      expect(service!.deliverables).toEqual([]);
+    });
+
+    it('returns null when the service does not exist', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      expect(await registry.getService(999)).toBeNull();
+    });
+  });
+
+  describe('listServices()', () => {
+    it('scans the services table with limit + 1', async () => {
+      const rpc = mockRpc();
+      const registry = new EscrowRegistry(rpc);
+
+      await registry.listServices({ limit: 10 });
+
+      expect(rpc.get_table_rows).toHaveBeenCalledWith({
+        json: true,
+        code: 'agentescrow',
+        scope: 'agentescrow',
+        table: 'services',
+        limit: 11,
+      });
+    });
+
+    it('filters out inactive listings by default', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [rawService, { ...rawService, id: '4', active: 0 }],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const result = await registry.listServices();
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].id).toBe(3);
+    });
+
+    it('includes inactive listings when activeOnly is false', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [rawService, { ...rawService, id: '4', active: 0 }],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const result = await registry.listServices({ activeOnly: false });
+      expect(result.items).toHaveLength(2);
+      expect(result.items[1].active).toBe(false);
+    });
+
+    it('reports hasMore when an extra row comes back', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [rawService, { ...rawService, id: '4' }, { ...rawService, id: '5' }],
+        more: true,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const result = await registry.listServices({ limit: 2 });
+      expect(result.hasMore).toBe(true);
+      expect(result.items).toHaveLength(2);
+      expect(result.nextCursor).toBe('4');
+    });
+  });
+
+  describe('listServicesByAgent()', () => {
+    it('queries the byAgent secondary index with key_type name', async () => {
+      const rpc = mockRpc();
+      const registry = new EscrowRegistry(rpc);
+
+      await registry.listServicesByAgent('seller');
+
+      expect(rpc.get_table_rows).toHaveBeenCalledWith({
+        json: true,
+        code: 'agentescrow',
+        scope: 'agentescrow',
+        table: 'services',
+        index_position: 2,
+        key_type: 'name',
+        lower_bound: 'seller',
+        upper_bound: 'seller',
+        limit: 100,
+      });
+    });
+
+    it('returns both active and delisted listings', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [rawService, { ...rawService, id: '4', active: 0 }],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const services = await registry.listServicesByAgent('seller');
+      expect(services).toHaveLength(2);
+      expect(services[0].active).toBe(true);
+      expect(services[1].active).toBe(false);
+    });
+
+    it('returns an empty array when the agent has no listings', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      expect(await registry.listServicesByAgent('nobody')).toEqual([]);
+    });
+  });
+});
+
+describe('EscrowRegistry service error handling', () => {
+  it('throws on missing session for listService', async () => {
+    const registry = new EscrowRegistry(mockRpc());
+    await expect(
+      registry.listService({ title: 't', description: 'd', deliverables: [], price: 10000, turnaround: 3600 })
+    ).rejects.toThrow('Session required for write operations');
+  });
+
+  it('throws on missing session for buyService', async () => {
+    const registry = new EscrowRegistry(mockRpc());
+    await expect(registry.buyService(1, 10000)).rejects.toThrow('Session required');
+  });
+
+  it('throws on missing session for delistService', async () => {
+    const registry = new EscrowRegistry(mockRpc());
+    await expect(registry.delistService(1)).rejects.toThrow('Session required');
+  });
+});
+
+// ============== Listing Fee & Featured Placement ==============
+
+describe('EscrowRegistry service fee and boost', () => {
+  describe('getServiceConfig()', () => {
+    it('reads the svcconfig singleton', async () => {
+      const rpc = mockRpc();
+      const registry = new EscrowRegistry(rpc);
+
+      await registry.getServiceConfig();
+
+      expect(rpc.get_table_rows).toHaveBeenCalledWith({
+        json: true,
+        code: 'agentescrow',
+        scope: 'agentescrow',
+        table: 'svcconfig',
+        limit: 1,
+      });
+    });
+
+    it('returns the on-chain settings when the row exists', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [{ service_fee: '75000', boost_min: '20000', boost_rate: '25000' }],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const config = await registry.getServiceConfig();
+      expect(config).toEqual({ service_fee: 75000, boost_min: 20000, boost_rate: 25000 });
+    });
+
+    it('falls back to contract defaults when svcconfig is unset', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+
+      const config = await registry.getServiceConfig();
+      expect(config).toEqual({
+        service_fee: 50000, // 5 XPR
+        boost_min: 10000,   // 1 XPR
+        boost_rate: 10000,  // 1 XPR per featured day
+      });
+    });
+  });
+
+  describe('payServiceFee()', () => {
+    it('sends transfer with memo "svcfee:<actor>"', async () => {
+      const session = mockSession('selleragent');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.payServiceFee(50000);
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.account).toBe('eosio.token');
+      expect(action.name).toBe('transfer');
+      expect(action.data).toEqual({
+        from: 'selleragent',
+        to: 'agentescrow',
+        quantity: '5.0000 XPR',
+        memo: 'svcfee:selleragent',
+      });
+    });
+  });
+
+  describe('refundServiceFee()', () => {
+    it('sends "refundsvcfee" action with {agent}', async () => {
+      const session = mockSession('selleragent');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.refundServiceFee();
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.account).toBe('agentescrow');
+      expect(action.name).toBe('refundsvcfee');
+      expect(action.data).toEqual({ agent: 'selleragent' });
+    });
+  });
+
+  describe('listServiceWithFee()', () => {
+    it('sends the fee transfer and listsvc in ONE transaction, fee first', async () => {
+      const session = mockSession('selleragent');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.listServiceWithFee(50000, {
+        title: 'Logo design',
+        description: 'A vector logo',
+        deliverables: ['logo.svg'],
+        price: 250000,
+        turnaround: 86400,
+        category: 'image',
+      });
+
+      expect((session.link.transact as jest.Mock).mock.calls).toHaveLength(1);
+      const actions = (session.link.transact as jest.Mock).mock.calls[0][0].actions;
+      expect(actions).toHaveLength(2);
+      expect(actions[0].name).toBe('transfer');
+      expect(actions[0].data.memo).toBe('svcfee:selleragent');
+      expect(actions[0].data.quantity).toBe('5.0000 XPR');
+      expect(actions[1].name).toBe('listsvc');
+      expect(actions[1].data).toEqual({
+        agent: 'selleragent',
+        title: 'Logo design',
+        description: 'A vector logo',
+        deliverables: '["logo.svg"]',
+        price: 250000,
+        turnaround: 86400,
+        category: 'image',
+        sample_uri: '',
+      });
+    });
+  });
+
+  describe('boostService()', () => {
+    it('sends transfer with memo "boost:ID"', async () => {
+      const session = mockSession('fan');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.boostService(3, 30000);
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.account).toBe('eosio.token');
+      expect(action.name).toBe('transfer');
+      expect(action.data).toEqual({
+        from: 'fan',
+        to: 'agentescrow',
+        quantity: '3.0000 XPR',
+        memo: 'boost:3',
+      });
+    });
+  });
+
+  describe('boost fields on Service rows', () => {
+    it('parses boost_paid and featured_until', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [{
+          id: '3', agent: 'seller', title: 'T', description: 'D',
+          deliverables: '[]', price: '250000', turnaround: '86400',
+          category: 'image', sample_uri: '', active: 1, sales: '4',
+          boost_paid: '70000', featured_until: '1735689600',
+          created_at: '1704067200', updated_at: '1704070800',
+        }],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const service = await registry.getService(3);
+      expect(service!.boostPaid).toBe(70000);
+      expect(service!.featuredUntil).toBe(1735689600);
+    });
+
+    it('defaults both to 0 on rows written before the boost fields shipped', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [{
+          id: '3', agent: 'seller', title: 'T', description: 'D',
+          deliverables: '[]', price: '250000', turnaround: '86400',
+          category: 'image', sample_uri: '', active: 1, sales: '4',
+          created_at: '1704067200', updated_at: '1704070800',
+        }],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const service = await registry.getService(3);
+      expect(service!.boostPaid).toBe(0);
+      expect(service!.featuredUntil).toBe(0);
+    });
+  });
+
+  describe('session requirements', () => {
+    it('throws on missing session for payServiceFee', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      await expect(registry.payServiceFee(50000)).rejects.toThrow('Session required');
+    });
+
+    it('throws on missing session for boostService', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      await expect(registry.boostService(1, 10000)).rejects.toThrow('Session required');
+    });
+
+    it('throws on missing session for refundServiceFee', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      await expect(registry.refundServiceFee()).rejects.toThrow('Session required');
+    });
+
+    it('throws on missing session for listServiceWithFee', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      await expect(
+        registry.listServiceWithFee(50000, {
+          title: 't', description: 'd', deliverables: [], price: 10000, turnaround: 3600,
+        })
+      ).rejects.toThrow('Session required');
+    });
+  });
+});

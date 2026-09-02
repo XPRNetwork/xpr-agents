@@ -260,6 +260,77 @@ export class ArbUnstake extends Table {
   }
 }
 
+// ============== SERVICES MARKET ==============
+// Agents publish fixed-price services; a buyer purchases with a single transfer
+// (memo "buy:<service_id>") which creates an already-funded direct-hire job.
+@table("services")
+export class Service extends Table {
+  constructor(
+    public id: u64 = 0,
+    public agent: Name = EMPTY_NAME,            // Seller (registered, active agent)
+    public title: string = "",
+    public description: string = "",
+    public deliverables: string = "",           // JSON array, copied verbatim into the job
+    public price: u64 = 0,                      // Raw units (1 XPR = 10000)
+    public turnaround: u64 = 0,                 // Seconds; becomes the job deadline
+    public category: string = "",               // Lower-case slug
+    public sample_uri: string = "",             // Example output (IPFS/https) or manifest JSON
+    public active: boolean = true,              // Listed in the catalogue when true
+    public sales: u64 = 0,                      // Purchases so far
+    public created_at: u64 = 0,
+    public updated_at: u64 = 0,
+    public boost_paid: u64 = 0,                 // Lifetime raw XPR spent on featuring
+    public featured_until: u64 = 0              // Featured while > now
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.id;
+  }
+
+  @secondary
+  get byAgent(): u64 {
+    return this.agent.N;
+  }
+
+  set byAgent(value: u64) {
+    this.agent = Name.fromU64(value);
+  }
+}
+
+// Service market settings. A SEPARATE singleton from EscrowConfig: the live
+// config table already holds rows and adding fields to it would break binary
+// reads ("unable to unpack"). Absent row => the DEFAULT_* constants below.
+@table("svcconfig", singleton)
+export class ServiceConfig extends Table {
+  constructor(
+    public service_fee: u64 = 50000,            // 5.0000 XPR to publish a listing (0 disables)
+    public boost_min: u64 = 10000,              // 1.0000 XPR minimum boost
+    public boost_rate: u64 = 10000              // 1.0000 XPR buys one featured day
+  ) {
+    super();
+  }
+}
+
+// Listing fee deposits, credited by a transfer with memo "svcfee:<agent>"
+@table("svcdeposits")
+export class ServiceDeposit extends Table {
+  constructor(
+    public agent: Name = EMPTY_NAME,
+    public amount: u64 = 0,                     // Unconsumed balance
+    public paid_at: u64 = 0                     // First deposit time (refundable after 7 days)
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.agent.N;
+  }
+}
+
 // External table reference for agent verification
 // Note: Agents use system staking (eosio::voters), not contract-managed staking
 @table("agents", "agentcore")
@@ -299,6 +370,9 @@ export class AgentEscrowContract extends Contract {
   private arbUnstakesTable: TableStore<ArbUnstake> = new TableStore<ArbUnstake>(this.receiver);
   private bidsTable: TableStore<Bid> = new TableStore<Bid>(this.receiver);
   private jobEvidenceTable: TableStore<JobEvidence> = new TableStore<JobEvidence>(this.receiver);
+  private servicesTable: TableStore<Service> = new TableStore<Service>(this.receiver);
+  private svcDepositsTable: TableStore<ServiceDeposit> = new TableStore<ServiceDeposit>(this.receiver);
+  private svcConfigSingleton: Singleton<ServiceConfig> = new Singleton<ServiceConfig>(this.receiver);
   private configSingleton: Singleton<EscrowConfig> = new Singleton<EscrowConfig>(this.receiver);
 
   // Helper to get agent from configured core contract
@@ -313,6 +387,12 @@ export class AgentEscrowContract extends Contract {
     check(agentRef != null, "Agent not registered in agentcore");
     return agentRef!;
   }
+
+  // Service market defaults, used when the svcconfig row has never been written
+  private readonly DEFAULT_SERVICE_FEE: u64 = 50000;   // 5.0000 XPR
+  private readonly DEFAULT_BOOST_MIN: u64 = 10000;     // 1.0000 XPR
+  private readonly DEFAULT_BOOST_RATE: u64 = 10000;    // 1.0000 XPR per featured day
+  private readonly SVC_FEE_REFUND_DELAY: u64 = 604800; // 7 days
 
   private readonly XPR_SYMBOL: Symbol = new Symbol("XPR", 4);
   private readonly TOKEN_CONTRACT: Name = Name.fromString("eosio.token");
@@ -343,6 +423,13 @@ export class AgentEscrowContract extends Contract {
       false        // paused
     );
     this.configSingleton.set(config, this.receiver);
+
+    // Seed the service market settings for fresh deployments. Existing chains
+    // simply fall back to the DEFAULT_* constants until setsvcconfig is called.
+    this.svcConfigSingleton.set(
+      new ServiceConfig(this.DEFAULT_SERVICE_FEE, this.DEFAULT_BOOST_MIN, this.DEFAULT_BOOST_RATE),
+      this.receiver
+    );
   }
 
   @action("setconfig")
@@ -1418,6 +1505,266 @@ export class AgentEscrowContract extends Contract {
     print(`Arbitrator ${account.toString()} cancelled unstake. Returned ${returnAmount / 10000} XPR to stake`);
   }
 
+  // ============== SERVICES MARKET ==============
+
+  // svcconfig is a separate singleton from config: the live config table has
+  // rows, so it can never gain fields. An unwritten row means defaults.
+  private getServiceConfig(): ServiceConfig {
+    const svcConfig = this.svcConfigSingleton.getOrNull();
+    if (svcConfig == null) {
+      return new ServiceConfig(this.DEFAULT_SERVICE_FEE, this.DEFAULT_BOOST_MIN, this.DEFAULT_BOOST_RATE);
+    }
+    return svcConfig!;
+  }
+
+  @action("setsvcconfig")
+  setServiceConfig(service_fee: u64, boost_min: u64, boost_rate: u64): void {
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+
+    check(boost_min > 0, "Boost minimum must be positive");
+    check(boost_rate > 0, "Boost rate must be positive");
+    check(boost_min >= boost_rate, "Boost minimum must buy at least one day");
+
+    this.svcConfigSingleton.set(new ServiceConfig(service_fee, boost_min, boost_rate), this.receiver);
+
+    print(`Service config updated: fee ${service_fee}, boost min ${boost_min}, boost rate ${boost_rate}`);
+  }
+
+  @action("refundsvcfee")
+  refundServiceFee(agent: Name): void {
+    requireAuth(agent);
+
+    const deposit = this.svcDepositsTable.requireGet(agent.N, "No listing fee deposit found");
+    check(
+      currentTimeSec() >= deposit.paid_at + this.SVC_FEE_REFUND_DELAY,
+      "Listing fee can only be refunded 7 days after payment"
+    );
+
+    const amount = deposit.amount;
+
+    // CEI: clear the deposit before sending
+    this.svcDepositsTable.remove(deposit);
+
+    if (amount > 0) {
+      this.sendTokens(agent, new Asset(<i64>amount, this.XPR_SYMBOL), "Service listing fee refund");
+    }
+
+    print(`Listing fee deposit refunded to ${agent.toString()}: ${amount}`);
+  }
+
+  private validateService(
+    title: string,
+    description: string,
+    deliverables: string,
+    price: u64,
+    turnaround: u64,
+    category: string,
+    sample_uri: string,
+    min_job_amount: u64
+  ): void {
+    check(title.length > 0 && title.length <= 128, "Title must be 1-128 characters");
+    check(description.length > 0 && description.length <= 2048, "Description must be 1-2048 characters");
+    check(deliverables.length > 0 && deliverables.length <= 2048, "Deliverables must be 1-2048 characters");
+    check(price >= min_job_amount, "Price below minimum job amount");
+    check(turnaround >= 3600, "Turnaround must be at least 1 hour");
+    check(turnaround <= 31536000, "Turnaround must be at most 1 year");
+    check(category.length <= 32, "Category must be <= 32 characters");
+    for (let i = 0; i < category.length; i++) {
+      const c = category.charCodeAt(i);
+      // lower-case slug: a-z, 0-9, '-'
+      check(
+        (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 45,
+        "Category must be a lower-case slug"
+      );
+    }
+    check(sample_uri.length <= 2048, "Sample URI must be <= 2048 characters");
+  }
+
+  // Count an agent's active listings via the byAgent secondary index.
+  // The backwards walk is a no-op on chain (find() is a lower_bound, so the row
+  // before it always has a different key) but keeps the count exact under test
+  // harnesses whose secondary-index find() does not land on the first duplicate.
+  private countActiveServices(agent: Name): u64 {
+    const start = this.servicesTable.getBySecondaryU64(agent.N, 0);
+    if (start == null) return 0;
+
+    let count: u64 = 0;
+    let guard: u64 = 0;
+
+    let prev = this.servicesTable.previousBySecondaryU64(start!, 0);
+    while (prev != null && prev!.agent == agent && guard < 1000) {
+      if (prev!.active) count++;
+      prev = this.servicesTable.previousBySecondaryU64(prev!, 0);
+      guard++;
+    }
+
+    let svc: Service | null = start;
+    while (svc != null && svc!.agent == agent && guard < 1000) {
+      if (svc!.active) count++;
+      svc = this.servicesTable.nextBySecondaryU64(svc!, 0);
+      guard++;
+    }
+
+    return count;
+  }
+
+  @action("listsvc")
+  listService(
+    agent: Name,
+    title: string,
+    description: string,
+    deliverables: string,
+    price: u64,
+    turnaround: u64,
+    category: string,
+    sample_uri: string
+  ): void {
+    requireAuth(agent);
+
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
+    const agentRef = this.requireAgentRef(agent);
+    check(agentRef.active, "Agent is not active");
+
+    this.validateService(title, description, deliverables, price, turnaround, category, sample_uri, config.min_job_amount);
+
+    check(this.countActiveServices(agent) < 10, "Agent already has 10 active services");
+
+    // Listing fee (deposit pattern, mirrors agentcore's regfee: / agentfeed's feedfee:)
+    const serviceFee = this.getServiceConfig().service_fee;
+    if (serviceFee > 0) {
+      const deposit = this.svcDepositsTable.get(agent.N);
+      check(deposit != null, "Listing fee not paid. Send XPR with memo 'svcfee:" + agent.toString() + "'");
+      check(
+        deposit!.amount >= serviceFee,
+        "Insufficient listing fee. Required: " + (serviceFee / 10000).toString() + " XPR"
+      );
+
+      // Consume exactly the fee, leave any remainder on deposit
+      const remainder = deposit!.amount - serviceFee;
+      if (remainder > 0) {
+        deposit!.amount = remainder;
+        this.svcDepositsTable.update(deposit!, this.receiver);
+      } else {
+        this.svcDepositsTable.remove(deposit!);
+      }
+    }
+
+    const now = currentTimeSec();
+    const service = new Service(
+      this.servicesTable.availablePrimaryKey,
+      agent,
+      title,
+      description,
+      deliverables,
+      price,
+      turnaround,
+      category,
+      sample_uri,
+      true, // active
+      0,    // sales
+      now,
+      now,
+      0,    // boost_paid
+      0     // featured_until
+    );
+
+    this.servicesTable.store(service, this.receiver);
+
+    // CEI: forward the fee to the platform-fee destination after state is written
+    if (serviceFee > 0) {
+      this.sendTokens(config.owner, new Asset(<i64>serviceFee, this.XPR_SYMBOL), `Service ${service.id} listing fee`);
+    }
+
+    print(`Service ${service.id} listed by ${agent.toString()}`);
+  }
+
+  @action("updatesvc")
+  updateService(
+    agent: Name,
+    service_id: u64,
+    title: string,
+    description: string,
+    deliverables: string,
+    price: u64,
+    turnaround: u64,
+    category: string,
+    sample_uri: string
+  ): void {
+    requireAuth(agent);
+
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
+    const service = this.servicesTable.requireGet(service_id, "Service not found");
+    check(service.agent == agent, "Only the listing agent can update");
+
+    this.validateService(title, description, deliverables, price, turnaround, category, sample_uri, config.min_job_amount);
+
+    // active and sales are intentionally untouched
+    service.title = title;
+    service.description = description;
+    service.deliverables = deliverables;
+    service.price = price;
+    service.turnaround = turnaround;
+    service.category = category;
+    service.sample_uri = sample_uri;
+    service.updated_at = currentTimeSec();
+
+    this.servicesTable.update(service, this.receiver);
+
+    print(`Service ${service_id} updated`);
+  }
+
+  @action("delistsvc")
+  delistService(agent: Name, service_id: u64): void {
+    requireAuth(agent);
+
+    const service = this.servicesTable.requireGet(service_id, "Service not found");
+    check(service.agent == agent, "Only the listing agent can delist");
+
+    // Row is kept for history
+    service.active = false;
+    service.updated_at = currentTimeSec();
+    this.servicesTable.update(service, this.receiver);
+
+    print(`Service ${service_id} delisted`);
+  }
+
+  @action("relistsvc")
+  relistService(agent: Name, service_id: u64): void {
+    requireAuth(agent);
+
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+
+    const service = this.servicesTable.requireGet(service_id, "Service not found");
+    check(service.agent == agent, "Only the listing agent can relist");
+
+    if (!service.active) {
+      check(this.countActiveServices(agent) < 10, "Agent already has 10 active services");
+    }
+
+    service.active = true;
+    service.updated_at = currentTimeSec();
+    this.servicesTable.update(service, this.receiver);
+
+    print(`Service ${service_id} relisted`);
+  }
+
+  @action("rmservice")
+  removeService(service_id: u64): void {
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+
+    const service = this.servicesTable.requireGet(service_id, "Service not found");
+    this.servicesTable.remove(service);
+
+    print(`Service ${service_id} removed by admin`);
+  }
+
   // ============== CLEANUP ==============
 
   @action("removejob")
@@ -1587,6 +1934,124 @@ export class AgentEscrowContract extends Contract {
       }
 
       print(`Job ${jobId} funded with ${job.amount}. Excess refunded: ${excess}`);
+    } else if (memo.startsWith("buy:")) {
+      // Services market: purchase a listing. Creates an already-funded direct-hire job.
+      const svcIdStr = memo.substring(4);
+      check(svcIdStr.length > 0 && svcIdStr.length <= 20, "Invalid service ID format");
+      for (let i = 0; i < svcIdStr.length; i++) {
+        const c = svcIdStr.charCodeAt(i);
+        check(c >= 48 && c <= 57, "Service ID must be numeric");
+      }
+      const serviceId = U64.parseInt(svcIdStr);
+
+      const config = this.configSingleton.get();
+      check(!config.paused, "Contract is paused");
+
+      const service = this.servicesTable.requireGet(serviceId, "Service not found");
+      check(service.active, "Service is not active");
+      check(from != service.agent, "Cannot buy your own service");
+
+      const agentRef = this.requireAgentRef(service.agent);
+      check(agentRef.active, "Agent is not active");
+      check(from != agentRef.owner, "Client cannot hire an agent they own");
+
+      const price = <i64>service.price;
+      check(quantity.amount >= price, "Insufficient payment");
+
+      const excess = quantity.amount - price;
+      const now = currentTimeSec();
+      const jobId = this.jobsTable.availablePrimaryKey;
+
+      // The purchase looks exactly like a direct-hire job that was just funded
+      const job = new Job(
+        jobId,
+        from,                     // client
+        service.agent,            // agent
+        service.title,
+        service.description,
+        service.deliverables,
+        service.price,            // amount
+        "XPR",                    // symbol
+        service.price,            // funded_amount
+        0,                        // released_amount
+        1,                        // state = FUNDED
+        now + service.turnaround, // deadline
+        EMPTY_NAME,               // arbitrator
+        "svc:" + serviceId.toString(),
+        now,
+        now
+      );
+      this.jobsTable.store(job, this.receiver);
+
+      service.sales += 1;
+      this.servicesTable.update(service, this.receiver);
+
+      // CEI: refund the excess only after all state is written
+      if (excess > 0) {
+        this.sendTokens(from, new Asset(excess, this.XPR_SYMBOL), `Overpayment refund for service ${serviceId}`);
+      }
+
+      print(`Service ${serviceId} bought: job ${jobId}`);
+    } else if (memo.startsWith("svcfee:")) {
+      // Listing fee deposit (mirrors agentcore's regfee: / agentfeed's feedfee:)
+      const accountName = memo.slice(7);
+      check(accountName.length > 0 && accountName.length <= 12, "Invalid account name in memo");
+      const depositAccount = Name.fromString(accountName);
+      check(from == depositAccount, "Payer must match account in memo");
+      check(quantity.amount > 0, "Transfer amount must be positive");
+
+      const transferAmount: u64 = <u64>quantity.amount;
+      const existingDeposit = this.svcDepositsTable.get(depositAccount.N);
+      if (existingDeposit != null) {
+        check(existingDeposit!.amount <= U64.MAX_VALUE - transferAmount, "Deposit would overflow");
+        existingDeposit!.amount += transferAmount;
+        // paid_at keeps the first payment time so a top-up cannot extend the refund lock
+        this.svcDepositsTable.update(existingDeposit!, this.receiver);
+      } else {
+        this.svcDepositsTable.store(
+          new ServiceDeposit(depositAccount, transferAmount, currentTimeSec()),
+          this.receiver
+        );
+      }
+
+      print(`Listing fee deposit received: ${quantity.toString()} from ${from.toString()}`);
+    } else if (memo.startsWith("boost:")) {
+      // Featured placement: each boost_rate buys one featured day
+      const boostIdStr = memo.substring(6);
+      check(boostIdStr.length > 0 && boostIdStr.length <= 20, "Invalid service ID format");
+      for (let i = 0; i < boostIdStr.length; i++) {
+        const c = boostIdStr.charCodeAt(i);
+        check(c >= 48 && c <= 57, "Service ID must be numeric");
+      }
+      const boostServiceId = U64.parseInt(boostIdStr);
+
+      const config = this.configSingleton.get();
+      check(!config.paused, "Contract is paused");
+
+      const service = this.servicesTable.requireGet(boostServiceId, "Service not found");
+      check(service.active, "Service is not active");
+
+      const svcConfig = this.getServiceConfig();
+      const boostAmount: u64 = <u64>quantity.amount;
+      check(boostAmount >= svcConfig.boost_min, "Boost amount below minimum");
+
+      const agentRef = this.requireAgentRef(service.agent);
+      check(agentRef.total_jobs >= 1, "Agent must have completed a job before featuring");
+
+      const days = boostAmount / svcConfig.boost_rate;
+      check(days > 0, "Boost amount buys less than a day");
+
+      const now = currentTimeSec();
+      const base = service.featured_until > now ? service.featured_until : now;
+      service.featured_until = base + days * 86400;
+      check(service.boost_paid <= U64.MAX_VALUE - boostAmount, "Boost total would overflow");
+      service.boost_paid += boostAmount;
+      this.servicesTable.update(service, this.receiver);
+
+      // CEI: forward to the platform-fee destination after state is written
+      this.sendTokens(config.owner, quantity, `Service ${boostServiceId} featured placement`);
+
+      print(`Service ${boostServiceId} boosted for ${days} days until ${service.featured_until}`);
     } else if (memo == "arbstake" || memo.startsWith("arbstake:")) {
       // Arbitrator staking
       const arb = this.arbitratorsTable.get(from.N);
@@ -1600,7 +2065,7 @@ export class AgentEscrowContract extends Contract {
       print(`Arbitrator ${from.toString()} staked ${quantity.toString()}`);
     } else {
       // Reject transfers with unrecognized memos to prevent trapped funds
-      check(false, "Invalid memo. Use 'fund:JOB_ID' or 'arbstake'");
+      check(false, "Invalid memo. Use 'fund:JOB_ID', 'buy:SERVICE_ID', 'svcfee:AGENT', 'boost:SERVICE_ID' or 'arbstake'");
     }
   }
 

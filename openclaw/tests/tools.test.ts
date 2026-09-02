@@ -97,10 +97,10 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_stake_validator')).toBe(true);
   });
 
-  it('registers 24 escrow tools', () => {
+  it('registers 32 escrow tools', () => {
     const api = createMockApi();
     registerEscrowTools(api, createConfig());
-    expect(api.tools.size).toBe(24);
+    expect(api.tools.size).toBe(32);
     expect(api.tools.has('xpr_get_job')).toBe(true);
     expect(api.tools.has('xpr_list_jobs')).toBe(true);
     expect(api.tools.has('xpr_get_milestones')).toBe(true);
@@ -126,6 +126,15 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_submit_bid')).toBe(true);
     expect(api.tools.has('xpr_select_bid')).toBe(true);
     expect(api.tools.has('xpr_withdraw_bid')).toBe(true);
+    // Services market tools
+    expect(api.tools.has('xpr_get_service')).toBe(true);
+    expect(api.tools.has('xpr_list_services')).toBe(true);
+    expect(api.tools.has('xpr_list_service')).toBe(true);
+    expect(api.tools.has('xpr_update_service')).toBe(true);
+    expect(api.tools.has('xpr_delist_service')).toBe(true);
+    expect(api.tools.has('xpr_relist_service')).toBe(true);
+    expect(api.tools.has('xpr_buy_service')).toBe(true);
+    expect(api.tools.has('xpr_boost_service')).toBe(true);
   });
 
   it('registers 4 indexer tools', () => {
@@ -149,7 +158,7 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_a2a_delegate_job')).toBe(true);
   });
 
-  it('registers 60 total tools', () => {
+  it('registers 68 total tools', () => {
     const api = createMockApi();
     const config = createConfig();
     registerAgentTools(api, config);
@@ -158,7 +167,7 @@ describe('Tool Registration', () => {
     registerEscrowTools(api, config);
     registerIndexerTools(api, config);
     registerA2ATools(api, config);
-    expect(api.tools.size).toBe(60);
+    expect(api.tools.size).toBe(68);
   });
 });
 
@@ -363,6 +372,46 @@ describe('maxTransferAmount Enforcement', () => {
     ).rejects.toThrow('exceeds maximum');
   });
 
+  it('rejects xpr_buy_service price exceeding maxTransferAmount', async () => {
+    registerEscrowTools(api, lowMaxConfig());
+    const tool = api.tools.get('xpr_buy_service')!;
+    await expect(
+      tool.handler({
+        service_id: 1,
+        price: 20, // 20 XPR > 10 XPR max
+        confirmed: true,
+      })
+    ).rejects.toThrow('exceeds maximum');
+  });
+
+  it('rejects xpr_boost_service amount exceeding maxTransferAmount', async () => {
+    registerEscrowTools(api, lowMaxConfig());
+    const tool = api.tools.get('xpr_boost_service')!;
+    await expect(
+      tool.handler({
+        service_id: 1,
+        amount: 20, // 20 XPR > 10 XPR max
+        confirmed: true,
+      })
+    ).rejects.toThrow('exceeds maximum');
+  });
+
+  it('rejects xpr_list_service when the listing fee exceeds maxTransferAmount', async () => {
+    // 1 XPR cap, but the listing fee defaults to 5 XPR
+    registerEscrowTools(api, createConfig({ maxTransferAmount: 10000 }));
+    const tool = api.tools.get('xpr_list_service')!;
+    await expect(
+      tool.handler({
+        title: 'Logo design',
+        description: 'A vector logo',
+        deliverables: ['logo.svg'],
+        price: 0.5,
+        turnaround: 86400,
+        confirmed: true,
+      })
+    ).rejects.toThrow('exceeds maximum');
+  });
+
   it('rejects xpr_submit_bid amount exceeding maxTransferAmount', async () => {
     registerEscrowTools(api, lowMaxConfig());
     const tool = api.tools.get('xpr_submit_bid')!;
@@ -392,6 +441,70 @@ describe('maxTransferAmount Enforcement', () => {
     });
     // Should not throw, should return transaction result
     expect(result).not.toHaveProperty('needs_confirmation');
+  });
+});
+
+describe('Service listing fee', () => {
+  beforeEach(() => {
+    resetTransferTracking();
+  });
+
+  it('pays the svcfee deposit and lists in ONE transaction, fee first', async () => {
+    const api = createMockApi();
+    const config = createConfig();
+    registerEscrowTools(api, config);
+
+    await api.tools.get('xpr_list_service')!.handler({
+      title: 'Logo design',
+      description: 'A vector logo',
+      deliverables: ['logo.svg'],
+      price: 25,
+      turnaround: 86400,
+      category: 'image',
+      confirmed: true,
+    });
+
+    const transact = config.session!.link.transact as ReturnType<typeof vi.fn>;
+    expect(transact.mock.calls).toHaveLength(1);
+    const actions = transact.mock.calls[0][0].actions;
+    expect(actions).toHaveLength(2);
+    expect(actions[0].name).toBe('transfer');
+    expect(actions[0].data.memo).toBe('svcfee:testagent');
+    // svcconfig is unset in the mock RPC, so the 5 XPR contract default applies
+    expect(actions[0].data.quantity).toBe('5.0000 XPR');
+    expect(actions[1].name).toBe('listsvc');
+  });
+
+  it('reports the listing fee it charged', async () => {
+    const api = createMockApi();
+    registerEscrowTools(api, createConfig());
+
+    const result = await api.tools.get('xpr_list_service')!.handler({
+      title: 'Logo design',
+      description: 'A vector logo',
+      deliverables: ['logo.svg'],
+      price: 25,
+      turnaround: 86400,
+      confirmed: true,
+    }) as Record<string, unknown>;
+
+    expect(result.listing_fee_xpr).toBe(5);
+  });
+
+  it('names the listing fee in the confirmation prompt', async () => {
+    const api = createMockApi();
+    registerEscrowTools(api, createConfig({ confirmHighRisk: true }));
+
+    const result = await api.tools.get('xpr_list_service')!.handler({
+      title: 'Logo design',
+      description: 'A vector logo',
+      deliverables: ['logo.svg'],
+      price: 25,
+      turnaround: 86400,
+    }) as Record<string, any>;
+
+    expect(result.needs_confirmation).toBe(true);
+    expect(result.details.listing_fee).toBe('5 XPR');
   });
 });
 

@@ -65,6 +65,49 @@ const getJobEvidence = (jobId: number) => {
   return agentescrow.tables.jobevidence(nameToBigInt('agentescrow')).getTableRow(BigInt(jobId));
 };
 
+const getService = (id: number) => {
+  return agentescrow.tables.services(nameToBigInt('agentescrow')).getTableRow(BigInt(id));
+};
+
+const getAllServices = () => {
+  return agentescrow.tables.services(nameToBigInt('agentescrow')).getTableRows();
+};
+
+const getSvcDeposit = (agent: string) => {
+  return agentescrow.tables.svcdeposits(nameToBigInt('agentescrow')).getTableRow(nameToBigInt(agent));
+};
+
+const getSvcConfig = () => {
+  return agentescrow.tables.svcconfig(nameToBigInt('agentescrow')).getTableRows()[0];
+};
+
+const getBalance = (account: string) => {
+  const rows = eosioToken.tables.accounts(nameToBigInt(account)).getTableRows();
+  return rows.length > 0 ? rows[0].balance : '0.0000 XPR';
+};
+
+/* XPR balance as a number, for before/after comparisons */
+const getXprBalance = (account: string) => parseFloat(getBalance(account).split(' ')[0]);
+
+/* Register a second agent in agentcore */
+const registerAgent = async (name: string) => {
+  await agentcore.actions.register([
+    name, 'Second Agent', 'Another test agent', 'https://api2.test.com', 'https', '["chat"]'
+  ]).send(`${name}@active`);
+};
+
+/* Give an agent an owner by writing agentcore's row directly — the real claim
+ * flow needs the eosio.proton KYC tables, which this blockchain does not stub. */
+const setAgentOwner = (agentName: string, ownerName: string) => {
+  const scope = nameToBigInt('agentcore');
+  const row: any = agentcore.tables.agents(scope).getTableRow(nameToBigInt(agentName));
+  agentcore.tables.agents(scope).set(
+    nameToBigInt(agentName),
+    'agentcore' as any,
+    Object.assign({}, row, { owner: ownerName })
+  );
+};
+
 /* Setup helpers */
 const initAll = async () => {
   // Create XPR token — do NOT mint to agentescrow (transfer handler rejects bad memos)
@@ -1334,6 +1377,918 @@ describe('agentescrow', () => {
 
     it('should allow cleanjobs from the owner', async () => {
       await agentescrow.actions.cleanjobs([7776000, 10]).send('owner@active');
+    });
+  });
+
+  /* ==================== Services market ==================== */
+
+  describe('services market', () => {
+    const SVC = {
+      agent: 'agent1',
+      title: 'Logo design',
+      description: 'A hand-crafted logo delivered as SVG and PNG',
+      deliverables: '["logo.svg","logo.png"]',
+      price: 1000000,      // 100.0000 XPR
+      turnaround: 86400,   // 1 day
+      category: 'image',
+      sample_uri: 'ipfs://QmSample',
+    };
+
+    const svcArgs = (o: any = {}) => {
+      const s: any = Object.assign({}, SVC, o);
+      return [s.agent, s.title, s.description, s.deliverables, s.price, s.turnaround, s.category, s.sample_uri];
+    };
+
+    /* Pay the listing fee deposit (default 5.0000 XPR) */
+    const payListingFee = async (agent: string = 'agent1', amount: string = '5.0000 XPR') => {
+      await eosioToken.actions.transfer([agent, 'agentescrow', amount, `svcfee:${agent}`]).send(`${agent}@active`);
+    };
+
+    const listSvc = async (o: any = {}) => {
+      const s: any = Object.assign({}, SVC, o);
+      if (o.skipFee !== true) await payListingFee(s.agent);
+      await agentescrow.actions.listsvc(svcArgs(o)).send(`${s.agent}@active`);
+    };
+
+    /* Give agent1 one completed job so its listings can be featured */
+    const completeOneJob = async () => {
+      await eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active');
+      const jobId = getAllJobs().length - 1;
+      await agentescrow.actions.acceptjob(['agent1', jobId]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', jobId]).send('agent1@active');
+      await agentescrow.actions.deliver(['agent1', jobId, 'ipfs://QmDone']).send('agent1@active');
+      await agentescrow.actions.approve(['client', jobId]).send('client@active');
+    };
+
+    const updateArgs = (id: number, o: any = {}) => {
+      const s: any = Object.assign({}, SVC, o);
+      return [s.agent, id, s.title, s.description, s.deliverables, s.price, s.turnaround, s.category, s.sample_uri];
+    };
+
+    beforeEach(async () => {
+      blockchain.setTime(TimePointSec.from(1700000000));
+      await initAll();
+    });
+
+    /* ---------------- listsvc ---------------- */
+
+    describe('listsvc', () => {
+      it('should list a service', async () => {
+        await listSvc();
+
+        const svc = getService(0);
+        expect(svc).to.not.be.undefined;
+        expect(svc.agent).to.equal('agent1');
+        expect(svc.title).to.equal('Logo design');
+        expect(svc.description).to.equal('A hand-crafted logo delivered as SVG and PNG');
+        expect(svc.deliverables).to.equal('["logo.svg","logo.png"]');
+        expect(svc.price).to.equal(1000000);
+        expect(svc.turnaround).to.equal(86400);
+        expect(svc.category).to.equal('image');
+        expect(svc.sample_uri).to.equal('ipfs://QmSample');
+        expect(svc.active).to.equal(true);
+        expect(svc.sales).to.equal(0);
+        expect(svc.created_at).to.be.greaterThan(0);
+        expect(svc.updated_at).to.equal(svc.created_at);
+      });
+
+      it('should allow an empty category and sample_uri', async () => {
+        await listSvc({ category: '', sample_uri: '' });
+        const svc = getService(0);
+        expect(svc.category).to.equal('');
+        expect(svc.sample_uri).to.equal('');
+      });
+
+      it('should require the agent authority', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs()).send('client@active'),
+          'missing required authority agent1'
+        );
+      });
+
+      it('should reject an unregistered agent', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ agent: 'client' })).send('client@active'),
+          protonAssert('Agent not registered in agentcore')
+        );
+      });
+
+      it('should reject an inactive agent', async () => {
+        await agentcore.actions.setstatus(['agent1', false]).send('agent1@active');
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs()).send('agent1@active'),
+          protonAssert('Agent is not active')
+        );
+      });
+
+      it('should reject listsvc when paused', async () => {
+        await agentescrow.actions.setconfig([200, 10000, 30, 604800, true, 'agentcore', 'agentfeed', 604800, 10000000, 604800]).send('owner@active');
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs()).send('agent1@active'),
+          protonAssert('Contract is paused')
+        );
+      });
+
+      it('should reject an empty title', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ title: '' })).send('agent1@active'),
+          protonAssert('Title must be 1-128 characters')
+        );
+      });
+
+      it('should reject a title over 128 characters', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ title: 'x'.repeat(129) })).send('agent1@active'),
+          protonAssert('Title must be 1-128 characters')
+        );
+      });
+
+      it('should reject an empty description', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ description: '' })).send('agent1@active'),
+          protonAssert('Description must be 1-2048 characters')
+        );
+      });
+
+      it('should reject a description over 2048 characters', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ description: 'x'.repeat(2049) })).send('agent1@active'),
+          protonAssert('Description must be 1-2048 characters')
+        );
+      });
+
+      it('should reject empty deliverables', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ deliverables: '' })).send('agent1@active'),
+          protonAssert('Deliverables must be 1-2048 characters')
+        );
+      });
+
+      it('should reject deliverables over 2048 characters', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ deliverables: 'x'.repeat(2049) })).send('agent1@active'),
+          protonAssert('Deliverables must be 1-2048 characters')
+        );
+      });
+
+      it('should reject a price below the minimum job amount', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ price: 9999 })).send('agent1@active'),
+          protonAssert('Price below minimum job amount')
+        );
+      });
+
+      it('should accept a price exactly at the minimum job amount', async () => {
+        await listSvc({ price: 10000 });
+        expect(getService(0).price).to.equal(10000);
+      });
+
+      it('should reject a turnaround below 1 hour', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ turnaround: 3599 })).send('agent1@active'),
+          protonAssert('Turnaround must be at least 1 hour')
+        );
+      });
+
+      it('should reject a turnaround above 1 year', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ turnaround: 31536001 })).send('agent1@active'),
+          protonAssert('Turnaround must be at most 1 year')
+        );
+      });
+
+      it('should accept turnarounds at both bounds', async () => {
+        await listSvc({ turnaround: 3600 });
+        await listSvc({ turnaround: 31536000 });
+        expect(getService(0).turnaround).to.equal(3600);
+        expect(getService(1).turnaround).to.equal(31536000);
+      });
+
+      it('should reject a category over 32 characters', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ category: 'a'.repeat(33) })).send('agent1@active'),
+          protonAssert('Category must be <= 32 characters')
+        );
+      });
+
+      it('should reject a category that is not a lower-case slug', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ category: 'Image' })).send('agent1@active'),
+          protonAssert('Category must be a lower-case slug')
+        );
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ category: 'image art' })).send('agent1@active'),
+          protonAssert('Category must be a lower-case slug')
+        );
+      });
+
+      it('should reject a sample_uri over 2048 characters', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ sample_uri: 'x'.repeat(2049) })).send('agent1@active'),
+          protonAssert('Sample URI must be <= 2048 characters')
+        );
+      });
+
+      it('should reject an 11th active listing', async () => {
+        for (let i = 0; i < 10; i++) {
+          await listSvc({ title: `Service ${i}` });
+        }
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs({ title: 'Service 10' })).send('agent1@active'),
+          protonAssert('Agent already has 10 active services')
+        );
+      });
+    });
+
+    /* ---------------- updatesvc ---------------- */
+
+    describe('updatesvc', () => {
+      it('should update a listing without touching active or sales', async () => {
+        await listSvc();
+        await eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active');
+
+        await agentescrow.actions.updatesvc(updateArgs(0, {
+          title: 'Logo design v2',
+          description: 'Now with a brand sheet',
+          deliverables: '["logo.svg"]',
+          price: 2000000,
+          turnaround: 172800,
+          category: 'design',
+          sample_uri: 'ipfs://QmNew',
+        })).send('agent1@active');
+
+        const svc = getService(0);
+        expect(svc.title).to.equal('Logo design v2');
+        expect(svc.description).to.equal('Now with a brand sheet');
+        expect(svc.deliverables).to.equal('["logo.svg"]');
+        expect(svc.price).to.equal(2000000);
+        expect(svc.turnaround).to.equal(172800);
+        expect(svc.category).to.equal('design');
+        expect(svc.sample_uri).to.equal('ipfs://QmNew');
+        expect(svc.active).to.equal(true);
+        expect(svc.sales).to.equal(1);
+      });
+
+      it('should reject a missing service', async () => {
+        await expectToThrow(
+          agentescrow.actions.updatesvc(updateArgs(99)).send('agent1@active'),
+          protonAssert('Service not found')
+        );
+      });
+
+      it('should reject an update from another agent', async () => {
+        await listSvc();
+        await registerAgent('arbitrator2');
+        await expectToThrow(
+          agentescrow.actions.updatesvc(updateArgs(0, { agent: 'arbitrator2' })).send('arbitrator2@active'),
+          protonAssert('Only the listing agent can update')
+        );
+      });
+
+      it('should require the agent authority', async () => {
+        await listSvc();
+        await expectToThrow(
+          agentescrow.actions.updatesvc(updateArgs(0)).send('client@active'),
+          'missing required authority agent1'
+        );
+      });
+
+      it('should apply the same bounds as listsvc', async () => {
+        await listSvc();
+        await expectToThrow(
+          agentescrow.actions.updatesvc(updateArgs(0, { title: '' })).send('agent1@active'),
+          protonAssert('Title must be 1-128 characters')
+        );
+        await expectToThrow(
+          agentescrow.actions.updatesvc(updateArgs(0, { price: 9999 })).send('agent1@active'),
+          protonAssert('Price below minimum job amount')
+        );
+        await expectToThrow(
+          agentescrow.actions.updatesvc(updateArgs(0, { turnaround: 3599 })).send('agent1@active'),
+          protonAssert('Turnaround must be at least 1 hour')
+        );
+        await expectToThrow(
+          agentescrow.actions.updatesvc(updateArgs(0, { category: 'NFT' })).send('agent1@active'),
+          protonAssert('Category must be a lower-case slug')
+        );
+      });
+
+      it('should reject updatesvc when paused', async () => {
+        await listSvc();
+        await agentescrow.actions.setconfig([200, 10000, 30, 604800, true, 'agentcore', 'agentfeed', 604800, 10000000, 604800]).send('owner@active');
+        await expectToThrow(
+          agentescrow.actions.updatesvc(updateArgs(0)).send('agent1@active'),
+          protonAssert('Contract is paused')
+        );
+      });
+    });
+
+    /* ---------------- delistsvc / relistsvc ---------------- */
+
+    describe('delistsvc and relistsvc', () => {
+      it('should delist and relist a service, keeping the row', async () => {
+        await listSvc();
+
+        await agentescrow.actions.delistsvc(['agent1', 0]).send('agent1@active');
+        expect(getService(0).active).to.equal(false);
+        expect(getAllServices().length).to.equal(1);
+
+        await agentescrow.actions.relistsvc(['agent1', 0]).send('agent1@active');
+        expect(getService(0).active).to.equal(true);
+      });
+
+      it('should reject delist from another agent', async () => {
+        await listSvc();
+        await registerAgent('arbitrator2');
+        await expectToThrow(
+          agentescrow.actions.delistsvc(['arbitrator2', 0]).send('arbitrator2@active'),
+          protonAssert('Only the listing agent can delist')
+        );
+      });
+
+      it('should reject relist from another agent', async () => {
+        await listSvc();
+        await agentescrow.actions.delistsvc(['agent1', 0]).send('agent1@active');
+        await registerAgent('arbitrator2');
+        await expectToThrow(
+          agentescrow.actions.relistsvc(['arbitrator2', 0]).send('arbitrator2@active'),
+          protonAssert('Only the listing agent can relist')
+        );
+      });
+
+      it('should reject delist/relist of a missing service', async () => {
+        await expectToThrow(
+          agentescrow.actions.delistsvc(['agent1', 99]).send('agent1@active'),
+          protonAssert('Service not found')
+        );
+        await expectToThrow(
+          agentescrow.actions.relistsvc(['agent1', 99]).send('agent1@active'),
+          protonAssert('Service not found')
+        );
+      });
+
+      it('should require the agent authority', async () => {
+        await listSvc();
+        await expectToThrow(
+          agentescrow.actions.delistsvc(['agent1', 0]).send('client@active'),
+          'missing required authority agent1'
+        );
+      });
+
+      it('should reject relistsvc when paused', async () => {
+        await listSvc();
+        await agentescrow.actions.delistsvc(['agent1', 0]).send('agent1@active');
+        await agentescrow.actions.setconfig([200, 10000, 30, 604800, true, 'agentcore', 'agentfeed', 604800, 10000000, 604800]).send('owner@active');
+        await expectToThrow(
+          agentescrow.actions.relistsvc(['agent1', 0]).send('agent1@active'),
+          protonAssert('Contract is paused')
+        );
+      });
+    });
+
+    /* ---------------- rmservice (admin) ---------------- */
+
+    describe('rmservice', () => {
+      it('should let the owner remove a listing', async () => {
+        await listSvc();
+        await agentescrow.actions.rmservice([0]).send('owner@active');
+        expect(getService(0)).to.be.undefined;
+        expect(getAllServices().length).to.equal(0);
+      });
+
+      it('should reject a non-owner', async () => {
+        await listSvc();
+        await expectToThrow(
+          agentescrow.actions.rmservice([0]).send('agent1@active'),
+          'missing required authority owner'
+        );
+      });
+
+      it('should reject a missing service', async () => {
+        await expectToThrow(
+          agentescrow.actions.rmservice([99]).send('owner@active'),
+          protonAssert('Service not found')
+        );
+      });
+    });
+
+    /* ---------------- buy:<service_id> ---------------- */
+
+    describe('buy', () => {
+      it('should create a funded direct-hire job on purchase', async () => {
+        await listSvc();
+
+        await eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active');
+
+        const job = getJob(0);
+        expect(job).to.not.be.undefined;
+        expect(job.client).to.equal('client');
+        expect(job.agent).to.equal('agent1');
+        expect(job.title).to.equal('Logo design');
+        expect(job.description).to.equal('A hand-crafted logo delivered as SVG and PNG');
+        expect(job.deliverables).to.equal('["logo.svg","logo.png"]');
+        expect(job.amount).to.equal(1000000);
+        expect(job.symbol).to.equal('XPR');
+        expect(job.funded_amount).to.equal(1000000);
+        expect(job.released_amount).to.equal(0);
+        expect(job.state).to.equal(1); // FUNDED
+        expect(job.arbitrator).to.equal('');
+        expect(job.job_hash).to.equal('svc:0');
+        expect(job.updated_at).to.equal(job.created_at);
+        expect(job.deadline).to.equal(job.created_at + 86400);
+
+        expect(getService(0).sales).to.equal(1);
+      });
+
+      it('should use the next jobs primary key', async () => {
+        await registerArbitrator('arbitrator1');
+        await createAndFundJob(); // job 0
+        await listSvc();
+
+        await eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active');
+
+        expect(getJob(1).job_hash).to.equal('svc:0');
+        expect(getAllJobs().length).to.equal(2);
+      });
+
+      it('should accept the exact price with no refund', async () => {
+        await listSvc();
+        const before = getXprBalance('client');
+
+        await eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active');
+
+        // The full 100 XPR stays in escrow
+        expect(getXprBalance('client')).to.equal(before - 100);
+      });
+
+      it('should refund the excess over the price', async () => {
+        await listSvc();
+        const before = getXprBalance('client');
+
+        await eosioToken.actions.transfer(['client', 'agentescrow', '150.0000 XPR', 'buy:0']).send('client@active');
+
+        // 50 XPR of the 150 comes straight back
+        expect(getXprBalance('client')).to.equal(before - 100);
+        expect(getJob(0).funded_amount).to.equal(1000000);
+        expect(getJob(0).amount).to.equal(1000000);
+      });
+
+      it('should reject a payment below the price', async () => {
+        await listSvc();
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '99.9999 XPR', 'buy:0']).send('client@active'),
+          protonAssert('Insufficient payment')
+        );
+      });
+
+      it('should reject an unknown service', async () => {
+        await listSvc();
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:99']).send('client@active'),
+          protonAssert('Service not found')
+        );
+      });
+
+      it('should reject a delisted service', async () => {
+        await listSvc();
+        await agentescrow.actions.delistsvc(['agent1', 0]).send('agent1@active');
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active'),
+          protonAssert('Service is not active')
+        );
+      });
+
+      it('should reject the selling agent buying its own service', async () => {
+        await listSvc();
+        await expectToThrow(
+          eosioToken.actions.transfer(['agent1', 'agentescrow', '100.0000 XPR', 'buy:0']).send('agent1@active'),
+          protonAssert('Cannot buy your own service')
+        );
+      });
+
+      it("should reject the agent's owner buying the service", async () => {
+        await listSvc();
+        setAgentOwner('agent1', 'client');
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active'),
+          protonAssert('Client cannot hire an agent they own')
+        );
+      });
+
+      it('should reject a purchase once the agent is inactive', async () => {
+        await listSvc();
+        await agentcore.actions.setstatus(['agent1', false]).send('agent1@active');
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active'),
+          protonAssert('Agent is not active')
+        );
+      });
+
+      it('should reject a malformed memo', async () => {
+        await listSvc();
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:']).send('client@active'),
+          protonAssert('Invalid service ID format')
+        );
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:abc']).send('client@active'),
+          protonAssert('Service ID must be numeric')
+        );
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy 0']).send('client@active'),
+          protonAssert("Invalid memo. Use 'fund:JOB_ID', 'buy:SERVICE_ID', 'svcfee:AGENT', 'boost:SERVICE_ID' or 'arbstake'")
+        );
+      });
+
+      it('should reject a purchase when paused', async () => {
+        await listSvc();
+        await agentescrow.actions.setconfig([200, 10000, 30, 604800, true, 'agentcore', 'agentfeed', 604800, 10000000, 604800]).send('owner@active');
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active'),
+          protonAssert('Contract is paused')
+        );
+      });
+
+      it('should run the normal job lifecycle on a purchased job', async () => {
+        await listSvc();
+        await eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active');
+
+        await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+        expect(getJob(0).state).to.equal(2); // ACCEPTED
+        await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+        await agentescrow.actions.deliver(['agent1', 0, 'ipfs://QmDelivered']).send('agent1@active');
+        await agentescrow.actions.approve(['client', 0]).send('client@active');
+
+        const job = getJob(0);
+        expect(job.state).to.equal(6); // COMPLETED
+        expect(job.released_amount).to.equal(1000000);
+      });
+
+      it('should count each purchase in sales', async () => {
+        await listSvc();
+        await eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active');
+        await eosioToken.actions.transfer(['arbitrator1', 'agentescrow', '100.0000 XPR', 'buy:0']).send('arbitrator1@active');
+
+        expect(getService(0).sales).to.equal(2);
+        expect(getAllJobs().length).to.equal(2);
+        expect(getJob(1).client).to.equal('arbitrator1');
+      });
+    });
+
+    /* ---------------- svcconfig ---------------- */
+
+    describe('setsvcconfig', () => {
+      it('should seed the defaults on init', async () => {
+        const cfg = getSvcConfig();
+        expect(cfg.service_fee).to.equal(50000);   // 5.0000 XPR
+        expect(cfg.boost_min).to.equal(10000);     // 1.0000 XPR
+        expect(cfg.boost_rate).to.equal(10000);    // 1.0000 XPR per day
+      });
+
+      it('should let the owner change the settings', async () => {
+        await agentescrow.actions.setsvcconfig([100000, 20000, 20000]).send('owner@active');
+        const cfg = getSvcConfig();
+        expect(cfg.service_fee).to.equal(100000);
+        expect(cfg.boost_min).to.equal(20000);
+        expect(cfg.boost_rate).to.equal(20000);
+      });
+
+      it('should reject a non-owner', async () => {
+        await expectToThrow(
+          agentescrow.actions.setsvcconfig([0, 10000, 10000]).send('agent1@active'),
+          'missing required authority owner'
+        );
+      });
+
+      it('should reject a zero boost minimum', async () => {
+        await expectToThrow(
+          agentescrow.actions.setsvcconfig([50000, 0, 10000]).send('owner@active'),
+          protonAssert('Boost minimum must be positive')
+        );
+      });
+
+      it('should reject a zero boost rate', async () => {
+        await expectToThrow(
+          agentescrow.actions.setsvcconfig([50000, 10000, 0]).send('owner@active'),
+          protonAssert('Boost rate must be positive')
+        );
+      });
+
+      it('should reject a boost minimum that buys less than a day', async () => {
+        await expectToThrow(
+          agentescrow.actions.setsvcconfig([50000, 10000, 20000]).send('owner@active'),
+          protonAssert('Boost minimum must buy at least one day')
+        );
+      });
+    });
+
+    /* ---------------- listing fee ---------------- */
+
+    describe('listing fee', () => {
+      it('should reject a listing with no deposit', async () => {
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs()).send('agent1@active'),
+          protonAssert("Listing fee not paid. Send XPR with memo 'svcfee:agent1'")
+        );
+      });
+
+      it('should reject an underpaid deposit', async () => {
+        await payListingFee('agent1', '4.0000 XPR');
+        await expectToThrow(
+          agentescrow.actions.listsvc(svcArgs()).send('agent1@active'),
+          protonAssert('Insufficient listing fee. Required: 5 XPR')
+        );
+      });
+
+      it('should clear the deposit when it exactly covers the fee', async () => {
+        await payListingFee();
+        expect(getSvcDeposit('agent1').amount).to.equal(50000);
+
+        await agentescrow.actions.listsvc(svcArgs()).send('agent1@active');
+
+        expect(getSvcDeposit('agent1')).to.be.undefined;
+        expect(getService(0)).to.not.be.undefined;
+      });
+
+      it('should consume exactly the fee and leave the remainder', async () => {
+        await payListingFee('agent1', '12.0000 XPR');
+        const paidAt = getSvcDeposit('agent1').paid_at;
+
+        await agentescrow.actions.listsvc(svcArgs()).send('agent1@active');
+
+        const deposit = getSvcDeposit('agent1');
+        expect(deposit.amount).to.equal(70000);      // 12 - 5 XPR
+        expect(deposit.paid_at).to.equal(paidAt);    // top-ups/consumption keep the original clock
+      });
+
+      it('should accumulate top-ups and keep the first paid_at', async () => {
+        await payListingFee('agent1', '2.0000 XPR');
+        const paidAt = getSvcDeposit('agent1').paid_at;
+        blockchain.addTime(TimePointSec.from(3600));
+        await payListingFee('agent1', '2.0000 XPR');
+
+        const deposit = getSvcDeposit('agent1');
+        expect(deposit.amount).to.equal(40000);
+        expect(deposit.paid_at).to.equal(paidAt);
+      });
+
+      it('should forward the fee to the platform-fee destination', async () => {
+        const ownerBefore = getXprBalance('owner');
+        const agentBefore = getXprBalance('agent1');
+
+        await listSvc();
+
+        expect(getXprBalance('owner')).to.equal(ownerBefore + 5);
+        expect(getXprBalance('agent1')).to.equal(agentBefore - 5);
+      });
+
+      it('should skip the fee entirely when service_fee is 0', async () => {
+        await agentescrow.actions.setsvcconfig([0, 10000, 10000]).send('owner@active');
+        const ownerBefore = getXprBalance('owner');
+
+        await agentescrow.actions.listsvc(svcArgs()).send('agent1@active');
+
+        expect(getService(0)).to.not.be.undefined;
+        expect(getSvcDeposit('agent1')).to.be.undefined;
+        expect(getXprBalance('owner')).to.equal(ownerBefore);
+      });
+
+      it('should keep updates, delist and relist free', async () => {
+        await listSvc();
+        expect(getSvcDeposit('agent1')).to.be.undefined;
+
+        await agentescrow.actions.updatesvc(updateArgs(0, { title: 'Cheaper logo' })).send('agent1@active');
+        await agentescrow.actions.delistsvc(['agent1', 0]).send('agent1@active');
+        await agentescrow.actions.relistsvc(['agent1', 0]).send('agent1@active');
+
+        expect(getService(0).title).to.equal('Cheaper logo');
+        expect(getService(0).active).to.equal(true);
+      });
+
+      it('should reject a svcfee deposit from another payer', async () => {
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '5.0000 XPR', 'svcfee:agent1']).send('client@active'),
+          protonAssert('Payer must match account in memo')
+        );
+      });
+
+      it('should reject a svcfee memo with no account name', async () => {
+        await expectToThrow(
+          eosioToken.actions.transfer(['agent1', 'agentescrow', '5.0000 XPR', 'svcfee:']).send('agent1@active'),
+          protonAssert('Invalid account name in memo')
+        );
+      });
+    });
+
+    /* ---------------- refundsvcfee ---------------- */
+
+    describe('refundsvcfee', () => {
+      it('should reject a refund before 7 days', async () => {
+        await payListingFee();
+        await expectToThrow(
+          agentescrow.actions.refundsvcfee(['agent1']).send('agent1@active'),
+          protonAssert('Listing fee can only be refunded 7 days after payment')
+        );
+
+        // one second short of the window
+        blockchain.addTime(TimePointSec.from(604799));
+        await expectToThrow(
+          agentescrow.actions.refundsvcfee(['agent1']).send('agent1@active'),
+          protonAssert('Listing fee can only be refunded 7 days after payment')
+        );
+      });
+
+      it('should refund an unconsumed deposit after 7 days', async () => {
+        await payListingFee();
+        const before = getXprBalance('agent1');
+
+        blockchain.addTime(TimePointSec.from(604800));
+        await agentescrow.actions.refundsvcfee(['agent1']).send('agent1@active');
+
+        expect(getSvcDeposit('agent1')).to.be.undefined;
+        expect(getXprBalance('agent1')).to.equal(before + 5);
+      });
+
+      it('should refund only the unconsumed remainder', async () => {
+        await payListingFee('agent1', '12.0000 XPR');
+        await agentescrow.actions.listsvc(svcArgs()).send('agent1@active');
+        const before = getXprBalance('agent1');
+
+        blockchain.addTime(TimePointSec.from(604800));
+        await agentescrow.actions.refundsvcfee(['agent1']).send('agent1@active');
+
+        expect(getXprBalance('agent1')).to.equal(before + 7);
+        expect(getSvcDeposit('agent1')).to.be.undefined;
+      });
+
+      it('should reject a refund with no deposit', async () => {
+        await expectToThrow(
+          agentescrow.actions.refundsvcfee(['agent1']).send('agent1@active'),
+          protonAssert('No listing fee deposit found')
+        );
+      });
+
+      it('should require the agent authority', async () => {
+        await payListingFee();
+        blockchain.addTime(TimePointSec.from(604800));
+        await expectToThrow(
+          agentescrow.actions.refundsvcfee(['agent1']).send('client@active'),
+          'missing required authority agent1'
+        );
+      });
+    });
+
+    /* ---------------- boost (featured placement) ---------------- */
+
+    describe('boost', () => {
+      const DAY = 86400;
+
+      it('should reject featuring an agent with no completed jobs', async () => {
+        await listSvc();
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '3.0000 XPR', 'boost:0']).send('client@active'),
+          protonAssert('Agent must have completed a job before featuring')
+        );
+      });
+
+      it('should feature a listing for one day per rate unit', async () => {
+        await listSvc();
+        await completeOneJob();
+
+        await eosioToken.actions.transfer(['client', 'agentescrow', '3.0000 XPR', 'boost:0']).send('client@active');
+
+        const svc = getService(0);
+        expect(svc.boost_paid).to.equal(30000);
+        expect(svc.featured_until).to.be.at.least(1700000000 + 3 * DAY);
+        expect(svc.featured_until).to.be.at.most(1700000000 + 3 * DAY + 600);
+      });
+
+      it('should extend an already featured listing from featured_until', async () => {
+        await listSvc();
+        await completeOneJob();
+
+        await eosioToken.actions.transfer(['client', 'agentescrow', '1.0000 XPR', 'boost:0']).send('client@active');
+        const first = getService(0).featured_until;
+
+        await eosioToken.actions.transfer(['client', 'agentescrow', '2.0000 XPR', 'boost:0']).send('client@active');
+        const second = getService(0);
+
+        expect(second.featured_until).to.equal(first + 2 * DAY);
+        expect(second.boost_paid).to.equal(30000);
+      });
+
+      it('should restart from now once the feature has expired', async () => {
+        await listSvc();
+        await completeOneJob();
+
+        await eosioToken.actions.transfer(['client', 'agentescrow', '3.0000 XPR', 'boost:0']).send('client@active');
+        const first = getService(0).featured_until;
+
+        // 4 days later the listing is no longer featured
+        blockchain.addTime(TimePointSec.from(4 * DAY));
+        await eosioToken.actions.transfer(['client', 'agentescrow', '1.0000 XPR', 'boost:0']).send('client@active');
+
+        const svc = getService(0);
+        expect(svc.featured_until).to.be.greaterThan(first + DAY); // not stacked on the stale value
+        expect(svc.featured_until).to.be.at.least(1700000000 + 5 * DAY);
+        expect(svc.boost_paid).to.equal(40000);
+      });
+
+      it('should forward the boost to the platform-fee destination', async () => {
+        await listSvc();
+        await completeOneJob();
+        const ownerBefore = getXprBalance('owner');
+        const clientBefore = getXprBalance('client');
+
+        await eosioToken.actions.transfer(['client', 'agentescrow', '2.0000 XPR', 'boost:0']).send('client@active');
+
+        expect(getXprBalance('owner')).to.equal(ownerBefore + 2);
+        expect(getXprBalance('client')).to.equal(clientBefore - 2);
+      });
+
+      it('should let the selling agent boost its own listing', async () => {
+        await listSvc();
+        await completeOneJob();
+
+        await eosioToken.actions.transfer(['agent1', 'agentescrow', '1.0000 XPR', 'boost:0']).send('agent1@active');
+
+        expect(getService(0).boost_paid).to.equal(10000);
+      });
+
+      it('should reject a boost below the minimum', async () => {
+        await listSvc();
+        await completeOneJob();
+
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '0.5000 XPR', 'boost:0']).send('client@active'),
+          protonAssert('Boost amount below minimum')
+        );
+      });
+
+      it('should honour a raised boost minimum', async () => {
+        await listSvc();
+        await completeOneJob();
+        await agentescrow.actions.setsvcconfig([50000, 50000, 50000]).send('owner@active');
+
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '4.0000 XPR', 'boost:0']).send('client@active'),
+          protonAssert('Boost amount below minimum')
+        );
+
+        await eosioToken.actions.transfer(['client', 'agentescrow', '10.0000 XPR', 'boost:0']).send('client@active');
+        const svc = getService(0);
+        expect(svc.boost_paid).to.equal(100000);
+        expect(svc.featured_until).to.be.at.least(1700000000 + 2 * DAY);
+        expect(svc.featured_until).to.be.at.most(1700000000 + 2 * DAY + 600);
+      });
+
+      it('should reject boosting a delisted service', async () => {
+        await listSvc();
+        await completeOneJob();
+        await agentescrow.actions.delistsvc(['agent1', 0]).send('agent1@active');
+
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '1.0000 XPR', 'boost:0']).send('client@active'),
+          protonAssert('Service is not active')
+        );
+      });
+
+      it('should reject boosting an unknown service', async () => {
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '1.0000 XPR', 'boost:99']).send('client@active'),
+          protonAssert('Service not found')
+        );
+      });
+
+      it('should reject a malformed boost memo', async () => {
+        await listSvc();
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '1.0000 XPR', 'boost:']).send('client@active'),
+          protonAssert('Invalid service ID format')
+        );
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '1.0000 XPR', 'boost:abc']).send('client@active'),
+          protonAssert('Service ID must be numeric')
+        );
+      });
+
+      it('should reject a boost when paused', async () => {
+        await listSvc();
+        await completeOneJob();
+        await agentescrow.actions.setconfig([200, 10000, 30, 604800, true, 'agentcore', 'agentfeed', 604800, 10000000, 604800]).send('owner@active');
+
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '1.0000 XPR', 'boost:0']).send('client@active'),
+          protonAssert('Contract is paused')
+        );
+      });
+
+      it('should reject an unknown memo listing the supported ones', async () => {
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '1.0000 XPR', 'sponsor:0']).send('client@active'),
+          protonAssert("Invalid memo. Use 'fund:JOB_ID', 'buy:SERVICE_ID', 'svcfee:AGENT', 'boost:SERVICE_ID' or 'arbstake'")
+        );
+      });
     });
   });
 });

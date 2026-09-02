@@ -56,6 +56,7 @@ describe('Database Schema', () => {
     expect(tableNames).toContain('events');
     expect(tableNames).toContain('stats');
     expect(tableNames).toContain('jobs');
+    expect(tableNames).toContain('services');
     expect(tableNames).toContain('milestones');
     expect(tableNames).toContain('escrow_disputes');
     expect(tableNames).toContain('arbitrators');

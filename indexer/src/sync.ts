@@ -174,6 +174,25 @@ export async function syncFromChain(
     console.log(`[sync] Jobs: ${jobs.length}`);
   }
 
+  // ── Services ──────────────────────────────────────
+  const services = await fetchAllRows(rpc, contracts.agentescrow, 'services');
+  if (services.length > 0) {
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO services (id, agent, title, description, deliverables, price, turnaround, category, sample_uri, active, sales, boost_paid, featured_until, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const s of services) {
+      stmt.run(
+        s.id, s.agent, s.title || '', s.description || '',
+        s.deliverables || '[]', s.price || 0, s.turnaround || 0,
+        s.category || '', s.sample_uri || '', s.active ? 1 : 0,
+        s.sales || 0, s.boost_paid || 0, s.featured_until || 0,
+        s.created_at || 0, s.updated_at || 0
+      );
+    }
+    console.log(`[sync] Services: ${services.length}`);
+  }
+
   // ── Bids ──────────────────────────────────────────
   const bids = await fetchAllRows(rpc, contracts.agentescrow, 'bids');
   if (bids.length > 0) {

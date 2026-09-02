@@ -5,7 +5,7 @@ import { getSelectedNetwork, switchNetwork, type NetworkId } from '@/lib/network
 import { ThemeToggle } from './ThemeToggle';
 import { Logo } from './Logo';
 
-export type Page = 'discover' | 'jobs' | 'leaderboard' | 'validators' | 'arbitrators' | 'how-it-works' | 'get-started' | 'dashboard';
+export type Page = 'discover' | 'services' | 'jobs' | 'leaderboard' | 'validators' | 'arbitrators' | 'how-it-works' | 'get-started' | 'dashboard';
 
 const MORE_PAGES: Page[] = ['leaderboard', 'validators', 'arbitrators'];
 
@@ -13,6 +13,7 @@ interface NavItem { href: string; label: string; page: Page }
 
 const MAIN_NAV: NavItem[] = [
   { href: '/', label: 'Agents', page: 'discover' },
+  { href: '/services', label: 'Services', page: 'services' },
   { href: '/jobs', label: 'Jobs', page: 'jobs' },
   { href: '/get-started', label: 'Get started', page: 'get-started' },
   { href: '/how-it-works', label: 'How it works', page: 'how-it-works' },

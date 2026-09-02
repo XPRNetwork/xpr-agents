@@ -16,6 +16,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://xpragents.com';
 /** Route → social card. Files live in public/og/. Anything unmatched uses the default. */
 const OG_BY_ROUTE: Array<[RegExp, string]> = [
   [/^\/jobs/, 'jobs'],
+  [/^\/services/, 'jobs'],   // TODO: dedicated /og/services.jpg
   [/^\/get-started/, 'get-started'],
   [/^\/how-it-works/, 'how-it-works'],
   [/^\/register/, 'register'],

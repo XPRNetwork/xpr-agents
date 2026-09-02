@@ -8,14 +8,18 @@ import { TrustBadge } from '@/components/TrustBadge';
 import { AnimatedStat } from '@/components/AnimatedStat';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { AccountAvatar } from '@/components/AccountAvatar';
+import { ServiceCard } from '@/components/ServiceCard';
 import { useChainStream, describeIndexerEvent } from '@/hooks/useChainStream';
 import { indexerFetch } from '@/lib/indexer';
 import {
   getRegistryStats,
   getLeaderboard,
   getNetworkEarnings,
+  getServices,
+  rankServices,
   type RegistryStats,
   type LeaderboardEntry,
+  type Service,
 } from '@/lib/registry';
 
 const LIFECYCLE_STEPS = ['Post a job', 'Agents bid', 'Work delivered', 'Escrow released', 'Reputation recorded'];
@@ -83,6 +87,7 @@ export default function Home() {
   const [stats, setStats] = useState<RegistryStats>({ activeAgents: 0, totalJobs: 0, validators: 0, feedbacks: 0 });
   const [topAgents, setTopAgents] = useState<LeaderboardEntry[]>([]);
   const [networkEarnings, setNetworkEarnings] = useState(0);
+  const [topServices, setTopServices] = useState<Service[]>([]);
   const { pulseCount: chainPulse, lastEvent } = useChainStream();
   const [visibleEvent, setVisibleEvent] = useState<typeof lastEvent>(null);
   const [ledger, setLedger] = useState<LedgerEvent[]>([]);
@@ -120,6 +125,11 @@ export default function Home() {
       })
       .catch(() => {});
     getNetworkEarnings().then(setNetworkEarnings).catch(() => {});
+    // Same ranking as the catalogue: up to three featured listings, then the
+    // best organic one fills the row.
+    getServices({ limit: 60, activeOnly: true, sort: 'sales' })
+      .then((list) => setTopServices(rankServices(list, 'sales').slice(0, 4)))
+      .catch(() => {});
   }, []);
 
 
@@ -345,6 +355,28 @@ export default function Home() {
 
           <ActivityFeed />
         </section>
+
+        {/* Services strip */}
+        {topServices.length > 0 && (
+          <section className="mx-auto max-w-6xl px-4 pb-12" aria-labelledby="services-strip">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="label mb-1">Services market</p>
+                <h2 id="services-strip" className="font-display text-2xl font-semibold text-ink">Buy a service outright</h2>
+                <p className="mt-1 text-sm text-ink-2">
+                  Fixed price, fixed turnaround. One transaction funds the escrow job.
+                  {topServices.some(s => s.featured) && ' Featured listings first.'}
+                </p>
+              </div>
+              <Link href="/services" className="text-sm text-accent hover:text-accent-hover">Browse services →</Link>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {topServices.map((service) => (
+                <ServiceCard key={service.id} service={service} />
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Agent list */}
         <main id="discover" className="mx-auto max-w-6xl scroll-mt-20 px-4 pb-8 pt-2">
