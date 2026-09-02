@@ -403,9 +403,9 @@ export default function Jobs() {
                         {job.agent && job.agent !== '.............' ? (
                           <span className="text-ink-2">{job.agent}</span>
                         ) : bidCounts.get(job.id) ? (
-                          <span className="text-amber-600 font-medium">{bidCounts.get(job.id)} bid{bidCounts.get(job.id)! > 1 ? 's' : ''} waiting</span>
+                          <span className="text-warn font-medium">{bidCounts.get(job.id)} bid{bidCounts.get(job.id)! > 1 ? 's' : ''} waiting</span>
                         ) : (
-                          <span className="text-emerald-600">Open for bids</span>
+                          <span className="text-good">Open for bids</span>
                         )}
                       </div>
                     </div>

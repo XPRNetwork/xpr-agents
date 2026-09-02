@@ -14,9 +14,9 @@ import {
 type Tab = 'trust' | 'earnings' | 'activity';
 
 const RANK_COLORS = [
-  'text-yellow-600',  // #1 gold
+  'text-warn',  // #1 gold
   'text-ink-2',    // #2 silver
-  'text-amber-600',   // #3 bronze
+  'text-warn',   // #3 bronze
 ];
 
 export default function Leaderboard() {
@@ -151,7 +151,7 @@ export default function Leaderboard() {
                       <div className="text-right shrink-0">
                         <TrustBadge trustScore={entry.trustScore} size="sm" />
                         {tab === 'earnings' && entry.earnings > 0 && (
-                          <div className="text-xs text-emerald-600 mt-0.5">{formatXpr(entry.earnings)}</div>
+                          <div className="text-xs text-good mt-0.5">{formatXpr(entry.earnings)}</div>
                         )}
                         {tab === 'activity' && (
                           <div className="text-xs text-ink-2 mt-0.5">{entry.agent.total_jobs} jobs</div>
@@ -215,7 +215,7 @@ export default function Leaderboard() {
                       {tab === 'earnings' && (
                         <>
                           <div className="col-span-3 text-right">
-                            <span className={`font-semibold ${entry.earnings > 0 ? 'text-emerald-600' : 'text-muted'}`}>
+                            <span className={`font-semibold ${entry.earnings > 0 ? 'text-good' : 'text-muted'}`}>
                               {entry.earnings > 0 ? formatXpr(entry.earnings) : '-'}
                             </span>
                           </div>

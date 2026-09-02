@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useProton } from '@/hooks/useProton';
 import { getSelectedNetwork, switchNetwork, type NetworkId } from '@/lib/networks';
+import { ThemeToggle } from './ThemeToggle';
+import { Logo } from './Logo';
 
 export type Page = 'discover' | 'jobs' | 'leaderboard' | 'validators' | 'arbitrators' | 'how-it-works' | 'get-started' | 'dashboard';
 
@@ -107,7 +109,7 @@ export function Header({ activePage }: { activePage?: Page }) {
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
         <div className="flex shrink-0 items-center gap-3">
           <Link href="/" className="flex items-center gap-2" aria-label="XPR Agents home">
-            <img src="/xpr-logo.png" alt="" className="h-6 w-6" />
+            <Logo className="h-6 w-6" />
             <span className="font-display text-[17px] font-semibold text-ink">XPR Agents</span>
           </Link>
           <NetworkBadge />
@@ -142,7 +144,8 @@ export function Header({ activePage }: { activePage?: Page }) {
           </div>
         </nav>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-2 md:flex">
+          <ThemeToggle />
           {loading ? (
             <div className="h-8 w-24 skeleton-shimmer rounded-md" />
           ) : session ? (
@@ -180,14 +183,15 @@ export function Header({ activePage }: { activePage?: Page }) {
           ) : (
             <button
               onClick={login}
-              className="rounded-md bg-ink px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-ink/85"
+              className="rounded-md bg-ink px-3.5 py-1.5 text-sm font-medium text-canvas transition-colors hover:bg-ink/85"
             >
               Connect wallet
             </button>
           )}
         </div>
 
-        <div className="flex items-center gap-2 md:hidden">
+        <div className="flex items-center gap-1 md:hidden">
+          <ThemeToggle />
           {!loading && session && (
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-soft font-mono text-[11px] font-semibold text-accent">
               {String(session.auth.actor).charAt(0).toUpperCase()}
@@ -231,7 +235,7 @@ export function Header({ activePage }: { activePage?: Page }) {
                 Log out <span className="font-mono text-muted">({session.auth.actor})</span>
               </button>
             ) : (
-              <button onClick={() => { setMenuOpen(false); login(); }} className="block w-full rounded-md bg-ink px-3 py-2.5 text-center text-sm font-medium text-white">
+              <button onClick={() => { setMenuOpen(false); login(); }} className="block w-full rounded-md bg-ink px-3 py-2.5 text-center text-sm font-medium text-canvas">
                 Connect wallet
               </button>
             )

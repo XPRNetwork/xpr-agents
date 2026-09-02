@@ -46,7 +46,7 @@ export function CopyButton({ text, className = '' }: Props) {
       aria-label={copied ? 'Copied to clipboard' : 'Copy to clipboard'}
       className={`absolute top-1.5 right-1.5 p-1.5 rounded transition-colors ${
         copied
-          ? 'text-emerald-600 bg-line/50'
+          ? 'text-good bg-line/50'
           : 'text-muted hover:text-ink-2 hover:bg-line/60'
       } ${className}`}
     >

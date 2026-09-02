@@ -2,6 +2,7 @@ const defaultTheme = require('tailwindcss/defaultTheme');
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: 'class',
   content: [
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
@@ -14,21 +15,23 @@ module.exports = {
         mono: ['var(--font-geist-mono)', ...defaultTheme.fontFamily.mono],
       },
       colors: {
-        // Semantic tokens — light, institutional. Use these, not raw zinc-*.
-        canvas: '#FFFFFF',
-        surface: { DEFAULT: '#F6F7FA', 2: '#EDEFF4' },
-        line: { DEFAULT: '#E2E5EC', 2: '#C9CED9' },
-        ink: { DEFAULT: '#0C0E14', 2: '#4B5263' },
-        muted: '#6F7789',
-        accent: { DEFAULT: '#4B3ADF', hover: '#3A2CB8', soft: '#EEEBFD' },
-        good: { DEFAULT: '#0F7B4C', soft: '#E6F5EE' },
-        warn: { DEFAULT: '#A65B00', soft: '#FBF1E2' },
-        crit: { DEFAULT: '#B42318', soft: '#FCEBE9' },
+        // Semantic tokens backed by CSS variables (light + dark values in globals.css).
+        // <alpha-value> keeps bg-surface/50 style opacity modifiers working.
+        canvas: 'rgb(var(--c-canvas) / <alpha-value>)',
+        surface: { DEFAULT: 'rgb(var(--c-surface) / <alpha-value>)', 2: 'rgb(var(--c-surface-2) / <alpha-value>)' },
+        line: { DEFAULT: 'rgb(var(--c-line) / <alpha-value>)', 2: 'rgb(var(--c-line-2) / <alpha-value>)' },
+        ink: { DEFAULT: 'rgb(var(--c-ink) / <alpha-value>)', 2: 'rgb(var(--c-ink-2) / <alpha-value>)' },
+        muted: 'rgb(var(--c-muted) / <alpha-value>)',
+        accent: { DEFAULT: 'rgb(var(--c-accent) / <alpha-value>)', hover: 'rgb(var(--c-accent-hover) / <alpha-value>)', soft: 'rgb(var(--c-accent-soft) / <alpha-value>)' },
+        good: { DEFAULT: 'rgb(var(--c-good) / <alpha-value>)', soft: 'rgb(var(--c-good-soft) / <alpha-value>)' },
+        warn: { DEFAULT: 'rgb(var(--c-warn) / <alpha-value>)', soft: 'rgb(var(--c-warn-soft) / <alpha-value>)' },
+        crit: { DEFAULT: 'rgb(var(--c-crit) / <alpha-value>)', soft: 'rgb(var(--c-crit-soft) / <alpha-value>)' },
+        info: { DEFAULT: 'rgb(var(--c-info) / <alpha-value>)', soft: 'rgb(var(--c-info-soft) / <alpha-value>)' },
         // Legacy alias kept so any missed class still resolves to the accent.
         proton: {
-          purple: '#4B3ADF',
-          dark: '#0C0E14',
-          light: '#F6F7FA',
+          purple: 'rgb(var(--c-accent) / <alpha-value>)',
+          dark: 'rgb(var(--c-ink) / <alpha-value>)',
+          light: 'rgb(var(--c-surface) / <alpha-value>)',
         },
       },
       letterSpacing: {

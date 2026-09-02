@@ -271,8 +271,8 @@ export default function Dashboard() {
                     <span
                       className={`px-3 py-1 rounded-full text-sm ${
                         agent.active
-                          ? 'bg-emerald-50 text-emerald-600'
-                          : 'bg-red-50 text-red-600'
+                          ? 'bg-good-soft text-good'
+                          : 'bg-crit-soft text-crit'
                       }`}
                     >
                       {agent.active ? 'Active' : 'Inactive'}

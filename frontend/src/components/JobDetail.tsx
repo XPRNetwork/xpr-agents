@@ -553,7 +553,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
       .replace(/>/g, '&gt;');
 
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, _lang, code) => {
-      return `<pre style="background:#18181b;padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0"><code>${code.trim()}</code></pre>`;
+      return `<pre style="background:rgb(var(--c-surface-2));padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0"><code>${code.trim()}</code></pre>`;
     });
 
     const lines = html.split('\n');
@@ -574,12 +574,12 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
       if (line.startsWith('### ')) {
         if (inList) { result.push('</ul>'); inList = false; }
-        result.push(`<h3 style="font-size:1rem;font-weight:600;color:#e4e4e7;margin:12px 0 4px">${line.slice(4)}</h3>`);
+        result.push(`<h3 style="font-size:1rem;font-weight:600;color:rgb(var(--c-ink));margin:12px 0 4px">${line.slice(4)}</h3>`);
         continue;
       }
       if (line.startsWith('## ')) {
         if (inList) { result.push('</ul>'); inList = false; }
-        result.push(`<h2 style="font-size:1.1rem;font-weight:700;color:#e4e4e7;margin:16px 0 6px">${line.slice(3)}</h2>`);
+        result.push(`<h2 style="font-size:1.1rem;font-weight:700;color:rgb(var(--c-ink));margin:16px 0 6px">${line.slice(3)}</h2>`);
         continue;
       }
       if (line.startsWith('# ')) {
@@ -597,7 +597,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
       if (inList) { result.push('</ul>'); inList = false; }
 
       if (/^---+$/.test(line.trim())) {
-        result.push('<hr style="border-color:#3f3f46;margin:12px 0"/>');
+        result.push('<hr style="border-color:rgb(var(--c-line));margin:12px 0"/>');
         continue;
       }
 
@@ -620,9 +620,9 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^\)]+)\)/g, (_m, alt, url) =>
       `<img src="${unescapeUrl(url)}" alt="${alt}" style="max-width:100%;border-radius:8px;margin:8px 0" loading="lazy" />`);
     text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    text = text.replace(/`([^`]+)`/g, '<code style="background:#27272a;padding:1px 4px;border-radius:3px;font-size:0.9em">$1</code>');
+    text = text.replace(/`([^`]+)`/g, '<code style="background:rgb(var(--c-surface-2));padding:1px 4px;border-radius:3px;font-size:0.9em">$1</code>');
     text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, (_m, label, url) =>
-      `<a href="${unescapeUrl(url)}" target="_blank" rel="noopener noreferrer" style="color:#a78bfa;text-decoration:underline">${label}</a>`);
+      `<a href="${unescapeUrl(url)}" target="_blank" rel="noopener noreferrer" style="color:rgb(var(--c-accent));text-decoration:underline">${label}</a>`);
     return text;
   }
 
@@ -670,7 +670,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             <div className="text-xs text-muted">Budget</div>
           </div>
           <div className="bg-surface-2 rounded-lg p-3 text-center">
-            <div className={`text-lg font-bold ${job.funded_amount >= job.amount ? 'text-emerald-600' : 'text-ink-2'}`}>
+            <div className={`text-lg font-bold ${job.funded_amount >= job.amount ? 'text-good' : 'text-ink-2'}`}>
               {formatXpr(job.funded_amount)}
             </div>
             <div className="text-xs text-muted">Funded</div>
@@ -681,7 +681,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
         {job.funded_amount > 0 && job.funded_amount < job.amount && (
           <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
             <div
-              className="h-full bg-emerald-500 rounded-full"
+              className="h-full bg-good rounded-full"
               style={{ width: `${Math.min(100, (job.funded_amount / job.amount) * 100)}%` }}
             />
           </div>
@@ -705,13 +705,13 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
         {/* Deliverable Result */}
         {job.state >= 4 && job.agent && (
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="p-4 bg-info-soft border border-info/30 rounded-lg">
             <div className="flex justify-between items-center mb-2">
-              <h3 className="text-sm font-medium text-blue-600">Agent Deliverable</h3>
+              <h3 className="text-sm font-medium text-info">Agent Deliverable</h3>
               {!deliverableContent && !deliverableMediaUrl && !deliverableLoading && !deliverableType && (
                 <button
                   onClick={() => fetchDeliverable(job.id)}
-                  className="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  className="text-xs px-3 py-1 bg-info text-white rounded hover:bg-info"
                 >
                   View Result
                 </button>
@@ -858,7 +858,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
               <button
                 onClick={handleFundJob}
                 disabled={processing}
-                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:bg-line disabled:text-muted"
+                className="px-4 py-2 bg-good text-white rounded-lg text-sm hover:bg-good disabled:bg-line disabled:text-muted"
               >
                 {processing ? 'Funding...' : `Fund ${formatXpr(job.amount - job.funded_amount)}`}
               </button>
@@ -867,7 +867,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
               <button
                 onClick={handleApproveDelivery}
                 disabled={processing}
-                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:bg-line disabled:text-muted"
+                className="px-4 py-2 bg-good text-white rounded-lg text-sm hover:bg-good disabled:bg-line disabled:text-muted"
               >
                 {processing ? 'Approving...' : 'Approve & Pay'}
               </button>
@@ -876,7 +876,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
               <button
                 onClick={() => setShowDispute(true)}
                 disabled={processing}
-                className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 disabled:bg-line disabled:text-muted"
+                className="px-4 py-2 bg-warn text-white rounded-lg text-sm hover:bg-warn disabled:bg-line disabled:text-muted"
               >
                 Dispute
               </button>
@@ -885,7 +885,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
               <button
                 onClick={handleCancelJob}
                 disabled={processing}
-                className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600 disabled:bg-line disabled:text-muted"
+                className="px-4 py-2 bg-crit text-white rounded-lg text-sm hover:bg-crit disabled:bg-line disabled:text-muted"
               >
                 {processing ? 'Cancelling...' : 'Cancel Job'}
               </button>
@@ -895,8 +895,8 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
         {/* Dispute Form */}
         {showDispute && (
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
-            <h3 className="text-sm font-bold text-amber-600">Raise Dispute</h3>
+          <div className="p-4 bg-warn-soft border border-warn/30 rounded-lg space-y-3">
+            <h3 className="text-sm font-bold text-warn">Raise Dispute</h3>
             <p className="text-xs text-ink-2">
               Disputes are reviewed by an arbitrator who decides how funds are split between you and the agent.
             </p>
@@ -906,7 +906,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                 value={disputeReason}
                 onChange={e => setDisputeReason(e.target.value)}
                 placeholder="Explain why you're disputing this job..."
-                className="w-full bg-surface-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                className="w-full bg-surface-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:ring-1 focus:ring-warn focus:border-warn"
                 rows={3}
               />
             </div>
@@ -917,14 +917,14 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                 value={disputeEvidence}
                 onChange={e => setDisputeEvidence(e.target.value)}
                 placeholder="https://..."
-                className="w-full bg-surface-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                className="w-full bg-surface-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:ring-1 focus:ring-warn focus:border-warn"
               />
             </div>
             <div className="flex gap-2">
               <button
                 onClick={handleDispute}
                 disabled={processing || !disputeReason.trim()}
-                className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 disabled:bg-line disabled:text-muted"
+                className="px-4 py-2 bg-warn text-white rounded-lg text-sm hover:bg-warn disabled:bg-line disabled:text-muted"
               >
                 {processing ? 'Submitting...' : 'Submit Dispute'}
               </button>
@@ -943,17 +943,17 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
         {(job.state === 5 || job.state === 8) && activeDispute && (
           <div className={`p-4 rounded-lg space-y-3 ${
             activeDispute.resolution === 0
-              ? 'bg-red-50 border border-red-200'
+              ? 'bg-crit-soft border border-crit/30'
               : 'bg-surface-2/50 border border-line-2'
           }`}>
             <div className="flex items-center justify-between">
-              <h3 className={`text-sm font-bold ${activeDispute.resolution === 0 ? 'text-red-600' : 'text-ink-2'}`}>
+              <h3 className={`text-sm font-bold ${activeDispute.resolution === 0 ? 'text-crit' : 'text-ink-2'}`}>
                 Dispute #{activeDispute.id}
               </h3>
               <span className={`text-xs px-2 py-0.5 rounded-full ${
                 activeDispute.resolution === 0
-                  ? 'bg-red-50 text-red-600'
-                  : 'bg-emerald-50 text-emerald-600'
+                  ? 'bg-crit-soft text-crit'
+                  : 'bg-good-soft text-good'
               }`}>
                 {DISPUTE_RESOLUTION_LABELS[activeDispute.resolution] || 'Unknown'}
               </span>
@@ -987,7 +987,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* Resolution details */}
             {activeDispute.resolution > 0 && (
               <div className="pt-3 border-t border-line-2 space-y-2">
-                <h4 className="text-sm font-medium text-emerald-600">Resolution</h4>
+                <h4 className="text-sm font-medium text-good">Resolution</h4>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <span className="text-xs text-muted block">To client</span>
@@ -1029,7 +1029,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
             {/* Resolve form */}
             {activeDispute.resolution === 0 && isArbitrator && showResolve && (
-              <div className="space-y-3 pt-2 border-t border-red-200">
+              <div className="space-y-3 pt-2 border-t border-crit/30">
                 <h4 className="text-sm font-medium text-ink">Resolution</h4>
                 <div>
                   <label className="text-xs text-muted block mb-1">
@@ -1082,8 +1082,8 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
         {/* Assigned Agent */}
         {job.agent && job.agent !== '.............' && job.state > 0 && (
-          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
-            <h3 className="text-sm font-medium text-emerald-600 mb-2">Assigned Agent</h3>
+          <div className="p-4 bg-good-soft border border-good/30 rounded-lg">
+            <h3 className="text-sm font-medium text-good mb-2">Assigned Agent</h3>
             <div className="font-medium text-ink">
               <AccountLink account={job.agent} isAgent showAvatar avatarSize={28} />
             </div>
@@ -1199,14 +1199,14 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   return (
                     <div
                       key={bid.id}
-                      className={`p-3 border rounded-lg ${isWinner ? 'border-emerald-200 bg-emerald-50' : 'border-line'}`}
+                      className={`p-3 border rounded-lg ${isWinner ? 'border-good/30 bg-good-soft' : 'border-line'}`}
                     >
                       <div className="flex justify-between items-start">
                         <div>
                           <div className="flex items-center gap-2">
                             <AccountLink account={bid.agent} isAgent showAvatar avatarSize={22} className="font-medium text-sm" />
                             {isWinner && (
-                              <span className="px-1.5 py-0.5 rounded text-xs bg-emerald-50 text-emerald-600">Selected</span>
+                              <span className="px-1.5 py-0.5 rounded text-xs bg-good-soft text-good">Selected</span>
                             )}
                           </div>
                           <div className="flex items-baseline gap-2 mt-1">
@@ -1219,7 +1219,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                             <button
                               onClick={() => handleSelectBid(bid)}
                               disabled={processing}
-                              className="text-xs px-3 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                              className="text-xs px-3 py-1 bg-good text-white rounded hover:bg-good disabled:opacity-50"
                             >
                               Select & Fund
                             </button>
@@ -1228,7 +1228,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                             <button
                               onClick={() => handleWithdrawBid(bid.id)}
                               disabled={processing}
-                              className="text-xs text-red-600 hover:text-red-600 disabled:opacity-50"
+                              className="text-xs text-crit hover:text-crit disabled:opacity-50"
                             >
                               Withdraw
                             </button>
@@ -1257,7 +1257,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   key={s}
                   onClick={() => setRatingScore(s)}
                   className={`text-3xl transition-transform ${
-                    s <= ratingScore ? 'text-yellow-600 scale-110' : 'text-muted'
+                    s <= ratingScore ? 'text-warn scale-110' : 'text-muted'
                   } hover:scale-125`}
                 >
                   ★

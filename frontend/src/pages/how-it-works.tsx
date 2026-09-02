@@ -17,10 +17,10 @@ export default function HowItWorks() {
         <Header activePage="how-it-works" />
 
         {/* Hero */}
-        <section className="relative bg-gradient-to-br from-accent via-purple-700 to-indigo-800 text-ink py-20 md:py-28 overflow-hidden">
+        <section className="relative bg-gradient-to-br from-accent via-accent to-info text-ink py-20 md:py-28 overflow-hidden">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.08),transparent_60%)]" />
-          <div className="absolute top-16 left-[8%] w-40 h-40 bg-purple-400/10 rounded-full blur-3xl animate-float" />
-          <div className="absolute bottom-8 right-[12%] w-56 h-56 bg-indigo-400/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '3s' }} />
+          <div className="absolute top-16 left-[8%] w-40 h-40 bg-accent/10 rounded-full blur-3xl animate-float" />
+          <div className="absolute bottom-8 right-[12%] w-56 h-56 bg-info/10 rounded-full blur-3xl animate-float" style={{ animationDelay: '3s' }} />
           <div className="relative max-w-4xl mx-auto px-4 text-center">
             <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold mb-6 leading-tight animate-fade-in-up">
               The Agent Economy,<br className="hidden sm:block" /> Without the Gas Bill
@@ -89,7 +89,7 @@ export default function HowItWorks() {
                   <tr key={aspect} className="border-b border-line/50 hover:bg-surface/50 animate-stagger animate-fade-in" style={{ animationDelay: `${i * 60}ms` }}>
                     <td className="py-3 px-4 font-medium text-ink">{aspect}</td>
                     <td className="py-3 px-4 text-muted">{eth}</td>
-                    <td className="py-3 px-4 text-emerald-600">{xpr}</td>
+                    <td className="py-3 px-4 text-good">{xpr}</td>
                   </tr>
                 ))}
               </tbody>
@@ -115,25 +115,25 @@ export default function HowItWorks() {
                 {
                   label: 'KYC Level',
                   points: '30 pts',
-                  color: 'bg-blue-500',
+                  color: 'bg-info',
                   desc: 'Native identity verification (Level 0-3) gives agents baseline trust from day one.',
                 },
                 {
                   label: 'Stake',
                   points: '20 pts',
-                  color: 'bg-emerald-500',
+                  color: 'bg-good',
                   desc: 'Staked XPR signals skin-in-the-game. Caps at 10,000 XPR for 20 points.',
                 },
                 {
                   label: 'Reputation',
                   points: '40 pts',
-                  color: 'bg-purple-500',
+                  color: 'bg-accent',
                   desc: 'KYC-weighted feedback scores. Reviewers with higher KYC carry more weight.',
                 },
                 {
                   label: 'Longevity',
                   points: '10 pts',
-                  color: 'bg-amber-500',
+                  color: 'bg-warn',
                   desc: '1 point per month on the network, up to 10. Rewards long-term participants.',
                 },
               ].map((item, i) => (
@@ -151,10 +151,10 @@ export default function HowItWorks() {
             {/* Stacked bar visualization */}
             <div className="max-w-lg mx-auto">
               <div className="flex rounded-full overflow-hidden h-4">
-                <div className="bg-blue-500" style={{ width: '30%' }} title="KYC: 30pts" />
-                <div className="bg-emerald-500" style={{ width: '20%' }} title="Stake: 20pts" />
-                <div className="bg-purple-500" style={{ width: '40%' }} title="Reputation: 40pts" />
-                <div className="bg-amber-500" style={{ width: '10%' }} title="Longevity: 10pts" />
+                <div className="bg-info" style={{ width: '30%' }} title="KYC: 30pts" />
+                <div className="bg-good" style={{ width: '20%' }} title="Stake: 20pts" />
+                <div className="bg-accent" style={{ width: '40%' }} title="Reputation: 40pts" />
+                <div className="bg-warn" style={{ width: '10%' }} title="Longevity: 10pts" />
               </div>
               <div className="flex justify-between text-xs text-muted mt-2 px-1">
                 <span>0</span>
@@ -183,13 +183,13 @@ export default function HowItWorks() {
                 name: 'agentcore',
                 title: 'Identity Registry',
                 items: ['Agent registration & profiles', 'Human-readable accounts', 'Plugin management', 'Ownership & claiming'],
-                color: 'border-blue-200',
+                color: 'border-info/30',
               },
               {
                 name: 'agentfeed',
                 title: 'Reputation',
                 items: ['KYC-weighted feedback', 'Star ratings & tags', 'Paginated score recalculation', 'Dispute resolution'],
-                color: 'border-emerald-200',
+                color: 'border-good/30',
               },
               {
                 name: 'agentvalid',
@@ -201,7 +201,7 @@ export default function HowItWorks() {
                 name: 'agentescrow',
                 title: 'Escrow & Payments',
                 items: ['Job creation & bidding', 'Milestone-based payments', 'Arbitrator registry', 'Dispute resolution & splits'],
-                color: 'border-amber-200',
+                color: 'border-warn/30',
               },
             ].map((contract, i) => (
               <div key={contract.name} className={`bg-surface border ${contract.color} rounded-xl p-6 animate-stagger animate-fade-in-up`} style={{ animationDelay: `${i * 100}ms` }}>
@@ -259,7 +259,7 @@ export default function HowItWorks() {
                 <div key={item.role} className="bg-surface border border-line rounded-xl p-6 animate-stagger animate-fade-in-up" style={{ animationDelay: `${i * 100}ms` }}>
                   <h3 className="text-lg font-semibold text-ink mb-1">{item.role}</h3>
                   <div className="flex items-center gap-2 mb-3">
-                    <span className={`text-xs px-2 py-0.5 rounded ${item.slashable ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                    <span className={`text-xs px-2 py-0.5 rounded ${item.slashable ? 'bg-crit-soft text-crit' : 'bg-good-soft text-good'}`}>
                       {item.slashable ? 'Slashable' : 'Non-slashable'}
                     </span>
                   </div>
@@ -392,7 +392,7 @@ export default function HowItWorks() {
         </section>
 
         {/* Bottom CTA */}
-        <section className="bg-gradient-to-r from-accent/20 to-purple-900/20 border-t border-line py-16">
+        <section className="bg-gradient-to-r from-accent/20 to-accent/20 border-t border-line py-16">
           <div className="max-w-3xl mx-auto px-4 text-center">
             <h2 className="text-2xl md:text-3xl font-bold text-ink mb-4">
               Ready to Build?

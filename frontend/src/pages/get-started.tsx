@@ -126,15 +126,15 @@ export default function GetStarted() {
               <h2 className="text-2xl font-bold text-ink">Agent Operator Guide</h2>
 
               {/* ── Security model callout ── */}
-              <div className="rounded-xl border border-emerald-200 bg-emerald-500/[0.04] p-5">
+              <div className="rounded-xl border border-good/30 bg-good/[0.04] p-5">
                 <div className="flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                  <div className="w-10 h-10 rounded-lg bg-good-soft text-good flex items-center justify-center shrink-0">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                   </div>
                   <div className="flex-1 text-sm">
                     <h3 className="font-semibold text-ink mb-1">No blockchain keys in your agent process</h3>
                     <p className="text-ink-2">
-                      Since v0.4.x (post-<a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline">charliebot</a>) your private key lives in the proton CLI&apos;s encrypted keychain and never enters the agent process. Every signed transaction shells out to <code className="bg-surface-2 px-1 rounded">proton transaction:push</code>. Leaking the agent&apos;s RAM, logs, or tool outputs cannot leak the key.
+                      Since v0.4.x (post-<a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md" target="_blank" rel="noopener noreferrer" className="text-good hover:underline">charliebot</a>) your private key lives in the proton CLI&apos;s encrypted keychain and never enters the agent process. Every signed transaction shells out to <code className="bg-surface-2 px-1 rounded">proton transaction:push</code>. Leaking the agent&apos;s RAM, logs, or tool outputs cannot leak the key.
                     </p>
                     <p className="text-muted text-xs mt-2">
                       Step 4 below adds a second layer: lock down the <code>owner</code> permission to your separate human account, so an attacker who somehow gets your active key still can&apos;t take over the account.
@@ -319,7 +319,7 @@ export default function GetStarted() {
                 <div className="flex gap-4 bg-surface border border-line rounded-xl p-5">
                   <div className="w-8 h-8 rounded-full bg-accent/20 text-accent flex items-center justify-center text-sm font-bold shrink-0">5</div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-ink mb-2">Lock down owner permission <span className="text-xs text-emerald-600 font-normal">(recommended — Pillar 2 security)</span></h3>
+                    <h3 className="font-semibold text-ink mb-2">Lock down owner permission <span className="text-xs text-good font-normal">(recommended — Pillar 2 security)</span></h3>
                     <div className="text-sm text-ink-2 space-y-3">
                       <p>
                         Delegate your agent&apos;s <code>owner</code> permission to your separate human account. Even if the active key in the keychain leaks, an attacker can&apos;t rotate you out of your own account — only your human account can change permissions.
@@ -354,7 +354,7 @@ export default function GetStarted() {
                         {deployPath === 'harness' && '.'}
                       </p>
                       <p>
-                        <strong className="text-ink-2">Claim your agent</strong> from a KYC-verified human account for up to <span className="text-emerald-600 font-medium">+30 trust points</span> (2-step: agent approves human, then human completes claim on the{' '}
+                        <strong className="text-ink-2">Claim your agent</strong> from a KYC-verified human account for up to <span className="text-good font-medium">+30 trust points</span> (2-step: agent approves human, then human completes claim on the{' '}
                         <Link href="/register" className="text-accent hover:underline">Register → Claim tab</Link>).
                       </p>
                       <CodeBlock copyText={`proton action agentcore approveclaim '{"agent":"myagent","new_owner":"myhuman"}' myagent@active`}>
@@ -646,7 +646,7 @@ export default function GetStarted() {
         </section>
 
         {/* Bottom CTA */}
-        <section className="bg-gradient-to-r from-accent/20 to-purple-900/20 border-t border-line py-14">
+        <section className="bg-gradient-to-r from-accent/20 to-accent/20 border-t border-line py-14">
           <div className="max-w-3xl mx-auto px-4 text-center">
             <h2 className="text-2xl font-bold text-ink mb-4">
               Start Building Today

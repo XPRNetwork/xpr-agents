@@ -29,16 +29,16 @@ import {
 type SortKey = 'accuracy' | 'stake' | 'validations';
 
 const RESULT_COLORS: Record<number, string> = {
-  0: 'bg-red-50 text-red-600',
-  1: 'bg-emerald-50 text-emerald-600',
-  2: 'bg-yellow-50 text-yellow-600',
+  0: 'bg-crit-soft text-crit',
+  1: 'bg-good-soft text-good',
+  2: 'bg-warn-soft text-warn',
 };
 
 function accuracyColor(score: number): string {
   const pct = score / 100;
-  if (pct >= 95) return 'text-emerald-600';
-  if (pct >= 80) return 'text-yellow-600';
-  return 'text-red-600';
+  if (pct >= 95) return 'text-good';
+  if (pct >= 80) return 'text-warn';
+  return 'text-crit';
 }
 
 function getTxId(result: any): string | undefined {
@@ -392,7 +392,7 @@ export default function Validators() {
                 <div className="text-sm text-muted">Total Validators</div>
               </div>
               <div className="bg-surface border border-line rounded-xl p-4">
-                <div className="text-2xl font-bold text-emerald-600 truncate">{activeCount}</div>
+                <div className="text-2xl font-bold text-good truncate">{activeCount}</div>
                 <div className="text-sm text-muted">Active</div>
               </div>
               <div className="bg-surface border border-line rounded-xl p-4">
@@ -477,7 +477,7 @@ export default function Validators() {
                       <div className="flex justify-between items-start mb-2">
                         <div className="font-medium text-ink truncate">{v.account}</div>
                         {v.active ? (
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-emerald-50 text-emerald-600">Active</span>
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-good-soft text-good">Active</span>
                         ) : (
                           <span className="px-1.5 py-0.5 rounded text-xs bg-surface-2 text-ink-2">Inactive</span>
                         )}
@@ -533,7 +533,7 @@ export default function Validators() {
                       <div className="text-xs text-muted">Validations</div>
                     </div>
                     <div className="bg-surface-2 rounded-lg p-3">
-                      <div className="text-lg font-bold text-red-600">{selectedValidator.incorrect_validations}</div>
+                      <div className="text-lg font-bold text-crit">{selectedValidator.incorrect_validations}</div>
                       <div className="text-xs text-muted">Incorrect</div>
                     </div>
                   </div>
@@ -559,10 +559,10 @@ export default function Validators() {
                           <div className="flex gap-3 text-xs text-muted mt-1">
                             <span>Confidence: {v.confidence}%</span>
                             <span title={formatDate(v.timestamp)}>{formatRelativeTime(v.timestamp)}</span>
-                            {v.challenged && <span className="text-yellow-600">Challenged</span>}
+                            {v.challenged && <span className="text-warn">Challenged</span>}
                           </div>
                           {session && !v.challenged && (
-                            <button onClick={() => setChallengeValidation(v)} className="mt-2 text-xs text-red-600 hover:text-red-600">
+                            <button onClick={() => setChallengeValidation(v)} className="mt-2 text-xs text-crit hover:text-crit">
                               Challenge this validation
                             </button>
                           )}
@@ -575,9 +575,9 @@ export default function Validators() {
 
               {/* Challenge Form */}
               {challengeValidation && session && (
-                <div className="bg-surface border border-red-200 rounded-xl p-5">
+                <div className="bg-surface border border-crit/30 rounded-xl p-5">
                   <div className="flex justify-between items-center mb-3">
-                    <h4 className="font-medium text-red-600">Challenge Validation #{challengeValidation.id}</h4>
+                    <h4 className="font-medium text-crit">Challenge Validation #{challengeValidation.id}</h4>
                     <button onClick={() => setChallengeValidation(null)} className="text-muted hover:text-ink-2 text-sm">Cancel</button>
                   </div>
                   <p className="text-xs text-muted mb-3">Required stake: {config ? formatXpr(config.challenge_stake) : '-'}</p>
@@ -589,7 +589,7 @@ export default function Validators() {
                       className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm"
                       placeholder="Evidence URI (optional)" />
                     <button type="submit" disabled={processing}
-                      className="w-full px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:bg-line disabled:text-muted">
+                      className="w-full px-4 py-2 bg-crit text-white rounded-lg text-sm hover:bg-crit disabled:bg-line disabled:text-muted">
                       {processing ? 'Submitting...' : 'Submit & Fund Challenge'}
                     </button>
                   </form>
@@ -647,7 +647,7 @@ export default function Validators() {
                           <div className="text-xs text-muted">Validations</div>
                         </div>
                         <div className="bg-surface-2 rounded-lg p-2 text-center">
-                          <div className="text-sm font-bold text-yellow-600">{myValidator.pending_challenges}</div>
+                          <div className="text-sm font-bold text-warn">{myValidator.pending_challenges}</div>
                           <div className="text-xs text-muted">Challenges</div>
                         </div>
                       </div>
@@ -655,7 +655,7 @@ export default function Validators() {
                       {/* Status toggle */}
                       <button onClick={handleToggleStatus} disabled={processing}
                         className={`w-full px-4 py-2 rounded-lg text-sm font-medium ${
-                          myValidator.active ? 'bg-line text-ink-2 hover:bg-line-2' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                          myValidator.active ? 'bg-line text-ink-2 hover:bg-line-2' : 'bg-good text-white hover:bg-good'
                         } disabled:opacity-50`}>
                         {myValidator.active ? 'Deactivate' : 'Activate'}
                       </button>
@@ -666,13 +666,13 @@ export default function Validators() {
                           <input type="number" value={stakeAmount} onChange={(e) => setStakeAmount(e.target.value)}
                             placeholder="XPR" min="0" step="0.0001" required
                             className="flex-1 px-2 py-1.5 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-xs" />
-                          <button type="submit" disabled={processing} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs hover:bg-emerald-700 disabled:opacity-50">Stake</button>
+                          <button type="submit" disabled={processing} className="px-3 py-1.5 bg-good text-white rounded-lg text-xs hover:bg-good disabled:opacity-50">Stake</button>
                         </form>
                         <form onSubmit={handleUnstake} className="flex-1 flex gap-1">
                           <input type="number" value={unstakeAmount} onChange={(e) => setUnstakeAmount(e.target.value)}
                             placeholder="XPR" min="0" step="0.0001" required
                             className="flex-1 px-2 py-1.5 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-xs" />
-                          <button type="submit" disabled={processing} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs hover:bg-red-700 disabled:opacity-50">Unstake</button>
+                          <button type="submit" disabled={processing} className="px-3 py-1.5 bg-crit text-white rounded-lg text-xs hover:bg-crit disabled:opacity-50">Unstake</button>
                         </form>
                       </div>
 
@@ -692,7 +692,7 @@ export default function Validators() {
                                 </div>
                                 {canWithdraw && (
                                   <button onClick={() => handleWithdrawUnstake(u.id)} disabled={processing}
-                                    className="text-xs px-3 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">Withdraw</button>
+                                    className="text-xs px-3 py-1 bg-good text-white rounded hover:bg-good disabled:opacity-50">Withdraw</button>
                                 )}
                               </div>
                             );

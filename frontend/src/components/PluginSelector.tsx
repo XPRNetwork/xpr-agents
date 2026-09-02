@@ -126,7 +126,7 @@ export function PluginSelector({ onSelect, selectedIds = [] }: PluginSelectorPro
                     <span className="font-medium text-ink">{plugin.name}</span>
                     <span className="text-xs text-muted">v{plugin.version}</span>
                     {plugin.verified && (
-                      <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full">
+                      <span className="text-xs bg-good-soft text-good px-2 py-0.5 rounded-full">
                         Verified
                       </span>
                     )}

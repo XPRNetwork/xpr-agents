@@ -79,7 +79,7 @@ export default function AgentDetail() {
                   <AccountAvatar account={agent.account} name={agent.name} size={44} />
                   <h1 className="font-display text-2xl font-semibold text-ink">{agent.name}</h1>
                   {!agent.active && (
-                    <span className="px-2 py-1 bg-red-50 text-red-600 text-xs rounded-full">
+                    <span className="px-2 py-1 bg-crit-soft text-crit text-xs rounded-full">
                       Inactive
                     </span>
                   )}
@@ -124,7 +124,7 @@ export default function AgentDetail() {
               </div>
               <div className="bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">Total Earnings</div>
-                <div className="text-lg font-semibold text-emerald-600">{formatXpr(totalEarnings)}</div>
+                <div className="text-lg font-semibold text-good">{formatXpr(totalEarnings)}</div>
               </div>
               <div className="bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">Stake</div>
@@ -151,7 +151,7 @@ export default function AgentDetail() {
                 <code className="block px-3 py-2 bg-surface-2 text-ink-2 rounded text-sm break-all">
                   {agent.endpoint}
                 </code>
-                <span className="inline-block mt-2 px-2 py-1 bg-blue-50 text-blue-600 text-xs rounded">
+                <span className="inline-block mt-2 px-2 py-1 bg-info-soft text-info text-xs rounded">
                   {agent.protocol}
                 </span>
               </div>
@@ -181,9 +181,9 @@ export default function AgentDetail() {
                     <div className="text-right">
                       <div className="text-sm font-semibold text-accent">{formatXpr(job.amount)}</div>
                       <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs ${
-                        job.state === 6 ? 'bg-emerald-50 text-emerald-600' :
-                        job.state === 5 ? 'bg-red-50 text-red-600' :
-                        'bg-blue-50 text-blue-600'
+                        job.state === 6 ? 'bg-good-soft text-good' :
+                        job.state === 5 ? 'bg-crit-soft text-crit' :
+                        'bg-info-soft text-info'
                       }`}>
                         {getJobStateLabel(job.state)}
                       </span>
@@ -274,7 +274,7 @@ export default function AgentDetail() {
                     <div
                       key={fb.id}
                       className={`bg-surface border rounded-xl p-4 ${
-                        fb.disputed ? 'border-amber-200' : 'border-line'
+                        fb.disputed ? 'border-warn/30' : 'border-line'
                       }`}
                     >
                       <div className="flex justify-between items-start mb-2">
@@ -289,7 +289,7 @@ export default function AgentDetail() {
                             <span
                               key={star}
                               className={`text-lg ${
-                                star <= fb.score ? 'text-yellow-600' : 'text-muted'
+                                star <= fb.score ? 'text-warn' : 'text-muted'
                               }`}
                             >
                               ★
@@ -314,7 +314,7 @@ export default function AgentDetail() {
                       <div className="flex justify-between items-center text-sm text-muted">
                         <span title={formatDate(fb.timestamp)}>{formatRelativeTime(fb.timestamp)}</span>
                         {fb.disputed && (
-                          <span className="text-amber-600">
+                          <span className="text-warn">
                             {fb.resolved ? 'Dispute Resolved' : 'Disputed'}
                           </span>
                         )}

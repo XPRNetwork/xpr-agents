@@ -260,18 +260,18 @@ export default function Register() {
           {activeTab === 'register' && (
             <>
               {/* Security advice banner */}
-              <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-sm font-medium text-amber-600 mb-2">Use a dedicated account</p>
+              <div className="mb-6 p-4 bg-warn-soft border border-warn/30 rounded-lg">
+                <p className="text-sm font-medium text-warn mb-2">Use a dedicated account</p>
                 <p className="text-sm text-ink-2">
                   This project is in beta. We recommend creating a <strong className="text-ink-2">fresh XPR account</strong> for
-                  your agent at <a href="https://webauth.com" target="_blank" rel="noopener noreferrer" className="text-amber-600 underline hover:text-amber-600">webauth.com</a> instead
+                  your agent at <a href="https://webauth.com" target="_blank" rel="noopener noreferrer" className="text-warn underline hover:text-warn">webauth.com</a> instead
                   of using your main personal account. You can link your KYC identity later via the <strong className="text-ink-2">Claim</strong> tab
                   &mdash; no need to KYC the agent account itself. This keeps your main account&apos;s private key safe.
                 </p>
               </div>
 
               {error && (
-                <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-lg">{error}</div>
+                <div className="mb-6 p-4 bg-crit-soft text-crit rounded-lg">{error}</div>
               )}
 
               <form onSubmit={handleSubmit} className="bg-surface border border-line rounded-xl p-6">
@@ -293,7 +293,7 @@ export default function Register() {
                 {/* Description */}
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-ink-2 mb-2">
-                    Description <span className="text-red-600">*</span>
+                    Description <span className="text-crit">*</span>
                   </label>
                   <textarea
                     value={description}
@@ -377,10 +377,10 @@ export default function Register() {
                         <div className="text-sm text-ink-2">Network</div>
                         <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
                           networkConfig.name === 'mainnet'
-                            ? 'bg-emerald-50 text-emerald-600'
-                            : 'bg-amber-50 text-amber-600'
+                            ? 'bg-good-soft text-good'
+                            : 'bg-warn-soft text-warn'
                         }`}>
-                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${networkConfig.name === 'mainnet' ? 'bg-emerald-400' : 'bg-amber-400'} animate-pulse`} />
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${networkConfig.name === 'mainnet' ? 'bg-good' : 'bg-warn'} animate-pulse`} />
                           {networkConfig.name}
                         </div>
                       </div>
@@ -462,19 +462,19 @@ export default function Register() {
                 </div>
 
                 {claimError && (
-                  <div className="p-4 bg-red-50 text-red-600 rounded-lg">{claimError}</div>
+                  <div className="p-4 bg-crit-soft text-crit rounded-lg">{claimError}</div>
                 )}
 
                 {/* Claim lookup results */}
                 {claimInfo && !claimInfo.exists && (
-                  <div className="p-4 bg-red-50 text-red-600 rounded-lg">
+                  <div className="p-4 bg-crit-soft text-crit rounded-lg">
                     Agent &quot;{claimAgent.trim()}&quot; not found on chain.
                   </div>
                 )}
 
                 {claimInfo && claimInfo.exists && claimInfo.owner && (
-                  <div className="p-4 bg-amber-50 text-amber-600 rounded-lg">
-                    This agent is already owned by <AccountLink account={claimInfo.owner} className="text-amber-600" />.
+                  <div className="p-4 bg-warn-soft text-warn rounded-lg">
+                    This agent is already owned by <AccountLink account={claimInfo.owner} className="text-warn" />.
                   </div>
                 )}
 
@@ -489,17 +489,17 @@ export default function Register() {
                 )}
 
                 {claimInfo && claimInfo.exists && !claimInfo.owner && claimInfo.pending_owner && claimInfo.pending_owner !== connectedAccount && (
-                  <div className="p-4 bg-amber-50 text-amber-600 rounded-lg">
-                    This agent has a pending claim by <AccountLink account={claimInfo.pending_owner} className="text-amber-600" />.
+                  <div className="p-4 bg-warn-soft text-warn rounded-lg">
+                    This agent has a pending claim by <AccountLink account={claimInfo.pending_owner} className="text-warn" />.
                     {connectedAccount && <span> Connect as @{claimInfo.pending_owner} to complete the claim.</span>}
                   </div>
                 )}
 
                 {claimInfo && claimInfo.exists && !claimInfo.owner && claimInfo.pending_owner === connectedAccount && (
-                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+                  <div className="p-4 bg-good-soft border border-good/30 rounded-lg">
                     <div className="flex justify-between items-start mb-3">
                       <div>
-                        <p className="font-semibold text-emerald-600">Ready to claim</p>
+                        <p className="font-semibold text-good">Ready to claim</p>
                         <p className="text-sm text-ink-2 mt-1">
                           Agent <span className="text-ink font-medium">{claimInfo.name}</span> (@{claimAgent.trim()}) has approved you.
                         </p>
@@ -513,7 +513,7 @@ export default function Register() {
                     <button
                       onClick={handleClaim}
                       disabled={claiming}
-                      className="w-full py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors disabled:bg-line disabled:text-muted disabled:cursor-not-allowed"
+                      className="w-full py-3 bg-good text-white rounded-lg font-semibold hover:bg-good transition-colors disabled:bg-line disabled:text-muted disabled:cursor-not-allowed"
                     >
                       {claiming
                         ? 'Claiming...'

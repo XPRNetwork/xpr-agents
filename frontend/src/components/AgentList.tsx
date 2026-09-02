@@ -131,7 +131,7 @@ export function AgentList() {
           ))}
         </div>
       ) : error ? (
-        <div className="text-center py-12 text-red-600">
+        <div className="text-center py-12 text-crit">
           <p>{error}</p>
         </div>
       ) : entries.length === 0 ? (

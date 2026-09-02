@@ -61,7 +61,7 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
       <h3 className="text-lg font-semibold text-ink mb-4">Leave Feedback</h3>
 
       {(error || localError) && (
-        <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm">
+        <div className="mb-4 p-3 bg-crit-soft text-crit rounded-lg text-sm">
           {error || localError}
         </div>
       )}
@@ -78,7 +78,7 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
               onClick={() => setScore(value)}
               className={`w-10 h-10 rounded-full border-2 transition-colors ${
                 score >= value
-                  ? 'bg-yellow-400 border-yellow-500 text-ink'
+                  ? 'bg-warn border-warn text-ink'
                   : 'bg-surface-2 border-line-2 text-muted'
               }`}
             >

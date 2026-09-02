@@ -57,11 +57,26 @@ const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000,http:
   .map(o => o.trim())
   .filter(o => o.length > 0);
 
+// Regex patterns for origins that change per deployment (e.g. Vercel preview
+// URLs). Comma-separated in CORS_ORIGIN_PATTERNS; the default admits this
+// project's Vercel previews so a new preview never needs a config change.
+const allowedOriginPatterns: RegExp[] = (process.env.CORS_ORIGIN_PATTERNS
+  || '^https://xpr-agents-frontend-[a-z0-9-]+-paulgnzs-projects\\.vercel\\.app$')
+  .split(',')
+  .map(p => p.trim())
+  .filter(p => p.length > 0)
+  .map(p => new RegExp(p));
+
+export function isOriginAllowed(origin: string | undefined): boolean {
+  // No origin = server-to-server, curl, health checks
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  return allowedOriginPatterns.some(re => re.test(origin));
+}
+
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (server-to-server, curl, health checks)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (isOriginAllowed(origin)) return callback(null, true);
     callback(new Error('Not allowed by CORS'));
   },
 }));

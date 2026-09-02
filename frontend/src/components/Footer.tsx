@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Logo } from './Logo';
 
 const SECTIONS = [
   {
@@ -73,7 +74,7 @@ export function Footer() {
 
         <div className="mt-10 flex flex-col gap-3 border-t border-line pt-6 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
-            <img src="/xpr-logo.png" alt="" className="h-4 w-4 opacity-70" />
+            <Logo className="h-4 w-4 opacity-70" />
             <span>Built on XPR Network. Open source, MIT.</span>
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono">

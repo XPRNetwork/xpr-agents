@@ -398,7 +398,7 @@ export default function Arbitrators() {
                 <div className="text-sm text-muted">Total Arbitrators</div>
               </div>
               <div className="bg-surface border border-line rounded-xl p-4">
-                <div className="text-2xl font-bold text-emerald-600 truncate">{activeCount}</div>
+                <div className="text-2xl font-bold text-good truncate">{activeCount}</div>
                 <div className="text-sm text-muted">Active</div>
               </div>
               <div className="bg-surface border border-line rounded-xl p-4">
@@ -479,7 +479,7 @@ export default function Arbitrators() {
                       <div className="flex justify-between items-start mb-2">
                         <AccountLink account={a.account} className="font-medium truncate" />
                         {a.active ? (
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-emerald-50 text-emerald-600">Active</span>
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-good-soft text-good">Active</span>
                         ) : (
                           <span className="px-1.5 py-0.5 rounded text-xs bg-surface-2 text-ink-2">Inactive</span>
                         )}
@@ -494,7 +494,7 @@ export default function Arbitrators() {
                           <div className="text-xs text-muted">Staked</div>
                         </div>
                         <div>
-                          <div className="text-sm font-bold text-emerald-600">{successRate(a)}</div>
+                          <div className="text-sm font-bold text-good">{successRate(a)}</div>
                           <div className="text-xs text-muted">Success</div>
                         </div>
                       </div>
@@ -567,7 +567,7 @@ export default function Arbitrators() {
                           <div className="text-xs text-muted">Total Cases</div>
                         </div>
                         <div className="bg-surface-2 rounded-lg p-2 text-center">
-                          <div className="text-sm font-bold text-emerald-600">{successRate(myArbitrator)}</div>
+                          <div className="text-sm font-bold text-good">{successRate(myArbitrator)}</div>
                           <div className="text-xs text-muted">Success Rate</div>
                         </div>
                       </div>
@@ -579,7 +579,7 @@ export default function Arbitrators() {
                         className={`w-full px-4 py-2 rounded-lg text-sm font-medium ${
                           myArbitrator.active
                             ? 'bg-line text-ink-2 hover:bg-line-2'
-                            : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                            : 'bg-good text-white hover:bg-good'
                         } disabled:opacity-50`}
                       >
                         {myArbitrator.active ? 'Deactivate' : 'Activate'}
@@ -600,7 +600,7 @@ export default function Arbitrators() {
                         <button
                           type="submit"
                           disabled={processing}
-                          className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs hover:bg-emerald-700 disabled:opacity-50"
+                          className="px-3 py-1.5 bg-good text-white rounded-lg text-xs hover:bg-good disabled:opacity-50"
                         >
                           Stake
                         </button>
@@ -611,7 +611,7 @@ export default function Arbitrators() {
                         <button
                           onClick={handleUnstake}
                           disabled={processing}
-                          className="w-full px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50"
+                          className="w-full px-4 py-2 bg-crit text-white rounded-lg text-sm hover:bg-crit disabled:opacity-50"
                         >
                           Request Unstake
                         </button>
@@ -636,7 +636,7 @@ export default function Arbitrators() {
                                     <button
                                       onClick={handleWithdrawUnstake}
                                       disabled={processing}
-                                      className="text-xs px-3 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                                      className="text-xs px-3 py-1 bg-good text-white rounded hover:bg-good disabled:opacity-50"
                                     >
                                       Withdraw
                                     </button>

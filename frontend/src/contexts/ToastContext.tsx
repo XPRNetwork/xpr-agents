@@ -48,18 +48,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={toast.id}
             className={`pointer-events-auto rounded-xl border px-4 py-3 shadow-2xl shadow-ink/10 backdrop-blur-lg animate-slide-up ${
               toast.type === 'success'
-                ? 'bg-emerald-950/90 border-emerald-200'
+                ? 'bg-good/90 border-good/30'
                 : toast.type === 'error'
-                ? 'bg-red-950/90 border-red-200'
+                ? 'bg-crit/90 border-crit/30'
                 : 'bg-surface/90 border-line-2/50'
             }`}
           >
             <div className="flex items-start gap-3">
               {/* Icon */}
               <div className={`shrink-0 mt-0.5 ${
-                toast.type === 'success' ? 'text-emerald-600'
-                  : toast.type === 'error' ? 'text-red-600'
-                  : 'text-blue-600'
+                toast.type === 'success' ? 'text-good'
+                  : toast.type === 'error' ? 'text-crit'
+                  : 'text-info'
               }`}>
                 {toast.type === 'success' ? (
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -79,8 +79,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               {/* Content */}
               <div className="flex-1 min-w-0">
                 <p className={`text-sm font-medium ${
-                  toast.type === 'success' ? 'text-emerald-200'
-                    : toast.type === 'error' ? 'text-red-200'
+                  toast.type === 'success' ? 'text-good'
+                    : toast.type === 'error' ? 'text-crit'
                     : 'text-ink-2'
                 }`}>
                   {toast.message}
