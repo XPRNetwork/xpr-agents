@@ -553,7 +553,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
       .replace(/>/g, '&gt;');
 
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, _lang, code) => {
-      return `<pre style="background:#18181b;padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0"><code>${code.trim()}</code></pre>`;
+      return `<pre style="background:rgb(var(--c-surface-2));padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0"><code>${code.trim()}</code></pre>`;
     });
 
     const lines = html.split('\n');
@@ -574,12 +574,12 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
       if (line.startsWith('### ')) {
         if (inList) { result.push('</ul>'); inList = false; }
-        result.push(`<h3 style="font-size:1rem;font-weight:600;color:#e4e4e7;margin:12px 0 4px">${line.slice(4)}</h3>`);
+        result.push(`<h3 style="font-size:1rem;font-weight:600;color:rgb(var(--c-ink));margin:12px 0 4px">${line.slice(4)}</h3>`);
         continue;
       }
       if (line.startsWith('## ')) {
         if (inList) { result.push('</ul>'); inList = false; }
-        result.push(`<h2 style="font-size:1.1rem;font-weight:700;color:#e4e4e7;margin:16px 0 6px">${line.slice(3)}</h2>`);
+        result.push(`<h2 style="font-size:1.1rem;font-weight:700;color:rgb(var(--c-ink));margin:16px 0 6px">${line.slice(3)}</h2>`);
         continue;
       }
       if (line.startsWith('# ')) {
@@ -597,7 +597,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
       if (inList) { result.push('</ul>'); inList = false; }
 
       if (/^---+$/.test(line.trim())) {
-        result.push('<hr style="border-color:#3f3f46;margin:12px 0"/>');
+        result.push('<hr style="border-color:rgb(var(--c-line));margin:12px 0"/>');
         continue;
       }
 
@@ -620,9 +620,9 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^\)]+)\)/g, (_m, alt, url) =>
       `<img src="${unescapeUrl(url)}" alt="${alt}" style="max-width:100%;border-radius:8px;margin:8px 0" loading="lazy" />`);
     text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    text = text.replace(/`([^`]+)`/g, '<code style="background:#27272a;padding:1px 4px;border-radius:3px;font-size:0.9em">$1</code>');
+    text = text.replace(/`([^`]+)`/g, '<code style="background:rgb(var(--c-surface-2));padding:1px 4px;border-radius:3px;font-size:0.9em">$1</code>');
     text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, (_m, label, url) =>
-      `<a href="${unescapeUrl(url)}" target="_blank" rel="noopener noreferrer" style="color:#a78bfa;text-decoration:underline">${label}</a>`);
+      `<a href="${unescapeUrl(url)}" target="_blank" rel="noopener noreferrer" style="color:rgb(var(--c-accent));text-decoration:underline">${label}</a>`);
     return text;
   }
 
@@ -644,13 +644,13 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-xs font-mono text-zinc-500">#{job.id}</span>
-          <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATE_COLORS[job.state] || 'bg-zinc-500/10'}`}>
+          <span className="text-xs font-mono text-muted">#{job.id}</span>
+          <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATE_COLORS[job.state] || 'bg-surface-2'}`}>
             {getJobStateLabel(job.state)}
           </span>
         </div>
-        <h1 className="text-2xl font-bold text-white">{job.title}</h1>
-        <p className="text-sm text-zinc-500 mt-1 flex flex-wrap items-center gap-1.5">
+        <h1 className="text-2xl font-bold text-ink">{job.title}</h1>
+        <p className="text-sm text-muted mt-1 flex flex-wrap items-center gap-1.5">
           Posted by <AccountLink account={job.client} showAvatar avatarSize={18} />
           {job.agent && job.agent !== '.............' && (
             <>&middot; Agent: <AccountLink account={job.agent} isAgent showAvatar avatarSize={18} /></>
@@ -661,27 +661,27 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
       {/* Content */}
       <div className="space-y-4">
-        <p className="text-zinc-400">{job.description}</p>
+        <p className="text-ink-2">{job.description}</p>
 
         {/* Stats Row */}
         <div className="grid grid-cols-2 gap-3">
-          <div className="bg-zinc-800 rounded-lg p-3 text-center">
-            <div className="text-lg font-bold text-proton-purple">{formatXpr(job.amount)}</div>
-            <div className="text-xs text-zinc-500">Budget</div>
+          <div className="bg-surface-2 rounded-lg p-3 text-center">
+            <div className="text-lg font-bold text-accent">{formatXpr(job.amount)}</div>
+            <div className="text-xs text-muted">Budget</div>
           </div>
-          <div className="bg-zinc-800 rounded-lg p-3 text-center">
-            <div className={`text-lg font-bold ${job.funded_amount >= job.amount ? 'text-emerald-400' : 'text-zinc-400'}`}>
+          <div className="bg-surface-2 rounded-lg p-3 text-center">
+            <div className={`text-lg font-bold ${job.funded_amount >= job.amount ? 'text-good' : 'text-ink-2'}`}>
               {formatXpr(job.funded_amount)}
             </div>
-            <div className="text-xs text-zinc-500">Funded</div>
+            <div className="text-xs text-muted">Funded</div>
           </div>
         </div>
 
         {/* Funding Progress */}
         {job.funded_amount > 0 && job.funded_amount < job.amount && (
-          <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
             <div
-              className="h-full bg-emerald-500 rounded-full"
+              className="h-full bg-good rounded-full"
               style={{ width: `${Math.min(100, (job.funded_amount / job.amount) * 100)}%` }}
             />
           </div>
@@ -690,8 +690,8 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
         {/* Deliverables */}
         {job.deliverables.length > 0 && (
           <div>
-            <h3 className="text-sm font-medium text-zinc-400 mb-2">Deliverables</h3>
-            <ul className="list-disc list-inside text-sm text-zinc-400 space-y-1">
+            <h3 className="text-sm font-medium text-ink-2 mb-2">Deliverables</h3>
+            <ul className="list-disc list-inside text-sm text-ink-2 space-y-1">
               {job.deliverables.map((d, i) => (
                 <li key={i}>{d}</li>
               ))}
@@ -700,18 +700,18 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
         )}
 
         {job.deadline > 0 && (
-          <p className="text-sm text-zinc-500">Deadline: <span title={formatDate(job.deadline)}>{formatRelativeTime(job.deadline)}</span></p>
+          <p className="text-sm text-muted">Deadline: <span title={formatDate(job.deadline)}>{formatRelativeTime(job.deadline)}</span></p>
         )}
 
         {/* Deliverable Result */}
         {job.state >= 4 && job.agent && (
-          <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+          <div className="p-4 bg-info-soft border border-info/30 rounded-lg">
             <div className="flex justify-between items-center mb-2">
-              <h3 className="text-sm font-medium text-blue-400">Agent Deliverable</h3>
+              <h3 className="text-sm font-medium text-info">Agent Deliverable</h3>
               {!deliverableContent && !deliverableMediaUrl && !deliverableLoading && !deliverableType && (
                 <button
                   onClick={() => fetchDeliverable(job.id)}
-                  className="text-xs px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  className="text-xs px-3 py-1 bg-info text-white rounded hover:bg-info"
                 >
                   View Result
                 </button>
@@ -719,11 +719,11 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             </div>
             {deliverableLoading && (
               <div className="flex items-center gap-3 py-6 justify-center">
-                <svg className="animate-spin h-5 w-5 text-purple-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg className="animate-spin h-5 w-5 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                <span className="text-sm text-zinc-400">Fetching from IPFS...</span>
+                <span className="text-sm text-ink-2">Fetching from IPFS...</span>
               </div>
             )}
 
@@ -736,7 +736,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   ))}
                 </div>
                 {deliverableContent && (
-                  <p className="text-sm text-zinc-400 mt-3">{deliverableContent}</p>
+                  <p className="text-sm text-ink-2 mt-3">{deliverableContent}</p>
                 )}
               </div>
             )}
@@ -744,9 +744,9 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* PDF embed */}
             {deliverableType === 'application/pdf' && deliverableMediaUrl && (
               <div>
-                <iframe src={deliverableMediaUrl} className="w-full h-96 rounded border border-zinc-800 bg-white" />
+                <iframe src={deliverableMediaUrl} className="w-full h-96 rounded border border-line bg-white" />
                 <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-purple-400 hover:text-purple-300 mt-2 inline-block">
+                  className="text-xs text-accent hover:text-accent mt-2 inline-block">
                   Download PDF &#8599;
                 </a>
               </div>
@@ -755,9 +755,9 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* Image embed */}
             {deliverableType?.startsWith('image/') && deliverableMediaUrl && (
               <div>
-                <img src={deliverableMediaUrl} alt="Deliverable" className="max-w-full rounded border border-zinc-800" />
+                <img src={deliverableMediaUrl} alt="Deliverable" className="max-w-full rounded border border-line" />
                 <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-purple-400 hover:text-purple-300 mt-2 inline-block">
+                  className="text-xs text-accent hover:text-accent mt-2 inline-block">
                   Open full size &#8599;
                 </a>
               </div>
@@ -768,7 +768,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
               <div>
                 <audio src={deliverableMediaUrl} controls className="w-full" />
                 <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-purple-400 hover:text-purple-300 mt-2 inline-block">
+                  className="text-xs text-accent hover:text-accent mt-2 inline-block">
                   Download audio &#8599;
                 </a>
               </div>
@@ -777,9 +777,9 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* Video player */}
             {deliverableType?.startsWith('video/') && deliverableMediaUrl && (
               <div>
-                <video src={deliverableMediaUrl} controls className="max-w-full rounded border border-zinc-800" />
+                <video src={deliverableMediaUrl} controls className="max-w-full rounded border border-line" />
                 <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-purple-400 hover:text-purple-300 mt-2 inline-block">
+                  className="text-xs text-accent hover:text-accent mt-2 inline-block">
                   Download video &#8599;
                 </a>
               </div>
@@ -787,12 +787,12 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
             {/* GitHub repo link */}
             {deliverableType === 'github:repo' && deliverableMediaUrl && (
-              <div className="flex items-center gap-2 bg-zinc-900 p-3 rounded border border-zinc-800">
-                <svg className="w-5 h-5 text-zinc-400 shrink-0" viewBox="0 0 16 16" fill="currentColor">
+              <div className="flex items-center gap-2 bg-surface p-3 rounded border border-line">
+                <svg className="w-5 h-5 text-ink-2 shrink-0" viewBox="0 0 16 16" fill="currentColor">
                   <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
                 </svg>
                 <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-purple-400 hover:text-purple-300 underline break-all">
+                  className="text-accent hover:text-accent underline break-all">
                   {deliverableMediaUrl} &#8599;
                 </a>
               </div>
@@ -801,19 +801,19 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* Text content */}
             {deliverableContent && !deliverableMediaUrl && (
               isUrl(deliverableContent) ? (
-                <div className="text-sm bg-zinc-900 p-3 rounded border border-zinc-800">
+                <div className="text-sm bg-surface p-3 rounded border border-line">
                   <a href={deliverableContent} target="_blank" rel="noopener noreferrer"
-                    className="text-purple-400 hover:text-purple-300 underline break-all">
+                    className="text-accent hover:text-accent underline break-all">
                     {deliverableContent} &#8599;
                   </a>
                 </div>
               ) : isMarkdown(deliverableContent) ? (
                 <div
-                  className="text-sm text-zinc-300 bg-zinc-900 p-4 rounded border border-zinc-800 max-h-[32rem] overflow-y-auto prose-invert"
+                  className="text-sm text-ink-2 bg-surface p-4 rounded border border-line max-h-[32rem] overflow-y-auto prose-invert"
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(deliverableContent) }}
                 />
               ) : (
-                <div className="text-sm text-zinc-300 whitespace-pre-wrap bg-zinc-900 p-3 rounded border border-zinc-800 max-h-[32rem] overflow-y-auto">
+                <div className="text-sm text-ink-2 whitespace-pre-wrap bg-surface p-3 rounded border border-line max-h-[32rem] overflow-y-auto">
                   {deliverableContent}
                 </div>
               )
@@ -822,7 +822,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* Direct IPFS link */}
             {evidenceUrl && !evidenceUrl.startsWith('data:') && (
               <a href={evidenceUrl} target="_blank" rel="noopener noreferrer"
-                className="text-xs text-zinc-500 hover:text-purple-400 mt-2 inline-flex items-center gap-1">
+                className="text-xs text-muted hover:text-accent mt-2 inline-flex items-center gap-1">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                 </svg>
@@ -833,12 +833,12 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* Additional deliverable files */}
             {additionalUrls.length > 0 && (
               <div className="mt-2 space-y-1">
-                <p className="text-xs text-zinc-500">Additional files:</p>
+                <p className="text-xs text-muted">Additional files:</p>
                 {additionalUrls.map((url, i) => {
                   const filename = url.split('/').pop()?.split('?')[0] || `File ${i + 2}`;
                   return (
                     <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-                      className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1">
+                      className="text-xs text-accent hover:text-accent flex items-center gap-1">
                       <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                       </svg>
@@ -858,7 +858,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
               <button
                 onClick={handleFundJob}
                 disabled={processing}
-                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:bg-zinc-700 disabled:text-zinc-500"
+                className="px-4 py-2 bg-good text-white rounded-lg text-sm hover:bg-good disabled:bg-line disabled:text-muted"
               >
                 {processing ? 'Funding...' : `Fund ${formatXpr(job.amount - job.funded_amount)}`}
               </button>
@@ -867,7 +867,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
               <button
                 onClick={handleApproveDelivery}
                 disabled={processing}
-                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:bg-zinc-700 disabled:text-zinc-500"
+                className="px-4 py-2 bg-good text-white rounded-lg text-sm hover:bg-good disabled:bg-line disabled:text-muted"
               >
                 {processing ? 'Approving...' : 'Approve & Pay'}
               </button>
@@ -876,7 +876,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
               <button
                 onClick={() => setShowDispute(true)}
                 disabled={processing}
-                className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 disabled:bg-zinc-700 disabled:text-zinc-500"
+                className="px-4 py-2 bg-warn text-white rounded-lg text-sm hover:bg-warn disabled:bg-line disabled:text-muted"
               >
                 Dispute
               </button>
@@ -885,7 +885,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
               <button
                 onClick={handleCancelJob}
                 disabled={processing}
-                className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600 disabled:bg-zinc-700 disabled:text-zinc-500"
+                className="px-4 py-2 bg-crit text-white rounded-lg text-sm hover:bg-crit disabled:bg-line disabled:text-muted"
               >
                 {processing ? 'Cancelling...' : 'Cancel Job'}
               </button>
@@ -895,43 +895,43 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
         {/* Dispute Form */}
         {showDispute && (
-          <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg space-y-3">
-            <h3 className="text-sm font-bold text-amber-400">Raise Dispute</h3>
-            <p className="text-xs text-zinc-400">
+          <div className="p-4 bg-warn-soft border border-warn/30 rounded-lg space-y-3">
+            <h3 className="text-sm font-bold text-warn">Raise Dispute</h3>
+            <p className="text-xs text-ink-2">
               Disputes are reviewed by an arbitrator who decides how funds are split between you and the agent.
             </p>
             <div>
-              <label className="text-xs text-zinc-500 block mb-1">Reason *</label>
+              <label className="text-xs text-muted block mb-1">Reason *</label>
               <textarea
                 value={disputeReason}
                 onChange={e => setDisputeReason(e.target.value)}
                 placeholder="Explain why you're disputing this job..."
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                className="w-full bg-surface-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:ring-1 focus:ring-warn focus:border-warn"
                 rows={3}
               />
             </div>
             <div>
-              <label className="text-xs text-zinc-500 block mb-1">Evidence URL (optional)</label>
+              <label className="text-xs text-muted block mb-1">Evidence URL (optional)</label>
               <input
                 type="url"
                 value={disputeEvidence}
                 onChange={e => setDisputeEvidence(e.target.value)}
                 placeholder="https://..."
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                className="w-full bg-surface-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:ring-1 focus:ring-warn focus:border-warn"
               />
             </div>
             <div className="flex gap-2">
               <button
                 onClick={handleDispute}
                 disabled={processing || !disputeReason.trim()}
-                className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 disabled:bg-zinc-700 disabled:text-zinc-500"
+                className="px-4 py-2 bg-warn text-white rounded-lg text-sm hover:bg-warn disabled:bg-line disabled:text-muted"
               >
                 {processing ? 'Submitting...' : 'Submit Dispute'}
               </button>
               <button
                 type="button"
                 onClick={() => { setShowDispute(false); setDisputeReason(''); setDisputeEvidence(''); }}
-                className="px-4 py-2 text-zinc-400 hover:text-white text-sm"
+                className="px-4 py-2 text-ink-2 hover:text-ink text-sm"
               >
                 Cancel
               </button>
@@ -943,17 +943,17 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
         {(job.state === 5 || job.state === 8) && activeDispute && (
           <div className={`p-4 rounded-lg space-y-3 ${
             activeDispute.resolution === 0
-              ? 'bg-red-500/10 border border-red-500/30'
-              : 'bg-zinc-800/50 border border-zinc-700'
+              ? 'bg-crit-soft border border-crit/30'
+              : 'bg-surface-2/50 border border-line-2'
           }`}>
             <div className="flex items-center justify-between">
-              <h3 className={`text-sm font-bold ${activeDispute.resolution === 0 ? 'text-red-400' : 'text-zinc-300'}`}>
+              <h3 className={`text-sm font-bold ${activeDispute.resolution === 0 ? 'text-crit' : 'text-ink-2'}`}>
                 Dispute #{activeDispute.id}
               </h3>
               <span className={`text-xs px-2 py-0.5 rounded-full ${
                 activeDispute.resolution === 0
-                  ? 'bg-red-500/20 text-red-400'
-                  : 'bg-emerald-500/20 text-emerald-400'
+                  ? 'bg-crit-soft text-crit'
+                  : 'bg-good-soft text-good'
               }`}>
                 {DISPUTE_RESOLUTION_LABELS[activeDispute.resolution] || 'Unknown'}
               </span>
@@ -961,24 +961,24 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div>
-                <span className="text-xs text-zinc-500 block">Raised by</span>
+                <span className="text-xs text-muted block">Raised by</span>
                 <AccountLink account={activeDispute.raised_by} className="text-sm" />
               </div>
               <div>
-                <span className="text-xs text-zinc-500 block">Filed</span>
-                <span className="text-zinc-300" title={formatDate(activeDispute.created_at)}>{formatRelativeTime(activeDispute.created_at)}</span>
+                <span className="text-xs text-muted block">Filed</span>
+                <span className="text-ink-2" title={formatDate(activeDispute.created_at)}>{formatRelativeTime(activeDispute.created_at)}</span>
               </div>
             </div>
 
             <div>
-              <span className="text-xs text-zinc-500 block mb-1">Reason</span>
-              <p className="text-sm text-zinc-300">{activeDispute.reason}</p>
+              <span className="text-xs text-muted block mb-1">Reason</span>
+              <p className="text-sm text-ink-2">{activeDispute.reason}</p>
             </div>
 
             {activeDispute.evidence_uri && (
               <div>
-                <span className="text-xs text-zinc-500 block mb-1">Evidence</span>
-                <a href={activeDispute.evidence_uri} target="_blank" rel="noopener noreferrer" className="text-sm text-proton-purple hover:underline break-all">
+                <span className="text-xs text-muted block mb-1">Evidence</span>
+                <a href={activeDispute.evidence_uri} target="_blank" rel="noopener noreferrer" className="text-sm text-accent hover:underline break-all">
                   {activeDispute.evidence_uri.length > 60 ? activeDispute.evidence_uri.slice(0, 60) + '...' : activeDispute.evidence_uri}
                 </a>
               </div>
@@ -986,32 +986,32 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
             {/* Resolution details */}
             {activeDispute.resolution > 0 && (
-              <div className="pt-3 border-t border-zinc-700 space-y-2">
-                <h4 className="text-sm font-medium text-emerald-400">Resolution</h4>
+              <div className="pt-3 border-t border-line-2 space-y-2">
+                <h4 className="text-sm font-medium text-good">Resolution</h4>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
-                    <span className="text-xs text-zinc-500 block">To client</span>
-                    <span className="text-white font-medium">{formatXpr(activeDispute.client_amount)}</span>
+                    <span className="text-xs text-muted block">To client</span>
+                    <span className="text-ink font-medium">{formatXpr(activeDispute.client_amount)}</span>
                   </div>
                   <div>
-                    <span className="text-xs text-zinc-500 block">To agent</span>
-                    <span className="text-white font-medium">{formatXpr(activeDispute.agent_amount)}</span>
+                    <span className="text-xs text-muted block">To agent</span>
+                    <span className="text-ink font-medium">{formatXpr(activeDispute.agent_amount)}</span>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
-                    <span className="text-xs text-zinc-500 block">Resolved by</span>
+                    <span className="text-xs text-muted block">Resolved by</span>
                     <AccountLink account={activeDispute.resolver} className="text-sm" />
                   </div>
                   <div>
-                    <span className="text-xs text-zinc-500 block">Resolved</span>
-                    <span className="text-zinc-300" title={formatDate(activeDispute.resolved_at)}>{formatRelativeTime(activeDispute.resolved_at)}</span>
+                    <span className="text-xs text-muted block">Resolved</span>
+                    <span className="text-ink-2" title={formatDate(activeDispute.resolved_at)}>{formatRelativeTime(activeDispute.resolved_at)}</span>
                   </div>
                 </div>
                 {activeDispute.resolution_notes && (
                   <div>
-                    <span className="text-xs text-zinc-500 block mb-1">Notes</span>
-                    <p className="text-sm text-zinc-300 italic">{activeDispute.resolution_notes}</p>
+                    <span className="text-xs text-muted block mb-1">Notes</span>
+                    <p className="text-sm text-ink-2 italic">{activeDispute.resolution_notes}</p>
                   </div>
                 )}
               </div>
@@ -1021,7 +1021,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {activeDispute.resolution === 0 && isArbitrator && !showResolve && (
               <button
                 onClick={() => setShowResolve(true)}
-                className="px-4 py-2 bg-proton-purple text-white rounded-lg text-sm hover:bg-proton-purple/80"
+                className="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent/80"
               >
                 Resolve Dispute
               </button>
@@ -1029,10 +1029,10 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
             {/* Resolve form */}
             {activeDispute.resolution === 0 && isArbitrator && showResolve && (
-              <div className="space-y-3 pt-2 border-t border-red-500/20">
-                <h4 className="text-sm font-medium text-white">Resolution</h4>
+              <div className="space-y-3 pt-2 border-t border-crit/30">
+                <h4 className="text-sm font-medium text-ink">Resolution</h4>
                 <div>
-                  <label className="text-xs text-zinc-500 block mb-1">
+                  <label className="text-xs text-muted block mb-1">
                     Refund to client: {resolvePercent}% ({formatXpr(Math.floor(job.funded_amount * resolvePercent / 100))})
                   </label>
                   <input
@@ -1042,20 +1042,20 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                     step={5}
                     value={resolvePercent}
                     onChange={e => setResolvePercent(Number(e.target.value))}
-                    className="w-full accent-proton-purple"
+                    className="w-full accent-accent"
                   />
-                  <div className="flex justify-between text-xs text-zinc-500 mt-1">
+                  <div className="flex justify-between text-xs text-muted mt-1">
                     <span>0% (all to agent)</span>
                     <span>100% (full refund)</span>
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-zinc-500 block mb-1">Resolution notes *</label>
+                  <label className="text-xs text-muted block mb-1">Resolution notes *</label>
                   <textarea
                     value={resolveNotes}
                     onChange={e => setResolveNotes(e.target.value)}
                     placeholder="Explain the resolution decision..."
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-proton-purple focus:border-proton-purple"
+                    className="w-full bg-surface-2 border border-line-2 rounded-lg px-3 py-2 text-sm text-ink placeholder:text-muted focus:ring-1 focus:ring-accent focus:border-accent"
                     rows={3}
                   />
                 </div>
@@ -1063,14 +1063,14 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   <button
                     onClick={handleResolveDispute}
                     disabled={processing || !resolveNotes.trim()}
-                    className="px-4 py-2 bg-proton-purple text-white rounded-lg text-sm hover:bg-proton-purple/80 disabled:bg-zinc-700 disabled:text-zinc-500"
+                    className="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent/80 disabled:bg-line disabled:text-muted"
                   >
                     {processing ? 'Resolving...' : `Resolve: ${resolvePercent}% client / ${100 - resolvePercent}% agent`}
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowResolve(false)}
-                    className="px-4 py-2 text-zinc-400 hover:text-white text-sm"
+                    className="px-4 py-2 text-ink-2 hover:text-ink text-sm"
                   >
                     Cancel
                   </button>
@@ -1082,12 +1082,12 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
         {/* Assigned Agent */}
         {job.agent && job.agent !== '.............' && job.state > 0 && (
-          <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-            <h3 className="text-sm font-medium text-emerald-400 mb-2">Assigned Agent</h3>
-            <div className="font-medium text-white">
+          <div className="p-4 bg-good-soft border border-good/30 rounded-lg">
+            <h3 className="text-sm font-medium text-good mb-2">Assigned Agent</h3>
+            <div className="font-medium text-ink">
               <AccountLink account={job.agent} isAgent showAvatar avatarSize={28} />
             </div>
-            <div className="text-sm text-zinc-400 mt-1">
+            <div className="text-sm text-ink-2 mt-1">
               {formatXpr(job.amount)} budget
             </div>
             {(() => {
@@ -1095,11 +1095,11 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
               if (!winningBid) return null;
               return (
                 <>
-                  <div className="text-sm text-zinc-400 mt-1">
+                  <div className="text-sm text-ink-2 mt-1">
                     {formatTimeline(winningBid.timeline)} timeline
                   </div>
                   {winningBid.proposal && (
-                    <p className="text-sm text-zinc-500 mt-2">{winningBid.proposal}</p>
+                    <p className="text-sm text-muted mt-2">{winningBid.proposal}</p>
                   )}
                 </>
               );
@@ -1109,15 +1109,15 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
         {/* Bids Section */}
         {(canBid || bids.length > 0 || bidsLoading) && (
-          <div className="border-t border-zinc-800 pt-4">
+          <div className="border-t border-line pt-4">
             <div className="flex justify-between items-center mb-3">
-              <h3 className="font-medium text-white">
+              <h3 className="font-medium text-ink">
                 Bids {!bidsLoading && `(${bids.length})`}
               </h3>
               {session && canBid && !showBidForm && (
                 <button
                   onClick={() => setShowBidForm(true)}
-                  className="px-4 py-2 bg-proton-purple text-white rounded-lg text-sm hover:bg-purple-700"
+                  className="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover"
                 >
                   Submit Bid
                 </button>
@@ -1126,10 +1126,10 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
             {/* Bid Form */}
             {showBidForm && session && (
-              <form onSubmit={handleSubmitBid} className="mb-4 p-4 bg-zinc-800 rounded-lg">
+              <form onSubmit={handleSubmitBid} className="mb-4 p-4 bg-surface-2 rounded-lg">
                 <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Amount (XPR)</label>
+                    <label className="block text-xs text-ink-2 mb-1">Amount (XPR)</label>
                     <input
                       type="number"
                       value={bidAmount}
@@ -1138,11 +1138,11 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                       min="0"
                       step="0.0001"
                       required
-                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg text-sm"
+                      className="w-full px-3 py-2 bg-surface border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Timeline (days)</label>
+                    <label className="block text-xs text-ink-2 mb-1">Timeline (days)</label>
                     <input
                       type="number"
                       value={bidTimeline}
@@ -1150,33 +1150,33 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                       placeholder="7"
                       min="1"
                       required
-                      className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg text-sm"
+                      className="w-full px-3 py-2 bg-surface border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm"
                     />
                   </div>
                 </div>
                 <div className="mb-3">
-                  <label className="block text-xs text-zinc-400 mb-1">Proposal</label>
+                  <label className="block text-xs text-ink-2 mb-1">Proposal</label>
                   <textarea
                     value={bidProposal}
                     onChange={(e) => setBidProposal(e.target.value)}
                     placeholder="Describe your approach..."
                     rows={3}
                     required
-                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg text-sm"
+                    className="w-full px-3 py-2 bg-surface border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm"
                   />
                 </div>
                 <div className="flex gap-2">
                   <button
                     type="submit"
                     disabled={processing}
-                    className="px-4 py-2 bg-proton-purple text-white rounded-lg text-sm hover:bg-purple-700 disabled:bg-zinc-700 disabled:text-zinc-500"
+                    className="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover disabled:bg-line disabled:text-muted"
                   >
                     {processing ? 'Submitting...' : 'Submit Bid'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowBidForm(false)}
-                    className="px-4 py-2 border border-zinc-700 text-zinc-300 rounded-lg text-sm hover:bg-zinc-800"
+                    className="px-4 py-2 border border-line-2 text-ink-2 rounded-lg text-sm hover:bg-surface-2"
                   >
                     Cancel
                   </button>
@@ -1186,10 +1186,10 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
             {bidsLoading ? (
               <div className="flex justify-center py-4">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-proton-purple"></div>
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent"></div>
               </div>
             ) : bids.length === 0 ? (
-              <p className="text-sm text-zinc-500 py-2">
+              <p className="text-sm text-muted py-2">
                 {canBid ? 'No bids yet. Be the first!' : 'No bids.'}
               </p>
             ) : (
@@ -1199,19 +1199,19 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   return (
                     <div
                       key={bid.id}
-                      className={`p-3 border rounded-lg ${isWinner ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-zinc-800'}`}
+                      className={`p-3 border rounded-lg ${isWinner ? 'border-good/30 bg-good-soft' : 'border-line'}`}
                     >
                       <div className="flex justify-between items-start">
                         <div>
                           <div className="flex items-center gap-2">
                             <AccountLink account={bid.agent} isAgent showAvatar avatarSize={22} className="font-medium text-sm" />
                             {isWinner && (
-                              <span className="px-1.5 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-400">Selected</span>
+                              <span className="px-1.5 py-0.5 rounded text-xs bg-good-soft text-good">Selected</span>
                             )}
                           </div>
                           <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-base font-bold text-proton-purple">{formatXpr(bid.amount)}</span>
-                            <span className="text-xs text-zinc-500">{formatTimeline(bid.timeline)}</span>
+                            <span className="text-base font-bold text-accent">{formatXpr(bid.amount)}</span>
+                            <span className="text-xs text-muted">{formatTimeline(bid.timeline)}</span>
                           </div>
                         </div>
                         <div className="flex gap-2">
@@ -1219,7 +1219,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                             <button
                               onClick={() => handleSelectBid(bid)}
                               disabled={processing}
-                              className="text-xs px-3 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                              className="text-xs px-3 py-1 bg-good text-white rounded hover:bg-good disabled:opacity-50"
                             >
                               Select & Fund
                             </button>
@@ -1228,14 +1228,14 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                             <button
                               onClick={() => handleWithdrawBid(bid.id)}
                               disabled={processing}
-                              className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+                              className="text-xs text-crit hover:text-crit disabled:opacity-50"
                             >
                               Withdraw
                             </button>
                           )}
                         </div>
                       </div>
-                      <p className="text-sm text-zinc-400 mt-2">{bid.proposal}</p>
+                      <p className="text-sm text-ink-2 mt-2">{bid.proposal}</p>
                     </div>
                   );
                 })}
@@ -1247,42 +1247,42 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
       {/* Rating Modal */}
       {showRating && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60]" onClick={() => setShowRating(false)}>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-white mb-1">Rate {ratingAgent}</h3>
-            <p className="text-sm text-zinc-500 mb-4">How was job #{ratingJobId}?</p>
+        <div className="fixed inset-0 bg-ink/70 backdrop-blur-sm flex items-center justify-center z-[60]" onClick={() => setShowRating(false)}>
+          <div className="bg-surface border border-line rounded-xl p-6 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-ink mb-1">Rate {ratingAgent}</h3>
+            <p className="text-sm text-muted mb-4">How was job #{ratingJobId}?</p>
             <div className="flex justify-center gap-2 mb-4">
               {[1, 2, 3, 4, 5].map((s) => (
                 <button
                   key={s}
                   onClick={() => setRatingScore(s)}
                   className={`text-3xl transition-transform ${
-                    s <= ratingScore ? 'text-yellow-400 scale-110' : 'text-zinc-600'
+                    s <= ratingScore ? 'text-warn scale-110' : 'text-muted'
                   } hover:scale-125`}
                 >
                   ★
                 </button>
               ))}
             </div>
-            <p className="text-center text-sm text-zinc-500 mb-4">{ratingScore}/5</p>
+            <p className="text-center text-sm text-muted mb-4">{ratingScore}/5</p>
             <input
               type="text"
               value={ratingTags}
               onChange={(e) => setRatingTags(e.target.value)}
               placeholder="Tags: fast, quality, creative..."
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 rounded-lg text-sm mb-4"
+              className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm mb-4"
             />
             <div className="flex gap-2">
               <button
                 onClick={handleSubmitRating}
                 disabled={ratingSubmitting}
-                className="flex-1 px-4 py-2 bg-proton-purple text-white rounded-lg text-sm hover:bg-purple-700 disabled:bg-zinc-700 disabled:text-zinc-500"
+                className="flex-1 px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover disabled:bg-line disabled:text-muted"
               >
                 {ratingSubmitting ? 'Submitting...' : 'Submit Rating'}
               </button>
               <button
                 onClick={() => setShowRating(false)}
-                className="px-4 py-2 border border-zinc-700 text-zinc-300 rounded-lg text-sm hover:bg-zinc-800"
+                className="px-4 py-2 border border-line-2 text-ink-2 rounded-lg text-sm hover:bg-surface-2"
               >
                 Skip
               </button>

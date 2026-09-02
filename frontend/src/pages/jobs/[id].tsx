@@ -43,33 +43,33 @@ export default function JobPage() {
         {job && <meta name="description" content={job.description.slice(0, 160)} />}
       </Head>
 
-      <div className="min-h-screen bg-zinc-950">
+      <div className="min-h-screen bg-canvas">
         <Header activePage="jobs" />
 
         <main className="max-w-2xl mx-auto px-4 py-8">
           {/* Breadcrumb */}
-          <nav className="flex items-center gap-2 text-sm text-zinc-500 mb-6">
-            <Link href="/jobs" className="hover:text-zinc-300 transition-colors">Job Board</Link>
+          <nav className="flex items-center gap-2 text-sm text-muted mb-6">
+            <Link href="/jobs" className="hover:text-ink-2 transition-colors">Job Board</Link>
             <span>/</span>
-            <span className="text-zinc-300">
+            <span className="text-ink-2">
               {job ? `#${job.id}` : loading ? '...' : 'Not Found'}
             </span>
           </nav>
 
           {loading ? (
             <div className="flex justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-proton-purple"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
             </div>
           ) : error || !job ? (
             <div className="text-center py-12">
-              <h1 className="text-2xl font-bold text-white mb-2">Job Not Found</h1>
-              <p className="text-zinc-500 mb-6">This job doesn&apos;t exist or has been removed.</p>
-              <Link href="/jobs" className="px-4 py-2 bg-proton-purple text-white rounded-lg text-sm hover:bg-purple-700">
+              <h1 className="text-2xl font-bold text-ink mb-2">Job Not Found</h1>
+              <p className="text-muted mb-6">This job doesn&apos;t exist or has been removed.</p>
+              <Link href="/jobs" className="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover">
                 Back to Job Board
               </Link>
             </div>
           ) : (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+            <div className="bg-surface border border-line rounded-xl p-6">
               <JobDetail job={job} onJobUpdated={setJob} />
             </div>
           )}

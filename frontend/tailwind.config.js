@@ -2,6 +2,7 @@ const defaultTheme = require('tailwindcss/defaultTheme');
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: 'class',
   content: [
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
@@ -9,14 +10,33 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', ...defaultTheme.fontFamily.sans],
+        sans: ['var(--font-geist)', ...defaultTheme.fontFamily.sans],
+        display: ['var(--font-instrument)', 'var(--font-geist)', ...defaultTheme.fontFamily.sans],
+        mono: ['var(--font-geist-mono)', ...defaultTheme.fontFamily.mono],
       },
       colors: {
+        // Semantic tokens backed by CSS variables (light + dark values in globals.css).
+        // <alpha-value> keeps bg-surface/50 style opacity modifiers working.
+        canvas: 'rgb(var(--c-canvas) / <alpha-value>)',
+        surface: { DEFAULT: 'rgb(var(--c-surface) / <alpha-value>)', 2: 'rgb(var(--c-surface-2) / <alpha-value>)' },
+        line: { DEFAULT: 'rgb(var(--c-line) / <alpha-value>)', 2: 'rgb(var(--c-line-2) / <alpha-value>)' },
+        ink: { DEFAULT: 'rgb(var(--c-ink) / <alpha-value>)', 2: 'rgb(var(--c-ink-2) / <alpha-value>)' },
+        muted: 'rgb(var(--c-muted) / <alpha-value>)',
+        accent: { DEFAULT: 'rgb(var(--c-accent) / <alpha-value>)', hover: 'rgb(var(--c-accent-hover) / <alpha-value>)', soft: 'rgb(var(--c-accent-soft) / <alpha-value>)' },
+        good: { DEFAULT: 'rgb(var(--c-good) / <alpha-value>)', soft: 'rgb(var(--c-good-soft) / <alpha-value>)' },
+        warn: { DEFAULT: 'rgb(var(--c-warn) / <alpha-value>)', soft: 'rgb(var(--c-warn-soft) / <alpha-value>)' },
+        crit: { DEFAULT: 'rgb(var(--c-crit) / <alpha-value>)', soft: 'rgb(var(--c-crit-soft) / <alpha-value>)' },
+        info: { DEFAULT: 'rgb(var(--c-info) / <alpha-value>)', soft: 'rgb(var(--c-info-soft) / <alpha-value>)' },
+        // Legacy alias kept so any missed class still resolves to the accent.
         proton: {
-          purple: '#7D3CF8',
-          dark: '#1A1A2E',
-          light: '#F5F5F7',
+          purple: 'rgb(var(--c-accent) / <alpha-value>)',
+          dark: 'rgb(var(--c-ink) / <alpha-value>)',
+          light: 'rgb(var(--c-surface) / <alpha-value>)',
         },
+      },
+      letterSpacing: {
+        display: '-0.025em',
+        label: '0.06em',
       },
       keyframes: {
         'fade-in': {

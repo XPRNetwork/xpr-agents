@@ -7,6 +7,12 @@ const networkConfig = getNetworkConfig();
 export const isMainnet = getSelectedNetwork() === 'mainnet';
 
 // Contract names
+/** On-chain sentinel for an unset `name` field (agent unassigned, no arbitrator, no owner). */
+export const EMPTY_NAME = '.............';
+export function isEmptyName(v: string | null | undefined): boolean {
+  return !v || v === EMPTY_NAME;
+}
+
 export const CONTRACTS = {
   AGENT_CORE: process.env.NEXT_PUBLIC_AGENT_CORE || 'agentcore',
   AGENT_FEED: process.env.NEXT_PUBLIC_AGENT_FEED || 'agentfeed',

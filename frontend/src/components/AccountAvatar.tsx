@@ -31,7 +31,7 @@ export function AccountAvatar({ account, name, size = 32, className = '' }: Acco
 
   return (
     <div
-      className={`rounded-full flex items-center justify-center font-bold bg-zinc-800 text-zinc-400 shrink-0 ${className}`}
+      className={`rounded-full flex items-center justify-center font-bold bg-surface-2 text-ink-2 shrink-0 ${className}`}
       style={{ width: size, height: size, fontSize: size * 0.38 }}
     >
       {initial}

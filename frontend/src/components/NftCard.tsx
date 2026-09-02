@@ -21,10 +21,10 @@ export function NftCard({ asset, compact }: NftCardProps) {
       href={marketplaceUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className="block rounded-xl border border-zinc-800 bg-zinc-900 hover:border-purple-500/50 transition-all overflow-hidden group"
+      className="block rounded-xl border border-line bg-surface hover:border-accent/50 transition-all overflow-hidden group"
     >
       {/* Image */}
-      <div className={`bg-zinc-800 overflow-hidden ${compact ? 'h-36' : 'h-48'}`}>
+      <div className={`bg-surface-2 overflow-hidden ${compact ? 'h-36' : 'h-48'}`}>
         {imageUrl ? (
           <img
             src={imageUrl}
@@ -47,7 +47,7 @@ export function NftCard({ asset, compact }: NftCardProps) {
             }}
           />
         ) : null}
-        <div className={`${imageUrl ? 'hidden' : ''} w-full h-full flex items-center justify-center text-zinc-600`}>
+        <div className={`${imageUrl ? 'hidden' : ''} w-full h-full flex items-center justify-center text-muted`}>
           <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
@@ -56,14 +56,14 @@ export function NftCard({ asset, compact }: NftCardProps) {
 
       {/* Info */}
       <div className={compact ? 'p-3' : 'p-4'}>
-        <h4 className={`font-semibold text-white group-hover:text-purple-400 transition-colors truncate ${
+        <h4 className={`font-semibold text-ink group-hover:text-accent transition-colors truncate ${
           compact ? 'text-sm' : 'text-base'
         }`}>
           {asset.name}
         </h4>
         <div className="flex justify-between items-center mt-1">
-          <span className="text-xs text-zinc-500 truncate">{asset.collection_name}</span>
-          <span className="text-xs text-zinc-600 font-mono">#{asset.asset_id}</span>
+          <span className="text-xs text-muted truncate">{asset.collection_name}</span>
+          <span className="text-xs text-muted font-mono">#{asset.asset_id}</span>
         </div>
       </div>
     </a>

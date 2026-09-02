@@ -1,69 +1,113 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ── Tokens ────────────────────────────────────────────────────────
+   Light is the default. `.dark` on <html> switches the whole palette;
+   the class is set before paint by the script in _document.tsx.
+   Values are space-separated RGB so Tailwind opacity modifiers work. */
+
+:root {
+  color-scheme: light;
+  --c-canvas: 255 255 255;
+  --c-surface: 246 247 250;
+  --c-surface-2: 237 239 244;
+  --c-line: 226 229 236;
+  --c-line-2: 201 206 217;
+  --c-ink: 12 14 20;
+  --c-ink-2: 75 82 99;
+  --c-muted: 111 119 137;
+  --c-accent: 75 58 223;
+  --c-accent-hover: 58 44 184;
+  --c-accent-soft: 238 235 253;
+  --c-good: 15 123 76;
+  --c-good-soft: 230 245 238;
+  --c-warn: 166 91 0;
+  --c-warn-soft: 251 241 226;
+  --c-crit: 180 35 24;
+  --c-crit-soft: 252 235 233;
+  --c-info: 23 92 211;
+  --c-info-soft: 230 238 251;
+  --selection: rgba(75, 58, 223, 0.18);
+}
+
+.dark {
+  color-scheme: dark;
+  --c-canvas: 14 16 22;
+  --c-surface: 21 24 33;
+  --c-surface-2: 28 32 43;
+  --c-line: 38 43 55;
+  --c-line-2: 53 59 74;
+  --c-ink: 236 238 243;
+  --c-ink-2: 179 185 199;
+  --c-muted: 126 134 151;
+  --c-accent: 122 104 255;
+  --c-accent-hover: 139 123 255;
+  --c-accent-soft: 34 31 61;
+  --c-good: 63 203 134;
+  --c-good-soft: 18 39 29;
+  --c-warn: 242 169 59;
+  --c-warn-soft: 44 34 20;
+  --c-crit: 242 126 116;
+  --c-crit-soft: 46 26 25;
+  --c-info: 111 168 255;
+  --c-info-soft: 27 39 64;
+  --selection: rgba(139, 123, 255, 0.28);
+}
+
+/* ── Base ─────────────────────────────────────────────────────────── */
+
 body {
-  background-color: #09090b;
-  color: #fafafa;
+  background-color: rgb(var(--c-canvas));
+  color: rgb(var(--c-ink));
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 ::selection {
-  background-color: rgba(125, 60, 248, 0.4);
-  color: #fafafa;
+  background-color: var(--selection);
+  color: rgb(var(--c-ink));
 }
 
-/* Dark scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: rgb(var(--c-surface)); }
+::-webkit-scrollbar-thumb { background: rgb(var(--c-line-2)); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-muted)); }
 
-::-webkit-scrollbar-track {
-  background: #18181b;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+/* Visible keyboard focus everywhere, invisible for mouse. */
+:focus-visible {
+  outline: 2px solid rgb(var(--c-accent));
+  outline-offset: 2px;
   border-radius: 4px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+/* Numbers line up in tables and stats. */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* ── Type helpers ─────────────────────────────────────────────────── */
+
+.font-display {
+  font-family: var(--font-instrument), var(--font-geist), system-ui, sans-serif;
+  letter-spacing: -0.025em;
 }
 
-/* Toast slide-up animation */
+/* Small uppercase label used for eyebrows and table headers. */
+.label {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(var(--c-muted));
+}
+
+/* ── Motion ───────────────────────────────────────────────────────── */
+
 @keyframes slide-up {
-  from {
-    opacity: 0;
-    transform: translateY(1rem);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(1rem); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
-.animate-slide-up {
-  animation: slide-up 0.25s ease-out;
-}
-
-/* Reduced motion: disable all custom animations */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-/* Skeleton shimmer */
-.skeleton-shimmer {
-  background: linear-gradient(90deg, #27272a 25%, #3f3f46 50%, #27272a 75%);
-  background-size: 200% 100%;
-  animation: skeleton 1.5s ease-in-out infinite;
-}
+.animate-slide-up { animation: slide-up 0.25s ease-out; }
 
 /* Stagger helper — items start invisible, animate in with delay */
 .animate-stagger {
@@ -71,88 +115,35 @@ body {
   animation-fill-mode: forwards;
 }
 
-/* Trust ring glow */
-.trust-glow {
-  filter: drop-shadow(0 0 6px currentColor);
-}
-
-/* Animated gradient background for hero */
-.hero-gradient-animated {
-  background-size: 200% 200%;
-  animation: gradient-shift 8s ease infinite;
-}
-
-/* Card hover lift */
-.card-hover-lift {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-.card-hover-lift:hover {
-  transform: scale(1.02) translateY(-2px);
-  box-shadow: 0 8px 25px rgba(125, 60, 248, 0.15);
-}
-
-/* CTA glow on hover */
-.btn-glow:hover {
-  box-shadow: 0 0 20px rgba(125, 60, 248, 0.4);
-}
-
 /* On-chain event toast — slide up, hold, fade out */
 @keyframes chain-toast {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, 12px);
-  }
-  10% {
-    opacity: 1;
-    transform: translate(-50%, 0);
-  }
-  75% {
-    opacity: 1;
-    transform: translate(-50%, 0);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -8px);
-  }
+  0% { opacity: 0; transform: translate(-50%, 12px); }
+  10% { opacity: 1; transform: translate(-50%, 0); }
+  75% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -8px); }
+}
+.animate-chain-toast { animation: chain-toast 4s ease-in-out forwards; }
+
+/* Legacy hooks kept as no-ops or quiet equivalents so old call sites still work. */
+.card-hover-lift { transition: border-color 0.15s ease; }
+.card-hover-lift:hover { border-color: rgb(var(--c-line-2)); }
+.btn-glow:hover { box-shadow: none; }
+.trust-glow { filter: none; }
+.animated-border { border: 1px solid rgb(var(--c-line)); }
+.hero-gradient-animated { background: none; }
+.gpu-accelerated { will-change: auto; }
+
+/* Skeleton shimmer */
+.skeleton-shimmer {
+  background: linear-gradient(90deg, rgb(var(--c-surface-2)) 25%, rgb(var(--c-surface)) 50%, rgb(var(--c-surface-2)) 75%);
+  background-size: 200% 100%;
+  animation: skeleton 1.5s ease-in-out infinite;
 }
 
-.animate-chain-toast {
-  animation: chain-toast 4s ease-in-out forwards;
-}
-
-/* Lifecycle step arrows */
-@keyframes arrow-pulse {
-  0%, 100% { opacity: 0.3; transform: translateX(0); }
-  50% { opacity: 0.7; transform: translateX(2px); }
-}
-
-/* GPU acceleration hint */
-.gpu-accelerated {
-  will-change: transform, opacity;
-}
-
-/* Animated gradient border on hover */
-@property --border-angle {
-  syntax: '<angle>';
-  initial-value: 0deg;
-  inherits: false;
-}
-
-.animated-border {
-  --border-angle: 0deg;
-  border: 1px solid transparent;
-  background:
-    linear-gradient(#18181b, #18181b) padding-box,
-    conic-gradient(from var(--border-angle), #7D3CF8, #4f46e5, #7D3CF8) border-box;
-  transition: --border-angle 0s;
-}
-
-.animated-border:hover {
-  animation: border-spin 3s linear infinite;
-}
-
-@keyframes border-spin {
-  to {
-    --border-angle: 360deg;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

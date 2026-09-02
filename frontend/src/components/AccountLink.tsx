@@ -36,7 +36,7 @@ export function AccountLink({
     return (
       <Link
         href={`/agent/${account}`}
-        className={`inline-flex items-center gap-1.5 text-proton-purple hover:underline ${className}`}
+        className={`inline-flex items-center gap-1.5 text-accent hover:underline ${className}`}
       >
         {inner}
       </Link>
@@ -48,7 +48,7 @@ export function AccountLink({
       href={`${getExplorerAccountUrl()}/${account}`}
       target="_blank"
       rel="noopener noreferrer"
-      className={`inline-flex items-center gap-1.5 text-zinc-300 hover:text-proton-purple hover:underline ${className}`}
+      className={`inline-flex items-center gap-1.5 text-ink-2 hover:text-accent hover:underline ${className}`}
     >
       {inner}
     </a>

@@ -32,6 +32,23 @@ const ENDPOINTS = [networkConfig.rpc];
 
 // Module-level flags survive React StrictMode remounts (refs don't)
 let sessionRestoreStarted = false;
+/**
+ * Wallet widget options for @proton/web-sdk 5.x (new Svelte renderer).
+ * Theme follows the site's light/dark toggle at the moment the widget opens.
+ */
+function widgetUiOptions() {
+  const dark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return {
+    theme: dark ? 'dark' : 'light',
+    appInfo: {
+      name: APP_NAME,
+      logo: `${origin}/${dark ? 'xpr-glyph-white.png' : 'xpr-glyph-black.png'}`,
+      logoRounded: false,
+    },
+  } as const;
+}
+
 let loginInProgress = false;
 
 export function ProtonProvider({ children }: { children: ReactNode }) {
@@ -57,9 +74,7 @@ export function ProtonProvider({ children }: { children: ReactNode }) {
           transportOptions: {
             requestAccount: REQUEST_ACCOUNT,
           },
-          selectorOptions: {
-            appName: APP_NAME,
-          },
+          uiOptions: widgetUiOptions(),
         });
 
         if (restored) {
@@ -99,9 +114,7 @@ export function ProtonProvider({ children }: { children: ReactNode }) {
         transportOptions: {
           requestAccount: REQUEST_ACCOUNT,
         },
-        selectorOptions: {
-          appName: APP_NAME,
-        },
+        uiOptions: widgetUiOptions(),
       });
 
       if (loginSession) {
