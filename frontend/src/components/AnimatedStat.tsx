@@ -6,18 +6,19 @@ interface AnimatedStatProps {
   label: string;
   suffix?: string;
   color?: string;
+  className?: string;
 }
 
-export function AnimatedStat({ value, label, suffix = '', color = 'text-proton-purple' }: AnimatedStatProps) {
+export function AnimatedStat({ value, label, suffix = '', color = 'text-ink', className = '' }: AnimatedStatProps) {
   const [ref, inView] = useInView();
-  const count = useCountUp(value, 1200, inView);
+  const count = useCountUp(value, 900, inView);
 
   return (
-    <div ref={ref}>
-      <div className={`text-3xl font-bold ${color}`}>
-        {count}{suffix}
-      </div>
-      <div className="text-zinc-400">{label}</div>
+    <div ref={ref} className={`py-6 md:px-6 md:first:pl-0 ${className}`}>
+      <dt className="label">{label}</dt>
+      <dd className={`mt-2 font-display text-3xl font-semibold tabular ${color}`}>
+        {count.toLocaleString('en-US')}{suffix}
+      </dd>
     </div>
   );
 }

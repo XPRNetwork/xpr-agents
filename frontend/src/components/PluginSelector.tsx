@@ -70,7 +70,7 @@ export function PluginSelector({ onSelect, selectedIds = [] }: PluginSelectorPro
     return (
       <div className="animate-pulse space-y-2">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-16 bg-zinc-800 rounded-lg"></div>
+          <div key={i} className="h-16 bg-surface-2 rounded-lg"></div>
         ))}
       </div>
     );
@@ -83,8 +83,8 @@ export function PluginSelector({ onSelect, selectedIds = [] }: PluginSelectorPro
           onClick={() => setCategory('all')}
           className={`px-3 py-1 rounded-lg text-sm whitespace-nowrap ${
             category === 'all'
-              ? 'bg-proton-purple text-white'
-              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+              ? 'bg-accent text-white'
+              : 'bg-surface-2 text-ink-2 hover:bg-line'
           }`}
         >
           All
@@ -95,8 +95,8 @@ export function PluginSelector({ onSelect, selectedIds = [] }: PluginSelectorPro
             onClick={() => setCategory(key)}
             className={`px-3 py-1 rounded-lg text-sm whitespace-nowrap ${
               category === key
-                ? 'bg-proton-purple text-white'
-                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                ? 'bg-accent text-white'
+                : 'bg-surface-2 text-ink-2 hover:bg-line'
             }`}
           >
             {label}
@@ -105,7 +105,7 @@ export function PluginSelector({ onSelect, selectedIds = [] }: PluginSelectorPro
       </div>
 
       {filteredPlugins.length === 0 ? (
-        <div className="text-center py-8 text-zinc-500">
+        <div className="text-center py-8 text-muted">
           <p>No plugins available</p>
         </div>
       ) : (
@@ -116,27 +116,27 @@ export function PluginSelector({ onSelect, selectedIds = [] }: PluginSelectorPro
               onClick={() => !selectedIds.includes(plugin.id) && onSelect(plugin)}
               className={`p-3 border rounded-lg cursor-pointer transition-colors ${
                 selectedIds.includes(plugin.id)
-                  ? 'border-proton-purple bg-proton-purple/10'
-                  : 'border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800'
+                  ? 'border-accent bg-accent/10'
+                  : 'border-line hover:border-line-2 hover:bg-surface-2'
               }`}
             >
               <div className="flex justify-between items-start">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-white">{plugin.name}</span>
-                    <span className="text-xs text-zinc-600">v{plugin.version}</span>
+                    <span className="font-medium text-ink">{plugin.name}</span>
+                    <span className="text-xs text-muted">v{plugin.version}</span>
                     {plugin.verified && (
-                      <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full">
+                      <span className="text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full">
                         Verified
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-zinc-500">
+                  <p className="text-sm text-muted">
                     {CATEGORY_LABELS[plugin.category] || plugin.category} · by @{plugin.author}
                   </p>
                 </div>
                 {selectedIds.includes(plugin.id) && (
-                  <span className="text-proton-purple text-sm">Added</span>
+                  <span className="text-accent text-sm">Added</span>
                 )}
               </div>
             </div>

@@ -1,13 +1,13 @@
 export const STATE_COLORS: Record<number, string> = {
-  0: 'bg-zinc-500/10 text-zinc-400',       // Created
-  1: 'bg-blue-500/10 text-blue-400',       // Funded
+  0: 'bg-surface-2 text-ink-2',       // Created
+  1: 'bg-blue-50 text-blue-600',       // Funded
   2: 'bg-indigo-500/10 text-indigo-400',   // Accepted
-  3: 'bg-yellow-500/10 text-yellow-400',   // In Progress
-  4: 'bg-orange-500/10 text-orange-400',   // Delivered
-  5: 'bg-red-500/10 text-red-400',         // Disputed
-  6: 'bg-emerald-500/10 text-emerald-400', // Completed
-  7: 'bg-zinc-500/10 text-zinc-500',       // Refunded
-  8: 'bg-purple-500/10 text-purple-400',   // Arbitrated
+  3: 'bg-yellow-50 text-yellow-600',   // In Progress
+  4: 'bg-orange-500/10 text-orange-600',   // Delivered
+  5: 'bg-red-50 text-red-600',         // Disputed
+  6: 'bg-emerald-50 text-emerald-600', // Completed
+  7: 'bg-surface-2 text-muted',       // Refunded
+  8: 'bg-accent/10 text-accent',   // Arbitrated
 };
 
 export function getTxId(result: any): string | undefined {

@@ -87,8 +87,8 @@ export function AgentList() {
             onClick={() => changeFilter('active')}
             className={`px-3 py-1.5 rounded-lg text-sm ${
               filter === 'active'
-                ? 'bg-proton-purple text-white'
-                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                ? 'bg-accent text-white'
+                : 'bg-surface-2 text-ink-2 hover:bg-line'
             }`}
           >
             Active
@@ -97,8 +97,8 @@ export function AgentList() {
             onClick={() => changeFilter('all')}
             className={`px-3 py-1.5 rounded-lg text-sm ${
               filter === 'all'
-                ? 'bg-proton-purple text-white'
-                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                ? 'bg-accent text-white'
+                : 'bg-surface-2 text-ink-2 hover:bg-line'
             }`}
           >
             All
@@ -107,7 +107,7 @@ export function AgentList() {
 
         <div className="flex items-center gap-3">
           {!loading && !error && (
-            <span className="text-sm text-zinc-400 tabular-nums" aria-live="polite">
+            <span className="text-sm text-ink-2 tabular-nums" aria-live="polite">
               {total === 0 ? 'No agents' : `Showing ${from}–${to} of ${total}`}
             </span>
           )}
@@ -115,7 +115,7 @@ export function AgentList() {
             value={sortBy}
             onChange={(e) => changeSort(e.target.value as AgentSort)}
             aria-label="Sort agents"
-            className="px-3 py-1.5 bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-lg text-sm"
+            className="px-3 py-1.5 bg-surface-2 border border-line-2 text-ink-2 rounded-lg text-sm"
           >
             {SORT_OPTIONS.map(o => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -131,11 +131,11 @@ export function AgentList() {
           ))}
         </div>
       ) : error ? (
-        <div className="text-center py-12 text-red-400">
+        <div className="text-center py-12 text-red-600">
           <p>{error}</p>
         </div>
       ) : entries.length === 0 ? (
-        <div className="text-center py-12 text-zinc-500">
+        <div className="text-center py-12 text-muted">
           <p>No agents found</p>
         </div>
       ) : (
@@ -153,17 +153,17 @@ export function AgentList() {
       )}
 
       {pageCount > 1 && (
-        <nav className="flex items-center justify-center gap-1 mt-8" aria-label="Agent pages">
+        <nav className="mt-8 flex flex-wrap items-center justify-center gap-1" aria-label="Agent pages">
           <button
             onClick={() => goToPage(page - 1)}
             disabled={page === 0 || loading}
-            className="px-3 py-2 rounded-lg text-sm bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-3 py-2 rounded-lg text-sm bg-surface-2 text-ink-2 hover:bg-line disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Previous
           </button>
           {pageWindow(page, pageCount).map((p, i) =>
             p === null ? (
-              <span key={`gap-${i}`} className="px-2 text-zinc-600">…</span>
+              <span key={`gap-${i}`} className="px-2 text-muted">…</span>
             ) : (
               <button
                 key={p}
@@ -172,8 +172,8 @@ export function AgentList() {
                 aria-current={p === page ? 'page' : undefined}
                 className={`min-w-[40px] px-3 py-2 rounded-lg text-sm tabular-nums ${
                   p === page
-                    ? 'bg-proton-purple text-white'
-                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                    ? 'bg-accent text-white'
+                    : 'bg-surface-2 text-ink-2 hover:bg-line'
                 }`}
               >
                 {p + 1}
@@ -183,7 +183,7 @@ export function AgentList() {
           <button
             onClick={() => goToPage(page + 1)}
             disabled={page >= pageCount - 1 || loading}
-            className="px-3 py-2 rounded-lg text-sm bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-3 py-2 rounded-lg text-sm bg-surface-2 text-ink-2 hover:bg-line disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Next
           </button>

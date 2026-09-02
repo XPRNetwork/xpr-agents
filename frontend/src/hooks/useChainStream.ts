@@ -69,7 +69,7 @@ function humanize(action: string): string {
   return action.replace(/[_-]+/g, ' ').replace(/^\w/, c => c.toUpperCase());
 }
 
-function describeIndexerEvent(ev: { contract?: string; action_name?: string; data?: unknown }): { label: string; detail: string } {
+export function describeIndexerEvent(ev: { contract?: string; action_name?: string; data?: unknown }): { label: string; detail: string } {
   let data: any = ev.data;
   if (typeof data === 'string') {
     try { data = JSON.parse(data); } catch { data = {}; }

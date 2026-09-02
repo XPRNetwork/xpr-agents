@@ -23,14 +23,14 @@ interface Props {
 
 /**
  * Code block with a copy button in the top-right corner.
- * Wraps the existing `bg-zinc-800` styling so existing pages can
+ * Wraps the existing `bg-surface-2` styling so existing pages can
  * swap in-place with no design change.
  */
 export function CodeBlock({ copyText, children, className = '', inline = false }: Props) {
   if (inline) {
     return (
       <span className={`relative inline-flex items-center gap-1.5 ${className}`}>
-        <code className="text-zinc-300 bg-zinc-800 px-2 py-0.5 rounded text-xs">{children}</code>
+        <code className="text-ink-2 bg-surface-2 px-2 py-0.5 rounded text-xs">{children}</code>
         <span className="relative inline-block w-6 h-6">
           <CopyButton text={copyText} className="!top-0 !right-0 !p-1" />
         </span>
@@ -39,7 +39,7 @@ export function CodeBlock({ copyText, children, className = '', inline = false }
   }
   return (
     <div
-      className={`relative bg-zinc-800 text-zinc-300 text-xs p-3 pr-10 rounded-lg overflow-x-auto ${className}`}
+      className={`relative bg-surface-2 text-ink-2 text-xs p-3 pr-10 rounded-lg overflow-x-auto ${className}`}
     >
       {children}
       <CopyButton text={copyText} />

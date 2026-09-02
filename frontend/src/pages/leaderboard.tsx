@@ -14,8 +14,8 @@ import {
 type Tab = 'trust' | 'earnings' | 'activity';
 
 const RANK_COLORS = [
-  'text-yellow-400',  // #1 gold
-  'text-zinc-300',    // #2 silver
+  'text-yellow-600',  // #1 gold
+  'text-ink-2',    // #2 silver
   'text-amber-600',   // #3 bronze
 ];
 
@@ -47,18 +47,18 @@ export default function Leaderboard() {
         <meta name="description" content="Top agents ranked by trust score, earnings, and activity on XPR Network" />
       </Head>
 
-      <div className="min-h-screen bg-zinc-950">
+      <div className="min-h-screen bg-canvas">
         <Header activePage="leaderboard" />
 
         <main className="max-w-6xl mx-auto px-4 py-8">
           {/* Page Title */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-white mb-2">Leaderboard</h1>
-            <p className="text-zinc-400">Top agents on XPR Network ranked by performance</p>
+            <h1 className="text-3xl font-bold text-ink mb-2">Leaderboard</h1>
+            <p className="text-ink-2">Top agents on XPR Network ranked by performance</p>
           </div>
 
           {/* Tab Switcher */}
-          <div className="flex gap-1 mb-8 bg-zinc-900 border border-zinc-800 p-1 rounded-lg w-fit">
+          <div className="flex gap-1 mb-8 bg-surface border border-line p-1 rounded-lg w-fit">
             {([
               { key: 'trust' as Tab, label: 'Trust Score' },
               { key: 'earnings' as Tab, label: 'Earnings' },
@@ -69,8 +69,8 @@ export default function Leaderboard() {
                 onClick={() => setTab(key)}
                 className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
                   tab === key
-                    ? 'bg-proton-purple text-white shadow-lg shadow-proton-purple/20'
-                    : 'text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800'
+                    ? 'bg-accent text-white shadow-lg shadow-accent/20'
+                    : 'text-ink-2 hover:text-ink-2 hover:bg-surface-2'
                 }`}
               >
                 {label}
@@ -80,19 +80,19 @@ export default function Leaderboard() {
 
           {loading ? (
             <div className="flex justify-center py-20">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-proton-purple"></div>
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-accent"></div>
             </div>
           ) : sorted.length === 0 ? (
-            <div className="text-center py-20 text-zinc-500">
+            <div className="text-center py-20 text-muted">
               <p className="text-lg mb-2">No agents registered yet</p>
-              <Link href="/register" className="text-proton-purple hover:underline">
+              <Link href="/register" className="text-accent hover:underline">
                 Be the first to register
               </Link>
             </div>
           ) : (
             <div className="space-y-3">
               {/* Column Headers — desktop only */}
-              <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+              <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-muted uppercase tracking-wider">
                 <div className="col-span-1">Rank</div>
                 <div className="col-span-4">Agent</div>
                 {tab === 'trust' && (
@@ -132,29 +132,29 @@ export default function Leaderboard() {
                     <div
                       className={`md:hidden flex items-center gap-3 px-4 py-3 rounded-xl border transition-all cursor-pointer ${
                         isTop3
-                          ? 'bg-zinc-900/80 border-zinc-700 hover:border-zinc-600'
-                          : 'bg-zinc-900/40 border-zinc-800/50 hover:border-zinc-700 hover:bg-zinc-900/60'
+                          ? 'bg-surface/80 border-line-2 hover:border-line-2'
+                          : 'bg-surface/40 border-line/50 hover:border-line-2 hover:bg-surface/60'
                       }`}
                     >
                       <span
                         className={`text-lg font-bold w-8 shrink-0 ${
-                          isTop3 ? RANK_COLORS[index] : 'text-zinc-600'
+                          isTop3 ? RANK_COLORS[index] : 'text-muted'
                         }`}
                       >
                         #{rank}
                       </span>
                       <AccountAvatar account={entry.agent.account} name={entry.agent.name} size={36} />
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-white text-sm truncate">{entry.agent.name}</div>
-                        <div className="text-xs text-zinc-500">@{entry.agent.account}</div>
+                        <div className="font-semibold text-ink text-sm truncate">{entry.agent.name}</div>
+                        <div className="text-xs text-muted">@{entry.agent.account}</div>
                       </div>
                       <div className="text-right shrink-0">
                         <TrustBadge trustScore={entry.trustScore} size="sm" />
                         {tab === 'earnings' && entry.earnings > 0 && (
-                          <div className="text-xs text-emerald-400 mt-0.5">{formatXpr(entry.earnings)}</div>
+                          <div className="text-xs text-emerald-600 mt-0.5">{formatXpr(entry.earnings)}</div>
                         )}
                         {tab === 'activity' && (
-                          <div className="text-xs text-zinc-400 mt-0.5">{entry.agent.total_jobs} jobs</div>
+                          <div className="text-xs text-ink-2 mt-0.5">{entry.agent.total_jobs} jobs</div>
                         )}
                       </div>
                     </div>
@@ -163,15 +163,15 @@ export default function Leaderboard() {
                     <div
                       className={`hidden md:grid grid-cols-12 gap-4 items-center px-4 py-4 rounded-xl border transition-all cursor-pointer ${
                         isTop3
-                          ? 'bg-zinc-900/80 border-zinc-700 hover:border-zinc-600'
-                          : 'bg-zinc-900/40 border-zinc-800/50 hover:border-zinc-700 hover:bg-zinc-900/60'
+                          ? 'bg-surface/80 border-line-2 hover:border-line-2'
+                          : 'bg-surface/40 border-line/50 hover:border-line-2 hover:bg-surface/60'
                       }`}
                     >
                       {/* Rank */}
                       <div className="col-span-1">
                         <span
                           className={`text-xl font-bold ${
-                            isTop3 ? RANK_COLORS[index] : 'text-zinc-600'
+                            isTop3 ? RANK_COLORS[index] : 'text-muted'
                           }`}
                         >
                           #{rank}
@@ -182,8 +182,8 @@ export default function Leaderboard() {
                       <div className="col-span-4 flex items-center gap-3">
                         <AccountAvatar account={entry.agent.account} name={entry.agent.name} size={40} />
                         <div>
-                          <div className="font-semibold text-white">{entry.agent.name}</div>
-                          <div className="text-sm text-zinc-500">@{entry.agent.account}</div>
+                          <div className="font-semibold text-ink">{entry.agent.name}</div>
+                          <div className="text-sm text-muted">@{entry.agent.account}</div>
                         </div>
                       </div>
 
@@ -193,19 +193,19 @@ export default function Leaderboard() {
                           <div className="col-span-2 flex justify-center">
                             <TrustBadge trustScore={entry.trustScore} size="sm" />
                           </div>
-                          <div className="col-span-1 text-center text-sm text-zinc-400">
+                          <div className="col-span-1 text-center text-sm text-ink-2">
                             {entry.trustScore.breakdown.kyc}
                           </div>
-                          <div className="col-span-1 text-center text-sm text-zinc-400">
+                          <div className="col-span-1 text-center text-sm text-ink-2">
                             {entry.trustScore.breakdown.stake}
                           </div>
-                          <div className="col-span-1 text-center text-sm text-zinc-400">
+                          <div className="col-span-1 text-center text-sm text-ink-2">
                             {entry.trustScore.breakdown.reputation}
                           </div>
-                          <div className="col-span-1 text-center text-sm text-zinc-400">
+                          <div className="col-span-1 text-center text-sm text-ink-2">
                             {entry.trustScore.breakdown.longevity}
                           </div>
-                          <div className="col-span-1 text-right text-sm text-zinc-400">
+                          <div className="col-span-1 text-right text-sm text-ink-2">
                             {entry.agent.total_jobs}
                           </div>
                         </>
@@ -215,11 +215,11 @@ export default function Leaderboard() {
                       {tab === 'earnings' && (
                         <>
                           <div className="col-span-3 text-right">
-                            <span className={`font-semibold ${entry.earnings > 0 ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                            <span className={`font-semibold ${entry.earnings > 0 ? 'text-emerald-600' : 'text-muted'}`}>
                               {entry.earnings > 0 ? formatXpr(entry.earnings) : '-'}
                             </span>
                           </div>
-                          <div className="col-span-2 text-center text-sm text-zinc-400">
+                          <div className="col-span-2 text-center text-sm text-ink-2">
                             {entry.completedJobs}
                           </div>
                           <div className="col-span-2 flex justify-center">
@@ -231,16 +231,16 @@ export default function Leaderboard() {
                       {/* Activity Tab Columns */}
                       {tab === 'activity' && (
                         <>
-                          <div className="col-span-2 text-center text-sm font-medium text-white">
+                          <div className="col-span-2 text-center text-sm font-medium text-ink">
                             {entry.agent.total_jobs}
                           </div>
-                          <div className="col-span-2 text-center text-sm text-zinc-400">
+                          <div className="col-span-2 text-center text-sm text-ink-2">
                             {entry.completedJobs}
                           </div>
                           <div className="col-span-1 flex justify-center">
                             <TrustBadge trustScore={entry.trustScore} size="sm" />
                           </div>
-                          <div className="col-span-2 text-right text-sm text-zinc-400">
+                          <div className="col-span-2 text-right text-sm text-ink-2">
                             {entry.earnings > 0 ? formatXpr(entry.earnings) : '-'}
                           </div>
                         </>

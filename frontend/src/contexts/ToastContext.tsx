@@ -46,20 +46,20 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map(toast => (
           <div
             key={toast.id}
-            className={`pointer-events-auto rounded-xl border px-4 py-3 shadow-2xl shadow-black/40 backdrop-blur-lg animate-slide-up ${
+            className={`pointer-events-auto rounded-xl border px-4 py-3 shadow-2xl shadow-ink/10 backdrop-blur-lg animate-slide-up ${
               toast.type === 'success'
-                ? 'bg-emerald-950/90 border-emerald-500/30'
+                ? 'bg-emerald-950/90 border-emerald-200'
                 : toast.type === 'error'
-                ? 'bg-red-950/90 border-red-500/30'
-                : 'bg-zinc-900/90 border-zinc-700/50'
+                ? 'bg-red-950/90 border-red-200'
+                : 'bg-surface/90 border-line-2/50'
             }`}
           >
             <div className="flex items-start gap-3">
               {/* Icon */}
               <div className={`shrink-0 mt-0.5 ${
-                toast.type === 'success' ? 'text-emerald-400'
-                  : toast.type === 'error' ? 'text-red-400'
-                  : 'text-blue-400'
+                toast.type === 'success' ? 'text-emerald-600'
+                  : toast.type === 'error' ? 'text-red-600'
+                  : 'text-blue-600'
               }`}>
                 {toast.type === 'success' ? (
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -81,7 +81,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 <p className={`text-sm font-medium ${
                   toast.type === 'success' ? 'text-emerald-200'
                     : toast.type === 'error' ? 'text-red-200'
-                    : 'text-zinc-200'
+                    : 'text-ink-2'
                 }`}>
                   {toast.message}
                 </p>
@@ -90,7 +90,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                     href={`${getExplorerTxUrl()}/${toast.txId}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 mt-1.5 text-xs text-zinc-400 hover:text-white transition-colors group"
+                    className="inline-flex items-center gap-1.5 mt-1.5 text-xs text-ink-2 hover:text-ink transition-colors group"
                   >
                     <span className="font-mono">{toast.txId.slice(0, 8)}&hellip;</span>
                     <svg className="w-3.5 h-3.5 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -103,7 +103,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               {/* Dismiss */}
               <button
                 onClick={() => removeToast(toast.id)}
-                className="shrink-0 text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="shrink-0 text-muted hover:text-ink-2 transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

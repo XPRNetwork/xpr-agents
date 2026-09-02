@@ -9,14 +9,31 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', ...defaultTheme.fontFamily.sans],
+        sans: ['var(--font-geist)', ...defaultTheme.fontFamily.sans],
+        display: ['var(--font-instrument)', 'var(--font-geist)', ...defaultTheme.fontFamily.sans],
+        mono: ['var(--font-geist-mono)', ...defaultTheme.fontFamily.mono],
       },
       colors: {
+        // Semantic tokens — light, institutional. Use these, not raw zinc-*.
+        canvas: '#FFFFFF',
+        surface: { DEFAULT: '#F6F7FA', 2: '#EDEFF4' },
+        line: { DEFAULT: '#E2E5EC', 2: '#C9CED9' },
+        ink: { DEFAULT: '#0C0E14', 2: '#4B5263' },
+        muted: '#6F7789',
+        accent: { DEFAULT: '#4B3ADF', hover: '#3A2CB8', soft: '#EEEBFD' },
+        good: { DEFAULT: '#0F7B4C', soft: '#E6F5EE' },
+        warn: { DEFAULT: '#A65B00', soft: '#FBF1E2' },
+        crit: { DEFAULT: '#B42318', soft: '#FCEBE9' },
+        // Legacy alias kept so any missed class still resolves to the accent.
         proton: {
-          purple: '#7D3CF8',
-          dark: '#1A1A2E',
-          light: '#F5F5F7',
+          purple: '#4B3ADF',
+          dark: '#0C0E14',
+          light: '#F6F7FA',
         },
+      },
+      letterSpacing: {
+        display: '-0.025em',
+        label: '0.06em',
       },
       keyframes: {
         'fade-in': {

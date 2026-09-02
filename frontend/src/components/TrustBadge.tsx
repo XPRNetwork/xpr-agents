@@ -1,6 +1,66 @@
 import { TrustScore } from '@/lib/registry';
-import { useCountUp } from '@/hooks/useCountUp';
-import { useInView } from '@/hooks/useInView';
+
+/**
+ * Trust ledger — the trust score's anatomy made visible.
+ * Four segments sized to their maximum contribution (KYC 30, stake 20,
+ * reputation 40, longevity 10) and filled to the agent's actual value,
+ * so a glance shows not just the number but where it comes from.
+ */
+
+export const TRUST_SEGMENTS = [
+  { key: 'kyc' as const, label: 'KYC', max: 30 },
+  { key: 'stake' as const, label: 'Stake', max: 20 },
+  { key: 'reputation' as const, label: 'Reputation', max: 40 },
+  { key: 'longevity' as const, label: 'Longevity', max: 10 },
+];
+
+const ratingLabels: Record<TrustScore['rating'], string> = {
+  untrusted: 'Unrated',
+  low: 'Low trust',
+  medium: 'Medium trust',
+  high: 'High trust',
+  verified: 'Verified',
+};
+
+const ratingTone: Record<TrustScore['rating'], string> = {
+  untrusted: 'text-muted',
+  low: 'text-crit',
+  medium: 'text-warn',
+  high: 'text-good',
+  verified: 'text-accent',
+};
+
+export function trustRatingLabel(rating: TrustScore['rating']): string {
+  return ratingLabels[rating];
+}
+
+interface LedgerProps {
+  trustScore: TrustScore;
+  className?: string;
+  height?: number;
+}
+
+export function TrustLedger({ trustScore, className = '', height = 6 }: LedgerProps) {
+  const title = TRUST_SEGMENTS.map(s => `${s.label} ${trustScore.breakdown[s.key]}/${s.max}`).join(' · ');
+  return (
+    <div
+      className={`flex w-full gap-[2px] ${className}`}
+      style={{ height }}
+      role="img"
+      aria-label={`Trust ${trustScore.total} of 100. ${title}`}
+      title={title}
+    >
+      {TRUST_SEGMENTS.map(({ key, max }) => {
+        const pct = Math.max(0, Math.min(100, (trustScore.breakdown[key] / max) * 100));
+        return (
+          <div key={key} className="relative overflow-hidden rounded-[2px] bg-surface-2" style={{ flex: max }}>
+            <div className="absolute inset-y-0 left-0 bg-accent" style={{ width: `${pct}%` }} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 interface TrustBadgeProps {
   trustScore: TrustScore;
@@ -8,129 +68,35 @@ interface TrustBadgeProps {
   showBreakdown?: boolean;
 }
 
-const ratingColors: Record<string, string> = {
-  untrusted: '#71717a', // zinc-500
-  low: '#ef4444',       // red-500
-  medium: '#eab308',    // yellow-500
-  high: '#22c55e',      // green-500
-  verified: '#7D3CF8',  // proton-purple
-};
-
-const ratingLabels: Record<string, string> = {
-  untrusted: 'Untrusted',
-  low: 'Low Trust',
-  medium: 'Medium Trust',
-  high: 'High Trust',
-  verified: 'Verified',
-};
-
-const sizeConfigs = {
-  sm:  { svg: 36, radius: 14, stroke: 3,  glow: false, fontSize: 'text-[10px]' },
-  md:  { svg: 56, radius: 22, stroke: 4,  glow: true,  fontSize: 'text-xs' },
-  lg:  { svg: 80, radius: 32, stroke: 5,  glow: true,  fontSize: 'text-base' },
-};
-
-const breakdownConfig = [
-  { key: 'kyc' as const,        label: 'KYC',        max: 30, color: '#7D3CF8' },
-  { key: 'stake' as const,      label: 'Stake',      max: 20, color: '#3b82f6' },
-  { key: 'reputation' as const, label: 'Reputation', max: 40, color: '#22c55e' },
-  { key: 'longevity' as const,  label: 'Longevity',  max: 10, color: '#eab308' },
-];
-
 export function TrustBadge({ trustScore, size = 'md', showBreakdown = false }: TrustBadgeProps) {
-  const [ref, inView] = useInView();
-  const count = useCountUp(trustScore.total, 800, inView);
-  const cfg = sizeConfigs[size];
-  const color = ratingColors[trustScore.rating];
-  const circumference = 2 * Math.PI * cfg.radius;
-  const fillPercent = trustScore.total / 100;
-  const offset = circumference * (1 - fillPercent);
+  if (size === 'sm') {
+    return (
+      <div className="flex items-center gap-2 shrink-0" title={ratingLabels[trustScore.rating]}>
+        <span className={`font-mono text-sm tabular ${ratingTone[trustScore.rating]}`}>{trustScore.total}</span>
+        <div className="w-16"><TrustLedger trustScore={trustScore} height={5} /></div>
+      </div>
+    );
+  }
+
+  const numberClass = size === 'lg' ? 'text-5xl' : 'text-3xl';
 
   return (
-    <div ref={ref} className="flex flex-col items-center gap-1">
-      <div className="relative" style={{ width: cfg.svg, height: cfg.svg }}>
-        {/* Glow background */}
-        {cfg.glow && inView && (
-          <div
-            className="absolute inset-0 rounded-full animate-glow-pulse"
-            style={{
-              background: `radial-gradient(circle, ${color}33 0%, transparent 70%)`,
-            }}
-          />
-        )}
-        <svg
-          width={cfg.svg}
-          height={cfg.svg}
-          className="gpu-accelerated"
-          style={{ transform: 'rotate(-90deg)' }}
-        >
-          {/* Background track */}
-          <circle
-            cx={cfg.svg / 2}
-            cy={cfg.svg / 2}
-            r={cfg.radius}
-            fill="none"
-            stroke="#27272a"
-            strokeWidth={cfg.stroke}
-          />
-          {/* Animated fill ring */}
-          {inView && (
-            <circle
-              cx={cfg.svg / 2}
-              cy={cfg.svg / 2}
-              r={cfg.radius}
-              fill="none"
-              stroke={color}
-              strokeWidth={cfg.stroke}
-              strokeLinecap="round"
-              strokeDasharray={circumference}
-              strokeDashoffset={offset}
-              className="animate-ring-fill"
-              style={{
-                '--ring-circumference': `${circumference}`,
-                '--ring-offset': `${offset}`,
-              } as React.CSSProperties}
-            />
-          )}
-        </svg>
-        {/* Center number */}
-        <div
-          className={`absolute inset-0 flex items-center justify-center font-bold text-white ${cfg.fontSize}`}
-        >
-          {count}
-        </div>
+    <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[180px]">
+      <div className="flex items-baseline gap-2">
+        <span className={`font-display font-semibold tabular ${numberClass} ${ratingTone[trustScore.rating]}`}>{trustScore.total}</span>
+        <span className="text-sm text-muted">/ 100</span>
+        <span className={`ml-auto text-xs font-medium ${ratingTone[trustScore.rating]}`}>{ratingLabels[trustScore.rating]}</span>
       </div>
-      <span className={`${size === 'sm' ? 'text-[10px]' : 'text-xs'} text-zinc-400`}>
-        {ratingLabels[trustScore.rating]}
-      </span>
-
+      <TrustLedger trustScore={trustScore} height={8} />
       {showBreakdown && (
-        <div className="mt-2 w-full max-w-[180px] space-y-2">
-          {breakdownConfig.map(({ key, label, max, color: barColor }) => {
-            const val = trustScore.breakdown[key];
-            const pct = (val / max) * 100;
-            return (
-              <div key={key}>
-                <div className="flex justify-between text-[10px] text-zinc-500 mb-0.5">
-                  <span>{label}</span>
-                  <span>{val}/{max}</span>
-                </div>
-                <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                  {inView && (
-                    <div
-                      className="h-full rounded-full animate-bar-fill"
-                      style={{
-                        backgroundColor: barColor,
-                        width: `${pct}%`,
-                        '--bar-width': `${pct}%`,
-                      } as React.CSSProperties}
-                    />
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1">
+          {TRUST_SEGMENTS.map(({ key, label, max }) => (
+            <div key={key} className="flex justify-between text-xs">
+              <dt className="text-muted">{label}</dt>
+              <dd className="font-mono tabular text-ink-2">{trustScore.breakdown[key]}<span className="text-muted">/{max}</span></dd>
+            </div>
+          ))}
+        </dl>
       )}
     </div>
   );
