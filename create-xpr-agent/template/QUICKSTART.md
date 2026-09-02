@@ -138,6 +138,14 @@ For production deployment (auto-restart on crash, run on reboot), use a process 
 
 ---
 
+**Update to the latest runner, plugin and skills** (keeps your `.env`):
+
+```bash
+./start.sh --update
+```
+
+Do this after release notes mention new tools or delivery fixes; existing agents keep running old code until you update.
+
 ## What Happens Automatically
 
 Once running, the agent reacts to on-chain events without any intervention:

@@ -8,6 +8,7 @@ set -euo pipefail
 # Usage:
 #   ./start.sh --account myagent --api-key sk-ant-...
 #   ./start.sh                  # (uses .env file or prompts)
+#   ./start.sh --update         # re-download the runner + latest plugin/skills, then start
 #
 # Requirements: Node.js >= 18, proton CLI with key in keychain
 #
@@ -76,6 +77,7 @@ AGENT_PUBLIC_URL="${AGENT_PUBLIC_URL:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --account) XPR_ACCOUNT="$2"; shift 2 ;;
+    --update) DO_UPDATE=1; shift ;;
     --key)
       err "--key is no longer supported. Use proton CLI keychain instead:"
       echo "  npm i -g @proton/cli"
@@ -303,6 +305,11 @@ fi
 AGENT_DIR="${SCRIPT_DIR}/agent"
 REPO_URL="https://github.com/XPRNetwork/xpr-agents/archive/refs/heads/main.tar.gz"
 
+if [ "${DO_UPDATE:-0}" = "1" ] && [ -d "$AGENT_DIR" ]; then
+  banner "Updating agent runner (your .env is kept)..."
+  rm -rf "$AGENT_DIR"
+fi
+
 if [ ! -f "$AGENT_DIR/package.json" ]; then
   banner "Downloading agent runner..."
   TMP_DIR=$(mktemp -d)
@@ -316,7 +323,7 @@ fi
 
 cd "$AGENT_DIR"
 
-if [ ! -d "node_modules" ]; then
+if [ ! -d "node_modules" ] || [ "package.json" -nt "node_modules/.package-lock.json" ]; then
   banner "Installing dependencies..."
   npm install --loglevel=warn 2>&1 | tail -3
 fi

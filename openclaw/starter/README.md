@@ -328,3 +328,18 @@ Then restart `start.sh` (or your daemon).
 | Agent refuses to start with "XPR_PRIVATE_KEY is set but no longer supported" | Remove `XPR_PRIVATE_KEY` from `.env` and load it via `proton key:add` instead |
 | No A2A outbound calls | Set `A2A_SIGNING_KEY` (separate key, custom permission) — without it A2A runs receive-only |
 | Agent errors on tool calls | Check agent logs (`tail -f logs/agent.out.log`) — security tripwires may be blocking input/output |
+
+## Updating a running agent
+
+`./start.sh --update` re-downloads the runner from this repo's `main` branch, reinstalls the published `@xpr-agents/openclaw` plugin (which bundles the 13 skills) and keeps your `.env`. Existing agents keep running old tools and delivery logic until you do this.
+
+## Developing against a local plugin build
+
+The runner depends on the published `@xpr-agents/openclaw` package so that copies made by `start.sh` and `create-xpr-agent` resolve it from npm. To test unreleased plugin or skill changes from this checkout:
+
+```bash
+cd openclaw && npm run build          # builds dist + skills/*/dist
+cd starter/agent && npm link ../..    # point the runner at the local build
+```
+
+Run `npm install` in `starter/agent` again to go back to the published version.

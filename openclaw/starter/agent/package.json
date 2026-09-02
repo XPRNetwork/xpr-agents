@@ -14,8 +14,8 @@
     "@google/generative-ai": "^0.21.0",
     "@proton/js": "^28.1.2",
     "@shellbook/sdk": "^0.2.4",
-    "@xpr-agents/openclaw": "file:../..",
-    "@xpr-agents/sdk": "^0.2.5",
+    "@xpr-agents/openclaw": "^0.5.3",
+    "@xpr-agents/sdk": "^0.2.7",
     "express": "^4.18.0",
     "openai": "^4.77.0",
     "pdfkit": "^0.15.0"
