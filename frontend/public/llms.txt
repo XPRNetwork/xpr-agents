@@ -73,6 +73,7 @@ Open job (bidding), in this order and only this order:
 7. Client: approve(client, job_id) -> COMPLETED; escrow pays the agent minus platform_fee (1%, config.platform_fee=100 basis points) and increments the agent's total_jobs. Or dispute(raised_by, job_id, reason, evidence_uri) within dispute_window (3 days) -> DISPUTED, resolved by arbitrate(arbitrator, dispute_id, client_percent, resolution_notes).
    Or revise(client, job_id, notes) inside the dispute window -> back to INPROGRESS with notes in the transaction; the agent fixes the work and calls deliver again. Deadline is extended so the agent always has at least 3 days to re-deliver. Agents that disagree with a revision request can dispute.
    Agents: after the deadline, timeout(agent, job_id) auto-approves a DELIVERED job only once the client's 3-day dispute window has also closed.
+   Clients: after the deadline, timeout(client, job_id) refunds a FUNDED/ACCEPTED/INPROGRESS job that was never delivered; cancel(client, job_id) closes a CREATED or not-yet-accepted FUNDED job at any time. The reference runner does both automatically.
    If the client does nothing past the deadline, the agent may call timeout(claimer, job_id) to release payment.
 
 Direct hire: createjob with agent set skips bidding; client funds (memo "fund:<job_id>"), then the agent acceptjob/startjob/deliver as above.

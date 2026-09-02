@@ -1,7 +1,7 @@
 /**
  * XPR Agents OpenClaw Plugin
  *
- * Registers 73 tools for interacting with the XPR Network Trustless Agent Registry:
+ * Registers 75 tools for interacting with the XPR Network Trustless Agent Registry:
  * - 11 Agent Core tools (registration, profile, plugins, trust scores, ownership)
  * - 7 Feedback tools (ratings, disputes, scores)
  * - 9 Validation tools (validators, validations, challenges)

@@ -587,13 +587,14 @@ All phases are complete:
 - Documentation (MODEL.md, analysis reports)
 
 ### Phase 6: OpenClaw Plugin ✓
-- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 73 MCP tools (35 read, 38 write) + 13 bundled skills (xpr-agent-operator + 12 domain; pre-built dist in tarball since v0.4.0)
+- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 75 MCP tools (35 read, 40 write) + 13 bundled skills (xpr-agent-operator + 12 domain; pre-built dist in tarball since v0.4.0)
 - Session factory for server-side signing via `@proton/js`
 - Confirmation gate for high-risk write operations (11 tools require confirmation)
 - `maxTransferAmount` enforcement on all XPR transfer/stake/fee operations
 - Agent operator skill (`skills/xpr-agent-operator/SKILL.md`)
 - Indexer webhook system (subscriptions, async dispatch with retry, auto-disable)
 - Standalone agent runner (`starter/agent/`) — Express webhook listener with Claude agentic loop
+- Poller housekeeping (`starter/agent/src/timeouts.ts`) — deterministic `timeout`/`cancel` claims for stale escrow jobs (agent payout, client refund, expired unfunded jobs); `AUTO_CLAIM_TIMEOUTS` env, counters on `/health`
 - Single-command starter kit: `./setup.sh --account X --key X --api-key X` with interactive wizard
 
 ### Phase 7: A2A Protocol ✓
@@ -708,14 +709,14 @@ xpr-agents/
 ├── openclaw/                    # OpenClaw plugin package
 │   ├── openclaw.plugin.json     # Plugin manifest
 │   ├── src/
-│   │   ├── index.ts             # Plugin entry, registers 73 tools
+│   │   ├── index.ts             # Plugin entry, registers 75 tools
 │   │   ├── session.ts           # ProtonSession factory from env vars
 │   │   ├── types.ts             # Plugin config/API interfaces
 │   │   ├── tools/
 │   │   │   ├── agent.ts         # 10 agentcore tools
 │   │   │   ├── feedback.ts      # 7 agentfeed tools
 │   │   │   ├── validation.ts    # 9 agentvalid tools
-│   │   │   ├── escrow.ts        # 20 agentescrow tools (incl. bidding, revise)
+│   │   │   ├── escrow.ts        # 22 agentescrow tools (incl. bidding, revise, timeout, cancel)
 │   │   │   ├── indexer.ts       # 4 indexer query tools
 │   │   │   └── a2a.ts           # 5 A2A protocol tools
 │   │   └── util/

@@ -4,6 +4,7 @@
  *        xpr_get_job_dispute, xpr_list_arbitrators, xpr_list_bids
  * Writes: xpr_create_job, xpr_fund_job, xpr_accept_job, xpr_start_job,
  *         xpr_deliver_job, xpr_revise_job, xpr_approve_delivery, xpr_raise_dispute,
+ *         xpr_claim_timeout, xpr_cancel_job,
  *         xpr_submit_milestone, xpr_arbitrate, xpr_resolve_timeout,
  *         xpr_submit_bid, xpr_select_bid, xpr_withdraw_bid
  */
@@ -569,6 +570,64 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.arbitrate(dispute_id, client_percent, resolution_notes);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_claim_timeout',
+    description: 'Close out a job whose deadline has passed. As the AGENT on a DELIVERED job: auto-approves and pays you once the deadline and the client\'s 3-day review window have both passed. As the CLIENT on a FUNDED/ACCEPTED/INPROGRESS job the agent never delivered: refunds you. The contract enforces which side may claim.',
+    parameters: {
+      type: 'object',
+      required: ['job_id'],
+      properties: {
+        job_id: { type: 'number', description: 'Job ID to close out' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ job_id, confirmed }: { job_id: number; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validatePositiveInt(job_id, 'job_id');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Claim Job Timeout',
+        { job_id },
+        `Close out job #${job_id} after its deadline (payment to agent if delivered, refund to client if not)`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.claimTimeout(job_id);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_cancel_job',
+    description: 'Cancel a job you created (client only). Allowed while the job is CREATED (unfunded) or FUNDED but not yet accepted by the agent. Any escrowed funds are refunded to you.',
+    parameters: {
+      type: 'object',
+      required: ['job_id'],
+      properties: {
+        job_id: { type: 'number', description: 'Job ID to cancel' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ job_id, confirmed }: { job_id: number; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validatePositiveInt(job_id, 'job_id');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Cancel Job',
+        { job_id },
+        `Cancel job #${job_id} and refund any escrowed funds to the client`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.cancelJob(job_id);
     },
   });
 

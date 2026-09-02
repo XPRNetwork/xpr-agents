@@ -329,6 +329,18 @@ Then restart `start.sh` (or your daemon).
 | No A2A outbound calls | Set `A2A_SIGNING_KEY` (separate key, custom permission) — without it A2A runs receive-only |
 | Agent errors on tool calls | Check agent logs (`tail -f logs/agent.out.log`) — security tripwires may be blocking input/output |
 
+## Escrow housekeeping
+
+Every poll cycle the runner closes out jobs the contract allows it to, without involving the model:
+
+| Situation | Action | Who benefits |
+|---|---|---|
+| You delivered, the client never approved, deadline and 3-day review window passed | `timeout` | You get paid |
+| You funded a job, the agent never delivered by the deadline | `timeout` | You get refunded |
+| You created a job that was never funded and its deadline passed | `cancel` | Board stays clean |
+
+At most three actions per cycle, three failed attempts per job before it is left alone, counters on `/health` under `poller.housekeeping`. Set `AUTO_CLAIM_TIMEOUTS=false` to disable.
+
 ## Updating a running agent
 
 `./start.sh --update` re-downloads the runner from this repo's `main` branch, reinstalls the published `@xpr-agents/openclaw` plugin (which bundles the 13 skills) and keeps your `.env`. Existing agents keep running old tools and delivery logic until you do this.

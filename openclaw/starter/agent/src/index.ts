@@ -20,6 +20,8 @@ import type { A2AAuthConfig } from './a2a-auth';
 import { loadSkills, loadBuiltinSkill } from './skill-loader';
 import type { SkillLoadResult } from './skill-loader';
 import { loadSecurityConfig, scanInbound, scanOutput, getSecurityStats } from './security';
+import { findHousekeepingActions, describeHousekeeping, DEFAULT_DISPUTE_WINDOW_SEC, DEFAULT_MAX_TIMEOUT_ATTEMPTS } from './timeouts';
+import type { EscrowJobLike, HousekeepingAction } from './timeouts';
 
 // Tool collection types (matches openclaw PluginApi)
 interface ToolDef {
@@ -1046,7 +1048,7 @@ app.get('/health', (_req, res) => {
     model: MODEL,
     active_runs: activeRuns.size,
     security: getSecurityStats(),
-    poller: POLL_ENABLED ? { enabled: true, interval_sec: POLL_INTERVAL / 1000, tracked_jobs: knownJobStates.size } : { enabled: false },
+    poller: POLL_ENABLED ? { enabled: true, interval_sec: POLL_INTERVAL / 1000, tracked_jobs: knownJobStates.size, housekeeping: AUTO_HOUSEKEEPING ? housekeepingStats : 'disabled' } : { enabled: false },
   });
 });
 
@@ -1100,6 +1102,75 @@ const knownPostIds = new Set<number>();              // shellbook post ids alrea
 const activeJobIds = new Set<number>();              // jobs currently being processed (per-job lock)
 const fundedJobAttempts = new Map<number, number>(); // job_id → number of times agent was invoked
 const MAX_FUNDED_RETRIES = 2;                        // max times to invoke agent for a stuck FUNDED job
+
+// ── Escrow housekeeping (deterministic, no LLM) ──
+// Claims payment on delivered-but-unreviewed jobs, refunds undelivered jobs we
+// funded, and cancels our expired unfunded jobs. See timeouts.ts for the rules.
+const AUTO_HOUSEKEEPING = process.env.AUTO_CLAIM_TIMEOUTS !== 'false';
+const MAX_HOUSEKEEPING_PER_POLL = 3;                 // bound keychain signings per cycle
+const timeoutAttempts = new Map<number, number>();   // job_id → failed housekeeping attempts
+const housekeepingStats = { claimed: 0, refunded: 0, cancelled: 0, failed: 0 };
+let cachedDisputeWindow = 0;
+let disputeWindowFetchedAt = 0;
+
+async function getDisputeWindowSec(): Promise<number> {
+  if (cachedDisputeWindow > 0 && Date.now() - disputeWindowFetchedAt < 60 * 60 * 1000) return cachedDisputeWindow;
+  try {
+    const resp = await fetch(`${process.env.XPR_RPC_ENDPOINT}/v1/chain/get_table_rows`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        json: true, code: 'agentescrow', scope: 'agentescrow', table: 'config',
+        // singleton primary key = name("config"); skips any stray lower rows
+        lower_bound: '4982871454518345728', limit: 1,
+      }),
+    });
+    const { rows } = await resp.json() as { rows: Array<{ dispute_window?: number | string }> };
+    const w = Number(rows?.[0]?.dispute_window);
+    if (Number.isFinite(w) && w > 0) { cachedDisputeWindow = w; disputeWindowFetchedAt = Date.now(); return w; }
+  } catch (err: any) {
+    console.warn(`[poller/housekeeping] Could not read escrow config: ${err.message}`);
+  }
+  return cachedDisputeWindow || DEFAULT_DISPUTE_WINDOW_SEC;
+}
+
+async function runHousekeeping(listJobs: { handler: (args: any) => Promise<any> }, account: string): Promise<void> {
+  const claimTimeout = tools.find(t => t.name === 'xpr_claim_timeout');
+  const cancelJob = tools.find(t => t.name === 'xpr_cancel_job');
+  if (!claimTimeout || !cancelJob) return;
+
+  const [asAgent, asClient] = await Promise.all([
+    listJobs.handler({ agent: account, limit: 100 }).then((r: any) => (r?.items || r || []) as EscrowJobLike[]).catch(() => [] as EscrowJobLike[]),
+    listJobs.handler({ client: account, limit: 100 }).then((r: any) => (r?.items || r || []) as EscrowJobLike[]).catch(() => [] as EscrowJobLike[]),
+  ]);
+  const candidates: HousekeepingAction[] = findHousekeepingActions([...asAgent, ...asClient], {
+    account,
+    nowSec: Math.floor(Date.now() / 1000),
+    disputeWindowSec: await getDisputeWindowSec(),
+    attempts: timeoutAttempts,
+    maxAttempts: DEFAULT_MAX_TIMEOUT_ATTEMPTS,
+  }).filter(a => !activeJobIds.has(a.job.id));
+
+  for (const action of candidates.slice(0, MAX_HOUSEKEEPING_PER_POLL)) {
+    const jobId = action.job.id;
+    console.log(`[poller/housekeeping] ${describeHousekeeping(action)}`);
+    try {
+      const tool = action.kind === 'cancel' ? cancelJob : claimTimeout;
+      const result: any = await tool.handler({ job_id: jobId, confirmed: true });
+      const txId = result?.transaction_id || result?.processed?.id || '';
+      if (action.kind === 'claim_payment') housekeepingStats.claimed++;
+      else if (action.kind === 'refund') housekeepingStats.refunded++;
+      else housekeepingStats.cancelled++;
+      timeoutAttempts.delete(jobId);
+      console.log(`[poller/housekeeping] Job #${jobId} ${action.kind} ok${txId ? ` (tx ${String(txId).slice(0, 8)})` : ''}`);
+    } catch (err: any) {
+      const n = (timeoutAttempts.get(jobId) || 0) + 1;
+      timeoutAttempts.set(jobId, n);
+      housekeepingStats.failed++;
+      console.error(`[poller/housekeeping] Job #${jobId} ${action.kind} failed (attempt ${n}/${DEFAULT_MAX_TIMEOUT_ATTEMPTS}): ${err.message}`);
+    }
+  }
+}
 const MAX_TRACKED_IDS = 5000;                        // cap tracked sets to prevent unbounded memory growth
 
 /** Evict oldest entries from a Set when it exceeds MAX_TRACKED_IDS */
@@ -1145,6 +1216,7 @@ interface PollerState {
   knownDelegatorBidIds?: number[];
   knownPostIds?: number[];
   fundedJobAttempts?: Record<string, number>;
+  timeoutAttempts?: Record<string, number>;
   dailyEvalCount?: number;
   dailyEvalResetDate?: string;
 }
@@ -1159,6 +1231,7 @@ function savePollerState(): void {
       knownDelegatorBidIds: [...knownDelegatorBidIds],
       knownPostIds: [...knownPostIds],
       fundedJobAttempts: Object.fromEntries(fundedJobAttempts),
+      timeoutAttempts: Object.fromEntries(timeoutAttempts),
       dailyEvalCount,
       dailyEvalResetDate,
     };
@@ -1184,6 +1257,11 @@ function loadPollerState(): boolean {
     if (state.fundedJobAttempts) {
       for (const [k, v] of Object.entries(state.fundedJobAttempts)) {
         fundedJobAttempts.set(Number(k), v);
+      }
+    }
+    if (state.timeoutAttempts) {
+      for (const [k, v] of Object.entries(state.timeoutAttempts)) {
+        timeoutAttempts.set(Number(k), v);
       }
     }
     // Restore daily eval counter (auto-resets if date changed)
@@ -1398,6 +1476,17 @@ async function pollOnChainInner(): Promise<void> {
   const listValidations = tools.find(t => t.name === 'xpr_list_agent_validations');
 
   try {
+    // 0. Escrow housekeeping: claim payment on stale deliveries, refund undelivered
+    //    jobs we funded, cancel our expired unfunded jobs. Deterministic contract
+    //    calls only — no LLM, no eval credits. Skipped on the seed poll.
+    if (AUTO_HOUSEKEEPING && listJobs && !firstPoll) {
+      try {
+        await runHousekeeping(listJobs, account);
+      } catch (err: any) {
+        console.error(`[poller/housekeeping] Error:`, err.message);
+      }
+    }
+
     // 1. Check jobs assigned to this agent for state changes
     //    (worker + hybrid modes only — delegators and validators don't have assigned jobs)
     //    Fetch up to 100 jobs (secondary index returns oldest first),
@@ -1766,6 +1855,7 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
 }
 
 function startPoller(): void {
+  console.log(`[poller] Escrow housekeeping: ${AUTO_HOUSEKEEPING ? 'enabled (timeout claims, refunds, cancels)' : 'disabled (AUTO_CLAIM_TIMEOUTS=false)'}`);
   if (!POLL_ENABLED) {
     console.log('[poller] Polling disabled (POLL_ENABLED=false)');
     return;
