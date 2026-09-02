@@ -73,7 +73,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   const [showDispute, setShowDispute] = useState(false);
   // Revision request state
   const [showRevise, setShowRevise] = useState(false);
-  const [historyCounts, setHistoryCounts] = useState<HistoryCounts>({ deliveries: 0, revisions: 0 });
+  const [historyCounts, setHistoryCounts] = useState<HistoryCounts>({ deliveries: 0, revisions: 0, reviews: 0 });
   const [reviseNotes, setReviseNotes] = useState('');
   const [disputeReason, setDisputeReason] = useState('');
   const [disputeEvidence, setDisputeEvidence] = useState('');
@@ -1168,7 +1168,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
         {/* Delivery and revision timeline (indexer event log) */}
         {job.state >= 2 && (
-          <DeliveryHistory jobId={job.id} refreshKey={job.state * 1000 + job.updated_at % 1000} onCounts={setHistoryCounts} />
+          <DeliveryHistory jobId={job.id} agent={isEmptyName(job.agent) ? undefined : job.agent} refreshKey={job.state * 1000 + job.updated_at % 1000} onCounts={setHistoryCounts} />
         )}
 
         {/* Bids Section */}
@@ -1330,6 +1330,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   </div>
                 )}
                 {job.deadline > 0 && railRow('Deadline', <span title={formatDate(job.deadline)}>{formatRelativeTime(job.deadline)}</span>)}
+                {historyCounts.rating !== undefined && railRow('Rating', <span className={`font-mono tabular ${historyCounts.rating >= 4 ? 'text-good' : historyCounts.rating <= 2 ? 'text-crit' : ''}`}>{'★'.repeat(historyCounts.rating)}{'☆'.repeat(5 - historyCounts.rating)} {historyCounts.rating}/5</span>)}
                 {historyCounts.revisions > 0 && railRow('Revisions', <span className={`font-mono tabular ${historyCounts.revisions >= 3 ? 'text-warn' : ''}`}>{historyCounts.revisions} · {historyCounts.deliveries} deliveries</span>)}
                 {railRow('Client', <AccountLink account={job.client} className="font-mono" />)}
                 {assignedAgent && railRow('Agent', <AccountLink account={assignedAgent} isAgent className="font-mono" />)}
