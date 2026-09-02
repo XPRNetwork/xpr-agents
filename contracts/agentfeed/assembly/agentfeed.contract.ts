@@ -1176,10 +1176,18 @@ export class AgentFeedContract extends Contract {
 
   @action("cleanfback")
   cleanFeedback(agent: Name, max_age: u64, max_delete: u64): void {
+    // SECURITY FIX: cleanup is owner-only. It was permissionless, and combined with
+    // an unbounded max_age (u64 wrap on `now - max_age`) anyone could erase any row.
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+
     check(max_age >= 7776000, "Max age must be at least 90 days (7776000 seconds)");
+    check(max_age <= 315360000, "Max age must be at most 10 years (315360000 seconds)");
     check(max_delete >= 1 && max_delete <= 100, "Max delete must be 1-100");
 
-    const cutoff = currentTimeSec() - max_age;
+    const now = currentTimeSec();
+    check(now > max_age, "Max age exceeds chain time");
+    const cutoff = now - max_age;
     let deleted: u64 = 0;
 
     let fb = this.feedbackTable.getBySecondaryU64(agent.N, 0);
@@ -1189,9 +1197,24 @@ export class AgentFeedContract extends Contract {
       if (fb != null && fb.agent != agent) fb = null;
 
       if (current.timestamp < cutoff && (!current.disputed || current.resolved)) {
+        // Remove payment proofs attached to this feedback (byFeedback is secondary index 0)
+        let proof = this.paymentProofsTable.getBySecondaryU64(current.id, 0);
+        while (proof != null && proof.feedback_id == current.id) {
+          this.paymentProofsTable.remove(proof);
+          proof = this.paymentProofsTable.getBySecondaryU64(current.id, 0);
+        }
         this.feedbackTable.remove(current);
         deleted++;
       }
+    }
+
+    // Aggregates now include rows that no longer exist. Drop them so a deletion can
+    // never leave a stale (or inflated) score behind; owner runs recalc to rebuild.
+    if (deleted > 0) {
+      const agentScore = this.agentScoresTable.get(agent.N);
+      if (agentScore != null) this.agentScoresTable.remove(agentScore);
+      const recalc = this.recalcStateTable.get(agent.N);
+      if (recalc != null) this.recalcStateTable.remove(recalc);
     }
 
     print(`Cleaned ${deleted} old feedback entries for ${agent.toString()}`);
@@ -1199,10 +1222,18 @@ export class AgentFeedContract extends Contract {
 
   @action("cleandisps")
   cleanDisputes(max_age: u64, max_delete: u64): void {
+    // SECURITY FIX: cleanup is owner-only. It was permissionless, and combined with
+    // an unbounded max_age (u64 wrap on `now - max_age`) anyone could erase any row.
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+
     check(max_age >= 7776000, "Max age must be at least 90 days (7776000 seconds)");
+    check(max_age <= 315360000, "Max age must be at most 10 years (315360000 seconds)");
     check(max_delete >= 1 && max_delete <= 100, "Max delete must be 1-100");
 
-    const cutoff = currentTimeSec() - max_age;
+    const now = currentTimeSec();
+    check(now > max_age, "Max age exceeds chain time");
+    const cutoff = now - max_age;
     let deleted: u64 = 0;
 
     let dispute = this.disputesTable.first();

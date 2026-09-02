@@ -1089,7 +1089,7 @@ export class EscrowRegistry {
   }
 
   /**
-   * Clean up completed jobs (permissionless)
+   * Clean up completed jobs (contract owner only)
    */
   async cleanJobs(maxAge: number, maxDelete: number): Promise<TransactionResult> {
     this.requireSession();
@@ -1111,7 +1111,7 @@ export class EscrowRegistry {
   }
 
   /**
-   * Clean up resolved disputes (permissionless)
+   * Clean up resolved disputes (contract owner only)
    */
   async cleanDisputes(maxAge: number, maxDelete: number): Promise<TransactionResult> {
     this.requireSession();

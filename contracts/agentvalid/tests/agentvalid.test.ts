@@ -601,4 +601,41 @@ describe('agentvalid', () => {
       expect(cfg.paused).to.equal(true);
     });
   });
+
+  /* ==================== Cleanup (owner only) ==================== */
+
+  describe('cleanup auth', () => {
+    beforeEach(async () => {
+      await agentvalid.actions.init(['owner', 'agentcore', 10000]).send('agentvalid@active');
+    });
+
+    it('should reject cleanvals from a non-owner', async () => {
+      await expectToThrow(
+        agentvalid.actions.cleanvals(['alice', 7776000, 10]).send('alice@active'),
+        'missing required authority owner'
+      );
+    });
+
+    it('should reject cleanchals from a non-owner', async () => {
+      await expectToThrow(
+        agentvalid.actions.cleanchals([7776000, 10]).send('alice@active'),
+        'missing required authority owner'
+      );
+    });
+
+    it('should reject max_age above maximum (u64 wrap on now - max_age)', async () => {
+      await expectToThrow(
+        agentvalid.actions.cleanvals(['alice', '18446744073709551615', 10]).send('owner@active'),
+        'eosio_assert: Max age must be at most 10 years (315360000 seconds)'
+      );
+      await expectToThrow(
+        agentvalid.actions.cleanchals(['18446744073709551615', 10]).send('owner@active'),
+        'eosio_assert: Max age must be at most 10 years (315360000 seconds)'
+      );
+    });
+
+    it('should allow cleanvals from the owner', async () => {
+      await agentvalid.actions.cleanvals(['alice', 7776000, 10]).send('owner@active');
+    });
+  });
 });

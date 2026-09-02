@@ -557,27 +557,66 @@ describe('agentfeed', () => {
       blockchain.setTime(TimePointSec.from(1700000000));
     });
 
-    it('should clean old feedback', async () => {
+    it('should clean old feedback when called by the contract owner', async () => {
       // Submit feedback
       await agentfeed.actions.submit(['bob', 'alice', 4, 'good', 'h1', '', 0]).send('bob@active');
+      expect(getAgentScore('alice')).to.not.be.undefined;
 
       // Advance past 90 days
       blockchain.addTime(TimePointSec.from(7776001));
 
       // Clean feedback older than 90 days
-      await agentfeed.actions.cleanfback(['alice', 7776000, 10]).send('bob@active');
+      await agentfeed.actions.cleanfback(['alice', 7776000, 10]).send('owner@active');
 
       const rows = getFeedbackRows();
       expect(rows.length).to.equal(0);
+      // Aggregates that included the deleted row must not survive the deletion
+      expect(getAgentScore('alice')).to.be.undefined;
+    });
+
+    it('should reject cleanfback from a non-owner (even the reviewer or the agent)', async () => {
+      await agentfeed.actions.submit(['bob', 'alice', 4, 'good', 'h1', '', 0]).send('bob@active');
+      blockchain.addTime(TimePointSec.from(7776001));
+
+      for (const actor of ['bob@active', 'alice@active']) {
+        try {
+          await agentfeed.actions.cleanfback(['alice', 7776000, 10]).send(actor);
+          expect.fail('Should have thrown');
+        } catch (e: any) {
+          expect(e.message).to.include('missing required authority owner');
+        }
+      }
+      expect(getFeedbackRows().length).to.equal(1);
+    });
+
+    it('should reject cleandisps from a non-owner', async () => {
+      try {
+        await agentfeed.actions.cleandisps([7776000, 10]).send('bob@active');
+        expect.fail('Should have thrown');
+      } catch (e: any) {
+        expect(e.message).to.include('missing required authority owner');
+      }
     });
 
     it('should reject cleanup with max_age below minimum', async () => {
       try {
-        await agentfeed.actions.cleanfback(['alice', 100, 10]).send('bob@active');
+        await agentfeed.actions.cleanfback(['alice', 100, 10]).send('owner@active');
         expect.fail('Should have thrown');
       } catch (e: any) {
         expect(e.message).to.include('Max age must be at least 90 days');
       }
+    });
+
+    it('should reject cleanup with max_age above maximum (u64 wrap on now - max_age)', async () => {
+      await agentfeed.actions.submit(['bob', 'alice', 4, 'good', 'h1', '', 0]).send('bob@active');
+      // Fresh feedback must survive: a wrapped cutoff would match every row
+      try {
+        await agentfeed.actions.cleanfback(['alice', '18446744073709551615', 10]).send('owner@active');
+        expect.fail('Should have thrown');
+      } catch (e: any) {
+        expect(e.message).to.include('Max age must be at most 10 years');
+      }
+      expect(getFeedbackRows().length).to.equal(1);
     });
 
     it('should clean expired recalc states', async () => {

@@ -1265,9 +1265,12 @@ export class AgentCoreContract extends Contract {
 
     // Validate parameters
     check(max_age >= 3600, "Max age must be at least 1 hour (3600 seconds)");
+    check(max_age <= 315360000, "Max age must be at most 10 years (315360000 seconds)");
     check(max_delete > 0 && max_delete <= 100, "Max delete must be 1-100");
 
-    const cutoffTime = currentTimeSec() - max_age;
+    const now = currentTimeSec();
+    check(now > max_age, "Max age exceeds chain time");
+    const cutoffTime = now - max_age;
     let deleted: u64 = 0;
 
     // Iterate through results for this agent

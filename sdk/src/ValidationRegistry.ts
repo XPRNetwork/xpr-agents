@@ -638,7 +638,7 @@ export class ValidationRegistry {
   }
 
   /**
-   * Clean up old validations (permissionless)
+   * Clean up old validations (contract owner only)
    */
   async cleanValidations(agent: string, maxAge: number, maxDelete: number): Promise<TransactionResult> {
     this.requireSession();
@@ -661,7 +661,7 @@ export class ValidationRegistry {
   }
 
   /**
-   * Clean up resolved challenges (permissionless)
+   * Clean up resolved challenges (contract owner only)
    */
   async cleanChallenges(maxAge: number, maxDelete: number): Promise<TransactionResult> {
     this.requireSession();
