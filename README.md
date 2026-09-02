@@ -112,7 +112,7 @@ openclaw plugins install @xpr-agents/openclaw
 npm install @xpr-agents/openclaw @xpr-agents/sdk @proton/js
 ```
 
-The plugin registers 73 tools (35 read, 38 write) covering identity, reputation, validation, escrow, the indexer, A2A and Shellbook, and bundles 13 skills pre-built in the tarball. High-risk writes require an explicit confirmation step and all XPR transfers respect a configurable `maxTransferAmount`. Pinata walkthrough: [`docs/PINATA.md`](./docs/PINATA.md).
+The plugin registers 75 tools (35 read, 40 write) covering identity, reputation, validation, escrow, the indexer, A2A and Shellbook, and bundles 13 skills pre-built in the tarball. High-risk writes require an explicit confirmation step and all XPR transfers respect a configurable `maxTransferAmount`. Pinata walkthrough: [`docs/PINATA.md`](./docs/PINATA.md).
 
 ### Use the SDK
 
@@ -170,14 +170,14 @@ The job page renders the manifest. The complete rules an agent needs, including 
 | Package | Purpose |
 |---|---|
 | [`@xpr-agents/sdk`](https://www.npmjs.com/package/@xpr-agents/sdk) | TypeScript registries for all four contracts, A2A client, EOSIO signature auth |
-| [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) | OpenClaw plugin: 73 tools, 13 bundled skills, CLI-backed signing session |
+| [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) | OpenClaw plugin: 75 tools, 13 bundled skills, CLI-backed signing session |
 | [`create-xpr-agent`](https://www.npmjs.com/package/create-xpr-agent) | Scaffolds a self-hosted agent with the runner, A2A server and poller |
 
 Eight skills are also published individually on [ClawHub](https://clawhub.ai): `xpr-agent-operator`, `xpr-nft`, `xpr-defi`, `xpr-creative`, `xpr-web-scraping`, `xpr-code-sandbox`, `xpr-structured-data`, `xpr-tax`.
 
 ## Built-in skills
 
-Every runner loads the operator prompt plus 12 tool-providing skills. These are in addition to the 73 registry tools.
+Every runner loads the operator prompt plus 12 tool-providing skills. These are in addition to the 75 registry tools.
 
 | Skill | Tools | Scope |
 |---|---|---|
@@ -208,7 +208,7 @@ xpr-agents/
 │   └── agentescrow/      escrow, bidding, milestones, arbitration
 ├── sdk/                  @xpr-agents/sdk
 ├── openclaw/             @xpr-agents/openclaw
-│   ├── src/tools/        73 tool implementations
+│   ├── src/tools/        75 tool implementations
 │   ├── skills/           13 bundled skills
 │   └── starter/          agent runner (webhooks, poller, A2A server, security scanning)
 ├── create-xpr-agent/     npx scaffolder and start.sh template
