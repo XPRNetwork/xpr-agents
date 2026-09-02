@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AccountLink } from '@/components/AccountLink';
 import { NftCard } from '@/components/NftCard';
+import { Modal } from '@/components/Modal';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
 import { useChainStream } from '@/hooks/useChainStream';
@@ -20,6 +21,7 @@ import {
   DISPUTE_RESOLUTION_LABELS,
   parseDeliverableUrls,
   parseNftDeliverable,
+  isEmptyName,
   getNftAssets,
   type Job,
   type Bid,
@@ -35,7 +37,7 @@ interface JobDetailProps {
 
 export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   const router = useRouter();
-  const { session, transact } = useProton();
+  const { session, transact, login } = useProton();
   const { addToast } = useToast();
 
   const [bids, setBids] = useState<Bid[]>([]);
@@ -639,79 +641,69 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     return bids.find(b => b.agent === job.agent);
   }
 
+  const assignedAgent = isEmptyName(job.agent) ? null : job.agent;
+  const winningBid = getWinningBid();
+  const fundedPct = job.amount > 0 ? Math.min(100, (job.funded_amount / job.amount) * 100) : 0;
+  const remaining = Math.max(0, job.amount - job.funded_amount);
+  const hasOwnAction = canBid || canFund || canApprove || canDispute || canCancel;
+  const jumpToBids = () => {
+    setShowBidForm(true);
+    document.getElementById('bids')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const railRow = (label: string, value: React.ReactNode) => (
+    <div className="flex items-start justify-between gap-4 px-5 py-3">
+      <dt className="text-sm text-muted">{label}</dt>
+      <dd className="text-right text-sm text-ink">{value}</dd>
+    </div>
+  );
+
   return (
     <>
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-xs font-mono text-muted">#{job.id}</span>
-          <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATE_COLORS[job.state] || 'bg-surface-2'}`}>
-            {getJobStateLabel(job.state)}
-          </span>
-        </div>
-        <h1 className="text-2xl font-bold text-ink">{job.title}</h1>
-        <p className="text-sm text-muted mt-1 flex flex-wrap items-center gap-1.5">
-          Posted by <AccountLink account={job.client} showAvatar avatarSize={18} />
-          {job.agent && job.agent !== '.............' && (
-            <>&middot; Agent: <AccountLink account={job.agent} isAgent showAvatar avatarSize={18} /></>
-          )}
-          &middot; <span title={formatDate(job.created_at)}>{formatRelativeTime(job.created_at)}</span>
-        </p>
-      </div>
-
-      {/* Content */}
-      <div className="space-y-4">
-        <p className="text-ink-2">{job.description}</p>
-
-        {/* Stats Row */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-surface-2 rounded-lg p-3 text-center">
-            <div className="text-lg font-bold text-accent">{formatXpr(job.amount)}</div>
-            <div className="text-xs text-muted">Budget</div>
-          </div>
-          <div className="bg-surface-2 rounded-lg p-3 text-center">
-            <div className={`text-lg font-bold ${job.funded_amount >= job.amount ? 'text-good' : 'text-ink-2'}`}>
-              {formatXpr(job.funded_amount)}
+      <div className="grid gap-8 lg:grid-cols-12">
+        {/* Main column */}
+        <div className="min-w-0 space-y-6 lg:col-span-8">
+          <header>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs text-muted">#{job.id}</span>
+              <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATE_COLORS[job.state] || 'bg-surface-2 text-ink-2'}`}>
+                {getJobStateLabel(job.state)}
+              </span>
+              {canBid && <span className="font-mono text-[11px] uppercase tracking-label text-good">Open for bids</span>}
             </div>
-            <div className="text-xs text-muted">Funded</div>
-          </div>
-        </div>
+            <h1 className="font-display text-3xl font-semibold leading-tight text-ink" style={{ textWrap: 'balance' } as React.CSSProperties}>{job.title}</h1>
+            <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
+              <span className="flex items-center gap-1.5">Posted by <AccountLink account={job.client} showAvatar avatarSize={18} className="font-mono text-ink-2" /></span>
+              <span aria-hidden="true">·</span>
+              <span title={formatDate(job.created_at)}>{formatRelativeTime(job.created_at)}</span>
+            </p>
+          </header>
 
-        {/* Funding Progress */}
-        {job.funded_amount > 0 && job.funded_amount < job.amount && (
-          <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-good rounded-full"
-              style={{ width: `${Math.min(100, (job.funded_amount / job.amount) * 100)}%` }}
-            />
-          </div>
-        )}
+          <section className="whitespace-pre-line text-[15px] leading-7 text-ink-2">{job.description}</section>
 
-        {/* Deliverables */}
-        {job.deliverables.length > 0 && (
-          <div>
-            <h3 className="text-sm font-medium text-ink-2 mb-2">Deliverables</h3>
-            <ul className="list-disc list-inside text-sm text-ink-2 space-y-1">
-              {job.deliverables.map((d, i) => (
-                <li key={i}>{d}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {job.deadline > 0 && (
-          <p className="text-sm text-muted">Deadline: <span title={formatDate(job.deadline)}>{formatRelativeTime(job.deadline)}</span></p>
-        )}
+          {job.deliverables.length > 0 && (
+            <section className="rounded-xl border border-line bg-canvas p-5">
+              <h3 className="label mb-3">Deliverables</h3>
+              <ol className="space-y-2">
+                {job.deliverables.map((d, i) => (
+                  <li key={i} className="flex gap-3 text-sm text-ink-2">
+                    <span className="mt-0.5 w-5 shrink-0 font-mono text-xs tabular text-muted">{String(i + 1).padStart(2, '0')}</span>
+                    <span className="min-w-0 break-words">{d}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
 
         {/* Deliverable Result */}
         {job.state >= 4 && job.agent && (
-          <div className="p-4 bg-info-soft border border-info/30 rounded-lg">
-            <div className="flex justify-between items-center mb-2">
-              <h3 className="text-sm font-medium text-info">Agent Deliverable</h3>
+          <section className="rounded-xl border border-line bg-canvas p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="label">Deliverable</h3>
               {!deliverableContent && !deliverableMediaUrl && !deliverableLoading && !deliverableType && (
                 <button
                   onClick={() => fetchDeliverable(job.id)}
-                  className="text-xs px-3 py-1 bg-info text-white rounded hover:bg-info"
+                  className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
                 >
                   View Result
                 </button>
@@ -723,7 +715,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                <span className="text-sm text-ink-2">Fetching from IPFS...</span>
+                <span className="text-sm text-ink-2">Loading the deliverable…</span>
               </div>
             )}
 
@@ -848,55 +840,14 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                 })}
               </div>
             )}
-          </div>
+          </section>
         )}
 
-        {/* Action Buttons */}
-        {session && (canFund || canApprove || canCancel || canDispute) && (
-          <div className="flex flex-wrap gap-2">
-            {canFund && (
-              <button
-                onClick={handleFundJob}
-                disabled={processing}
-                className="px-4 py-2 bg-good text-white rounded-lg text-sm hover:bg-good disabled:bg-line disabled:text-muted"
-              >
-                {processing ? 'Funding...' : `Fund ${formatXpr(job.amount - job.funded_amount)}`}
-              </button>
-            )}
-            {canApprove && (
-              <button
-                onClick={handleApproveDelivery}
-                disabled={processing}
-                className="px-4 py-2 bg-good text-white rounded-lg text-sm hover:bg-good disabled:bg-line disabled:text-muted"
-              >
-                {processing ? 'Approving...' : 'Approve & Pay'}
-              </button>
-            )}
-            {canDispute && (
-              <button
-                onClick={() => setShowDispute(true)}
-                disabled={processing}
-                className="px-4 py-2 bg-warn text-white rounded-lg text-sm hover:bg-warn disabled:bg-line disabled:text-muted"
-              >
-                Dispute
-              </button>
-            )}
-            {canCancel && (
-              <button
-                onClick={handleCancelJob}
-                disabled={processing}
-                className="px-4 py-2 bg-crit text-white rounded-lg text-sm hover:bg-crit disabled:bg-line disabled:text-muted"
-              >
-                {processing ? 'Cancelling...' : 'Cancel Job'}
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Dispute Form */}
         {showDispute && (
           <div className="p-4 bg-warn-soft border border-warn/30 rounded-lg space-y-3">
-            <h3 className="text-sm font-bold text-warn">Raise Dispute</h3>
+            <h3 className="font-display text-base font-semibold text-warn">Raise a dispute</h3>
             <p className="text-xs text-ink-2">
               Disputes are reviewed by an arbitrator who decides how funds are split between you and the agent.
             </p>
@@ -926,7 +877,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                 disabled={processing || !disputeReason.trim()}
                 className="px-4 py-2 bg-warn text-white rounded-lg text-sm hover:bg-warn disabled:bg-line disabled:text-muted"
               >
-                {processing ? 'Submitting...' : 'Submit Dispute'}
+                {processing ? 'Submitting…' : 'Submit dispute'}
               </button>
               <button
                 type="button"
@@ -1023,7 +974,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                 onClick={() => setShowResolve(true)}
                 className="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent/80"
               >
-                Resolve Dispute
+                Resolve dispute
               </button>
             )}
 
@@ -1080,46 +1031,20 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
           </div>
         )}
 
-        {/* Assigned Agent */}
-        {job.agent && job.agent !== '.............' && job.state > 0 && (
-          <div className="p-4 bg-good-soft border border-good/30 rounded-lg">
-            <h3 className="text-sm font-medium text-good mb-2">Assigned Agent</h3>
-            <div className="font-medium text-ink">
-              <AccountLink account={job.agent} isAgent showAvatar avatarSize={28} />
-            </div>
-            <div className="text-sm text-ink-2 mt-1">
-              {formatXpr(job.amount)} budget
-            </div>
-            {(() => {
-              const winningBid = getWinningBid();
-              if (!winningBid) return null;
-              return (
-                <>
-                  <div className="text-sm text-ink-2 mt-1">
-                    {formatTimeline(winningBid.timeline)} timeline
-                  </div>
-                  {winningBid.proposal && (
-                    <p className="text-sm text-muted mt-2">{winningBid.proposal}</p>
-                  )}
-                </>
-              );
-            })()}
-          </div>
-        )}
 
         {/* Bids Section */}
         {(canBid || bids.length > 0 || bidsLoading) && (
-          <div className="border-t border-line pt-4">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="font-medium text-ink">
-                Bids {!bidsLoading && `(${bids.length})`}
+          <section className="rounded-xl border border-line bg-canvas p-5" id="bids">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-display text-base font-semibold text-ink">
+                Bids {!bidsLoading && <span className="font-mono text-sm text-muted">({bids.length})</span>}
               </h3>
               {session && canBid && !showBidForm && (
                 <button
                   onClick={() => setShowBidForm(true)}
                   className="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover"
                 >
-                  Submit Bid
+                  Submit a bid
                 </button>
               )}
             </div>
@@ -1171,7 +1096,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                     disabled={processing}
                     className="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover disabled:bg-line disabled:text-muted"
                   >
-                    {processing ? 'Submitting...' : 'Submit Bid'}
+                    {processing ? 'Submitting…' : 'Submit bid'}
                   </button>
                   <button
                     type="button"
@@ -1189,9 +1114,13 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent"></div>
               </div>
             ) : bids.length === 0 ? (
-              <p className="text-sm text-muted py-2">
-                {canBid ? 'No bids yet. Be the first!' : 'No bids.'}
-              </p>
+              <div className="py-2 text-sm text-muted">
+                {canBid ? (
+                  session ? 'No bids yet.' : (
+                    <>No bids yet. <button onClick={login} className="text-accent hover:text-accent-hover">Connect a wallet</button> to bid.</>
+                  )
+                ) : 'No bids were placed.'}
+              </div>
             ) : (
               <div className="space-y-3">
                 {bids.map((bid) => {
@@ -1221,7 +1150,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                               disabled={processing}
                               className="text-xs px-3 py-1 bg-good text-white rounded hover:bg-good disabled:opacity-50"
                             >
-                              Select & Fund
+                              Select and fund
                             </button>
                           )}
                           {session?.auth.actor === bid.agent && !isWinner && (
@@ -1241,55 +1170,127 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                 })}
               </div>
             )}
-          </div>
+          </section>
         )}
+
+        </div>
+
+        {/* Rail */}
+        <aside className="lg:col-span-4">
+          <div className="space-y-4 lg:sticky lg:top-20">
+            <div className="rounded-xl border border-line bg-canvas">
+              <div className="border-b border-line px-5 py-3.5"><span className="label">Escrow</span></div>
+              <dl className="divide-y divide-line">
+                {railRow('Budget', <span className="font-mono tabular">{formatXpr(job.amount)}</span>)}
+                {railRow('Funded', (
+                  <span className={`font-mono tabular ${job.funded_amount >= job.amount && job.amount > 0 ? 'text-good' : ''}`}>{formatXpr(job.funded_amount)}</span>
+                ))}
+                {job.funded_amount > 0 && job.funded_amount < job.amount && (
+                  <div className="px-5 pb-3">
+                    <div className="h-1 overflow-hidden rounded-full bg-surface-2"><div className="h-full bg-good" style={{ width: `${fundedPct}%` }} /></div>
+                  </div>
+                )}
+                {job.deadline > 0 && railRow('Deadline', <span title={formatDate(job.deadline)}>{formatRelativeTime(job.deadline)}</span>)}
+                {railRow('Client', <AccountLink account={job.client} className="font-mono" />)}
+                {assignedAgent && railRow('Agent', <AccountLink account={assignedAgent} isAgent className="font-mono" />)}
+                {!isEmptyName(job.arbitrator) && railRow('Arbitrator', <AccountLink account={job.arbitrator} className="font-mono" />)}
+              </dl>
+
+              <div className="space-y-2 border-t border-line p-4">
+                {!session ? (
+                  job.state <= 4 ? (
+                    <button onClick={login} className="w-full rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-canvas hover:bg-ink/85">
+                      {canBid ? 'Connect wallet to bid' : 'Connect wallet'}
+                    </button>
+                  ) : job.state === 5 ? (
+                    <p className="text-xs text-muted">In dispute. Awaiting the arbitrator&apos;s decision.</p>
+                  ) : (
+                    <p className="text-xs text-muted">This job is closed.</p>
+                  )
+                ) : hasOwnAction ? (
+                  <>
+                    {canBid && !showBidForm && (
+                      <button onClick={jumpToBids} className="w-full rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover">Submit a bid</button>
+                    )}
+                    {canFund && (
+                      <button onClick={handleFundJob} disabled={processing} className="w-full rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted">
+                        {processing ? 'Funding…' : `Fund ${formatXpr(remaining)}`}
+                      </button>
+                    )}
+                    {canApprove && (
+                      <button onClick={handleApproveDelivery} disabled={processing} className="w-full rounded-md bg-good px-4 py-2.5 text-sm font-medium text-white hover:bg-good/90 disabled:bg-line disabled:text-muted">
+                        {processing ? 'Approving…' : 'Approve and pay'}
+                      </button>
+                    )}
+                    {canDispute && (
+                      <button onClick={() => setShowDispute(true)} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-warn hover:text-warn disabled:opacity-50">
+                        Raise a dispute
+                      </button>
+                    )}
+                    {canCancel && (
+                      <button onClick={handleCancelJob} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-crit hover:border-crit disabled:opacity-50">
+                        {processing ? 'Cancelling…' : 'Cancel job'}
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-muted">
+                    {isArbitrator ? 'You are the arbitrator for this dispute. Resolve it below.' : 'No actions for your account on this job.'}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {assignedAgent && job.state > 0 && (
+              <div className="rounded-xl border border-line bg-canvas p-5">
+                <h3 className="label mb-3">Assigned agent</h3>
+                <AccountLink account={assignedAgent} isAgent showAvatar avatarSize={28} className="font-medium text-ink" />
+                {winningBid && (
+                  <dl className="mt-3 space-y-1 text-sm">
+                    <div className="flex justify-between"><dt className="text-muted">Bid</dt><dd className="font-mono tabular text-ink">{formatXpr(winningBid.amount)}</dd></div>
+                    <div className="flex justify-between"><dt className="text-muted">Timeline</dt><dd className="text-ink">{formatTimeline(winningBid.timeline)}</dd></div>
+                  </dl>
+                )}
+                {winningBid?.proposal && <p className="mt-3 text-sm text-ink-2">{winningBid.proposal}</p>}
+              </div>
+            )}
+          </div>
+        </aside>
       </div>
 
-      {/* Rating Modal */}
-      {showRating && (
-        <div className="fixed inset-0 bg-ink/70 backdrop-blur-sm flex items-center justify-center z-[60]" onClick={() => setShowRating(false)}>
-          <div className="bg-surface border border-line rounded-xl p-6 w-full max-w-sm shadow-xl" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-ink mb-1">Rate {ratingAgent}</h3>
-            <p className="text-sm text-muted mb-4">How was job #{ratingJobId}?</p>
-            <div className="flex justify-center gap-2 mb-4">
-              {[1, 2, 3, 4, 5].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setRatingScore(s)}
-                  className={`text-3xl transition-transform ${
-                    s <= ratingScore ? 'text-warn scale-110' : 'text-muted'
-                  } hover:scale-125`}
-                >
-                  ★
-                </button>
-              ))}
-            </div>
-            <p className="text-center text-sm text-muted mb-4">{ratingScore}/5</p>
-            <input
-              type="text"
-              value={ratingTags}
-              onChange={(e) => setRatingTags(e.target.value)}
-              placeholder="Tags: fast, quality, creative..."
-              className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm mb-4"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={handleSubmitRating}
-                disabled={ratingSubmitting}
-                className="flex-1 px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover disabled:bg-line disabled:text-muted"
-              >
-                {ratingSubmitting ? 'Submitting...' : 'Submit Rating'}
-              </button>
-              <button
-                onClick={() => setShowRating(false)}
-                className="px-4 py-2 border border-line-2 text-ink-2 rounded-lg text-sm hover:bg-surface-2"
-              >
-                Skip
-              </button>
-            </div>
-          </div>
+      <Modal open={showRating} onClose={() => setShowRating(false)} title={`Rate ${ratingAgent}`} description={`How did job #${ratingJobId} go? Reviews are recorded on chain and weighted by your KYC level.`} width="max-w-sm">
+        <div className="mb-4 flex justify-center gap-1" role="radiogroup" aria-label="Score">
+          {[1, 2, 3, 4, 5].map((s) => (
+            <button
+              key={s}
+              type="button"
+              role="radio"
+              aria-checked={ratingScore === s}
+              aria-label={`${s} of 5`}
+              onClick={() => setRatingScore(s)}
+              className={`text-3xl transition-colors ${s <= ratingScore ? 'text-warn' : 'text-line-2 hover:text-muted'}`}
+            >
+              ★
+            </button>
+          ))}
         </div>
-      )}
+        <p className="mb-4 text-center font-mono text-sm tabular text-muted">{ratingScore}/5</p>
+        <input
+          type="text"
+          value={ratingTags}
+          onChange={(e) => setRatingTags(e.target.value)}
+          placeholder="Tags: fast, quality, creative"
+          aria-label="Tags"
+          className="mb-4 w-full rounded-md border border-line-2 bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none"
+        />
+        <p className="mb-4 text-xs text-muted">Submitting sends the 1 XPR review fee to the feedback contract.</p>
+        <div className="flex gap-2">
+          <button onClick={handleSubmitRating} disabled={ratingSubmitting} className="flex-1 rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted">
+            {ratingSubmitting ? 'Submitting…' : 'Submit review'}
+          </button>
+          <button onClick={() => setShowRating(false)} className="rounded-md border border-line-2 px-4 py-2.5 text-sm text-ink-2 hover:bg-surface">Skip</button>
+        </div>
+      </Modal>
     </>
   );
 }
