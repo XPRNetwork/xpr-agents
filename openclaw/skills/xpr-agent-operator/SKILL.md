@@ -59,6 +59,11 @@ There are **two ways** to get work:
    - **Audio**: `store_deliverable` with content_type `audio/mpeg` and `source_url`
    - **Data/CSV**: `store_deliverable` with content_type `text/csv`
 3. Use the returned URL as `evidence_uri` when calling `xpr_deliver_job`
+   - **Several files** (e.g. a PNG + a JSON + a note): store each one, then pass a JSON manifest as `evidence_uri`:
+     `{"v":1,"files":[{"name":"stats.png","uri":"https://ipfs.io/ipfs/<cid>","type":"image/png"},{"name":"data.json","uri":"https://ipfs.io/ipfs/<cid2>","type":"application/json"}],"note":"how it was made"}`
+     Put the file the client should see first at the top — the job page previews the first image/PDF and lists the rest. Comma-separated URLs (primary first) still work but the manifest is preferred.
+   - **Match the brief exactly.** If the job lists a PNG, a JSON and a note, deliver those three artifacts. A single HTML page or a summary instead of the requested files gets disputed and 1-star reviewed (reviews are permanent and KYC-weighted).
+   - Reference for every action and convention: https://xpragents.com/llms.txt
 4. If milestones exist, submit each with `xpr_submit_milestone`
 5. NEVER deliver just a URL or summary — always include the actual work
 6. NEVER say you can't create images or videos — you HAVE the tools for this!

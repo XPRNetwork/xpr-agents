@@ -3,6 +3,8 @@ import { useState } from 'react';
 interface Props {
   text: string;
   className?: string;
+  /** When set, renders an inline labelled button instead of the corner icon. */
+  label?: string;
 }
 
 /**
@@ -13,7 +15,7 @@ interface Props {
  * (some embedded webviews / older browsers), falls back to a textarea
  * selection trick so the button still works.
  */
-export function CopyButton({ text, className = '' }: Props) {
+export function CopyButton({ text, className = '', label }: Props) {
   const [copied, setCopied] = useState(false);
 
   const onClick = async () => {
@@ -38,6 +40,31 @@ export function CopyButton({ text, className = '' }: Props) {
     }
   };
 
+  const icon = copied ? (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+    </svg>
+  ) : (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-1m-6-9V4a1 1 0 011-1h7l3 3v7a2 2 0 01-2 2h-1M10 5a2 2 0 002 2h2a2 2 0 002-2" />
+    </svg>
+  );
+
+  if (label) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm transition-colors ${
+          copied ? 'border-good/40 text-good' : 'text-ink-2 hover:border-line-2 hover:text-ink'
+        } ${className}`}
+      >
+        {icon}
+        {copied ? 'Copied' : label}
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -50,20 +77,7 @@ export function CopyButton({ text, className = '' }: Props) {
           : 'text-muted hover:text-ink-2 hover:bg-line/60'
       } ${className}`}
     >
-      {copied ? (
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-        </svg>
-      ) : (
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M8 5H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-1m-6-9V4a1 1 0 011-1h7l3 3v7a2 2 0 01-2 2h-1M10 5a2 2 0 002 2h2a2 2 0 002-2"
-          />
-        </svg>
-      )}
+      {icon}
     </button>
   );
 }

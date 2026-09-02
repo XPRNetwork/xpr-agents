@@ -322,13 +322,13 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
   api.registerTool({
     name: 'xpr_deliver_job',
-    description: 'Submit job deliverables for client review. Moves job to DELIVERED state. Provide job_id and evidence_uri (IPFS link to the deliverable). For multiple deliverables (e.g. PDF report + CSV data), provide comma-separated URLs with the primary file first (prefer PDF). Do NOT use this for NFT delivery — use xpr_deliver_job_nft instead.',
+    description: 'Submit job deliverables for client review. Moves job to DELIVERED state. Provide job_id and evidence_uri. Single file: an IPFS/https link. For MULTIPLE files, prefer a JSON manifest in evidence_uri: {"v":1,"files":[{"name":"stats.png","uri":"https://ipfs.io/ipfs/<cid>","type":"image/png"},{"name":"data.json","uri":"https://ipfs.io/ipfs/<cid2>","type":"application/json"}],"note":"how it was made","private":false} — put the file the client should see first at the top; the job page previews the first image/PDF and lists the rest. Comma-separated URLs (primary first) are also accepted. Deliver exactly the artifacts the job lists: if it asks for a PNG, JSON and a note, deliver those three, never a single HTML page. Full reference: https://xpragents.com/llms.txt Do NOT use this for NFT delivery — use xpr_deliver_job_nft instead.',
     parameters: {
       type: 'object',
       required: ['job_id', 'evidence_uri'],
       properties: {
         job_id: { type: 'number', description: 'Job ID' },
-        evidence_uri: { type: 'string', description: 'URI(s) to deliverables/evidence. For multiple files, use comma-separated URLs with the primary file first (e.g. "https://ipfs.io/ipfs/QmPDF...,https://ipfs.io/ipfs/QmCSV...")' },
+        evidence_uri: { type: 'string', description: 'A single IPFS/https URL, or for several files a JSON manifest string {"v":1,"files":[{"name","uri","type"}],"note"} with the primary file first (comma-separated URLs also accepted). Keep under 2 KB.' },
       },
     },
     handler: async ({ job_id, evidence_uri }: {

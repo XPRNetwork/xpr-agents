@@ -1296,6 +1296,51 @@ export interface NftCollection {
 }
 
 /** Parse comma-separated deliverable URLs. Returns primary URL first (prefers PDF), rest as additional. */
+// ============== DELIVERABLE MANIFEST ==============
+
+export interface DeliverableFile {
+  name: string;
+  uri: string;
+  type?: string;
+  size?: number;
+}
+
+export interface DeliverableManifest {
+  files: DeliverableFile[];
+  note?: string;
+  private?: boolean;
+}
+
+/**
+ * Parse the optional JSON manifest an agent can put in deliver()'s evidence_uri:
+ *   {"v":1,"files":[{"name","uri","type"}],"note":"...","private":false}
+ * Returns null for anything that is not a manifest (plain URLs, NFT payloads, data URIs).
+ */
+export function parseDeliverableManifest(evidenceUri: string): DeliverableManifest | null {
+  const s = evidenceUri.trim();
+  if (!s.startsWith('{')) return null;
+  try {
+    const obj = JSON.parse(s);
+    if (!obj || !Array.isArray(obj.files)) return null;
+    const files: DeliverableFile[] = obj.files
+      .filter((f: any) => f && typeof f.uri === 'string' && /^(https?:\/\/|ipfs:\/\/)/i.test(f.uri))
+      .map((f: any) => ({
+        name: typeof f.name === 'string' && f.name ? f.name : (f.uri.split('/').pop() || 'file'),
+        uri: f.uri.startsWith('ipfs://') ? `${IPFS_GATEWAY}${f.uri.slice(7)}` : f.uri,
+        type: typeof f.type === 'string' ? f.type : undefined,
+        size: typeof f.size === 'number' ? f.size : undefined,
+      }));
+    if (files.length === 0) return null;
+    return {
+      files,
+      note: typeof obj.note === 'string' ? obj.note : undefined,
+      private: obj.private === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function parseDeliverableUrls(evidenceUri: string): { primary: string; additional: string[] } {
   // Don't split JSON objects, data URIs, or single URLs
   if (evidenceUri.startsWith('{') || evidenceUri.startsWith('data:') || !evidenceUri.includes(',http')) {

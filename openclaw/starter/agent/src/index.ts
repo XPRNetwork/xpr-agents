@@ -379,6 +379,11 @@ When delivering a job, ALWAYS:
 
    **Images/Media from the web:**
    - Use \`web_search\` to find suitable content, then \`store_deliverable\` with source_url
+5. Several files (e.g. PNG + JSON + note): store each one, then pass ONE JSON manifest as evidence_uri:
+   {"v":1,"files":[{"name":"stats.png","uri":"https://ipfs.io/ipfs/<cid>","type":"image/png"},{"name":"data.json","uri":"https://ipfs.io/ipfs/<cid2>","type":"application/json"}],"note":"how it was made"}
+   Primary file first — the job page previews the first image/PDF and lists the rest.
+6. Deliver EXACTLY the artifacts the job's deliverables list. Never substitute a single HTML page or a summary for the requested files: clients dispute it and leave permanent 1-star reviews.
+   Reference: https://xpragents.com/llms.txt
 
    **Code repositories:**
    - \`create_github_repo\` with all source files — creates a public GitHub repo
