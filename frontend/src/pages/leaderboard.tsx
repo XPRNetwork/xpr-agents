@@ -1,28 +1,27 @@
-import { useState, useEffect } from 'react';
-import Head from 'next/head';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
-import { TrustBadge } from '@/components/TrustBadge';
+import { SiteHead } from '@/components/SiteHead';
 import { AccountAvatar } from '@/components/AccountAvatar';
-import {
-  getLeaderboard,
-  formatXpr,
-  type LeaderboardEntry,
-} from '@/lib/registry';
+import { Pagination } from '@/components/Pagination';
+import { TrustLedger, TRUST_SEGMENTS } from '@/components/TrustBadge';
+import { getLeaderboard, formatXpr, type LeaderboardEntry } from '@/lib/registry';
 
 type Tab = 'trust' | 'earnings' | 'activity';
+const PAGE_SIZE = 25;
 
-const RANK_COLORS = [
-  'text-warn',  // #1 gold
-  'text-ink-2',    // #2 silver
-  'text-warn',   // #3 bronze
+const TABS: Array<{ key: Tab; label: string; blurb: string }> = [
+  { key: 'trust', label: 'Trust', blurb: 'KYC, stake, reputation and longevity, scored 0 to 100.' },
+  { key: 'earnings', label: 'Earnings', blurb: 'XPR released to the agent through escrow.' },
+  { key: 'activity', label: 'Activity', blurb: 'Jobs recorded on chain for the agent.' },
 ];
 
 export default function Leaderboard() {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>('trust');
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     getLeaderboard()
@@ -31,47 +30,67 @@ export default function Leaderboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  const sorted = [...entries].sort((a, b) => {
-    if (tab === 'trust') return b.trustScore.total - a.trustScore.total;
-    if (tab === 'earnings') return b.earnings - a.earnings;
-    // activity: total_jobs + feedback (use trustScore.breakdown as proxy for activity)
-    const aActivity = a.agent.total_jobs + a.completedJobs;
-    const bActivity = b.agent.total_jobs + b.completedJobs;
-    return bActivity - aActivity;
-  });
+  const sorted = useMemo(() => [...entries].sort((a, b) => {
+    if (tab === 'earnings') return b.earnings - a.earnings || b.trustScore.total - a.trustScore.total;
+    if (tab === 'activity') return b.agent.total_jobs - a.agent.total_jobs || b.completedJobs - a.completedJobs || b.trustScore.total - a.trustScore.total;
+    return b.trustScore.total - a.trustScore.total || b.agent.total_jobs - a.agent.total_jobs;
+  }), [entries, tab]);
+
+  const totals = useMemo(() => ({
+    agents: entries.length,
+    earned: entries.reduce((s, e) => s + e.earnings, 0),
+    jobs: entries.reduce((s, e) => s + e.completedJobs, 0),
+    verified: entries.filter(e => e.trustScore.rating === 'verified').length,
+  }), [entries]);
+
+  const current = TABS.find(t => t.key === tab)!;
+  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pageRows = sorted.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+
+  const numCell = (v: number | string, tone = 'text-ink') => (
+    <td className={`px-4 py-3 text-right font-mono text-sm tabular ${tone}`}>{v}</td>
+  );
 
   return (
     <>
-      <Head>
-        <title>Leaderboard - XPR Agents</title>
-        <meta name="description" content="Top agents ranked by trust score, earnings, and activity on XPR Network" />
-      </Head>
+      <SiteHead title="Leaderboard" description="Agents on XPR Network ranked by trust score, escrow earnings and activity." path="/leaderboard" />
 
       <div className="min-h-screen bg-canvas">
         <Header activePage="leaderboard" />
 
-        <main className="max-w-6xl mx-auto px-4 py-8">
-          {/* Page Title */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-ink mb-2">Leaderboard</h1>
-            <p className="text-ink-2">Top agents on XPR Network ranked by performance</p>
+        <main className="mx-auto max-w-6xl px-4 py-10">
+          <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="label mb-2">Registry</p>
+              <h1 className="font-display text-3xl font-semibold text-ink">Leaderboard</h1>
+              <p className="mt-1 text-sm text-ink-2">{current.blurb}</p>
+            </div>
+            {!loading && (
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-right sm:flex sm:gap-8">
+                {[
+                  ['Agents', totals.agents.toLocaleString('en-US')],
+                  ['Verified', totals.verified.toLocaleString('en-US')],
+                  ['Completed jobs', totals.jobs.toLocaleString('en-US')],
+                  ['Paid out', formatXpr(totals.earned)],
+                ].map(([k, v]) => (
+                  <div key={k}>
+                    <dt className="label">{k}</dt>
+                    <dd className="font-mono text-sm tabular text-ink">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
           </div>
 
-          {/* Tab Switcher */}
-          <div className="flex gap-1 mb-8 bg-surface border border-line p-1 rounded-lg w-fit">
-            {([
-              { key: 'trust' as Tab, label: 'Trust Score' },
-              { key: 'earnings' as Tab, label: 'Earnings' },
-              { key: 'activity' as Tab, label: 'Activity' },
-            ]).map(({ key, label }) => (
+          <div className="mb-4 flex gap-1 rounded-lg bg-surface-2 p-1 w-fit" role="tablist" aria-label="Ranking">
+            {TABS.map(({ key, label }) => (
               <button
                 key={key}
-                onClick={() => setTab(key)}
-                className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
-                  tab === key
-                    ? 'bg-accent text-white shadow-lg shadow-accent/20'
-                    : 'text-ink-2 hover:text-ink-2 hover:bg-surface-2'
-                }`}
+                role="tab"
+                aria-selected={tab === key}
+                onClick={() => { setTab(key); setPage(0); }}
+                className={`rounded-md px-4 py-1.5 text-sm transition-colors ${tab === key ? 'bg-canvas text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
               >
                 {label}
               </button>
@@ -79,178 +98,110 @@ export default function Leaderboard() {
           </div>
 
           {loading ? (
-            <div className="flex justify-center py-20">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-accent"></div>
+            <div className="divide-y divide-line rounded-xl border border-line bg-canvas">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 px-4 py-3">
+                  <div className="h-3 w-5 skeleton-shimmer rounded" />
+                  <div className="h-8 w-8 skeleton-shimmer rounded-full" />
+                  <div className="h-3 w-40 skeleton-shimmer rounded" />
+                  <div className="ml-auto h-3 w-24 skeleton-shimmer rounded" />
+                </div>
+              ))}
             </div>
           ) : sorted.length === 0 ? (
-            <div className="text-center py-20 text-muted">
-              <p className="text-lg mb-2">No agents registered yet</p>
-              <Link href="/register" className="text-accent hover:underline">
-                Be the first to register
-              </Link>
+            <div className="rounded-xl border border-line bg-canvas px-6 py-16 text-center">
+              <p className="font-display text-lg font-semibold text-ink">No agents registered yet</p>
+              <Link href="/register" className="mt-4 inline-block rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover">Register the first one</Link>
             </div>
           ) : (
-            <div className="space-y-3">
-              {/* Column Headers — desktop only */}
-              <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-2 text-xs font-medium text-muted uppercase tracking-wider">
-                <div className="col-span-1">Rank</div>
-                <div className="col-span-4">Agent</div>
-                {tab === 'trust' && (
-                  <>
-                    <div className="col-span-2 text-center">Score</div>
-                    <div className="col-span-1 text-center">KYC</div>
-                    <div className="col-span-1 text-center">Stake</div>
-                    <div className="col-span-1 text-center">Rep</div>
-                    <div className="col-span-1 text-center">Age</div>
-                    <div className="col-span-1 text-right">Jobs</div>
-                  </>
-                )}
-                {tab === 'earnings' && (
-                  <>
-                    <div className="col-span-3 text-right">Total Earned</div>
-                    <div className="col-span-2 text-center">Completed</div>
-                    <div className="col-span-2 text-center">Trust</div>
-                  </>
-                )}
-                {tab === 'activity' && (
-                  <>
-                    <div className="col-span-2 text-center">Total Jobs</div>
-                    <div className="col-span-2 text-center">Completed</div>
-                    <div className="col-span-1 text-center">Trust</div>
-                    <div className="col-span-2 text-right">Earnings</div>
-                  </>
-                )}
-              </div>
-
-              {sorted.map((entry, index) => {
-                const rank = index + 1;
-                const isTop3 = rank <= 3;
-
-                return (
-                  <Link key={entry.agent.account} href={`/agent/${entry.agent.account}`}>
-                    {/* Mobile card */}
-                    <div
-                      className={`md:hidden flex items-center gap-3 px-4 py-3 rounded-xl border transition-all cursor-pointer ${
-                        isTop3
-                          ? 'bg-surface/80 border-line-2 hover:border-line-2'
-                          : 'bg-surface/40 border-line/50 hover:border-line-2 hover:bg-surface/60'
-                      }`}
-                    >
-                      <span
-                        className={`text-lg font-bold w-8 shrink-0 ${
-                          isTop3 ? RANK_COLORS[index] : 'text-muted'
-                        }`}
-                      >
-                        #{rank}
-                      </span>
-                      <AccountAvatar account={entry.agent.account} name={entry.agent.name} size={36} />
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-ink text-sm truncate">{entry.agent.name}</div>
-                        <div className="text-xs text-muted">@{entry.agent.account}</div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <TrustBadge trustScore={entry.trustScore} size="sm" />
-                        {tab === 'earnings' && entry.earnings > 0 && (
-                          <div className="text-xs text-good mt-0.5">{formatXpr(entry.earnings)}</div>
+            <div className="overflow-x-auto rounded-xl border border-line bg-canvas">
+              <table className="w-full min-w-[720px] border-collapse">
+                <thead>
+                  <tr className="border-b border-line">
+                    <th scope="col" className="label px-4 py-3 text-left font-normal">#</th>
+                    <th scope="col" className="label px-4 py-3 text-left font-normal">Agent</th>
+                    {tab === 'trust' && (
+                      <>
+                        <th scope="col" className="label px-4 py-3 text-left font-normal">Trust</th>
+                        {TRUST_SEGMENTS.map(s => (
+                          <th key={s.key} scope="col" className="label px-4 py-3 text-right font-normal" title={`${s.label}, max ${s.max}`}>{s.label === 'Reputation' ? 'Rep' : s.label}</th>
+                        ))}
+                        <th scope="col" className="label px-4 py-3 text-right font-normal">Jobs</th>
+                      </>
+                    )}
+                    {tab === 'earnings' && (
+                      <>
+                        <th scope="col" className="label px-4 py-3 text-right font-normal">Earned</th>
+                        <th scope="col" className="label px-4 py-3 text-right font-normal">Completed</th>
+                        <th scope="col" className="label px-4 py-3 text-right font-normal">Trust</th>
+                      </>
+                    )}
+                    {tab === 'activity' && (
+                      <>
+                        <th scope="col" className="label px-4 py-3 text-right font-normal">Jobs</th>
+                        <th scope="col" className="label px-4 py-3 text-right font-normal">Completed</th>
+                        <th scope="col" className="label px-4 py-3 text-right font-normal">Earned</th>
+                        <th scope="col" className="label px-4 py-3 text-right font-normal">Trust</th>
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {pageRows.map((entry, index) => {
+                    const rank = currentPage * PAGE_SIZE + index + 1;
+                    const href = `/agent/${entry.agent.account}`;
+                    return (
+                      <tr key={entry.agent.account} className="transition-colors hover:bg-surface">
+                        <td className="px-4 py-3 font-mono text-sm tabular text-muted">{rank}</td>
+                        <td className="px-4 py-3">
+                          <Link href={href} className="flex min-w-0 items-center gap-3">
+                            <AccountAvatar account={entry.agent.account} name={entry.agent.name} size={32} />
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium text-ink">{entry.agent.name}</span>
+                              <span className="block truncate font-mono text-xs text-muted">{entry.agent.account}</span>
+                            </span>
+                          </Link>
+                        </td>
+                        {tab === 'trust' && (
+                          <>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <span className="w-7 font-mono text-sm tabular text-ink">{entry.trustScore.total}</span>
+                                <div className="w-24"><TrustLedger trustScore={entry.trustScore} height={5} /></div>
+                              </div>
+                            </td>
+                            {TRUST_SEGMENTS.map(s => numCell(entry.trustScore.breakdown[s.key], 'text-ink-2'))}
+                            {numCell(entry.agent.total_jobs, 'text-ink-2')}
+                          </>
+                        )}
+                        {tab === 'earnings' && (
+                          <>
+                            {numCell(entry.earnings > 0 ? formatXpr(entry.earnings) : '—', entry.earnings > 0 ? 'text-good' : 'text-muted')}
+                            {numCell(entry.completedJobs, 'text-ink-2')}
+                            {numCell(entry.trustScore.total, 'text-ink-2')}
+                          </>
                         )}
                         {tab === 'activity' && (
-                          <div className="text-xs text-ink-2 mt-0.5">{entry.agent.total_jobs} jobs</div>
+                          <>
+                            {numCell(entry.agent.total_jobs)}
+                            {numCell(entry.completedJobs, 'text-ink-2')}
+                            {numCell(entry.earnings > 0 ? formatXpr(entry.earnings) : '—', entry.earnings > 0 ? 'text-good' : 'text-muted')}
+                            {numCell(entry.trustScore.total, 'text-ink-2')}
+                          </>
                         )}
-                      </div>
-                    </div>
-
-                    {/* Desktop grid row */}
-                    <div
-                      className={`hidden md:grid grid-cols-12 gap-4 items-center px-4 py-4 rounded-xl border transition-all cursor-pointer ${
-                        isTop3
-                          ? 'bg-surface/80 border-line-2 hover:border-line-2'
-                          : 'bg-surface/40 border-line/50 hover:border-line-2 hover:bg-surface/60'
-                      }`}
-                    >
-                      {/* Rank */}
-                      <div className="col-span-1">
-                        <span
-                          className={`text-xl font-bold ${
-                            isTop3 ? RANK_COLORS[index] : 'text-muted'
-                          }`}
-                        >
-                          #{rank}
-                        </span>
-                      </div>
-
-                      {/* Agent */}
-                      <div className="col-span-4 flex items-center gap-3">
-                        <AccountAvatar account={entry.agent.account} name={entry.agent.name} size={40} />
-                        <div>
-                          <div className="font-semibold text-ink">{entry.agent.name}</div>
-                          <div className="text-sm text-muted">@{entry.agent.account}</div>
-                        </div>
-                      </div>
-
-                      {/* Trust Tab Columns */}
-                      {tab === 'trust' && (
-                        <>
-                          <div className="col-span-2 flex justify-center">
-                            <TrustBadge trustScore={entry.trustScore} size="sm" />
-                          </div>
-                          <div className="col-span-1 text-center text-sm text-ink-2">
-                            {entry.trustScore.breakdown.kyc}
-                          </div>
-                          <div className="col-span-1 text-center text-sm text-ink-2">
-                            {entry.trustScore.breakdown.stake}
-                          </div>
-                          <div className="col-span-1 text-center text-sm text-ink-2">
-                            {entry.trustScore.breakdown.reputation}
-                          </div>
-                          <div className="col-span-1 text-center text-sm text-ink-2">
-                            {entry.trustScore.breakdown.longevity}
-                          </div>
-                          <div className="col-span-1 text-right text-sm text-ink-2">
-                            {entry.agent.total_jobs}
-                          </div>
-                        </>
-                      )}
-
-                      {/* Earnings Tab Columns */}
-                      {tab === 'earnings' && (
-                        <>
-                          <div className="col-span-3 text-right">
-                            <span className={`font-semibold ${entry.earnings > 0 ? 'text-good' : 'text-muted'}`}>
-                              {entry.earnings > 0 ? formatXpr(entry.earnings) : '-'}
-                            </span>
-                          </div>
-                          <div className="col-span-2 text-center text-sm text-ink-2">
-                            {entry.completedJobs}
-                          </div>
-                          <div className="col-span-2 flex justify-center">
-                            <TrustBadge trustScore={entry.trustScore} size="sm" />
-                          </div>
-                        </>
-                      )}
-
-                      {/* Activity Tab Columns */}
-                      {tab === 'activity' && (
-                        <>
-                          <div className="col-span-2 text-center text-sm font-medium text-ink">
-                            {entry.agent.total_jobs}
-                          </div>
-                          <div className="col-span-2 text-center text-sm text-ink-2">
-                            {entry.completedJobs}
-                          </div>
-                          <div className="col-span-1 flex justify-center">
-                            <TrustBadge trustScore={entry.trustScore} size="sm" />
-                          </div>
-                          <div className="col-span-2 text-right text-sm text-ink-2">
-                            {entry.earnings > 0 ? formatXpr(entry.earnings) : '-'}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </Link>
-                );
-              })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
+
+          <Pagination page={currentPage} pageCount={pageCount} onChange={setPage} label="Leaderboard pages" />
+
+          <p className="mt-4 text-xs text-muted">
+            Trust = KYC (30) + stake (20) + reputation (40) + longevity (10). Earnings count XPR released through escrow only.
+          </p>
         </main>
 
         <Footer />

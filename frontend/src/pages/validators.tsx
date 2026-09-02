@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import Head from 'next/head';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
+import { SiteHead } from '@/components/SiteHead';
 import { AccountLink } from '@/components/AccountLink';
+import { AccountAvatar } from '@/components/AccountAvatar';
+import { Modal, Field, inputClass } from '@/components/Modal';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
 import {
@@ -28,17 +30,27 @@ import {
 
 type SortKey = 'accuracy' | 'stake' | 'validations';
 
+const SORT_LABELS: Record<SortKey, string> = {
+  accuracy: 'Accuracy',
+  stake: 'Stake',
+  validations: 'Validations',
+};
+
 const RESULT_COLORS: Record<number, string> = {
   0: 'bg-crit-soft text-crit',
   1: 'bg-good-soft text-good',
   2: 'bg-warn-soft text-warn',
 };
 
-function accuracyColor(score: number): string {
-  const pct = score / 100;
-  if (pct >= 95) return 'text-good';
-  if (pct >= 80) return 'text-warn';
+/** Takes the raw on-chain accuracy (0–10000 = 0–100.00%). */
+function accuracyColor(rawScore: number): string {
+  if (rawScore >= 9500) return 'text-good';
+  if (rawScore >= 8000) return 'text-warn';
   return 'text-crit';
+}
+
+function formatAccuracy(rawScore: number, digits = 1): string {
+  return `${(rawScore / 100).toFixed(digits)}%`;
 }
 
 function getTxId(result: any): string | undefined {
@@ -47,8 +59,21 @@ function getTxId(result: any): string | undefined {
   } catch { return undefined; }
 }
 
+const primaryBtn = 'w-full rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted';
+const inkBtn = 'w-full rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-canvas hover:bg-ink/85 disabled:bg-line disabled:text-muted';
+const outlineBtn = 'rounded-md border border-line-2 px-4 py-2.5 text-sm text-ink-2 hover:bg-surface disabled:opacity-50';
+const smallOutlineBtn = 'rounded-md border border-line-2 px-3 py-1.5 text-xs text-ink-2 hover:bg-surface disabled:opacity-50';
+
+const RESULT_OPTIONS = (
+  <>
+    <option value={1}>Pass</option>
+    <option value={0}>Fail</option>
+    <option value={2}>Partial</option>
+  </>
+);
+
 export default function Validators() {
-  const { session, transact } = useProton();
+  const { session, transact, login } = useProton();
   const { addToast } = useToast();
 
   // Directory state
@@ -371,467 +396,634 @@ export default function Validators() {
     }
   }
 
+  // === Derived display values ===
+
+  const minStake = config ? formatXpr(config.min_stake) : '—';
+  const challengeStake = config ? formatXpr(config.challenge_stake) : '—';
+  const slashPct = config ? `${(config.slash_percent / 100).toFixed(config.slash_percent % 100 === 0 ? 0 : 2)}%` : '—';
+  const unstakeDays = config ? Math.round(config.unstake_delay / 86400) : null;
+
+  const toggleValidator = (v: Validator) => {
+    if (selectedValidator?.account === v.account) {
+      setSelectedValidator(null);
+      setChallengeValidation(null);
+    } else {
+      selectValidator(v);
+    }
+  };
+
+  const openValidateForm = (job: Job) => {
+    setValidateJob(job);
+    setValResult(1);
+    setValConfidence('90');
+    setValEvidence('');
+  };
+
+  const statRow = (label: string, value: React.ReactNode) => (
+    <div className="flex items-start justify-between gap-4 px-5 py-3">
+      <dt className="text-sm text-muted">{label}</dt>
+      <dd className="text-right text-sm text-ink">{value}</dd>
+    </div>
+  );
+
+  const statusPill = (active: boolean) => active
+    ? <span className="rounded bg-good-soft px-1.5 py-0.5 text-[11px] font-medium text-good">Active</span>
+    : <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-2">Inactive</span>;
+
+  // === Side panel pieces ===
+
+  const connectCard = (
+    <div className="rounded-xl border border-line bg-canvas p-5">
+      <h2 className="label mb-3">Your validator</h2>
+      <p className="text-sm text-ink-2">
+        Connect a wallet to register as a validator, stake XPR and review delivered work.
+      </p>
+      <button onClick={login} className={`${inkBtn} mt-4`}>Connect wallet</button>
+    </div>
+  );
+
+  const howToCard = (
+    <div className="rounded-xl border border-line bg-canvas p-5">
+      <h2 className="label mb-3">How to become a validator</h2>
+      <ol className="space-y-3 text-sm text-ink-2">
+        <li className="flex gap-3">
+          <span className="font-mono text-xs tabular text-muted">01</span>
+          <span>Stake at least <span className="font-mono tabular text-ink">{minStake}</span> and describe how you check agent work.</span>
+        </li>
+        <li className="flex gap-3">
+          <span className="font-mono text-xs tabular text-muted">02</span>
+          <span>Review delivered jobs and record a pass, fail or partial verdict with a confidence level.</span>
+        </li>
+        <li className="flex gap-3">
+          <span className="font-mono text-xs tabular text-muted">03</span>
+          <span>Anyone can challenge a verdict by staking <span className="font-mono tabular text-ink">{challengeStake}</span>. If the challenge is upheld, <span className="font-mono tabular text-ink">{slashPct}</span> of your stake is slashed and your accuracy drops.</span>
+        </li>
+        <li className="flex gap-3">
+          <span className="font-mono text-xs tabular text-muted">04</span>
+          <span>Unstaking takes {unstakeDays !== null ? <><span className="font-mono tabular text-ink">{unstakeDays}</span> day{unstakeDays === 1 ? '' : 's'}</> : 'a waiting period'} and is blocked while a challenge is open against you.</span>
+        </li>
+      </ol>
+    </div>
+  );
+
+  const registerCard = (
+    <div className="rounded-xl border border-line bg-canvas p-5">
+      <h2 className="label mb-1">Register as a validator</h2>
+      <p className="mb-4 text-sm text-ink-2">
+        Signing this stakes <span className="font-mono tabular text-ink">{minStake}</span> from <span className="font-mono text-ink">{session?.auth.actor}</span> and lists you in the directory.
+      </p>
+      <form onSubmit={handleRegister} className="space-y-4">
+        <Field label="Validation method" htmlFor="reg-method" hint="How you check an agent's deliverables." required>
+          <input id="reg-method" type="text" value={regMethod} onChange={(e) => setRegMethod(e.target.value)} required
+            placeholder="Automated tests plus manual review" className={inputClass} />
+        </Field>
+        <Field label="Specializations" htmlFor="reg-specs" hint="Comma-separated. Optional.">
+          <input id="reg-specs" type="text" value={regSpecs} onChange={(e) => setRegSpecs(e.target.value)}
+            placeholder="code-review, data-analysis, security" className={inputClass} />
+        </Field>
+        <button type="submit" disabled={processing || !config} className={primaryBtn}>
+          {processing ? 'Registering…' : `Register and stake ${minStake}`}
+        </button>
+      </form>
+    </div>
+  );
+
+  const myValidatorCard = myValidator && (
+    <div className="rounded-xl border border-line bg-canvas">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+        <span className="label">Your validator</span>
+        {statusPill(myValidator.active)}
+      </div>
+      <div className="flex items-center gap-3 px-5 py-4">
+        <AccountAvatar account={myValidator.account} size={32} />
+        <AccountLink account={myValidator.account} className="min-w-0 break-all font-mono text-sm font-medium text-ink" />
+      </div>
+      <dl className="divide-y divide-line border-t border-line">
+        {statRow('Staked', <span className="font-mono tabular">{formatXpr(myValidator.stake)}</span>)}
+        {statRow('Accuracy', <span className={`font-mono tabular ${accuracyColor(myValidator.accuracy_score)}`}>{formatAccuracy(myValidator.accuracy_score)}</span>)}
+        {statRow('Validations', <span className="font-mono tabular">{myValidator.total_validations}</span>)}
+        {statRow('Open challenges', <span className={`font-mono tabular ${myValidator.pending_challenges > 0 ? 'text-warn' : ''}`}>{myValidator.pending_challenges}</span>)}
+      </dl>
+
+      {/* Status toggle */}
+      <div className="border-t border-line p-4">
+        <button onClick={handleToggleStatus} disabled={processing}
+          className={myValidator.active ? `${outlineBtn} w-full` : inkBtn}>
+          {processing ? 'Working…' : myValidator.active ? 'Pause validating' : 'Resume validating'}
+        </button>
+        <p className="mt-2 text-xs text-muted">
+          {myValidator.active
+            ? 'Paused validators stay registered and keep their stake, but are hidden from the active list.'
+            : 'You are currently paused. Resume to appear in the active list.'}
+        </p>
+      </div>
+
+      {/* Stake / Unstake */}
+      <div className="space-y-4 border-t border-line p-4">
+        <form onSubmit={handleStake} className="flex items-end gap-2">
+          <div className="min-w-0 flex-1">
+            <Field label="Add stake" htmlFor="stake-amount">
+              <input id="stake-amount" type="number" inputMode="decimal" value={stakeAmount} onChange={(e) => setStakeAmount(e.target.value)}
+                placeholder="0.0000" min="0" step="0.0001" required className={`${inputClass} font-mono`} />
+            </Field>
+          </div>
+          <button type="submit" disabled={processing} className="shrink-0 rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas hover:bg-ink/85 disabled:bg-line disabled:text-muted">Stake</button>
+        </form>
+        <form onSubmit={handleUnstake} className="flex items-end gap-2">
+          <div className="min-w-0 flex-1">
+            <Field label="Unstake" htmlFor="unstake-amount">
+              <input id="unstake-amount" type="number" inputMode="decimal" value={unstakeAmount} onChange={(e) => setUnstakeAmount(e.target.value)}
+                placeholder="0.0000" min="0" step="0.0001" required className={`${inputClass} font-mono`} />
+            </Field>
+          </div>
+          <button type="submit" disabled={processing} className="shrink-0 rounded-md border border-line-2 px-4 py-2 text-sm font-medium text-ink hover:bg-surface disabled:opacity-50">Unstake</button>
+        </form>
+        <p className="text-xs text-muted">
+          Amounts in XPR. Unstaked funds become withdrawable after {unstakeDays !== null ? `${unstakeDays} day${unstakeDays === 1 ? '' : 's'}` : 'the waiting period'}.
+        </p>
+      </div>
+
+      {/* Pending unstakes */}
+      {myUnstakes.length > 0 && (
+        <div className="border-t border-line">
+          <h3 className="label px-5 pt-4">Pending unstakes</h3>
+          <ul className="divide-y divide-line">
+            {myUnstakes.map(u => {
+              const now = Math.floor(Date.now() / 1000);
+              const canWithdraw = now >= u.available_at;
+              const days = Math.ceil((u.available_at - now) / 86400);
+              return (
+                <li key={u.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                  <div className="min-w-0">
+                    <div className="font-mono text-sm tabular text-ink">{formatXpr(u.amount)}</div>
+                    <div className="text-xs text-muted">{canWithdraw ? 'Ready to withdraw' : `Available in ${days} day${days === 1 ? '' : 's'}`}</div>
+                  </div>
+                  {canWithdraw && (
+                    <button onClick={() => handleWithdrawUnstake(u.id)} disabled={processing}
+                      className="shrink-0 rounded-md bg-ink px-3 py-1.5 text-xs font-medium text-canvas hover:bg-ink/85 disabled:bg-line disabled:text-muted">
+                      Withdraw
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* Update profile */}
+      <div className="border-t border-line p-4">
+        {!showUpdateForm ? (
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="label">Method</p>
+              <p className="mt-1 break-words text-sm text-ink-2">{myValidator.method || 'No method described yet.'}</p>
+              {myValidator.specializations.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {myValidator.specializations.map(s => (
+                    <span key={s} className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-2">{s}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={() => setShowUpdateForm(true)} className={`${smallOutlineBtn} shrink-0`}>Edit</button>
+          </div>
+        ) : (
+          <form onSubmit={handleUpdateProfile} className="space-y-3">
+            <Field label="Validation method" htmlFor="update-method" required>
+              <input id="update-method" type="text" value={updateMethod} onChange={(e) => setUpdateMethod(e.target.value)} required
+                placeholder="Automated tests plus manual review" className={inputClass} />
+            </Field>
+            <Field label="Specializations" htmlFor="update-specs" hint="Comma-separated.">
+              <input id="update-specs" type="text" value={updateSpecs} onChange={(e) => setUpdateSpecs(e.target.value)}
+                placeholder="code-review, data-analysis, security" className={inputClass} />
+            </Field>
+            <div className="flex gap-2">
+              <button type="submit" disabled={processing} className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted">
+                {processing ? 'Saving…' : 'Save'}
+              </button>
+              <button type="button" onClick={() => setShowUpdateForm(false)} className={outlineBtn}>Cancel</button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+
+  const validateFormFields = (idPrefix: string) => (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Verdict" htmlFor={`${idPrefix}-result`}>
+          <select id={`${idPrefix}-result`} value={valResult} onChange={(e) => setValResult(parseInt(e.target.value))} className={inputClass}>
+            {RESULT_OPTIONS}
+          </select>
+        </Field>
+        <Field label="Confidence (%)" htmlFor={`${idPrefix}-confidence`} required>
+          <input id={`${idPrefix}-confidence`} type="number" inputMode="numeric" value={valConfidence} onChange={(e) => setValConfidence(e.target.value)}
+            min="0" max="100" required className={`${inputClass} font-mono`} />
+        </Field>
+      </div>
+      <Field label="Evidence link" htmlFor={`${idPrefix}-evidence`} hint="Optional. IPFS or web link to your review notes.">
+        <input id={`${idPrefix}-evidence`} type="text" value={valEvidence} onChange={(e) => setValEvidence(e.target.value)}
+          placeholder="ipfs://… or https://…" className={inputClass} />
+      </Field>
+    </>
+  );
+
+  const awaitingCard = myValidator && (
+    <div className="rounded-xl border border-line bg-canvas">
+      <div className="border-b border-line px-5 py-3.5">
+        <span className="label">Awaiting validation</span>
+        <p className="mt-1 text-xs text-muted">Delivered and in-progress jobs. Review the work, then record your verdict.</p>
+      </div>
+
+      {awaitingLoading ? (
+        <div className="divide-y divide-line">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="space-y-2 px-5 py-3">
+              <div className="h-4 w-2/3 skeleton-shimmer rounded" />
+              <div className="h-3 w-1/2 skeleton-shimmer rounded" />
+            </div>
+          ))}
+        </div>
+      ) : awaitingJobs.length === 0 ? (
+        <p className="px-5 py-4 text-sm text-ink-2">
+          Nothing is waiting on a verdict right now. New deliveries show up here automatically, or you can validate by agent and job reference below.
+        </p>
+      ) : (
+        <ul className="max-h-96 divide-y divide-line overflow-y-auto">
+          {awaitingJobs.map(job => {
+            const isOpen = validateJob?.id === job.id;
+            return (
+              <li key={job.id} className={`px-5 py-3 ${isOpen ? 'bg-surface' : ''}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs text-muted">#{job.id}</span>
+                      <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-2">{getJobStateLabel(job.state)}</span>
+                    </div>
+                    <p className="break-words text-sm font-medium text-ink">{job.title}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-muted">
+                      {job.agent && job.agent !== '.............' ? <AccountLink account={job.agent} isAgent className="text-xs" /> : <span>unassigned</span>}
+                      <span className="tabular">{formatXpr(job.amount)}</span>
+                    </div>
+                  </div>
+                  {!isOpen && (
+                    <button onClick={() => openValidateForm(job)} className={`${smallOutlineBtn} shrink-0`}>Validate</button>
+                  )}
+                </div>
+
+                {isOpen && (
+                  <form onSubmit={(e) => handleSubmitValidation(e, job.agent, String(job.id))} className="mt-3 space-y-3">
+                    {validateFormFields(`val-${job.id}`)}
+                    <div className="flex gap-2">
+                      <button type="submit" disabled={processing} className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted">
+                        {processing ? 'Submitting…' : 'Submit verdict'}
+                      </button>
+                      <button type="button" onClick={() => setValidateJob(null)} className={outlineBtn}>Cancel</button>
+                    </div>
+                  </form>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* Manual fallback */}
+      <div className="border-t border-line p-4">
+        {!showManualForm ? (
+          <button onClick={() => setShowManualForm(true)} className="text-sm text-ink-2 hover:text-ink">
+            Validate by agent and job reference instead
+          </button>
+        ) : (
+          <form onSubmit={(e) => handleSubmitValidation(e, manualAgent, manualJobHash)} className="space-y-3">
+            <p className="label">Manual validation</p>
+            <Field label="Agent account" htmlFor="manual-agent" required>
+              <input id="manual-agent" type="text" value={manualAgent} onChange={(e) => setManualAgent(e.target.value)} required
+                placeholder="agent account" className={`${inputClass} font-mono`} />
+            </Field>
+            <Field label="Job reference" htmlFor="manual-job" hint="The job id or content hash the agent delivered against." required>
+              <input id="manual-job" type="text" value={manualJobHash} onChange={(e) => setManualJobHash(e.target.value)} required
+                placeholder="42" className={`${inputClass} font-mono`} />
+            </Field>
+            {validateFormFields('manual')}
+            <div className="flex gap-2">
+              <button type="submit" disabled={processing} className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted">
+                {processing ? 'Submitting…' : 'Submit verdict'}
+              </button>
+              <button type="button" onClick={() => setShowManualForm(false)} className={outlineBtn}>Cancel</button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+
+  const panelSkeleton = (
+    <div className="rounded-xl border border-line bg-canvas p-5">
+      <div className="mb-4 h-3 w-24 skeleton-shimmer rounded" />
+      <div className="space-y-3">
+        <div className="h-4 w-3/4 skeleton-shimmer rounded" />
+        <div className="h-4 w-1/2 skeleton-shimmer rounded" />
+        <div className="h-9 w-full skeleton-shimmer rounded" />
+      </div>
+    </div>
+  );
+
+  // === Selected validator detail (expanded row) ===
+
+  const renderDetail = (v: Validator) => (
+    <div className="border-t border-line bg-surface px-5 py-4">
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
+        <div>
+          <dt className="label">Accuracy</dt>
+          <dd className={`mt-1 font-mono text-sm tabular ${accuracyColor(v.accuracy_score)}`}>{formatAccuracy(v.accuracy_score, 2)}</dd>
+        </div>
+        <div>
+          <dt className="label">Staked</dt>
+          <dd className="mt-1 font-mono text-sm tabular text-ink">{formatXpr(v.stake)}</dd>
+        </div>
+        <div>
+          <dt className="label">Validations</dt>
+          <dd className="mt-1 font-mono text-sm tabular text-ink">{v.total_validations}</dd>
+        </div>
+        <div>
+          <dt className="label">Incorrect</dt>
+          <dd className={`mt-1 font-mono text-sm tabular ${v.incorrect_validations > 0 ? 'text-crit' : 'text-ink'}`}>{v.incorrect_validations}</dd>
+        </div>
+        <div>
+          <dt className="label">Open challenges</dt>
+          <dd className={`mt-1 font-mono text-sm tabular ${v.pending_challenges > 0 ? 'text-warn' : 'text-ink'}`}>{v.pending_challenges}</dd>
+        </div>
+        <div>
+          <dt className="label">Registered</dt>
+          <dd className="mt-1 text-sm text-ink" title={formatDate(v.registered_at)}>{formatRelativeTime(v.registered_at)}</dd>
+        </div>
+      </dl>
+
+      <div className="mt-4">
+        <p className="label">Method</p>
+        <p className="mt-1 break-words text-sm text-ink-2">{v.method || 'This validator has not described a method.'}</p>
+      </div>
+
+      <div className="mt-4">
+        <p className="label mb-2">Recent validations</p>
+        {validationsLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-4 w-full skeleton-shimmer rounded" />)}
+          </div>
+        ) : recentValidations.length === 0 ? (
+          <p className="text-sm text-ink-2">No validations recorded yet. Verdicts appear here once this validator reviews a delivered job.</p>
+        ) : (
+          <ul className="max-h-72 divide-y divide-line overflow-y-auto rounded-lg border border-line bg-canvas">
+            {recentValidations.map(val => (
+              <li key={val.id} className="px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs text-muted">#{val.id}</span>
+                    <AccountLink account={val.agent} isAgent className="font-mono text-sm" />
+                    <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${RESULT_COLORS[val.result] || 'bg-surface-2 text-ink-2'}`}>
+                      {VALIDATION_RESULT_LABELS[val.result]}
+                    </span>
+                    {val.challenged && <span className="rounded bg-warn-soft px-1.5 py-0.5 text-[11px] font-medium text-warn">Challenged</span>}
+                  </div>
+                  {session && !val.challenged && (
+                    <button onClick={() => setChallengeValidation(val)} className="text-xs font-medium text-crit hover:underline">
+                      Challenge
+                    </button>
+                  )}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-xs text-muted">
+                  <span className="tabular">{val.confidence}% confidence</span>
+                  {val.job_hash && <span className="break-all">job {val.job_hash}</span>}
+                  <span title={formatDate(val.timestamp)}>{formatRelativeTime(val.timestamp)}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <>
-      <Head>
-        <title>Validators - XPR Agents</title>
-        <meta name="description" content="Browse and manage validators on XPR Network" />
-      </Head>
+      <SiteHead title="Validators" description="Third-party validators stake XPR to verify agent deliverables on XPR Network. Browse the validator registry or register your own." path="/validators" />
 
       <div className="min-h-screen bg-canvas">
         <Header activePage="validators" />
 
-        <main className="max-w-6xl mx-auto px-4 py-8">
-          {/* Hero */}
+        <main className="mx-auto max-w-6xl px-4 py-10">
+          {/* Page header */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-ink mb-2">Validator Network</h1>
-            <p className="text-ink-2 mb-6">Third-party validators verify agent outputs and maintain quality standards</p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-surface border border-line rounded-xl p-4">
-                <div className="text-2xl font-bold text-ink truncate">{validators.length}</div>
-                <div className="text-sm text-muted">Total Validators</div>
-              </div>
-              <div className="bg-surface border border-line rounded-xl p-4">
-                <div className="text-2xl font-bold text-good truncate">{activeCount}</div>
-                <div className="text-sm text-muted">Active</div>
-              </div>
-              <div className="bg-surface border border-line rounded-xl p-4">
-                <div className={`text-2xl font-bold truncate ${accuracyColor(avgAccuracy * 100)}`}>{avgAccuracy.toFixed(1)}%</div>
-                <div className="text-sm text-muted">Avg Accuracy</div>
-              </div>
-              <div className="bg-surface border border-line rounded-xl p-4">
-                <div className="text-2xl font-bold text-accent truncate">
-                  {config ? formatXpr(config.min_stake) : '-'}
-                </div>
-                <div className="text-sm text-muted">Min Stake</div>
-              </div>
-            </div>
+            <p className="label mb-2">Registry</p>
+            <h1 className="font-display text-3xl font-semibold text-ink">Validators</h1>
+            <p className="mt-1 max-w-2xl text-sm text-ink-2">
+              Validators stake XPR and check what agents deliver. Any verdict can be challenged, and a validator who is shown to be wrong loses part of their stake.
+            </p>
+            <p className="mt-2 text-sm text-ink-2">
+              {loading ? 'Loading…' : (
+                <>
+                  <span className="tabular">{validators.length}</span> registered ·{' '}
+                  <span className="tabular">{activeCount}</span> active
+                  {validators.length > 0 && <> · <span className="font-mono tabular">{avgAccuracy.toFixed(1)}%</span> average accuracy</>}
+                </>
+              )}
+            </p>
           </div>
 
-          {/* Controls */}
-          <div className="flex flex-wrap items-center gap-3 mb-6">
-            <input
-              type="text"
-              placeholder="Search by account..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="px-3 py-2 bg-surface border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm w-48"
-            />
-            <div className="flex gap-1 bg-surface-2 p-1 rounded-lg">
-              {(['accuracy', 'stake', 'validations'] as SortKey[]).map(k => (
-                <button
-                  key={k}
-                  onClick={() => setSort(k)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors ${
-                    sort === k ? 'bg-line text-ink' : 'text-ink-2 hover:text-ink-2'
-                  }`}
-                >
-                  {k}
-                </button>
-              ))}
-            </div>
-            <label className="flex items-center gap-2 text-sm text-ink-2 cursor-pointer">
-              <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} className="accent-accent" />
-              Active only
-            </label>
-          </div>
-
-          {/* Grid: directory + side panel */}
-          <div className="flex flex-col-reverse lg:flex-row gap-6">
+          <div className="grid gap-8 lg:grid-cols-12">
             {/* Directory */}
-            <div className="flex-1 min-w-0">
+            <section className="min-w-0 lg:col-span-8" aria-labelledby="directory-heading">
+              <h2 id="directory-heading" className="sr-only">Validator directory</h2>
+
+              {/* Controls */}
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <input
+                  id="validator-search"
+                  type="search"
+                  aria-label="Search validators by account"
+                  placeholder="Search by account"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full rounded-md border border-line-2 bg-canvas px-3 py-1.5 font-mono text-sm text-ink placeholder:font-sans placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 sm:w-48"
+                />
+                <div className="flex gap-1 rounded-lg bg-surface-2 p-1" role="group" aria-label="Sort validators">
+                  {(['accuracy', 'stake', 'validations'] as SortKey[]).map(k => (
+                    <button
+                      key={k}
+                      onClick={() => setSort(k)}
+                      aria-pressed={sort === k}
+                      className={`rounded-md px-3 py-1.5 text-sm transition-colors ${sort === k ? 'bg-canvas text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
+                    >
+                      {SORT_LABELS[k]}
+                    </button>
+                  ))}
+                </div>
+                <label htmlFor="active-only" className="flex cursor-pointer items-center gap-2 text-sm text-ink-2">
+                  <input id="active-only" type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} className="accent-accent" />
+                  Active only
+                </label>
+              </div>
+
+              {/* List */}
               {loading ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="p-4 rounded-xl border border-line bg-surface">
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="h-4 w-24 skeleton-shimmer rounded" />
-                        <div className="h-5 w-14 skeleton-shimmer rounded" />
-                      </div>
-                      <div className="h-6 w-16 skeleton-shimmer rounded mb-2" />
-                      <div className="flex gap-4">
-                        <div className="h-3 w-20 skeleton-shimmer rounded" />
-                        <div className="h-3 w-24 skeleton-shimmer rounded" />
-                      </div>
+                <div className="divide-y divide-line rounded-xl border border-line bg-canvas">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-4 px-5 py-4">
+                      <div className="h-8 w-8 skeleton-shimmer rounded-full" />
+                      <div className="flex-1 space-y-2"><div className="h-4 w-1/3 skeleton-shimmer rounded" /><div className="h-3 w-2/3 skeleton-shimmer rounded" /></div>
+                      <div className="h-4 w-20 skeleton-shimmer rounded" />
                     </div>
                   ))}
                 </div>
               ) : filtered.length === 0 ? (
-                <div className="text-center py-12 text-muted">
-                  <p className="text-lg mb-2">No validators found</p>
-                  <p className="text-sm">Be the first to register as a validator!</p>
+                <div className="rounded-xl border border-line bg-canvas px-6 py-16 text-center">
+                  <p className="font-display text-lg font-semibold text-ink">
+                    {validators.length === 0 ? 'No validators registered yet' : 'No validators match this view'}
+                  </p>
+                  <p className="mx-auto mt-2 max-w-md text-sm text-ink-2">
+                    {validators.length === 0
+                      ? 'Be the first. Connect a wallet and register from the panel to start reviewing delivered work.'
+                      : search
+                        ? `Nothing matches “${search}”. Try a different account name or clear the search.`
+                        : 'Every registered validator is paused right now. Untick “Active only” to see them.'}
+                  </p>
+                  {!session && validators.length === 0 && (
+                    <button onClick={login} className="mt-6 rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-canvas hover:bg-ink/85">Connect wallet</button>
+                  )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {filtered.map((v, i) => (
-                    <button
-                      key={v.account}
-                      style={{ animationDelay: `${Math.min(i, 11) * 50}ms` }}
-                      onClick={() => selectValidator(v)}
-                      className={`animate-stagger animate-fade-in-up text-left p-4 rounded-xl border transition-all ${
-                        selectedValidator?.account === v.account
-                          ? 'border-accent bg-accent/10'
-                          : 'border-line bg-surface hover:border-line-2'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="font-medium text-ink truncate">{v.account}</div>
-                        {v.active ? (
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-good-soft text-good">Active</span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-surface-2 text-ink-2">Inactive</span>
-                        )}
-                      </div>
-                      <div className="flex items-baseline gap-3 mb-2">
-                        <span className={`text-lg font-bold ${accuracyColor(v.accuracy_score / 100)}`}>
-                          {(v.accuracy_score / 100).toFixed(1)}%
-                        </span>
-                        <span className="text-xs text-muted">accuracy</span>
-                      </div>
-                      <div className="flex gap-4 text-xs text-muted">
-                        <span>{formatXpr(v.stake)}</span>
-                        <span>{v.total_validations} validations</span>
-                      </div>
-                      {v.specializations.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {v.specializations.slice(0, 3).map(s => (
-                            <span key={s} className="px-1.5 py-0.5 bg-surface-2 text-ink-2 rounded text-xs">{s}</span>
-                          ))}
-                          {v.specializations.length > 3 && (
-                            <span className="text-xs text-muted">+{v.specializations.length - 3}</span>
-                          )}
-                        </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
+                <ol className="divide-y divide-line rounded-xl border border-line bg-canvas">
+                  {filtered.map((v) => {
+                    const isSelected = selectedValidator?.account === v.account;
+                    return (
+                      <li key={v.account}>
+                        <button
+                          type="button"
+                          onClick={() => toggleValidator(v)}
+                          aria-expanded={isSelected}
+                          className={`grid w-full gap-3 px-5 py-4 text-left transition-colors hover:bg-surface sm:grid-cols-[1fr_auto] sm:items-center ${isSelected ? 'bg-surface' : ''}`}
+                        >
+                          <span className="flex min-w-0 items-start gap-3">
+                            <AccountAvatar account={v.account} size={32} className="mt-0.5" />
+                            <span className="block min-w-0">
+                              <span className="flex flex-wrap items-center gap-2">
+                                <span className="break-all font-mono text-sm font-medium text-ink">{v.account}</span>
+                                {statusPill(v.active)}
+                                {v.pending_challenges > 0 && (
+                                  <span className="rounded bg-warn-soft px-1.5 py-0.5 text-[11px] font-medium text-warn">
+                                    {v.pending_challenges} open challenge{v.pending_challenges === 1 ? '' : 's'}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="mt-0.5 block break-words text-sm text-muted">{v.method || 'No method described'}</span>
+                              {v.specializations.length > 0 && (
+                                <span className="mt-1.5 flex flex-wrap gap-1">
+                                  {v.specializations.slice(0, 4).map(s => (
+                                    <span key={s} className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-2">{s}</span>
+                                  ))}
+                                  {v.specializations.length > 4 && (
+                                    <span className="text-[11px] text-muted">+{v.specializations.length - 4} more</span>
+                                  )}
+                                </span>
+                              )}
+                            </span>
+                          </span>
+                          <span className="grid grid-cols-3 gap-4 sm:text-right">
+                            <span className="block">
+                              <span className="label block">Stake</span>
+                              <span className="block font-mono text-sm tabular text-ink">{formatXpr(v.stake)}</span>
+                            </span>
+                            <span className="block">
+                              <span className="label block">Accuracy</span>
+                              <span className={`block font-mono text-sm tabular ${accuracyColor(v.accuracy_score)}`}>{formatAccuracy(v.accuracy_score)}</span>
+                            </span>
+                            <span className="block">
+                              <span className="label block">Validations</span>
+                              <span className="block font-mono text-sm tabular text-ink">{v.total_validations}</span>
+                            </span>
+                          </span>
+                        </button>
+                        {isSelected && renderDetail(v)}
+                      </li>
+                    );
+                  })}
+                </ol>
               )}
-            </div>
+            </section>
 
             {/* Side panel */}
-            <div className="w-full lg:w-80 xl:w-96 shrink-0 space-y-6">
-              {/* Validator Detail */}
-              {selectedValidator && (
-                <div className="bg-surface border border-line rounded-xl p-5">
-                  <div className="flex justify-between items-start mb-4">
-                    <h3 className="font-bold text-lg"><AccountLink account={selectedValidator.account} /></h3>
-                    <button onClick={() => setSelectedValidator(null)} className="text-muted hover:text-ink-2 text-sm">Close</button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mb-4">
-                    <div className="bg-surface-2 rounded-lg p-3">
-                      <div className={`text-lg font-bold ${accuracyColor(selectedValidator.accuracy_score / 100)}`}>
-                        {(selectedValidator.accuracy_score / 100).toFixed(2)}%
-                      </div>
-                      <div className="text-xs text-muted">Accuracy</div>
-                    </div>
-                    <div className="bg-surface-2 rounded-lg p-3">
-                      <div className="text-lg font-bold text-ink">{formatXpr(selectedValidator.stake)}</div>
-                      <div className="text-xs text-muted">Staked</div>
-                    </div>
-                    <div className="bg-surface-2 rounded-lg p-3">
-                      <div className="text-lg font-bold text-ink">{selectedValidator.total_validations}</div>
-                      <div className="text-xs text-muted">Validations</div>
-                    </div>
-                    <div className="bg-surface-2 rounded-lg p-3">
-                      <div className="text-lg font-bold text-crit">{selectedValidator.incorrect_validations}</div>
-                      <div className="text-xs text-muted">Incorrect</div>
-                    </div>
-                  </div>
-                  <div className="text-sm text-ink-2 mb-1"><span className="text-muted">Method:</span> {selectedValidator.method || 'Not specified'}</div>
-                  <div className="text-sm text-ink-2 mb-1"><span className="text-muted">Pending Challenges:</span> {selectedValidator.pending_challenges}</div>
-                  <div className="text-sm text-ink-2 mb-4"><span className="text-muted">Registered:</span> <span title={formatDate(selectedValidator.registered_at)}>{formatRelativeTime(selectedValidator.registered_at)}</span></div>
-
-                  <h4 className="font-medium text-ink text-sm mb-2">Recent Validations</h4>
-                  {validationsLoading ? (
-                    <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent"></div></div>
-                  ) : recentValidations.length === 0 ? (
-                    <p className="text-sm text-muted py-2">No validations yet</p>
-                  ) : (
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {recentValidations.map(v => (
-                        <div key={v.id} className="p-3 bg-surface-2 rounded-lg">
-                          <div className="flex justify-between items-start">
-                            <AccountLink account={v.agent} isAgent className="text-sm" />
-                            <span className={`px-1.5 py-0.5 rounded text-xs ${RESULT_COLORS[v.result] || ''}`}>
-                              {VALIDATION_RESULT_LABELS[v.result]}
-                            </span>
-                          </div>
-                          <div className="flex gap-3 text-xs text-muted mt-1">
-                            <span>Confidence: {v.confidence}%</span>
-                            <span title={formatDate(v.timestamp)}>{formatRelativeTime(v.timestamp)}</span>
-                            {v.challenged && <span className="text-warn">Challenged</span>}
-                          </div>
-                          {session && !v.challenged && (
-                            <button onClick={() => setChallengeValidation(v)} className="mt-2 text-xs text-crit hover:text-crit">
-                              Challenge this validation
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Challenge Form */}
-              {challengeValidation && session && (
-                <div className="bg-surface border border-crit/30 rounded-xl p-5">
-                  <div className="flex justify-between items-center mb-3">
-                    <h4 className="font-medium text-crit">Challenge Validation #{challengeValidation.id}</h4>
-                    <button onClick={() => setChallengeValidation(null)} className="text-muted hover:text-ink-2 text-sm">Cancel</button>
-                  </div>
-                  <p className="text-xs text-muted mb-3">Required stake: {config ? formatXpr(config.challenge_stake) : '-'}</p>
-                  <form onSubmit={handleChallenge} className="space-y-3">
-                    <textarea value={challengeReason} onChange={(e) => setChallengeReason(e.target.value)} required rows={2}
-                      className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm"
-                      placeholder="Why is this validation incorrect?" />
-                    <input type="text" value={challengeEvidence} onChange={(e) => setChallengeEvidence(e.target.value)}
-                      className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm"
-                      placeholder="Evidence URI (optional)" />
-                    <button type="submit" disabled={processing}
-                      className="w-full px-4 py-2 bg-crit text-white rounded-lg text-sm hover:bg-crit disabled:bg-line disabled:text-muted">
-                      {processing ? 'Submitting...' : 'Submit & Fund Challenge'}
-                    </button>
-                  </form>
-                </div>
-              )}
-
-              {/* My Validator Panel */}
-              {session && (
-                <div className="bg-surface border border-line rounded-xl p-5">
-                  <h3 className="font-bold text-ink mb-4">My Validator</h3>
-
-                  {myValidatorLoading ? (
-                    <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent"></div></div>
-                  ) : !myValidator ? (
-                    <div>
-                      <p className="text-sm text-ink-2 mb-3">
-                        Become a validator to verify agent outputs.
-                        {config && <span> Min stake: <strong className="text-ink">{formatXpr(config.min_stake)}</strong></span>}
-                      </p>
-                      <form onSubmit={handleRegister} className="space-y-3">
-                        <div>
-                          <label className="block text-xs text-ink-2 mb-1">Validation Method</label>
-                          <input type="text" value={regMethod} onChange={(e) => setRegMethod(e.target.value)} required
-                            className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm"
-                            placeholder="e.g. Automated testing + manual review" />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-ink-2 mb-1">Specializations (comma-separated)</label>
-                          <input type="text" value={regSpecs} onChange={(e) => setRegSpecs(e.target.value)}
-                            className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm"
-                            placeholder="code-review, data-analysis, security" />
-                        </div>
-                        <button type="submit" disabled={processing}
-                          className="w-full px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent-hover disabled:bg-line disabled:text-muted">
-                          {processing ? 'Registering...' : 'Register & Stake'}
-                        </button>
-                      </form>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {/* Stats */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="bg-surface-2 rounded-lg p-2 text-center">
-                          <div className="text-sm font-bold text-ink">{formatXpr(myValidator.stake)}</div>
-                          <div className="text-xs text-muted">Staked</div>
-                        </div>
-                        <div className="bg-surface-2 rounded-lg p-2 text-center">
-                          <div className={`text-sm font-bold ${accuracyColor(myValidator.accuracy_score / 100)}`}>
-                            {(myValidator.accuracy_score / 100).toFixed(1)}%
-                          </div>
-                          <div className="text-xs text-muted">Accuracy</div>
-                        </div>
-                        <div className="bg-surface-2 rounded-lg p-2 text-center">
-                          <div className="text-sm font-bold text-ink">{myValidator.total_validations}</div>
-                          <div className="text-xs text-muted">Validations</div>
-                        </div>
-                        <div className="bg-surface-2 rounded-lg p-2 text-center">
-                          <div className="text-sm font-bold text-warn">{myValidator.pending_challenges}</div>
-                          <div className="text-xs text-muted">Challenges</div>
-                        </div>
-                      </div>
-
-                      {/* Status toggle */}
-                      <button onClick={handleToggleStatus} disabled={processing}
-                        className={`w-full px-4 py-2 rounded-lg text-sm font-medium ${
-                          myValidator.active ? 'bg-line text-ink-2 hover:bg-line-2' : 'bg-good text-white hover:bg-good'
-                        } disabled:opacity-50`}>
-                        {myValidator.active ? 'Deactivate' : 'Activate'}
-                      </button>
-
-                      {/* Stake / Unstake */}
-                      <div className="flex gap-2">
-                        <form onSubmit={handleStake} className="flex-1 flex gap-1">
-                          <input type="number" value={stakeAmount} onChange={(e) => setStakeAmount(e.target.value)}
-                            placeholder="XPR" min="0" step="0.0001" required
-                            className="flex-1 px-2 py-1.5 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-xs" />
-                          <button type="submit" disabled={processing} className="px-3 py-1.5 bg-good text-white rounded-lg text-xs hover:bg-good disabled:opacity-50">Stake</button>
-                        </form>
-                        <form onSubmit={handleUnstake} className="flex-1 flex gap-1">
-                          <input type="number" value={unstakeAmount} onChange={(e) => setUnstakeAmount(e.target.value)}
-                            placeholder="XPR" min="0" step="0.0001" required
-                            className="flex-1 px-2 py-1.5 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-xs" />
-                          <button type="submit" disabled={processing} className="px-3 py-1.5 bg-crit text-white rounded-lg text-xs hover:bg-crit disabled:opacity-50">Unstake</button>
-                        </form>
-                      </div>
-
-                      {/* Pending unstakes */}
-                      {myUnstakes.length > 0 && (
-                        <div>
-                          <h4 className="text-xs font-medium text-ink-2 mb-2">Pending Unstakes</h4>
-                          {myUnstakes.map(u => {
-                            const now = Math.floor(Date.now() / 1000);
-                            const canWithdraw = now >= u.available_at;
-                            const days = Math.ceil((u.available_at - now) / 86400);
-                            return (
-                              <div key={u.id} className="flex justify-between items-center p-2 bg-surface-2 rounded-lg mb-1">
-                                <div>
-                                  <div className="text-sm text-ink">{formatXpr(u.amount)}</div>
-                                  <div className="text-xs text-muted">{canWithdraw ? 'Ready to withdraw' : `${days}d remaining`}</div>
-                                </div>
-                                {canWithdraw && (
-                                  <button onClick={() => handleWithdrawUnstake(u.id)} disabled={processing}
-                                    className="text-xs px-3 py-1 bg-good text-white rounded hover:bg-good disabled:opacity-50">Withdraw</button>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* Update Profile */}
-                      {!showUpdateForm ? (
-                        <button onClick={() => setShowUpdateForm(true)} className="w-full text-sm text-ink-2 hover:text-ink py-1">Update Profile</button>
-                      ) : (
-                        <form onSubmit={handleUpdateProfile} className="space-y-2 p-3 bg-surface-2 rounded-lg">
-                          <input type="text" value={updateMethod} onChange={(e) => setUpdateMethod(e.target.value)} required placeholder="Method"
-                            className="w-full px-2 py-1.5 bg-surface border border-line-2 text-ink placeholder:text-muted rounded text-sm" />
-                          <input type="text" value={updateSpecs} onChange={(e) => setUpdateSpecs(e.target.value)} placeholder="Specializations (comma-separated)"
-                            className="w-full px-2 py-1.5 bg-surface border border-line-2 text-ink placeholder:text-muted rounded text-sm" />
-                          <div className="flex gap-2">
-                            <button type="submit" disabled={processing} className="px-3 py-1.5 bg-accent text-white rounded text-xs hover:bg-accent-hover disabled:opacity-50">Save</button>
-                            <button type="button" onClick={() => setShowUpdateForm(false)} className="px-3 py-1.5 border border-line-2 text-ink-2 rounded text-xs">Cancel</button>
-                          </div>
-                        </form>
-                      )}
-
-                      {/* === Jobs Awaiting Validation === */}
-                      <div className="border-t border-line pt-4">
-                        <h4 className="text-sm font-medium text-ink mb-1">Jobs Awaiting Validation</h4>
-                        <p className="text-xs text-muted mb-3">Review delivered work and submit your validation verdict.</p>
-
-                        {awaitingLoading ? (
-                          <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent"></div></div>
-                        ) : awaitingJobs.length === 0 ? (
-                          <p className="text-sm text-muted py-2">No jobs awaiting validation right now.</p>
-                        ) : (
-                          <div className="space-y-2 max-h-72 overflow-y-auto">
-                            {awaitingJobs.map(job => (
-                              <div key={job.id} className={`p-3 rounded-lg border transition-colors ${
-                                validateJob?.id === job.id ? 'border-accent bg-accent/5' : 'border-line bg-surface-2/50 hover:border-line-2'
-                              }`}>
-                                <div className="flex justify-between items-start">
-                                  <div>
-                                    <div className="text-sm font-medium text-ink">{job.title}</div>
-                                    <div className="text-xs text-muted mt-0.5 flex items-center gap-1 flex-wrap">
-                                      Agent: {job.agent && job.agent !== '.............' ? <AccountLink account={job.agent} isAgent className="text-xs" /> : 'unassigned'} &middot; {getJobStateLabel(job.state)} &middot; {formatXpr(job.amount)}
-                                    </div>
-                                  </div>
-                                  {validateJob?.id !== job.id && (
-                                    <button
-                                      onClick={() => { setValidateJob(job); setValResult(1); setValConfidence('90'); setValEvidence(''); }}
-                                      className="text-xs px-2 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30 shrink-0 ml-2"
-                                    >
-                                      Validate
-                                    </button>
-                                  )}
-                                </div>
-
-                                {/* Inline validation form */}
-                                {validateJob?.id === job.id && (
-                                  <form onSubmit={(e) => handleSubmitValidation(e, job.agent, String(job.id))} className="mt-3 space-y-2">
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <div>
-                                        <label className="block text-xs text-muted mb-1">Result</label>
-                                        <select value={valResult} onChange={(e) => setValResult(parseInt(e.target.value))}
-                                          className="w-full px-2 py-1.5 bg-surface border border-line-2 text-ink rounded text-sm">
-                                          <option value={1}>Pass</option>
-                                          <option value={0}>Fail</option>
-                                          <option value={2}>Partial</option>
-                                        </select>
-                                      </div>
-                                      <div>
-                                        <label className="block text-xs text-muted mb-1">Confidence %</label>
-                                        <input type="number" value={valConfidence} onChange={(e) => setValConfidence(e.target.value)} min="0" max="100" required
-                                          className="w-full px-2 py-1.5 bg-surface border border-line-2 text-ink rounded text-sm" />
-                                      </div>
-                                    </div>
-                                    <input type="text" value={valEvidence} onChange={(e) => setValEvidence(e.target.value)}
-                                      placeholder="Evidence URI (optional)"
-                                      className="w-full px-2 py-1.5 bg-surface border border-line-2 text-ink placeholder:text-muted rounded text-sm" />
-                                    <div className="flex gap-2">
-                                      <button type="submit" disabled={processing}
-                                        className="px-3 py-1.5 bg-accent text-white rounded text-xs hover:bg-accent-hover disabled:opacity-50">
-                                        {processing ? 'Submitting...' : 'Submit Validation'}
-                                      </button>
-                                      <button type="button" onClick={() => setValidateJob(null)}
-                                        className="px-3 py-1.5 border border-line-2 text-ink-2 rounded text-xs">Cancel</button>
-                                    </div>
-                                  </form>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Manual fallback */}
-                        <div className="mt-3">
-                          {!showManualForm ? (
-                            <button onClick={() => setShowManualForm(true)} className="text-xs text-muted hover:text-ink-2">
-                              Or validate manually by agent/job hash...
-                            </button>
-                          ) : (
-                            <form onSubmit={(e) => handleSubmitValidation(e, manualAgent, manualJobHash)} className="space-y-2 p-3 bg-surface-2/50 rounded-lg">
-                              <p className="text-xs text-ink-2 mb-1">Manual Validation</p>
-                              <input type="text" value={manualAgent} onChange={(e) => setManualAgent(e.target.value)} required placeholder="Agent account"
-                                className="w-full px-2 py-1.5 bg-surface border border-line-2 text-ink placeholder:text-muted rounded text-sm" />
-                              <input type="text" value={manualJobHash} onChange={(e) => setManualJobHash(e.target.value)} required placeholder="Job hash"
-                                className="w-full px-2 py-1.5 bg-surface border border-line-2 text-ink placeholder:text-muted rounded text-sm" />
-                              <div className="grid grid-cols-2 gap-2">
-                                <select value={valResult} onChange={(e) => setValResult(parseInt(e.target.value))}
-                                  className="px-2 py-1.5 bg-surface border border-line-2 text-ink rounded text-sm">
-                                  <option value={1}>Pass</option>
-                                  <option value={0}>Fail</option>
-                                  <option value={2}>Partial</option>
-                                </select>
-                                <input type="number" value={valConfidence} onChange={(e) => setValConfidence(e.target.value)} min="0" max="100" required placeholder="Confidence %"
-                                  className="px-2 py-1.5 bg-surface border border-line-2 text-ink rounded text-sm" />
-                              </div>
-                              <input type="text" value={valEvidence} onChange={(e) => setValEvidence(e.target.value)} placeholder="Evidence URI (optional)"
-                                className="w-full px-2 py-1.5 bg-surface border border-line-2 text-ink placeholder:text-muted rounded text-sm" />
-                              <div className="flex gap-2">
-                                <button type="submit" disabled={processing}
-                                  className="px-3 py-1.5 bg-accent text-white rounded text-xs hover:bg-accent-hover disabled:opacity-50">
-                                  {processing ? 'Submitting...' : 'Submit'}
-                                </button>
-                                <button type="button" onClick={() => setShowManualForm(false)}
-                                  className="px-3 py-1.5 border border-line-2 text-ink-2 rounded text-xs">Cancel</button>
-                              </div>
-                            </form>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            <aside className="lg:col-span-4">
+              <div className="space-y-4 lg:sticky lg:top-20">
+                {!session ? (
+                  <>
+                    {connectCard}
+                    {howToCard}
+                  </>
+                ) : myValidatorLoading ? (
+                  panelSkeleton
+                ) : !myValidator ? (
+                  <>
+                    {registerCard}
+                    {howToCard}
+                  </>
+                ) : (
+                  <>
+                    {myValidatorCard}
+                    {awaitingCard}
+                  </>
+                )}
+              </div>
+            </aside>
           </div>
         </main>
 
         <Footer />
       </div>
+
+      {/* Challenge modal */}
+      <Modal
+        open={!!challengeValidation && !!session}
+        onClose={() => setChallengeValidation(null)}
+        title={`Challenge validation #${challengeValidation?.id ?? ''}`}
+        description={`Explain why this verdict is wrong. Filing it stakes ${challengeStake} from your account, refunded if the challenge is upheld.`}
+      >
+        {challengeValidation && (
+          <form onSubmit={handleChallenge} className="space-y-4">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+              <dt className="text-muted">Validator</dt>
+              <dd className="break-all text-right font-mono text-ink">{challengeValidation.validator}</dd>
+              <dt className="text-muted">Agent</dt>
+              <dd className="break-all text-right font-mono text-ink">{challengeValidation.agent}</dd>
+              <dt className="text-muted">Verdict</dt>
+              <dd className="text-right text-ink">{VALIDATION_RESULT_LABELS[challengeValidation.result]} · <span className="font-mono tabular">{challengeValidation.confidence}%</span></dd>
+              {challengeValidation.job_hash && (
+                <>
+                  <dt className="text-muted">Job reference</dt>
+                  <dd className="break-all text-right font-mono text-ink">{challengeValidation.job_hash}</dd>
+                </>
+              )}
+            </dl>
+            <Field label="Reason" htmlFor="challenge-reason" required>
+              <textarea id="challenge-reason" value={challengeReason} onChange={(e) => setChallengeReason(e.target.value)} required rows={3}
+                placeholder="What did the validator get wrong, and how do you know?" className={inputClass} />
+            </Field>
+            <Field label="Evidence link" htmlFor="challenge-evidence" hint="Optional. IPFS or web link to supporting material.">
+              <input id="challenge-evidence" type="text" value={challengeEvidence} onChange={(e) => setChallengeEvidence(e.target.value)}
+                placeholder="ipfs://… or https://…" className={inputClass} />
+            </Field>
+            <div className="flex gap-2 pt-2">
+              <button type="submit" disabled={processing || !config}
+                className="flex-1 rounded-md bg-crit px-4 py-2.5 text-sm font-medium text-white hover:bg-crit/90 disabled:bg-line disabled:text-muted">
+                {processing ? 'Submitting…' : `File challenge and stake ${challengeStake}`}
+              </button>
+              <button type="button" onClick={() => setChallengeValidation(null)} className={outlineBtn}>Cancel</button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </>
   );
 }
