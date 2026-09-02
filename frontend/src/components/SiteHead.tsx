@@ -1,4 +1,5 @@
 import Head from 'next/head';
+import { ogImageForPath } from '@/pages/_app';
 
 interface Props {
   title?: string;
@@ -10,7 +11,6 @@ interface Props {
 }
 
 const CANONICAL_HOST = 'https://xpragents.com';
-const DEFAULT_OG_IMAGE = `${CANONICAL_HOST}/og-image.png`;
 const DEFAULT_TITLE = 'XPR Agents — Trustless AI Agent Registry on XPR Network';
 
 /**
@@ -22,7 +22,7 @@ export function SiteHead({ title, description, path = '', image }: Props) {
   const fullTitle = title ? `${title} — XPR Agents` : DEFAULT_TITLE;
   const shortTitle = title || 'XPR Agents';
   const url = `${CANONICAL_HOST}${path}`;
-  const ogImage = image || DEFAULT_OG_IMAGE;
+  const ogImage = image || ogImageForPath(path || '/');
 
   return (
     <Head>
@@ -35,17 +35,17 @@ export function SiteHead({ title, description, path = '', image }: Props) {
       <meta property="og:title" content={shortTitle} />
       <meta property="og:description" content={description} />
       <meta property="og:url" content={url} />
-      <meta property="og:image" content={ogImage} />
-      <meta property="og:image:width" content="1200" />
-      <meta property="og:image:height" content="630" />
-      <meta property="og:type" content="website" />
-      <meta property="og:site_name" content="XPR Agents" />
+      <meta key="og:image" property="og:image" content={ogImage} />
+      <meta key="og:image:width" property="og:image:width" content="1200" />
+      <meta key="og:image:height" property="og:image:height" content="630" />
+      <meta key="og:type" property="og:type" content="website" />
+      <meta key="og:site_name" property="og:site_name" content="XPR Agents" />
 
       {/* Twitter */}
-      <meta name="twitter:card" content="summary_large_image" />
+      <meta key="twitter:card" name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content={shortTitle} />
       <meta name="twitter:description" content={description} />
-      <meta name="twitter:image" content={ogImage} />
+      <meta key="twitter:image" name="twitter:image" content={ogImage} />
     </Head>
   );
 }
