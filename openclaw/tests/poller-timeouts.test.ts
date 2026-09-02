@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   findHousekeepingActions,
   describeHousekeeping,
+  normalizeJobState,
   DEFAULT_DISPUTE_WINDOW_SEC,
   type EscrowJobLike,
 } from '../starter/agent/src/timeouts';
@@ -101,5 +102,43 @@ describe('describeHousekeeping', () => {
   it('names the job, side and action', () => {
     const [a] = findHousekeepingActions([job({ id: 6 })], { account: 'me', nowSec: NOW });
     expect(describeHousekeeping(a)).toContain('job #6 as agent: timeout (claim payment)');
+  });
+});
+
+describe('SDK label states (regression: labels were coerced to 0 = CREATED)', () => {
+  it('claims a "delivered" job as agent and refunds "funded"/"inprogress" as client', () => {
+    const jobs: EscrowJobLike[] = [
+      job({ id: 6, state: 'delivered' }),
+      job({ id: 30, client: 'me', agent: '.............', state: 'funded' }),
+      job({ id: 20, client: 'me', agent: 'worker', state: 'inprogress' }),
+    ];
+    const kinds = findHousekeepingActions(jobs, { account: 'me', nowSec: NOW }).map(a => [a.job.id, a.kind]);
+    expect(kinds).toEqual([[6, 'claim_payment'], [30, 'refund'], [20, 'refund']]);
+  });
+
+  it('never cancels completed, refunded or arbitrated jobs reported as labels', () => {
+    const jobs: EscrowJobLike[] = [
+      job({ id: 7, client: 'me', agent: 'rockerclaw', state: 'completed' }),
+      job({ id: 18, client: 'me', agent: '', state: 'refunded' }),
+      job({ id: 56, client: 'me', agent: 'x', state: 'arbitrated' }),
+      job({ id: 57, client: 'me', agent: 'x', state: 'disputed' }),
+    ];
+    expect(findHousekeepingActions(jobs, { account: 'me', nowSec: NOW })).toHaveLength(0);
+  });
+
+  it('skips unknown state values instead of guessing', () => {
+    const jobs = [job({ id: 70, client: 'me', agent: '', state: 'weird' as any }), job({ id: 71, client: 'me', agent: '', state: undefined as any })];
+    expect(findHousekeepingActions(jobs, { account: 'me', nowSec: NOW })).toHaveLength(0);
+  });
+
+  it('normalizeJobState accepts numbers, numeric strings and labels', () => {
+    expect(normalizeJobState(4)).toBe(4);
+    expect(normalizeJobState('4')).toBe(4);
+    expect(normalizeJobState('DELIVERED')).toBe(4);
+    expect(normalizeJobState('in_progress')).toBe(3);
+    expect(normalizeJobState('In Progress')).toBe(3);
+    expect(normalizeJobState(9)).toBe(-1);
+    expect(normalizeJobState('nope')).toBe(-1);
+    expect(normalizeJobState(null)).toBe(-1);
   });
 });

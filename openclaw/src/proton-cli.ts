@@ -105,6 +105,23 @@ function logFailure(code: CliErrorCode, scrubbed: string): void {
  * Parse the transaction ID from proton CLI stdout.
  * Output is JSON containing a transaction_id (or trx_id) field.
  */
+/**
+ * `proton action` can exit 0 while printing a chain error (e.g. an
+ * eosio_assert from the contract). Surface that text so callers see the real
+ * reason instead of a generic "no transaction ID" message.
+ */
+function noTxIdError(stdout: string): ProtonCliError {
+  const assertion = stdout.match(/assertion failure with message:\s*([^\n"]+)/i);
+  if (assertion) {
+    return new ProtonCliError(`contract rejected the action: ${assertion[1].trim()}`, 'reverted', scrubStderr(stdout));
+  }
+  const generic = stdout.match(/(?:^|\n)\s*(?:Error|error)[:\s]+([^\n]+)/);
+  if (generic) {
+    return new ProtonCliError(`proton CLI error: ${generic[1].trim()}`, classifyError(stdout), scrubStderr(stdout));
+  }
+  return new ProtonCliError('proton CLI returned success but no transaction ID could be parsed', 'unknown', stdout);
+}
+
 function parseTxId(stdout: string): string | null {
   const txMatch = stdout.match(/"transaction_id"\s*:\s*"([0-9a-f]+)"/);
   if (txMatch) return txMatch[1];
@@ -167,11 +184,7 @@ export async function execAction(
   const { stdout } = await runProton(['action', contract, action, dataJson, authorization]);
   const txid = parseTxId(stdout);
   if (!txid) {
-    throw new ProtonCliError(
-      'proton CLI returned success but no transaction ID could be parsed',
-      'unknown',
-      stdout,
-    );
+    throw noTxIdError(stdout);
   }
   logSuccess(txid, Date.now() - start);
   return { transaction_id: txid, processed: tryParseProcessed(stdout) };
@@ -197,11 +210,7 @@ export async function execTransactionPush(
   const { stdout } = await runProton(['transaction:push', txJson]);
   const txid = parseTxId(stdout);
   if (!txid) {
-    throw new ProtonCliError(
-      'proton CLI returned success but no transaction ID could be parsed',
-      'unknown',
-      stdout,
-    );
+    throw noTxIdError(stdout);
   }
   logSuccess(txid, Date.now() - start);
   return { transaction_id: txid, processed: tryParseProcessed(stdout) };

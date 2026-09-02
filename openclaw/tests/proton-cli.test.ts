@@ -34,6 +34,22 @@ import {
 } from '../src/proton-cli';
 
 describe('execAction', () => {
+  it('surfaces a contract assertion when the CLI exits 0 without a transaction id', async () => {
+    execFileMock.mockResolvedValue({
+      stdout: 'Error: assertion failure with message: Can only cancel unfunded or funded jobs before acceptance\n',
+      stderr: '',
+    });
+
+    await expect(execAction('agentescrow', 'cancel', ['charliebot', 7], 'charliebot@active'))
+      .rejects.toMatchObject({ code: 'reverted', message: expect.stringContaining('Can only cancel unfunded or funded jobs') });
+  });
+
+  it('still reports an unparseable success as unknown', async () => {
+    execFileMock.mockResolvedValue({ stdout: 'ok\n', stderr: '' });
+    await expect(execAction('agentescrow', 'cancel', ['charliebot', 7], 'charliebot@active'))
+      .rejects.toMatchObject({ code: 'unknown', message: expect.stringContaining('no transaction ID') });
+  });
+
   it('shells out to proton action with positional JSON data', async () => {
     execFileMock.mockResolvedValue({
       stdout: '{"transaction_id":"abc123","processed":{}}',

@@ -21,7 +21,7 @@ export interface EscrowJobLike {
   id: number;
   client: string;
   agent: string;
-  state: number;
+  state: number | string; // contract code or SDK label ('delivered', ...)
   deadline: number;     // unix seconds
   updated_at: number;   // unix seconds
 }
@@ -61,6 +61,27 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Job states as the contract numbers them; the SDK reports the lower-case labels. */
+export const JOB_STATE_LABELS = [
+  'created', 'funded', 'accepted', 'inprogress',
+  'delivered', 'disputed', 'completed', 'refunded', 'arbitrated',
+] as const;
+
+/**
+ * Normalise a job state to the contract's numeric code. Accepts numbers,
+ * numeric strings and SDK labels (case-insensitive, `in_progress` too).
+ * Returns -1 for anything unrecognised so callers skip the job instead of
+ * mistaking it for CREATED (0).
+ */
+export function normalizeJobState(v: unknown): number {
+  if (typeof v === 'number') return Number.isInteger(v) && v >= 0 && v <= 8 ? v : -1;
+  if (typeof v !== 'string') return -1;
+  const t = v.trim().toLowerCase().replace(/[\s_-]/g, '');
+  if (/^[0-8]$/.test(t)) return Number(t);
+  const i = (JOB_STATE_LABELS as readonly string[]).indexOf(t);
+  return i;
+}
+
 /**
  * Pure selector: given jobs this account is party to, return the actions that
  * the contract would accept right now. Safe to call every poll cycle.
@@ -76,7 +97,8 @@ export function findHousekeepingActions(jobs: EscrowJobLike[], opts: Housekeepin
     seen.add(job.id);
     if ((opts.attempts?.get(job.id) ?? 0) >= maxAttempts) continue;
 
-    const state = num(job.state);
+    const state = normalizeJobState(job.state);
+    if (state < 0) continue; // unknown state: never guess
     const deadline = num(job.deadline);
     const updatedAt = num(job.updated_at);
     const pastDeadline = deadline > 0 && opts.nowSec > deadline;
