@@ -402,7 +402,7 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
 
   // Get recent events
   router.get('/events', (req: Request, res: Response) => {
-    const { contract, action, limit = '50' } = req.query;
+    const { contract, action, job_id, order, limit = '50' } = req.query;
 
     const limitNum = Math.min(parseInt(limit as string) || 50, 200);
 
@@ -419,7 +419,22 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
       params.push(action);
     }
 
-    query += ' ORDER BY id DESC LIMIT ?';
+    // Per-job history (deliveries, revisions, disputes...). The action data is
+    // stored as JSON text; job_id may be a number or a string depending on the
+    // action, so compare as text.
+    if (job_id !== undefined) {
+      const jobIdNum = parseInt(String(job_id), 10);
+      if (!Number.isFinite(jobIdNum) || jobIdNum < 0) {
+        res.status(400).json({ error: 'job_id must be a non-negative integer' });
+        return;
+      }
+      query += " AND CAST(json_extract(data, '$.job_id') AS TEXT) = ?";
+      params.push(String(jobIdNum));
+    }
+
+    // Oldest-first is the natural order for a single job's timeline
+    const ascending = order === 'asc' || (order === undefined && job_id !== undefined);
+    query += ascending ? ' ORDER BY id ASC LIMIT ?' : ' ORDER BY id DESC LIMIT ?';
     params.push(limitNum);
 
     const events = db.prepare(query).all(...params);

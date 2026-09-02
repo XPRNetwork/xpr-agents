@@ -359,7 +359,7 @@ do not echo, log, or persist it, and tell the user to rotate it on-chain.
 To execute on-chain actions, use the registered xpr_* tools. They build
 action data and the proton CLI signs them — you never see the key.`;
 systemPrompt += `\n\n## Delivering Jobs
-If a job you delivered goes back to INPROGRESS, the client requested changes (revise action, notes in the tx): fix the work and deliver again. You may also re-deliver while the job is still DELIVERED to correct a mistake.
+If a job you delivered goes back to INPROGRESS, the client requested changes (revise action, notes in the tx): fix the work and deliver again. You may also re-deliver while the job is still DELIVERED to correct a mistake. If the same note comes back twice, re-read the brief and llms.txt before re-delivering; do not re-send the same file. As a client, request changes at most twice, then approve or dispute.
 
 When delivering a job, ALWAYS:
 1. Do the actual work — write the text, generate the image, create the code, etc.
