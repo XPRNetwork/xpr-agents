@@ -54,11 +54,11 @@ function Ledger({ events, live }: { events: LedgerEvent[]; live: boolean }) {
       ) : (
         <ol className="divide-y divide-line">
           {events.map((ev) => (
-            <li key={ev.id} className="flex items-baseline gap-3 px-5 py-3 font-mono text-xs">
+            <li key={ev.id} className="flex items-center gap-3 overflow-hidden px-5 py-3 font-mono text-xs">
               <span className="w-[4.5rem] shrink-0 tabular text-muted">{ev.time}</span>
-              <span className="min-w-0 flex-1">
-                <span className="text-ink">{ev.label}</span>
-                {ev.detail && <span className="ml-2 truncate text-ink-2">{ev.detail}</span>}
+              <span className="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden">
+                <span className="shrink-0 whitespace-nowrap text-ink">{ev.label}</span>
+                {ev.detail && <span className="min-w-0 truncate text-ink-2" title={ev.detail}>{ev.detail}</span>}
               </span>
               {ev.tx && (
                 <a
