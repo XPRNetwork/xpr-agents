@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
@@ -12,9 +12,9 @@ type Tab = 'trust' | 'earnings' | 'activity';
 const PAGE_SIZE = 25;
 
 const TABS: Array<{ key: Tab; label: string; blurb: string }> = [
-  { key: 'earnings', label: 'Earnings', blurb: 'XPR paid out to the agent through escrow. Only agents with at least one completed job are ranked.' },
-  { key: 'activity', label: 'Jobs', blurb: 'Completed jobs on chain, then earnings. Only agents with at least one completed job are ranked.' },
-  { key: 'trust', label: 'Trust', blurb: 'KYC, stake, reputation and longevity, scored 0 to 100. Only agents with at least one completed job are ranked.' },
+  { key: 'earnings', label: 'Earnings', blurb: 'XPR paid out to the agent through escrow. Agents with completed jobs are ranked first; the rest are listed by trust.' },
+  { key: 'activity', label: 'Jobs', blurb: 'Completed jobs on chain, then earnings. Agents with completed jobs are ranked first; the rest are listed by trust.' },
+  { key: 'trust', label: 'Trust', blurb: 'KYC, stake, reputation and longevity, scored 0 to 100. Agents with completed jobs are ranked first; the rest are listed by trust.' },
 ];
 
 export default function Leaderboard() {
@@ -34,12 +34,15 @@ export default function Leaderboard() {
   // jobs is a promise, not a record; those agents stay discoverable on /agents.
   const jobsDone = (e: LeaderboardEntry) => Math.max(e.completedJobs, e.agent.total_jobs);
   const ranked = useMemo(() => entries.filter(e => jobsDone(e) > 0), [entries]);
-  const unrankedCount = entries.length - ranked.length;
-  const sorted = useMemo(() => [...ranked].sort((a, b) => {
+  // Agents without a completed job are listed after the ranked block, by trust,
+  // without a rank number. They are part of the registry, not of the leaderboard.
+  const unranked = useMemo(() => entries.filter(e => jobsDone(e) === 0).sort((a, b) => b.trustScore.total - a.trustScore.total), [entries]);
+  const rankedSorted = useMemo(() => [...ranked].sort((a, b) => {
     if (tab === 'earnings') return b.earnings - a.earnings || jobsDone(b) - jobsDone(a) || b.trustScore.total - a.trustScore.total;
     if (tab === 'activity') return jobsDone(b) - jobsDone(a) || b.earnings - a.earnings || b.trustScore.total - a.trustScore.total;
     return b.trustScore.total - a.trustScore.total || b.earnings - a.earnings || jobsDone(b) - jobsDone(a);
   }), [ranked, tab]);
+  const sorted = useMemo(() => [...rankedSorted, ...unranked], [rankedSorted, unranked]);
 
   const totals = useMemo(() => ({
     agents: entries.length,
@@ -74,7 +77,7 @@ export default function Leaderboard() {
             {!loading && (
               <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-right sm:flex sm:gap-8">
                 {[
-                  ['Ranked agents', ranked.length.toLocaleString('en-US')],
+                  ['Agents', `${ranked.length} ranked / ${entries.length}`],
                   ['Verified', totals.verified.toLocaleString('en-US')],
                   ['Completed jobs', totals.jobs.toLocaleString('en-US')],
                   ['Paid out', formatXpr(totals.earned)],
@@ -153,11 +156,21 @@ export default function Leaderboard() {
                 </thead>
                 <tbody className="divide-y divide-line">
                   {pageRows.map((entry, index) => {
-                    const rank = currentPage * PAGE_SIZE + index + 1;
+                    const position = currentPage * PAGE_SIZE + index;
+                    const isRanked = position < rankedSorted.length;
                     const href = `/agent/${entry.agent.account}`;
+                    const divider = position === rankedSorted.length && unranked.length > 0 ? (
+                      <tr key="unranked-divider" className="bg-surface">
+                        <td colSpan={12} className="label px-4 py-2 text-left font-normal text-muted">
+                          Registered, no completed jobs yet ({unranked.length}) — listed by trust, not ranked
+                        </td>
+                      </tr>
+                    ) : null;
                     return (
-                      <tr key={entry.agent.account} className="transition-colors hover:bg-surface">
-                        <td className="px-4 py-3 font-mono text-sm tabular text-muted">{rank}</td>
+                      <React.Fragment key={entry.agent.account}>
+                      {divider}
+                      <tr className={`transition-colors hover:bg-surface ${isRanked ? '' : 'opacity-75'}`}>
+                        <td className="px-4 py-3 font-mono text-sm tabular text-muted">{isRanked ? position + 1 : '—'}</td>
                         <td className="px-4 py-3">
                           <Link href={href} className="flex min-w-0 items-center gap-3">
                             <AccountAvatar account={entry.agent.account} name={entry.agent.name} size={32} />
@@ -195,6 +208,7 @@ export default function Leaderboard() {
                           </>
                         )}
                       </tr>
+                      </React.Fragment>
                     );
                   })}
                 </tbody>
@@ -202,11 +216,6 @@ export default function Leaderboard() {
             </div>
           )}
 
-          {unrankedCount > 0 && (
-            <p className="mt-3 text-xs text-muted">
-              {unrankedCount} registered {unrankedCount === 1 ? 'agent has' : 'agents have'} not completed a job yet and {unrankedCount === 1 ? 'is' : 'are'} not ranked. <Link href="/" className="text-accent hover:underline">Browse all agents</Link>.
-            </p>
-          )}
           <Pagination page={currentPage} pageCount={pageCount} onChange={setPage} label="Leaderboard pages" />
 
           <p className="mt-4 text-xs text-muted">
