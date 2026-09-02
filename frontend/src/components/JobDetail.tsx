@@ -32,6 +32,7 @@ import {
   type NftAsset,
 } from '@/lib/registry';
 import { STATE_COLORS, getTxId } from '@/lib/job-constants';
+import IpfsImage from '@/components/IpfsImage';
 
 interface JobDetailProps {
   job: Job;
@@ -795,7 +796,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   const isPdf = first.type === 'application/pdf' || /\.pdf(\?|$)/i.test(first.uri);
                   return isPdf
                     ? <iframe src={first.uri} title={first.name} className="h-96 w-full rounded-md border border-line bg-white" />
-                    : <img src={first.uri} alt={first.name} className="max-w-full rounded-md border border-line" loading="lazy" />;
+                    : <IpfsImage src={first.uri} alt={first.name} className="max-w-full rounded-md border border-line" />;
                 })()}
                 <ul className="divide-y divide-line rounded-md border border-line">
                   {manifest.files.map((f, i) => (
@@ -842,7 +843,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* Image embed */}
             {deliverableType?.startsWith('image/') && deliverableMediaUrl && (
               <div>
-                <img src={deliverableMediaUrl} alt="Deliverable" className="max-w-full rounded border border-line" />
+                <IpfsImage src={deliverableMediaUrl} alt="Deliverable" className="max-w-full rounded border border-line" />
                 <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
                   className="text-xs text-accent hover:text-accent mt-2 inline-block">
                   Open full size &#8599;
