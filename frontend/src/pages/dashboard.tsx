@@ -3,6 +3,8 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { WalletButton } from '@/components/WalletButton';
 import { Header } from '@/components/Header';
+import { indexerFetch } from '@/lib/indexer';
+import { AccountAvatar } from '@/components/AccountAvatar';
 import { Footer } from '@/components/Footer';
 import { TrustBadge } from '@/components/TrustBadge';
 import { PluginSelector } from '@/components/PluginSelector';
@@ -33,6 +35,8 @@ export default function Dashboard() {
   const [myBids, setMyBids] = useState<Bid[]>([]);
   const [ownedAgents, setOwnedAgents] = useState<OwnedAgent[]>([]);
   const [ownedLoading, setOwnedLoading] = useState(false);
+  type OwnedStats = { trust_score?: number; earnings?: number; completed_jobs?: number; kyc_level?: number; avg_score?: number; feedback_count?: number };
+  const [ownedStats, setOwnedStats] = useState<Record<string, OwnedStats>>({});
 
   // Edit profile
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -45,7 +49,14 @@ export default function Dashboard() {
   useEffect(() => {
     if (session?.auth.actor) {
       setOwnedLoading(true);
-      getAgentsByOwner(session.auth.actor).then(setOwnedAgents).catch(() => setOwnedAgents([])).finally(() => setOwnedLoading(false));
+      getAgentsByOwner(session.auth.actor)
+        .then(async list => {
+          setOwnedAgents(list);
+          const stats = await Promise.all(list.map(a => indexerFetch<OwnedStats>(`/agents/${a.account}`).catch(() => null)));
+          setOwnedStats(Object.fromEntries(list.map((a, i) => [a.account, stats[i] || {}])));
+        })
+        .catch(() => setOwnedAgents([]))
+        .finally(() => setOwnedLoading(false));
       getBidsByAgent(session.auth.actor).then(setMyBids).catch(() => {});
     }
   }, [session?.auth.actor]);
@@ -247,15 +258,41 @@ export default function Dashboard() {
                   {ownedAgents.length === 1 ? ' its' : ' their'} trust score. Staking, profile edits and job actions are signed by the agent account itself, so this dashboard shows those controls when you connect as the agent.
                 </p>
                 <ul className="mt-6 divide-y divide-line rounded-xl border border-line bg-canvas">
-                  {ownedAgents.map(a => (
-                    <li key={a.account} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-                      <div className="min-w-0">
-                        <Link href={`/agent/${a.account}`} className="block truncate text-base font-medium text-ink hover:text-accent">{a.name || a.account}</Link>
-                        <div className="font-mono text-xs text-muted">{a.account} · {a.active ? 'active' : 'inactive'} · {a.total_jobs} job{a.total_jobs === 1 ? '' : 's'}</div>
+                  {ownedAgents.map(a => {
+                    const st = ownedStats[a.account] || {};
+                    const trust = st.trust_score;
+                    const trustTone = trust === undefined ? 'text-muted' : trust >= 80 ? 'text-good' : trust >= 60 ? 'text-ink' : trust >= 40 ? 'text-warn' : 'text-crit';
+                    const stat = (label: string, value: React.ReactNode, tone = 'text-ink') => (
+                      <div className="min-w-[5.5rem]">
+                        <dt className="label">{label}</dt>
+                        <dd className={`mt-0.5 font-mono text-sm tabular ${tone}`}>{value}</dd>
                       </div>
-                      <Link href={`/agent/${a.account}`} className="rounded-md border border-line-2 px-3 py-1.5 text-sm text-ink hover:border-ink">View profile</Link>
-                    </li>
-                  ))}
+                    );
+                    return (
+                      <li key={a.account} className="px-5 py-4">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <Link href={`/agent/${a.account}`} className="flex min-w-0 items-center gap-3">
+                            <AccountAvatar account={a.account} name={a.name} size={44} />
+                            <span className="min-w-0">
+                              <span className="block truncate text-base font-medium text-ink">{a.name || a.account}</span>
+                              <span className="block truncate font-mono text-xs text-muted">{a.account} · {a.active ? 'active' : 'inactive'}{st.kyc_level !== undefined ? ` · KYC ${st.kyc_level}` : ''}</span>
+                            </span>
+                          </Link>
+                          <div className="flex gap-2">
+                            <Link href={`/agent/${a.account}`} className="rounded-md border border-line-2 px-3 py-1.5 text-sm text-ink hover:border-ink">Profile</Link>
+                            <a href={`https://explorer.xprnetwork.org/account/${a.account}`} target="_blank" rel="noopener noreferrer" className="rounded-md border border-line-2 px-3 py-1.5 text-sm text-ink hover:border-ink">Explorer ↗</a>
+                          </div>
+                        </div>
+                        <dl className="mt-4 flex flex-wrap gap-x-8 gap-y-3">
+                          {stat('Trust', trust === undefined ? '…' : `${trust}/100`, trustTone)}
+                          {stat('Earned', st.earnings !== undefined ? formatXpr(st.earnings) : '…', st.earnings ? 'text-good' : 'text-ink')}
+                          {stat('Completed', st.completed_jobs !== undefined ? st.completed_jobs : a.total_jobs)}
+                          {stat('Reviews', st.feedback_count !== undefined ? `${st.feedback_count}${st.avg_score !== undefined && st.feedback_count > 0 ? ` · ${(st.avg_score / 2000).toFixed(1)}★` : ''}` : '…')}
+                        </dl>
+                        {a.description && <p className="mt-3 line-clamp-2 text-sm text-ink-2">{a.description}</p>}
+                      </li>
+                    );
+                  })}
                 </ul>
                 <p className="mt-6 text-sm text-ink-2">
                   Want another agent? <Link href="/register" className="text-accent hover:underline">Register one</Link> from its own account, then claim it from this one.
