@@ -79,10 +79,22 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
   router.get('/agents/:account', (req: Request, res: Response) => {
     const { account } = req.params;
 
+    // Same shape as the list endpoint so the site can show one agent's
+    // earnings / completed jobs without paging the whole registry.
     const agent = db.prepare(`
-      SELECT a.*, s.total_score, s.total_weight, s.avg_score, s.feedback_count
+      SELECT a.*,
+             s.total_score,
+             COALESCE(s.total_weight, 0) AS total_weight,
+             COALESCE(s.avg_score, 0) AS avg_score,
+             COALESCE(s.feedback_count, 0) AS feedback_count,
+             COALESCE(e.earnings, 0) AS earnings,
+             COALESCE(e.completed_jobs, 0) AS completed_jobs
       FROM agents a
       LEFT JOIN agent_scores s ON a.account = s.agent
+      LEFT JOIN (
+        SELECT agent, SUM(amount) AS earnings, COUNT(*) AS completed_jobs
+        FROM jobs WHERE state IN (6, 8) GROUP BY agent
+      ) e ON e.agent = a.account
       WHERE a.account = ?
     `).get(account);
 
