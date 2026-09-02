@@ -1131,4 +1131,41 @@ describe('agentescrow', () => {
       expect(getAllDisputes().length).to.equal(0);
     });
   });
+
+  /* ==================== Cleanup (owner only) ==================== */
+
+  describe('cleanup auth', () => {
+    beforeEach(async () => {
+      await initAll();
+    });
+
+    it('should reject cleanjobs from a non-owner', async () => {
+      await expectToThrow(
+        agentescrow.actions.cleanjobs([7776000, 10]).send('agent1@active'),
+        'missing required authority owner'
+      );
+    });
+
+    it('should reject cleandisps from a non-owner', async () => {
+      await expectToThrow(
+        agentescrow.actions.cleandisps([7776000, 10]).send('client@active'),
+        'missing required authority owner'
+      );
+    });
+
+    it('should reject max_age above maximum (u64 wrap on now - max_age)', async () => {
+      await expectToThrow(
+        agentescrow.actions.cleanjobs(['18446744073709551615', 10]).send('owner@active'),
+        'eosio_assert: Max age must be at most 10 years (315360000 seconds)'
+      );
+      await expectToThrow(
+        agentescrow.actions.cleandisps(['18446744073709551615', 10]).send('owner@active'),
+        'eosio_assert: Max age must be at most 10 years (315360000 seconds)'
+      );
+    });
+
+    it('should allow cleanjobs from the owner', async () => {
+      await agentescrow.actions.cleanjobs([7776000, 10]).send('owner@active');
+    });
+  });
 });

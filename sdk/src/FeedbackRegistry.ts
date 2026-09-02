@@ -389,7 +389,7 @@ export class FeedbackRegistry {
   }
 
   /**
-   * Clean up old feedback entries (permissionless)
+   * Clean up old feedback entries (contract owner only)
    */
   async cleanFeedback(agent: string, maxAge: number, maxDelete: number): Promise<TransactionResult> {
     this.requireSession();
@@ -412,7 +412,7 @@ export class FeedbackRegistry {
   }
 
   /**
-   * Clean up resolved disputes (permissionless)
+   * Clean up resolved disputes (contract owner only)
    */
   async cleanDisputes(maxAge: number, maxDelete: number): Promise<TransactionResult> {
     this.requireSession();
