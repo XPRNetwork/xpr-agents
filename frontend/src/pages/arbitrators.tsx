@@ -74,6 +74,7 @@ export default function Arbitrators() {
 
   // Active disputes for my arbitration
   const [myDisputes, setMyDisputes] = useState<{ dispute: Dispute; job: Job }[]>([]);
+  const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [disputesLoading, setDisputesLoading] = useState(false);
 
   // Resolve form
@@ -99,12 +100,14 @@ export default function Arbitrators() {
   async function loadData() {
     setLoading(true);
     try {
-      const [arbs, cfg] = await Promise.all([
+      const [arbs, cfg, allDisputes] = await Promise.all([
         getArbitrators(500),
         getEscrowConfig(),
+        getDisputes(500).catch(() => [] as Dispute[]),
       ]);
       setArbitrators(arbs);
       setConfig(cfg);
+      setDisputes(allDisputes);
     } catch (e) {
       console.error('Failed to load arbitrators:', e);
     } finally {
@@ -158,6 +161,18 @@ export default function Arbitrators() {
     }
   }
 
+  // The contract only increments an arbitrator's counters when the job named
+  // them. Disputes on jobs without an arbitrator are resolved by the registry
+  // owner and leave every counter at zero, so derive case counts from the
+  // dispute records themselves and show whichever is higher.
+  const resolvedDisputes = disputes.filter(d => d.resolution !== 0).sort((a, b) => b.resolved_at - a.resolved_at);
+  const openDisputes = disputes.filter(d => d.resolution === 0);
+  const resolvedBy: Record<string, number> = {};
+  for (const d of resolvedDisputes) resolvedBy[d.resolver] = (resolvedBy[d.resolver] || 0) + 1;
+  const casesFor = (a: Arbitrator) => Math.max(a.total_cases, resolvedBy[a.account] || 0);
+  const outcomeLabel = (d: Dispute) => d.resolution === 1 ? 'Client refunded' : d.resolution === 2 ? 'Agent paid' : d.resolution === 3 ? 'Split' : 'Pending';
+  const outcomeTone = (d: Dispute) => d.resolution === 1 ? 'text-warn' : d.resolution === 2 ? 'text-good' : 'text-ink-2';
+
   // Sort/filter
   const query = search.trim().toLowerCase();
   const filtered = arbitrators
@@ -167,15 +182,15 @@ export default function Arbitrators() {
       if (sort === 'success') {
         const aRate = a.total_cases > 0 ? a.successful_cases / a.total_cases : 0;
         const bRate = b.total_cases > 0 ? b.successful_cases / b.total_cases : 0;
-        return bRate - aRate;
+        return bRate - aRate || casesFor(b) - casesFor(a);
       }
       if (sort === 'fee') return a.fee_percent - b.fee_percent;
-      return b.total_cases - a.total_cases;
+      return casesFor(b) - casesFor(a);
     });
 
   // Stats
   const activeCount = arbitrators.filter(a => a.active).length;
-  const totalCases = arbitrators.reduce((s, a) => s + a.total_cases, 0);
+  const totalCases = Math.max(arbitrators.reduce((s, a) => s + a.total_cases, 0), resolvedDisputes.length);
   const minStake = config ? formatXpr(config.min_arbitrator_stake) : null;
   const unstakeDays = config ? Math.max(1, Math.round(config.arb_unstake_delay / 86400)) : null;
 
@@ -435,7 +450,8 @@ export default function Arbitrators() {
                 <>
                   <span className="tabular">{arbitrators.length}</span> registered ·{' '}
                   <span className="tabular">{activeCount}</span> active ·{' '}
-                  <span className="tabular">{totalCases}</span> case{totalCases === 1 ? '' : 's'} handled
+                  <span className="tabular">{totalCases}</span> case{totalCases === 1 ? '' : 's'} resolved ·{' '}
+                  <span className="tabular">{openDisputes.length}</span> open
                 </>
               )}
             </p>
@@ -544,9 +560,11 @@ export default function Arbitrators() {
                               )}
                             </div>
                             <div className="mt-0.5 text-xs text-muted">
-                              {a.total_cases === 0
+                              {casesFor(a) === 0
                                 ? 'No cases yet'
-                                : <><span className="font-mono tabular">{a.successful_cases}</span> of <span className="font-mono tabular">{a.total_cases}</span> resolved successfully</>}
+                                : a.total_cases > 0
+                                  ? <><span className="font-mono tabular">{a.successful_cases}</span> of <span className="font-mono tabular">{a.total_cases}</span> resolved successfully</>
+                                  : <><span className="font-mono tabular">{casesFor(a)}</span> dispute{casesFor(a) === 1 ? '' : 's'} resolved as registry owner</>}
                             </div>
                           </div>
                         </div>
@@ -579,6 +597,39 @@ export default function Arbitrators() {
                   {' '}Clients choose an arbitrator when they post a job; disputes on jobs without one go to the registry owner.
                 </p>
               )}
+
+              <div className="mt-8" aria-labelledby="arbitrations-heading">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h2 id="arbitrations-heading" className="font-display text-lg font-semibold text-ink">Recent arbitrations</h2>
+                  <span className="font-mono text-xs tabular text-muted">{resolvedDisputes.length} resolved · {openDisputes.length} open</span>
+                </div>
+                {resolvedDisputes.length === 0 ? (
+                  <p className="mt-3 text-sm text-muted">No disputes have been resolved yet.</p>
+                ) : (
+                  <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
+                    {resolvedDisputes.slice(0, 12).map(d => (
+                      <li key={d.id} className="grid gap-1 px-4 py-3 sm:grid-cols-[auto_1fr_auto] sm:items-center sm:gap-4">
+                        <div className="font-mono text-xs tabular text-muted">#{d.id}</div>
+                        <div className="min-w-0">
+                          <div className="text-sm text-ink">
+                            <Link href={`/jobs/${d.job_id}`} className="font-medium text-accent hover:underline">Job #{d.job_id}</Link>
+                            {' '}raised by <span className="font-mono">{d.raised_by}</span>, resolved by{' '}
+                            <Link href={`/agent/${d.resolver}`} className="font-mono text-ink hover:underline">{d.resolver}</Link>
+                          </div>
+                          {d.resolution_notes && <div className="mt-0.5 truncate text-xs text-muted">{d.resolution_notes}</div>}
+                        </div>
+                        <div className="text-left sm:text-right">
+                          <div className={`text-sm font-medium ${outcomeTone(d)}`}>{outcomeLabel(d)}</div>
+                          <div className="font-mono text-[11px] tabular text-muted">
+                            {d.resolution === 3 ? `${formatXpr(d.client_amount)} / ${formatXpr(d.agent_amount)}` : formatXpr(d.resolution === 1 ? d.client_amount : d.agent_amount)}
+                            {d.resolved_at ? ` · ${new Date(d.resolved_at * 1000).toISOString().slice(0, 10)}` : ''}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </section>
 
             {/* Side panel */}
@@ -677,7 +728,7 @@ export default function Arbitrators() {
                         </div>
                         <div className="border-t border-line px-5 py-3">
                           <dt className="label">Cases</dt>
-                          <dd className="mt-1 font-mono text-sm tabular text-ink">{myArbitrator.total_cases}</dd>
+                          <dd className="mt-1 font-mono text-sm tabular text-ink">{casesFor(myArbitrator)}</dd>
                         </div>
                         <div className="border-t border-line px-5 py-3">
                           <dt className="label">Success rate</dt>
