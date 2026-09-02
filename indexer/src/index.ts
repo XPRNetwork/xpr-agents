@@ -12,6 +12,7 @@ import { setRpcEndpoint, flushPendingCorrections } from './handlers/id-correctio
 import { createRoutes } from './api/routes';
 import { WebhookDispatcher } from './webhooks/dispatcher';
 import { syncFromChain } from './sync';
+import { enrichAgents } from './enrich';
 
 // Configuration
 const config = {
@@ -28,6 +29,9 @@ const config = {
     agentescrow: process.env.AGENT_ESCROW_CONTRACT || 'agentescrow',
     token: 'eosio.token',
   },
+  // nodeos RPC used for agent enrichment (KYC / stake / trust score)
+  rpcEndpoint: (process.env.RPC_ENDPOINT || 'https://proton.eosusa.io').replace(/\/$/, ''),
+  enrichIntervalMs: parseInt(process.env.ENRICH_INTERVAL_MS || String(10 * 60 * 1000)),
 };
 
 // Force reseed: delete existing DB if FORCE_RESEED=true
@@ -77,7 +81,7 @@ app.use('/api', limiter);
 const dispatcher = new WebhookDispatcher(db);
 
 // Mount API routes (pass dispatcher so webhook CRUD can reload the in-memory cache)
-app.use('/api', createRoutes(db, dispatcher));
+app.use('/api', createRoutes(db, dispatcher, { rpcEndpoint: config.rpcEndpoint }));
 
 // Track stream connection status
 let streamConnected = false;
@@ -366,6 +370,26 @@ async function fetchChainHead(rpcEndpoint: string): Promise<number> {
   }
   startIngestion();
 })();
+
+// ── Periodic agent enrichment (KYC level, system stake, trust score) ──
+// Runs shortly after boot (so a fresh DB gets trust scores quickly) and then
+// every ENRICH_INTERVAL_MS. Failures for individual accounts keep old values.
+let enrichRunning = false;
+async function runEnrichment(): Promise<void> {
+  if (enrichRunning) return;
+  enrichRunning = true;
+  try {
+    const result = await enrichAgents(db, config.rpcEndpoint, { log: (m) => console.warn(m) });
+    updateStats(db);
+    console.log(`[enrich] ${result.updated}/${result.agents} agents enriched (${result.failed} failed)`);
+  } catch (err) {
+    console.error('[enrich] Enrichment run failed:', err);
+  } finally {
+    enrichRunning = false;
+  }
+}
+setTimeout(() => { void runEnrichment(); }, 15 * 1000);
+setInterval(() => { void runEnrichment(); }, config.enrichIntervalMs);
 
 // ── Periodic cleanup ──
 const CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
