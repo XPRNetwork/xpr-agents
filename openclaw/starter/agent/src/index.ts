@@ -384,6 +384,7 @@ When delivering a job, ALWAYS:
 5. Several files (e.g. PNG + JSON + note): store each one, then pass ONE JSON manifest as evidence_uri:
    {"v":1,"files":[{"name":"stats.png","uri":"https://ipfs.io/ipfs/<cid>","type":"image/png"},{"name":"data.json","uri":"https://ipfs.io/ipfs/<cid2>","type":"application/json"}],"note":"how it was made"}
    Primary file first — the job page previews the first image/PDF and lists the rest.
+   Pass that manifest string directly as evidence_uri. Do NOT run it through store_deliverable (that would turn it into a link).
 6. Deliver EXACTLY the artifacts the job's deliverables list. Never substitute a single HTML page or a summary for the requested files: clients dispute it and leave permanent 1-star reviews.
    Reference: https://xpragents.com/llms.txt
 

@@ -44,22 +44,21 @@ function ipfsUrl(cid: string): string {
   return `https://ipfs.io/ipfs/${cid}`;
 }
 
-async function uploadJsonToIpfs(content: string, jobId: number, contentType: string): Promise<string | null> {
-  const jwt = process.env.PINATA_JWT;
-  if (!jwt) return null;
-  try {
-    const resp = await fetch('https://api.pinata.cloud/pinning/pinJSONToIPFS', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
-      body: JSON.stringify({
-        pinataContent: { job_id: jobId, content, content_type: contentType, created_at: new Date().toISOString() },
-        pinataMetadata: { name: `job-${jobId}-deliverable` },
-      }),
-    });
-    const data = await resp.json() as { IpfsHash?: string };
-    if (data.IpfsHash) return ipfsUrl(data.IpfsHash);
-  } catch (e) { console.error('[ipfs] JSON upload failed:', e); }
-  return null;
+const TEXT_EXT: Record<string, string> = {
+  'text/markdown': 'md', 'text/csv': 'csv', 'text/plain': 'txt', 'text/html': 'html',
+  'application/json': 'json', 'text/x-yaml': 'yaml', 'application/x-yaml': 'yaml',
+};
+
+/**
+ * Upload text content as a plain file so the resulting URL serves the raw bytes
+ * (a CSV opens as a CSV, markdown as markdown). Earlier versions pinned a
+ * {job_id, content, ...} JSON envelope, which clients and the job page could not
+ * read as the deliverable itself.
+ */
+async function uploadTextToIpfs(content: string, jobId: number, contentType: string, filename?: string): Promise<string | null> {
+  const ext = TEXT_EXT[contentType] || 'txt';
+  const name = filename || `job-${jobId}-deliverable.${ext}`;
+  return uploadBinaryToIpfs(Buffer.from(content, 'utf8'), name, contentType);
 }
 
 async function uploadBinaryToIpfs(buffer: Buffer, filename: string, mimeType: string): Promise<string | null> {
@@ -383,12 +382,13 @@ export default function creativeSkill(api: SkillApi): void {
     description: [
       'Store job deliverable content before delivering on-chain. Call this BEFORE xpr_deliver_job.',
       'Routes by content_type:',
-      '  text/markdown (default) — stores as JSON on IPFS',
+      '  text/markdown (default) — uploads the text as a .md file on IPFS',
       '  application/pdf — generates PDF from your Markdown, uploads binary to IPFS.',
       '    Images referenced as ![alt](url) in the Markdown are downloaded and embedded in the PDF.',
       '    Do NOT include <cite> or other HTML tags in the content — use clean Markdown only.',
       '  image/*, audio/*, video/* — downloads source_url and uploads binary to IPFS',
-      '  text/csv, text/plain, text/html — stores as JSON on IPFS',
+      '  text/csv, text/plain, text/html, application/json — uploads the text as a file on IPFS (the URL serves the raw file)',
+      'Do NOT store a delivery manifest with this tool: pass the manifest JSON string itself as evidence_uri to xpr_deliver_job.',
     ].join('\n'),
     parameters: {
       type: 'object',
@@ -457,7 +457,7 @@ export default function creativeSkill(api: SkillApi): void {
       }
 
       setDeliverable(job_id, { content, content_type: ct, created_at: ts });
-      const url = await uploadJsonToIpfs(content, job_id, ct);
+      const url = await uploadTextToIpfs(content, job_id, ct, filename);
       if (url) {
         console.log(`[deliverable] Job ${job_id} ${ct} → IPFS: ${url}`);
         return { stored: true, url, storage: 'ipfs', content_type: ct };
