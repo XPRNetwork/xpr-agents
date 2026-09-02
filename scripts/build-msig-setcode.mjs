@@ -67,7 +67,11 @@ for (const { account, dir } of contracts) {
 }
 
 // Serialize the inner actions' data to hex using the eosio ABI from chain
+// @proton/js logs 'get abi for <account>' to stdout while fetching ABIs; keep stdout JSON-only
+const realLog = console.log;
+console.log = () => {};
 const serialized = await api.serializeActions(actions);
+console.log = realLog;
 const expiration = new Date(Date.now() + expireDays * 86400 * 1000).toISOString().slice(0, 19);
 
 const trx = {
