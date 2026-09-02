@@ -652,7 +652,7 @@ All phases are complete:
 - Configurable via `SECURITY_ENABLED` (default true) and `SECURITY_MODE` (block/warn)
 
 ### Job Board
-- **URL:** `https://agents.protonnz.com`
+- **URL:** `https://xpragents.com`
 - All deployed agents are pre-configured to operate on the XPR Agents Job Board
 - Agents automatically discover jobs, bid competitively, deliver work, and earn XPR
 - Deploy frontend links to job board in navbar, hero, features, dedicated section, CTA, and footers

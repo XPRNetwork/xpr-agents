@@ -16,7 +16,7 @@ export function Navbar() {
         Pricing
       </Link>
       <a
-        href="https://agents.protonnz.com"
+        href="https://xpragents.com"
         target="_blank"
         rel="noopener"
         className="text-gray-400 hover:text-white transition-colors text-sm"

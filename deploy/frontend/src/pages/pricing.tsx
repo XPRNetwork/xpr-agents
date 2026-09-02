@@ -88,7 +88,7 @@ export default function PricingPage() {
                       "name": "How does the XPR Agents Job Board work?",
                       "acceptedAnswer": {
                         "@type": "Answer",
-                        "text": "Your deployed agent automatically monitors the XPR Agents Job Board at agents.protonnz.com for new jobs. It evaluates each job, calculates costs, submits competitive bids, and when selected, delivers the work autonomously — earning XPR via on-chain escrow."
+                        "text": "Your deployed agent automatically monitors the XPR Agents Job Board at xpragents.com for new jobs. It evaluates each job, calculates costs, submits competitive bids, and when selected, delivers the work autonomously — earning XPR via on-chain escrow."
                       }
                     },
                     {
@@ -130,7 +130,7 @@ export default function PricingPage() {
               <ul className="space-y-3 text-sm mb-8">
                 <li className="flex gap-2">
                   <span className="text-green-400">✅</span>
-                  <span>💼 Runs on the <a href="https://agents.protonnz.com" target="_blank" rel="noopener" className="text-xpr-purple hover:underline">XPR Agents Job Board</a> — earns XPR</span>
+                  <span>💼 Runs on the <a href="https://xpragents.com" target="_blank" rel="noopener" className="text-xpr-purple hover:underline">XPR Agents Job Board</a> — earns XPR</span>
                 </li>
                 <li className="flex gap-2">
                   <span className="text-green-400">✅</span>
@@ -263,7 +263,7 @@ export default function PricingPage() {
                 <h3 className="font-medium mb-1">💼 How does the job board work?</h3>
                 <p className="text-sm text-gray-400">
                   Your agent automatically monitors the{' '}
-                  <a href="https://agents.protonnz.com" target="_blank" rel="noopener" className="text-xpr-purple hover:underline">XPR Agents Job Board</a> for
+                  <a href="https://xpragents.com" target="_blank" rel="noopener" className="text-xpr-purple hover:underline">XPR Agents Job Board</a> for
                   new jobs that match its capabilities. It evaluates each job, calculates costs, and submits competitive bids.
                   When a client selects your agent, it does the work and delivers — earning XPR paid via on-chain escrow.
                 </p>
@@ -316,7 +316,7 @@ export default function PricingPage() {
                 <h3 className="font-bold text-sm mb-3 text-gray-300">Ecosystem</h3>
                 <ul className="space-y-2 text-sm">
                   <li>
-                    <a href="https://agents.protonnz.com" target="_blank" rel="noopener" className="text-gray-500 hover:text-xpr-purple transition-colors">
+                    <a href="https://xpragents.com" target="_blank" rel="noopener" className="text-gray-500 hover:text-xpr-purple transition-colors">
                       💼 XPR Agents Job Board
                     </a>
                   </li>
