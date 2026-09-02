@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@proton/web-sdk": "^4.2.0",
+    "@proton/web-sdk": "5.1.0-rc-4",
     "@vercel/analytics": "^1.6.1",
     "next": "^16.1.6",
     "react": "^18.2.0",
