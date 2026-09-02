@@ -49,8 +49,17 @@ describe('computeTrustScore', () => {
   it('caps each component and floors reputation', () => {
     expect(computeTrustScore({ kyc_level: 9, system_stake: 0, avg_score: 0, feedback_count: 0, registered_at: now }, now)).toBe(30);
     expect(computeTrustScore({ kyc_level: 0, system_stake: 999_999_999_999, avg_score: 0, feedback_count: 0, registered_at: now }, now)).toBe(20);
-    expect(computeTrustScore({ kyc_level: 0, system_stake: 0, avg_score: 8750, feedback_count: 1, registered_at: now }, now)).toBe(35);
+    expect(computeTrustScore({ kyc_level: 0, system_stake: 0, avg_score: 8750, feedback_count: 5, registered_at: now }, now)).toBe(35);
     expect(computeTrustScore({ kyc_level: 0, system_stake: 0, avg_score: 0, feedback_count: 0, registered_at: now - 24 * MONTH }, now)).toBe(10);
+  });
+
+  it('scales reputation by review count until five reviews', () => {
+    const base = { kyc_level: 0, system_stake: 0, avg_score: 10000, registered_at: now };
+    expect(computeTrustScore({ ...base, feedback_count: 1 }, now)).toBe(8);
+    expect(computeTrustScore({ ...base, feedback_count: 2 }, now)).toBe(16);
+    expect(computeTrustScore({ ...base, feedback_count: 4 }, now)).toBe(32);
+    expect(computeTrustScore({ ...base, feedback_count: 5 }, now)).toBe(40);
+    expect(computeTrustScore({ ...base, feedback_count: 50 }, now)).toBe(40);
   });
 
   it('gives no reputation without feedback even if avg_score is set', () => {
@@ -99,7 +108,8 @@ describe('enrichAgents', () => {
 
     const one = db.prepare('SELECT kyc_level, system_stake, trust_score, enriched_at FROM agents WHERE account = ?').get('botone') as any;
     // owner KYC 3 → 30; 250,000 XPR → 20; avg 10000 w/ feedback → 40; 3 months → 3
-    expect(one).toEqual({ kyc_level: 3, system_stake: 2_500_000_000, trust_score: 93, enriched_at: now });
+    // KYC 30 + stake 20 + reputation 16 (2 reviews at 100%: 40 x 2/5) + longevity 3
+    expect(one).toEqual({ kyc_level: 3, system_stake: 2_500_000_000, trust_score: 69, enriched_at: now });
 
     const two = db.prepare('SELECT kyc_level, system_stake, trust_score FROM agents WHERE account = ?').get('bottwo') as any;
     expect(two).toEqual({ kyc_level: 2, system_stake: 0, trust_score: 21 });

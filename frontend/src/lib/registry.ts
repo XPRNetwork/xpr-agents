@@ -288,6 +288,9 @@ export async function getAgentClaimInfo(agentAccount: string): Promise<AgentClai
   };
 }
 
+/** Reviews needed before the reputation component carries its full 40 points. */
+export const REPUTATION_FULL_WEIGHT_REVIEWS = 5;
+
 export function calculateTrustScore(
   agent: Agent,
   agentScore: AgentScore | null,
@@ -304,7 +307,10 @@ export function calculateTrustScore(
   };
 
   if (agentScore && agentScore.total_weight > 0) {
-    breakdown.reputation = Math.floor((agentScore.avg_score / 10000) * 40);
+    // Scale by review volume: one 5-star review is not the same evidence as
+    // five. Full weight from REPUTATION_FULL_WEIGHT_REVIEWS reviews upward.
+    const confidence = Math.min(agentScore.feedback_count, REPUTATION_FULL_WEIGHT_REVIEWS) / REPUTATION_FULL_WEIGHT_REVIEWS;
+    breakdown.reputation = Math.floor((agentScore.avg_score / 10000) * 40 * confidence);
   }
 
   const now = Math.floor(Date.now() / 1000);

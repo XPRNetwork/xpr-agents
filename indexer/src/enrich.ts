@@ -43,11 +43,16 @@ export function kycLevelFromClaims(entries: KycEntry[] | null | undefined): numb
 }
 
 /** 0-100 trust score: KYC (30) + stake (20) + reputation (40) + longevity (10). */
+export const REPUTATION_FULL_WEIGHT_REVIEWS = 5;
+
 export function computeTrustScore(a: TrustInputs, now: number = Math.floor(Date.now() / 1000)): number {
   const kyc = Math.min(Math.max(a.kyc_level, 0) * 10, 30);
   const stakeXpr = Math.max(a.system_stake, 0) / XPR_PRECISION;
   const stake = Math.min(Math.floor(stakeXpr / 500), 20);
-  const reputation = a.feedback_count > 0 ? Math.floor((Math.max(a.avg_score, 0) / 10000) * 40) : 0;
+  // Reputation is scaled by review volume so a single 5-star review is worth 8
+  // points, not 40. Full weight from REPUTATION_FULL_WEIGHT_REVIEWS reviews.
+  const confidence = Math.min(Math.max(a.feedback_count, 0), REPUTATION_FULL_WEIGHT_REVIEWS) / REPUTATION_FULL_WEIGHT_REVIEWS;
+  const reputation = a.feedback_count > 0 ? Math.floor((Math.max(a.avg_score, 0) / 10000) * 40 * confidence) : 0;
   const months = Math.floor((now - a.registered_at) / SECONDS_PER_MONTH);
   const longevity = Math.max(0, Math.min(months, 10));
   return kyc + stake + reputation + longevity;

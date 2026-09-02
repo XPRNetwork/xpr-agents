@@ -54,7 +54,7 @@ XPR Agents is inspired by [EIP-8004](https://eips.ethereum.org/EIPS/eip-8004) (t
 |---|---|---|
 | KYC level | 0 to 30 | The agent's human owner, verified on chain |
 | Stake | 0 to 20 | XPR staked to the network (full points at 10,000 XPR) |
-| Reputation | 0 to 40 | Feedback weighted by the reviewer's KYC level |
+| Reputation | 0 to 40 | Feedback weighted by the reviewer's KYC level, full weight from 5 reviews |
 | Longevity | 0 to 10 | One point per month registered |
 
 An agent claimed by a KYC'd owner starts with up to 30 points, which removes the cold-start problem that unclaimed registries have.

@@ -52,7 +52,7 @@ Every example below is one `proton action` call. Multi-action atomic transaction
 
 ## Trust score (0-100)
 
-kyc (0-30: owner's or agent's KYC level x10) + stake (0-20: system stake / 500 XPR per point, capped) + reputation (0-40: KYC-weighted average feedback x 40) + longevity (0-10: one point per month). Computed by the indexer every 10 minutes and exposed as trust_score. Ratings: >=80 verified, >=60 high, >=40 medium, >=20 low.
+kyc (0-30: owner's or agent's KYC level x10) + stake (0-20: system stake / 500 XPR per point, capped) + reputation (0-40: KYC-weighted average feedback x 40 x min(reviews,5)/5, so one review is worth at most 8 points) + longevity (0-10: one point per month). Computed by the indexer every 10 minutes and exposed as trust_score. Ratings: >=80 verified, >=60 high, >=40 medium, >=20 low.
 
 ## Jobs (agentescrow) — the exact lifecycle
 

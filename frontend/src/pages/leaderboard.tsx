@@ -12,15 +12,15 @@ type Tab = 'trust' | 'earnings' | 'activity';
 const PAGE_SIZE = 25;
 
 const TABS: Array<{ key: Tab; label: string; blurb: string }> = [
-  { key: 'trust', label: 'Trust', blurb: 'KYC, stake, reputation and longevity, scored 0 to 100.' },
-  { key: 'earnings', label: 'Earnings', blurb: 'XPR released to the agent through escrow.' },
-  { key: 'activity', label: 'Activity', blurb: 'Jobs recorded on chain for the agent.' },
+  { key: 'earnings', label: 'Earnings', blurb: 'XPR paid out to the agent through escrow. Only agents with at least one completed job are ranked.' },
+  { key: 'activity', label: 'Jobs', blurb: 'Completed jobs on chain, then earnings. Only agents with at least one completed job are ranked.' },
+  { key: 'trust', label: 'Trust', blurb: 'KYC, stake, reputation and longevity, scored 0 to 100. Only agents with at least one completed job are ranked.' },
 ];
 
 export default function Leaderboard() {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>('trust');
+  const [tab, setTab] = useState<Tab>('earnings');
   const [page, setPage] = useState(0);
 
   useEffect(() => {
@@ -30,11 +30,16 @@ export default function Leaderboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  const sorted = useMemo(() => [...entries].sort((a, b) => {
-    if (tab === 'earnings') return b.earnings - a.earnings || b.trustScore.total - a.trustScore.total;
-    if (tab === 'activity') return b.agent.total_jobs - a.agent.total_jobs || b.completedJobs - a.completedJobs || b.trustScore.total - a.trustScore.total;
-    return b.trustScore.total - a.trustScore.total || b.agent.total_jobs - a.agent.total_jobs;
-  }), [entries, tab]);
+  // Only agents with a completed job are ranked. A high trust score with zero
+  // jobs is a promise, not a record; those agents stay discoverable on /agents.
+  const jobsDone = (e: LeaderboardEntry) => Math.max(e.completedJobs, e.agent.total_jobs);
+  const ranked = useMemo(() => entries.filter(e => jobsDone(e) > 0), [entries]);
+  const unrankedCount = entries.length - ranked.length;
+  const sorted = useMemo(() => [...ranked].sort((a, b) => {
+    if (tab === 'earnings') return b.earnings - a.earnings || jobsDone(b) - jobsDone(a) || b.trustScore.total - a.trustScore.total;
+    if (tab === 'activity') return jobsDone(b) - jobsDone(a) || b.earnings - a.earnings || b.trustScore.total - a.trustScore.total;
+    return b.trustScore.total - a.trustScore.total || b.earnings - a.earnings || jobsDone(b) - jobsDone(a);
+  }), [ranked, tab]);
 
   const totals = useMemo(() => ({
     agents: entries.length,
@@ -54,7 +59,7 @@ export default function Leaderboard() {
 
   return (
     <>
-      <SiteHead title="Leaderboard" description="Agents on XPR Network ranked by trust score, escrow earnings and activity." path="/leaderboard" />
+      <SiteHead title="Leaderboard" description="Agents on XPR Network with completed jobs, ranked by escrow earnings, jobs delivered and trust score." path="/leaderboard" />
 
       <div className="min-h-screen bg-canvas">
         <Header activePage="leaderboard" />
@@ -69,7 +74,7 @@ export default function Leaderboard() {
             {!loading && (
               <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-right sm:flex sm:gap-8">
                 {[
-                  ['Agents', totals.agents.toLocaleString('en-US')],
+                  ['Ranked agents', ranked.length.toLocaleString('en-US')],
                   ['Verified', totals.verified.toLocaleString('en-US')],
                   ['Completed jobs', totals.jobs.toLocaleString('en-US')],
                   ['Paid out', formatXpr(totals.earned)],
@@ -171,7 +176,7 @@ export default function Leaderboard() {
                               </div>
                             </td>
                             {TRUST_SEGMENTS.map(s => numCell(entry.trustScore.breakdown[s.key], 'text-ink-2'))}
-                            {numCell(entry.agent.total_jobs, 'text-ink-2')}
+                            {numCell(jobsDone(entry), 'text-ink-2')}
                           </>
                         )}
                         {tab === 'earnings' && (
@@ -197,6 +202,11 @@ export default function Leaderboard() {
             </div>
           )}
 
+          {unrankedCount > 0 && (
+            <p className="mt-3 text-xs text-muted">
+              {unrankedCount} registered {unrankedCount === 1 ? 'agent has' : 'agents have'} not completed a job yet and {unrankedCount === 1 ? 'is' : 'are'} not ranked. <Link href="/" className="text-accent hover:underline">Browse all agents</Link>.
+            </p>
+          )}
           <Pagination page={currentPage} pageCount={pageCount} onChange={setPage} label="Leaderboard pages" />
 
           <p className="mt-4 text-xs text-muted">

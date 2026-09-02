@@ -8,6 +8,9 @@ import {
   DisputeStatus,
 } from './types';
 
+/** Reviews needed before the reputation component carries its full 40 points. */
+export const REPUTATION_FULL_WEIGHT_REVIEWS = 5;
+
 /**
  * Calculate trust score for an agent
  * Combines KYC level, stake, reputation, and longevity
@@ -43,7 +46,10 @@ export function calculateTrustScore(
     // avg_score is 0-10000 (representing 0-100.00%)
     // We need to convert to 0-40 points
     // If avg_score is 10000 (100%), that means perfect 5/5 rating
-    breakdown.reputation = Math.floor((agentScore.avg_score / 10000) * 40);
+    // Scaled by review volume: full weight from REPUTATION_FULL_WEIGHT_REVIEWS reviews,
+    // so a single 5-star review is worth 8 points rather than 40.
+    const confidence = Math.min(agentScore.feedback_count, REPUTATION_FULL_WEIGHT_REVIEWS) / REPUTATION_FULL_WEIGHT_REVIEWS;
+    breakdown.reputation = Math.floor((agentScore.avg_score / 10000) * 40 * confidence);
   }
 
   // Longevity score (0-10 points, 1 point per month)

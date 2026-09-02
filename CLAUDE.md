@@ -445,8 +445,11 @@ function calculateTrustScore(agent: Agent, feedbacks: Feedback[], kycLevel: u8):
     totalWeight += weight * 5; // Normalize to 5-star scale
   }
 
+  // Scaled by review volume: full weight from 5 reviews, so one 5-star review
+  // is worth 8 points, not 40 (added 2026-09-02 after zero-job agents topped the leaderboard)
+  const confidence = min(feedbacks.length, 5) / 5;
   const reputationScore: u64 = totalWeight > 0
-    ? (weightedSum * 40) / totalWeight
+    ? (weightedSum * 40 * confidence) / totalWeight
     : 0;
 
   // Longevity score (0-10 points, 1 point per month, max 10)
@@ -464,7 +467,7 @@ function calculateTrustScore(agent: Agent, feedbacks: Feedback[], kycLevel: u8):
 |-----------|------------|--------|
 | KYC Level | 30 | Native XPR Network KYC (0-3) × 10 |
 | Stake | 20 | Agent's staked XPR (caps at 10,000) |
-| Reputation | 40 | KYC-weighted feedback scores |
+| Reputation | 40 | KYC-weighted feedback average, scaled by review count (full weight at 5 reviews) |
 | Longevity | 10 | 1 point per month (max 10) |
 | **Total** | **100** | |
 

@@ -140,6 +140,19 @@ describe('calculateTrustScore', () => {
     expect(result.breakdown.reputation).toBe(40);
   });
 
+  it('scales reputation by review count until five reviews', () => {
+    const mk = (feedback_count: number) => calculateTrustScore(
+      makeAgent(),
+      { agent: 'a', total_score: 0, total_weight: 1, feedback_count, avg_score: 10000, last_updated: 0 } as any,
+      0,
+      0,
+    ).breakdown.reputation;
+    expect(mk(1)).toBe(8);
+    expect(mk(2)).toBe(16);
+    expect(mk(5)).toBe(40);
+    expect(mk(12)).toBe(40);
+  });
+
   it('gives proportional reputation for partial avg_score', () => {
     const score: AgentScore = {
       agent: 'testagent',
