@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { AccountLink } from '@/components/AccountLink';
 import { NftCard } from '@/components/NftCard';
 import { Modal } from '@/components/Modal';
+import { CopyButton } from '@/components/CopyButton';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
 import { useChainStream } from '@/hooks/useChainStream';
@@ -20,6 +21,8 @@ import {
   getEscrowConfig,
   DISPUTE_RESOLUTION_LABELS,
   parseDeliverableUrls,
+  parseDeliverableManifest,
+  type DeliverableManifest,
   parseNftDeliverable,
   isEmptyName,
   getNftAssets,
@@ -54,6 +57,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   const [evidenceUrl, setEvidenceUrl] = useState<string | null>(null);
   const [additionalUrls, setAdditionalUrls] = useState<string[]>([]);
   const [nftAssets, setNftAssets] = useState<NftAsset[]>([]);
+  const [manifest, setManifest] = useState<DeliverableManifest | null>(null);
 
   // Rating modal
   const [showRating, setShowRating] = useState(false);
@@ -164,10 +168,18 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     setDeliverableMediaUrl(null);
     setAdditionalUrls([]);
     setNftAssets([]);
+    setManifest(null);
     try {
       const rawEvidenceUri = await getJobEvidence(jobId);
       if (!rawEvidenceUri) {
         setDeliverableContent('No evidence submitted');
+        return;
+      }
+      const manifestData = parseDeliverableManifest(rawEvidenceUri);
+      if (manifestData) {
+        setManifest(manifestData);
+        setDeliverableType('manifest');
+        setEvidenceUrl(null);
         return;
       }
       const nftData = parseNftDeliverable(rawEvidenceUri);
@@ -642,6 +654,25 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   }
 
   const assignedAgent = isEmptyName(job.agent) ? null : job.agent;
+  // Markdown brief an operator can paste into any agent: the job plus the exact on-chain steps.
+  const agentBrief = [
+    `# Job #${job.id}: ${job.title}`,
+    `Client: ${job.client} · Budget: ${formatXpr(job.amount)} · Deadline: ${job.deadline ? formatDate(job.deadline) : 'none'} · State: ${getJobStateLabel(job.state)}`,
+    `Page: https://xpragents.com/jobs/${job.id}`,
+    '',
+    '## Description',
+    job.description,
+    '',
+    '## Deliverables',
+    ...job.deliverables.map((d, i) => `${i + 1}. ${d}`),
+    '',
+    '## How to work this job on XPR Network (contract agentescrow, sign with the proton CLI)',
+    ...(assignedAgent ? [] : [`- Bid: proton action agentescrow submitbid '["<agent>",${job.id},<amount_raw_units>,<timeline_seconds>,"<proposal>"]' <agent>@active  (1 XPR = 10000 units; timeline = delivery time if selected)`]),
+    `- After the client selects and funds: proton action agentescrow acceptjob '["<agent>",${job.id}]' <agent>@active, then startjob with the same arguments.`,
+    `- Deliver exactly the listed deliverables: pin files to IPFS and call deliver with a JSON manifest in evidence_uri:`,
+    `  proton action agentescrow deliver '["<agent>",${job.id},"{\"v\":1,\"files\":[{\"name\":\"result.png\",\"uri\":\"https://ipfs.io/ipfs/<cid>\",\"type\":\"image/png\"}],\"note\":\"method\"}"]' <agent>@active`,
+    '- Full reference: https://xpragents.com/llms.txt',
+  ].join('\n');
   const winningBid = getWinningBid();
   const fundedPct = job.amount > 0 ? Math.min(100, (job.funded_amount / job.amount) * 100) : 0;
   const remaining = Math.max(0, job.amount - job.funded_amount);
@@ -671,7 +702,10 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
               </span>
               {canBid && <span className="font-mono text-[11px] uppercase tracking-label text-good">Open for bids</span>}
             </div>
-            <h1 className="font-display text-3xl font-semibold leading-tight text-ink" style={{ textWrap: 'balance' } as React.CSSProperties}>{job.title}</h1>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <h1 className="font-display text-3xl font-semibold leading-tight text-ink" style={{ textWrap: 'balance' } as React.CSSProperties}>{job.title}</h1>
+              <CopyButton text={agentBrief} label="Copy brief for an agent" className="shrink-0" />
+            </div>
             <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
               <span className="flex items-center gap-1.5">Posted by <AccountLink account={job.client} showAvatar avatarSize={18} className="font-mono text-ink-2" /></span>
               <span aria-hidden="true">·</span>
@@ -716,6 +750,37 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
                 <span className="text-sm text-ink-2">Loading the deliverable…</span>
+              </div>
+            )}
+
+            {/* Manifest deliverable: file list + preview of the first image/PDF + note */}
+            {deliverableType === 'manifest' && manifest && (
+              <div className="space-y-4">
+                {manifest.private && (
+                  <p className="rounded-md bg-warn-soft px-3 py-2 text-xs text-warn">Marked private by the agent: files may be encrypted; the key is shared off-chain.</p>
+                )}
+                {(() => {
+                  const first = manifest.files.find(f => (f.type || '').startsWith('image/') || f.type === 'application/pdf' || /\.(png|jpe?g|gif|webp|svg|pdf)(\?|$)/i.test(f.uri));
+                  if (!first) return null;
+                  const isPdf = first.type === 'application/pdf' || /\.pdf(\?|$)/i.test(first.uri);
+                  return isPdf
+                    ? <iframe src={first.uri} title={first.name} className="h-96 w-full rounded-md border border-line bg-white" />
+                    : <img src={first.uri} alt={first.name} className="max-w-full rounded-md border border-line" loading="lazy" />;
+                })()}
+                <ul className="divide-y divide-line rounded-md border border-line">
+                  {manifest.files.map((f, i) => (
+                    <li key={i} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span className="min-w-0">
+                        <a href={f.uri} target="_blank" rel="noopener noreferrer" className="block truncate font-mono text-sm text-accent hover:text-accent-hover">{f.name}</a>
+                        {f.type && <span className="font-mono text-[11px] text-muted">{f.type}</span>}
+                      </span>
+                      <a href={f.uri} target="_blank" rel="noopener noreferrer" className="shrink-0 font-mono text-xs text-muted hover:text-ink">open ↗</a>
+                    </li>
+                  ))}
+                </ul>
+                {manifest.note && (
+                  <div className="rounded-md bg-surface p-3 text-sm text-ink-2 whitespace-pre-wrap">{manifest.note}</div>
+                )}
               </div>
             )}
 
