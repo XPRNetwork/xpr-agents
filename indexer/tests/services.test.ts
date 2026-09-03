@@ -230,12 +230,18 @@ describe('Service Handlers', () => {
     expect((db.prepare('SELECT COUNT(*) as c FROM services').get() as { c: number }).c).toBe(1);
   });
 
-  it('rmservice deletes the listing (admin)', () => {
+  it('rmservice deactivates the listing but keeps it (admin)', () => {
     listService();
 
     handleEscrowAction(db, createAction('agentescrow', 'rmservice', { service_id: 1 }));
 
-    expect(db.prepare('SELECT 1 FROM services WHERE id = 1').get()).toBeUndefined();
+    // Soft removal, mirroring the contract: the row survives so its sales
+    // history does, and its id is never handed to a future listing.
+    const row = db.prepare('SELECT active FROM services WHERE id = 1').get() as { active: number };
+    expect(row).toBeDefined();
+    expect(row.active).toBe(0);
+    // The order form goes, though — the listing can never take another order.
+    expect(db.prepare('SELECT 1 FROM service_inputs WHERE service_id = 1').get()).toBeUndefined();
   });
 
   it('rmservice on a missing listing does not throw', () => {

@@ -120,6 +120,48 @@ const getSvcConfig = () => {
   return agentescrow.tables.svcconfig(nameToBigInt('agentescrow')).getTableRows()[0];
 };
 
+const getJobSeq = () => {
+  return agentescrow.tables.jobseq(nameToBigInt('agentescrow')).getTableRows()[0];
+};
+
+const getSvcSeq = () => {
+  return agentescrow.tables.svcseq(nameToBigInt('agentescrow')).getTableRows()[0];
+};
+
+const getSvcBan = (serviceId: number) => {
+  return agentescrow.tables.svcbanned(nameToBigInt('agentescrow')).getTableRow(BigInt(serviceId));
+};
+
+/* Write a row straight into a table, bypassing the actions — used to stand in
+ * for rows that exist on chain from before the id counters were introduced. */
+const seedJobRow = (id: number) => {
+  agentescrow.tables.jobs(nameToBigInt('agentescrow')).set(
+    BigInt(id),
+    'agentescrow' as any,
+    {
+      id, client: 'client', agent: 'agent1', title: 'Seeded job',
+      description: 'A row that predates the counter', deliverables: '["x"]',
+      amount: 1000000, symbol: 'XPR', funded_amount: 0, released_amount: 0,
+      state: 6, deadline: 1700086400, arbitrator: '', job_hash: 'seed',
+      created_at: 1700000000, updated_at: 1700000000,
+    }
+  );
+};
+
+const seedServiceRow = (id: number) => {
+  agentescrow.tables.services(nameToBigInt('agentescrow')).set(
+    BigInt(id),
+    'agentescrow' as any,
+    {
+      id, agent: 'agent1', title: 'Seeded listing',
+      description: 'A row that predates the counter', deliverables: '["x"]',
+      price: 1000000, turnaround: 86400, category: 'image', sample_uri: '',
+      active: false, sales: 3, created_at: 1700000000, updated_at: 1700000000,
+      boost_paid: 0, featured_until: 0,
+    }
+  );
+};
+
 const getBalance = (account: string) => {
   const rows = eosioToken.tables.accounts(nameToBigInt(account)).getTableRows();
   return rows.length > 0 ? rows[0].balance : '0.0000 XPR';
@@ -804,6 +846,403 @@ describe('agentescrow', () => {
     });
   });
 
+  /* ==================== Agent-initiated cancellation ==================== */
+
+  describe('agentcancel', () => {
+    beforeEach(async () => {
+      await initAll();
+      await registerArbitrator('arbitrator1');
+      blockchain.setTime(TimePointSec.from(1700000000));
+    });
+
+    const fundAcceptStart = async () => {
+      await createAndFundJob();
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+    };
+
+    it('should refund the client in full and mark the job REFUNDED', async () => {
+      await fundAcceptStart();
+
+      const clientBefore = getXprBalance('client');
+      const ownerBefore = getXprBalance('owner');
+      const agentBefore = getXprBalance('agent1');
+
+      await agentescrow.actions.agentcancel(['agent1', 0, 'Cannot deliver this one']).send('agent1@active');
+
+      const job = getJob(0);
+      expect(job.state).to.equal(7); // REFUNDED
+      expect(job.released_amount).to.equal(job.funded_amount);
+
+      // Full 100.0000 XPR back, no platform fee and nothing to the agent
+      expect(getXprBalance('client')).to.equal(clientBefore + 100);
+      expect(getXprBalance('owner')).to.equal(ownerBefore);
+      expect(getXprBalance('agent1')).to.equal(agentBefore);
+    });
+
+    it('should cancel a funded job that was never accepted (state 1)', async () => {
+      await createAndFundJob();
+      expect(getJob(0).state).to.equal(1);
+
+      const clientBefore = getXprBalance('client');
+      await agentescrow.actions.agentcancel(['agent1', 0, 'Booked out']).send('agent1@active');
+
+      expect(getJob(0).state).to.equal(7);
+      expect(getXprBalance('client')).to.equal(clientBefore + 100);
+    });
+
+    it('should cancel an accepted job (state 2)', async () => {
+      await createAndFundJob();
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      expect(getJob(0).state).to.equal(2);
+
+      await agentescrow.actions.agentcancel(['agent1', 0, 'Changed my mind']).send('agent1@active');
+      expect(getJob(0).state).to.equal(7);
+    });
+
+    it('should cancel a delivered job (state 4)', async () => {
+      await fundAcceptStart();
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://ev']).send('agent1@active');
+      expect(getJob(0).state).to.equal(4);
+
+      const clientBefore = getXprBalance('client');
+      await agentescrow.actions.agentcancel(['agent1', 0, 'Delivery was wrong']).send('agent1@active');
+
+      expect(getJob(0).state).to.equal(7);
+      expect(getXprBalance('client')).to.equal(clientBefore + 100);
+    });
+
+    it('should return only the remainder after an approved milestone', async () => {
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Milestone Job', 'Test', '["del1","del2"]',
+        2000000, '4,XPR', deadline, 'arbitrator1', 'hash'
+      ]).send('client@active');
+      await agentescrow.actions.addmilestone([
+        'client', 0, 'Phase 1', 'First phase', 1000000, 0
+      ]).send('client@active');
+      await agentescrow.actions.addmilestone([
+        'client', 0, 'Phase 2', 'Second phase', 1000000, 1
+      ]).send('client@active');
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '200.0000 XPR', 'fund:0'
+      ]).send('client@active');
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+
+      // Phase 1 paid out (100.0000 XPR less the 2% platform fee)
+      await agentescrow.actions.submitmile(['agent1', 0, 'ipfs://ev1']).send('agent1@active');
+      await agentescrow.actions.approvemile(['client', 0]).send('client@active');
+      expect(getJob(0).released_amount).to.equal(1000000);
+
+      const clientBefore = getXprBalance('client');
+      const agentBefore = getXprBalance('agent1');
+
+      await agentescrow.actions.agentcancel(['agent1', 0, 'Cannot finish phase 2']).send('agent1@active');
+
+      const job = getJob(0);
+      expect(job.state).to.equal(7);
+      expect(job.released_amount).to.equal(2000000);
+      // Only the unreleased 100.0000 XPR comes back; the approved milestone stays paid
+      expect(getXprBalance('client')).to.equal(clientBefore + 100);
+      expect(getXprBalance('agent1')).to.equal(agentBefore);
+    });
+
+    it('should reject an agent that is not assigned to the job', async () => {
+      await fundAcceptStart();
+
+      await expectToThrow(
+        agentescrow.actions.agentcancel(['arbitrator2', 0, 'Not mine']).send('arbitrator2@active'),
+        protonAssert('Only the assigned agent can cancel')
+      );
+      expect(getJob(0).state).to.equal(3);
+    });
+
+    it('should reject the client', async () => {
+      await fundAcceptStart();
+
+      await expectToThrow(
+        agentescrow.actions.agentcancel(['client', 0, 'Let me out']).send('client@active'),
+        protonAssert('Only the assigned agent can cancel')
+      );
+    });
+
+    it('should require the agent auth', async () => {
+      await fundAcceptStart();
+
+      await expectToThrow(
+        agentescrow.actions.agentcancel(['agent1', 0, 'No auth']).send('client@active'),
+        'missing required authority agent1'
+      );
+    });
+
+    it('should reject a disputed job (state 5)', async () => {
+      await fundAcceptStart();
+      await agentescrow.actions.dispute(['client', 0, 'Bad work', 'ipfs://proof']).send('client@active');
+      expect(getJob(0).state).to.equal(5);
+
+      await expectToThrow(
+        agentescrow.actions.agentcancel(['agent1', 0, 'Let me refund instead']).send('agent1@active'),
+        protonAssert('Job must be funded, accepted, in progress or delivered')
+      );
+      expect(getJob(0).state).to.equal(5);
+    });
+
+    it('should reject an unfunded job (state 0)', async () => {
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Test Job', 'Test description', '["deliverable1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'jobhash123'
+      ]).send('client@active');
+
+      await expectToThrow(
+        agentescrow.actions.agentcancel(['agent1', 0, 'Nothing to give back']).send('agent1@active'),
+        protonAssert('Job must be funded, accepted, in progress or delivered')
+      );
+    });
+
+    it('should reject a completed job (state 6)', async () => {
+      await fundAcceptStart();
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://ev']).send('agent1@active');
+      await agentescrow.actions.approve(['client', 0]).send('client@active');
+      expect(getJob(0).state).to.equal(6);
+
+      await expectToThrow(
+        agentescrow.actions.agentcancel(['agent1', 0, 'Too late']).send('agent1@active'),
+        protonAssert('Job must be funded, accepted, in progress or delivered')
+      );
+    });
+
+    it('should reject an already refunded job (state 7)', async () => {
+      await createAndFundJob();
+      await agentescrow.actions.agentcancel(['agent1', 0, 'First cancel']).send('agent1@active');
+
+      await expectToThrow(
+        agentescrow.actions.agentcancel(['agent1', 0, 'Second cancel']).send('agent1@active'),
+        protonAssert('Job must be funded, accepted, in progress or delivered')
+      );
+    });
+
+    it('should reject an arbitrated job (state 8)', async () => {
+      await fundAcceptStart();
+      await agentescrow.actions.dispute(['client', 0, 'Bad work', 'ipfs://proof']).send('client@active');
+      await agentescrow.actions.arbitrate(['arbitrator1', 0, 100, 'Client wins']).send('arbitrator1@active');
+      expect(getJob(0).state).to.equal(8);
+
+      await expectToThrow(
+        agentescrow.actions.agentcancel(['agent1', 0, 'Too late']).send('agent1@active'),
+        protonAssert('Job must be funded, accepted, in progress or delivered')
+      );
+    });
+
+    it('should reject a missing job', async () => {
+      await expectToThrow(
+        agentescrow.actions.agentcancel(['agent1', 99, 'Nope']).send('agent1@active'),
+        protonAssert('Job not found')
+      );
+    });
+
+    it('should reject an empty reason', async () => {
+      await fundAcceptStart();
+
+      await expectToThrow(
+        agentescrow.actions.agentcancel(['agent1', 0, '']).send('agent1@active'),
+        protonAssert('Reason must be 1-512 characters')
+      );
+    });
+
+    it('should reject a reason over 512 characters', async () => {
+      await fundAcceptStart();
+
+      await expectToThrow(
+        agentescrow.actions.agentcancel(['agent1', 0, 'x'.repeat(513)]).send('agent1@active'),
+        protonAssert('Reason must be 1-512 characters')
+      );
+    });
+
+    it('should reject while paused', async () => {
+      await fundAcceptStart();
+      await agentescrow.actions.setconfig([
+        200, 10000, 30, 259200, true, 'agentcore', 'agentfeed', 604800, 10000000, 604800
+      ]).send('owner@active');
+
+      await expectToThrow(
+        agentescrow.actions.agentcancel(['agent1', 0, 'Paused']).send('agent1@active'),
+        protonAssert('Contract is paused')
+      );
+    });
+
+    it('should let the agent hand back a service purchase that has no arbitrator', async () => {
+      // The case this action exists for: a services-market job has no arbitrator,
+      // so `dispute` would escalate to the contract owner.
+      await eosioToken.actions.transfer(['agent1', 'agentescrow', '5.0000 XPR', 'svcfee:agent1']).send('agent1@active');
+      await agentescrow.actions.listsvc([
+        'agent1', 'Logo design', 'A logo', '["logo.svg"]', 1000000, 86400, 'image', ''
+      ]).send('agent1@active');
+      await eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active');
+
+      const jobId = getAllJobs().length - 1;
+      expect(getJob(jobId).arbitrator).to.equal('');
+      expect(getJob(jobId).state).to.equal(1);
+
+      const clientBefore = getXprBalance('client');
+      await agentescrow.actions.agentcancel(['agent1', jobId, 'Out of capacity']).send('agent1@active');
+
+      expect(getJob(jobId).state).to.equal(7);
+      expect(getXprBalance('client')).to.equal(clientBefore + 100);
+    });
+  });
+
+  /* ==================== Monotonic ids ==================== */
+
+  describe('monotonic ids', () => {
+    beforeEach(async () => {
+      await initAll();
+      await registerArbitrator('arbitrator1');
+      blockchain.setTime(TimePointSec.from(1700000000));
+    });
+
+    const createJobTitled = async (title: string) => {
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', title, 'Test description', '["deliverable1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'jobhash123'
+      ]).send('client@active');
+    };
+
+    /* ---------------- jobs ---------------- */
+
+    it('should start job ids at 0 on an empty table', async () => {
+      await createJobTitled('First');
+      expect(getJob(0)).to.not.be.undefined;
+      expect(getJob(0).title).to.equal('First');
+      expect(getJobSeq().next_id).to.equal(1);
+    });
+
+    it('should hand out consecutive job ids', async () => {
+      await createJobTitled('First');
+      await createJobTitled('Second');
+      expect(getJob(0).title).to.equal('First');
+      expect(getJob(1).title).to.equal('Second');
+      expect(getJobSeq().next_id).to.equal(2);
+    });
+
+    it('should not reuse a job id after the newest job is removed', async () => {
+      await createAndFundJob();
+      await agentescrow.actions.cancel(['client', 0]).send('client@active');
+      await agentescrow.actions.removejob([0]).send('owner@active');
+      expect(getAllJobs().length).to.equal(0);
+
+      // The table is empty again, but the counter has moved on
+      await createJobTitled('After removal');
+      expect(getJob(0)).to.be.undefined;
+      expect(getJob(1)).to.not.be.undefined;
+      expect(getJob(1).title).to.equal('After removal');
+    });
+
+    it('should keep counting across repeated removals', async () => {
+      await createJobTitled('One');
+      await agentescrow.actions.removejob([0]).send('owner@active');
+      await createJobTitled('Two');
+      await agentescrow.actions.removejob([1]).send('owner@active');
+      await createJobTitled('Three');
+
+      expect(getJob(0)).to.be.undefined;
+      expect(getJob(1)).to.be.undefined;
+      expect(getJob(2).title).to.equal('Three');
+      expect(getJobSeq().next_id).to.equal(3);
+    });
+
+    it('should self-initialise above rows that predate the counter', async () => {
+      // No jobseq row exists yet; the table already holds ids 0..3
+      seedJobRow(0);
+      seedJobRow(3);
+      expect(getJobSeq()).to.be.undefined;
+
+      await createJobTitled('First after upgrade');
+
+      expect(getJob(4)).to.not.be.undefined;
+      expect(getJob(4).title).to.equal('First after upgrade');
+      // The pre-existing rows are untouched
+      expect(getJob(3).title).to.equal('Seeded job');
+      expect(getJobSeq().next_id).to.equal(5);
+    });
+
+    it('should never hand out an id that already exists', async () => {
+      await createJobTitled('First');           // id 0, counter at 1
+      seedJobRow(7);                            // counter is now behind the table
+
+      await createJobTitled('Second');
+      expect(getJob(8)).to.not.be.undefined;
+      expect(getJob(8).title).to.equal('Second');
+      expect(getJob(7).title).to.equal('Seeded job');
+    });
+
+    it('should give a service purchase a fresh job id too', async () => {
+      await createJobTitled('First');
+      await eosioToken.actions.transfer(['agent1', 'agentescrow', '5.0000 XPR', 'svcfee:agent1']).send('agent1@active');
+      await agentescrow.actions.listsvc([
+        'agent1', 'Logo design', 'A logo', '["logo.svg"]', 1000000, 86400, 'image', ''
+      ]).send('agent1@active');
+
+      await eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active');
+
+      expect(getJob(1)).to.not.be.undefined;
+      expect(getJob(1).job_hash).to.equal('svc:0');
+      expect(getJobSeq().next_id).to.equal(2);
+    });
+
+    /* ---------------- services ---------------- */
+
+    const listOne = async (title: string) => {
+      await eosioToken.actions.transfer(['agent1', 'agentescrow', '5.0000 XPR', 'svcfee:agent1']).send('agent1@active');
+      await agentescrow.actions.listsvc([
+        'agent1', title, 'A listing', '["out.svg"]', 1000000, 86400, 'image', ''
+      ]).send('agent1@active');
+    };
+
+    it('should start service ids at 0 and count up', async () => {
+      await listOne('First');
+      await listOne('Second');
+      expect(getService(0).title).to.equal('First');
+      expect(getService(1).title).to.equal('Second');
+      expect(getSvcSeq().next_id).to.equal(2);
+    });
+
+    it('should not reuse a service id after an admin removal', async () => {
+      await listOne('First');
+      await agentescrow.actions.rmservice([0]).send('owner@active');
+
+      await listOne('Second');
+      expect(getService(1).title).to.equal('Second');
+      expect(getService(1).active).to.equal(true);
+      // The removed listing keeps its id
+      expect(getService(0).title).to.equal('First');
+      expect(getService(0).active).to.equal(false);
+    });
+
+    it('should self-initialise service ids above rows that predate the counter', async () => {
+      seedServiceRow(4);
+      expect(getSvcSeq()).to.be.undefined;
+
+      await listOne('First after upgrade');
+
+      expect(getService(5)).to.not.be.undefined;
+      expect(getService(5).title).to.equal('First after upgrade');
+      expect(getService(4).sales).to.equal(3);
+      expect(getSvcSeq().next_id).to.equal(6);
+    });
+
+    it('should never hand out a service id that already exists', async () => {
+      await listOne('First');       // id 0, counter at 1
+      seedServiceRow(9);
+
+      await listOne('Second');
+      expect(getService(10).title).to.equal('Second');
+      expect(getService(9).title).to.equal('Seeded listing');
+    });
+  });
+
   /* ==================== Arbitrator-less Fallback ==================== */
 
   describe('arbitrator-less fallback', () => {
@@ -834,6 +1273,85 @@ describe('agentescrow', () => {
 
       const job = getJob(0);
       expect(job.state).to.equal(8); // ARBITRATED
+    });
+
+    it('should not crash when the owner has no arbitrators row', async () => {
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'No Arb Job', 'Test', '["del1"]',
+        1000000, '4,XPR', deadline, '', 'hash'
+      ]).send('client@active');
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '100.0000 XPR', 'fund:0'
+      ]).send('client@active');
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.dispute(['client', 0, 'Bad work', 'ipfs://ev']).send('client@active');
+
+      await agentescrow.actions.arbitrate(['owner', 0, 100, 'Fallback resolution']).send('owner@active');
+
+      expect(getJob(0).state).to.equal(8);
+      // No arbitrator record is fabricated for an owner that never registered
+      expect(getArbitrator('owner')).to.be.undefined;
+    });
+
+    it('should credit the owner arbitrators row when resolving as fallback', async () => {
+      // The owner is a registered arbitrator, but is NOT this job's arbitrator
+      await agentescrow.actions.regarb(['owner', 200]).send('owner@active');
+      expect(getArbitrator('owner').total_cases).to.equal(0);
+      expect(getArbitrator('owner').stake).to.equal(0);
+
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'No Arb Job', 'Test', '["del1"]',
+        1000000, '4,XPR', deadline, '', 'hash'
+      ]).send('client@active');
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '100.0000 XPR', 'fund:0'
+      ]).send('client@active');
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.dispute(['client', 0, 'Bad work', 'ipfs://ev']).send('client@active');
+
+      const ownerBefore = getXprBalance('owner');
+      await agentescrow.actions.arbitrate(['owner', 0, 100, 'Fallback resolution']).send('owner@active');
+
+      const ownerArb = getArbitrator('owner');
+      expect(ownerArb.total_cases).to.equal(1);
+      expect(ownerArb.successful_cases).to.equal(1);
+      // Crediting the case must not invent stake, and the fallback still takes no fee
+      expect(ownerArb.stake).to.equal(0);
+      expect(getXprBalance('owner')).to.equal(ownerBefore);
+    });
+
+    it('should credit the owner when stepping in for an unavailable arbitrator', async () => {
+      await registerArbitrator('arbitrator1');
+      await agentescrow.actions.regarb(['owner', 0]).send('owner@active');
+
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Arb Job', 'Test', '["del1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'hash'
+      ]).send('client@active');
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '100.0000 XPR', 'fund:0'
+      ]).send('client@active');
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+
+      // Designated arbitrator steps down before the dispute is raised
+      await agentescrow.actions.deactarb(['arbitrator1']).send('arbitrator1@active');
+      await agentescrow.actions.dispute(['client', 0, 'Bad work', 'ipfs://ev']).send('client@active');
+      expect(getArbitrator('arbitrator1').active_disputes).to.equal(1);
+
+      await agentescrow.actions.arbitrate(['owner', 0, 100, 'Designated arbitrator unavailable']).send('owner@active');
+
+      expect(getJob(0).state).to.equal(8);
+      expect(getArbitrator('owner').total_cases).to.equal(1);
+      expect(getArbitrator('owner').successful_cases).to.equal(1);
+      // The absent arbitrator gets no credit, but its dispute slot is released
+      expect(getArbitrator('arbitrator1').total_cases).to.equal(0);
+      expect(getArbitrator('arbitrator1').active_disputes).to.equal(0);
     });
   });
 
@@ -2049,11 +2567,108 @@ describe('agentescrow', () => {
     /* ---------------- rmservice (admin) ---------------- */
 
     describe('rmservice', () => {
-      it('should let the owner remove a listing', async () => {
+      it('should deactivate the listing and keep the row', async () => {
         await listSvc();
         await agentescrow.actions.rmservice([0]).send('owner@active');
-        expect(getService(0)).to.be.undefined;
-        expect(getAllServices().length).to.equal(0);
+
+        const svc = getService(0);
+        expect(svc).to.not.be.undefined;
+        expect(svc.active).to.equal(false);
+        expect(getAllServices().length).to.equal(1);
+      });
+
+      it('should record the removal in svcbanned', async () => {
+        await listSvc();
+        expect(getSvcBan(0)).to.be.undefined;
+
+        await agentescrow.actions.rmservice([0]).send('owner@active');
+
+        const ban = getSvcBan(0);
+        expect(ban).to.not.be.undefined;
+        expect(ban.service_id).to.equal(0);
+        expect(ban.banned_at).to.be.greaterThan(0);
+      });
+
+      it('should keep the sales history of a removed listing', async () => {
+        await listSvc();
+        await eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active');
+        expect(getService(0).sales).to.equal(1);
+
+        await agentescrow.actions.rmservice([0]).send('owner@active');
+        expect(getService(0).sales).to.equal(1);
+      });
+
+      it('should block a new purchase of a removed listing', async () => {
+        await listSvc();
+        await agentescrow.actions.rmservice([0]).send('owner@active');
+
+        await expectToThrow(
+          eosioToken.actions.transfer(['client', 'agentescrow', '100.0000 XPR', 'buy:0']).send('client@active'),
+          protonAssert('Service is not active')
+        );
+      });
+
+      it('should block boosting a removed listing', async () => {
+        await listSvc();
+        await agentescrow.actions.rmservice([0]).send('owner@active');
+
+        await expectToThrow(
+          eosioToken.actions.transfer(['agent1', 'agentescrow', '3.0000 XPR', 'boost:0']).send('agent1@active'),
+          protonAssert('Service is not active')
+        );
+      });
+
+      it('should reject the agent relisting a removed listing', async () => {
+        await listSvc();
+        await agentescrow.actions.rmservice([0]).send('owner@active');
+
+        await expectToThrow(
+          agentescrow.actions.relistsvc(['agent1', 0]).send('agent1@active'),
+          protonAssert('Listing was removed by the platform')
+        );
+        expect(getService(0).active).to.equal(false);
+      });
+
+      it('should reject the agent updating a removed listing', async () => {
+        await listSvc();
+        await agentescrow.actions.rmservice([0]).send('owner@active');
+
+        await expectToThrow(
+          agentescrow.actions.updatesvc(updateArgs(0, { title: 'Sneaky rename' })).send('agent1@active'),
+          protonAssert('Listing was removed by the platform')
+        );
+        expect(getService(0).title).to.equal('Logo design');
+      });
+
+      it('should reject setting an input schema on a removed listing', async () => {
+        await listSvc();
+        await agentescrow.actions.rmservice([0]).send('owner@active');
+
+        await expectToThrow(
+          agentescrow.actions.setsvcinput(['agent1', 0, '{"fields":[]}']).send('agent1@active'),
+          protonAssert('Listing was removed by the platform')
+        );
+      });
+
+      it('should free one of the agent active listing slots', async () => {
+        await listSvc();
+        expect(getService(0).active).to.equal(true);
+
+        await agentescrow.actions.rmservice([0]).send('owner@active');
+
+        // The removed row no longer counts, so the agent can publish again
+        await listSvc({ title: 'Replacement listing' });
+        expect(getService(1).title).to.equal('Replacement listing');
+        expect(getService(1).active).to.equal(true);
+      });
+
+      it('should be idempotent', async () => {
+        await listSvc();
+        await agentescrow.actions.rmservice([0]).send('owner@active');
+        await agentescrow.actions.rmservice([0]).send('owner@active');
+
+        expect(getService(0).active).to.equal(false);
+        expect(getSvcBan(0)).to.not.be.undefined;
       });
 
       it('should reject a non-owner', async () => {
@@ -2437,7 +3052,8 @@ describe('agentescrow', () => {
 
           await agentescrow.actions.rmservice([0]).send('owner@active');
 
-          expect(getService(0)).to.be.undefined;
+          // The listing row survives (deactivated); only its order form goes
+          expect(getService(0).active).to.equal(false);
           expect(getServiceInput(0)).to.be.undefined;
         });
 

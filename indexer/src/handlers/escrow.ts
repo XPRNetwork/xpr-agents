@@ -161,6 +161,22 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
         );
       }
       break;
+    case 'agentcancel':
+      // The seller handed the escrow back. Same end state as a client cancel:
+      // REFUNDED with everything released. Without this the mirror would keep
+      // showing the job as live while the chain has refunded it.
+      handleCancel(db, data);
+      if (dispatcher) {
+        const agentCancelJob = db.prepare('SELECT client, agent FROM jobs WHERE id = ?').get(data.job_id) as { client: string; agent: string } | undefined;
+        dispatcher.dispatch(
+          'job.cancelled',
+          agentCancelJob ? [agentCancelJob.client, agentCancelJob.agent].filter(Boolean) : [],
+          data,
+          `Job #${data.job_id} cancelled by the agent`,
+          action.block_num
+        );
+      }
+      break;
     case 'cancel':
       handleCancel(db, data);
       if (dispatcher) {
@@ -1271,12 +1287,15 @@ function handleRemoveService(db: Database.Database, data: any): void {
   const before = db.prepare('SELECT agent, title FROM services WHERE id = ?').get(serviceId) as
     | { agent: string; title: string }
     | undefined;
+  // Soft removal, mirroring the contract: the row and its sales history stay,
+  // the listing just goes inactive and can never be relisted. Deleting it here
+  // would leave the mirror disagreeing with chain state.
   db.transaction(() => {
     db.prepare('DELETE FROM service_inputs WHERE service_id = ?').run(serviceId);
-    db.prepare('DELETE FROM services WHERE id = ?').run(serviceId);
+    db.prepare("UPDATE services SET active = 0, updated_at = strftime('%s', 'now') WHERE id = ?").run(serviceId);
   })();
   console.log(
-    `Service ${serviceId} removed (admin)${before ? ` — was "${before.title}" by ${before.agent}` : ''}`,
+    `Service ${serviceId} removed (admin, deactivated)${before ? ` — was "${before.title}" by ${before.agent}` : ''}`,
   );
 }
 

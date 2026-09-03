@@ -399,6 +399,55 @@ export class LastBuy extends Table {
   }
 }
 
+// ============== ID SEQUENCES ==============
+// availablePrimaryKey is MAX(id) + 1, so deleting the newest row (admin
+// `rmservice` / `removejob`) frees that id for reuse: a later listing or job
+// would silently inherit a dead row's URL, indexer history and inbound links.
+// These counters only ever increase.
+//
+// Both are BRAND-NEW singleton tables. Nothing on `jobs` or `services` changes.
+// On a chain whose rows predate the counter the singleton is absent; the
+// allocator seeds it from the table's current maximum, so an id that already
+// exists can never be handed out.
+
+@table("jobseq", singleton)
+export class JobSeq extends Table {
+  constructor(
+    public next_id: u64 = 0                 // Next job id to hand out
+  ) {
+    super();
+  }
+}
+
+@table("svcseq", singleton)
+export class SvcSeq extends Table {
+  constructor(
+    public next_id: u64 = 0                 // Next service id to hand out
+  ) {
+    super();
+  }
+}
+
+// Listings withdrawn by the contract owner. `rmservice` no longer deletes the
+// service row (that reused its id and threw away the sales history), it
+// deactivates it and records the removal here. A SEPARATE table because the
+// live `services` table cannot gain a field. A listing recorded here can no
+// longer be relisted, updated or given an input form by its agent.
+@table("svcbanned")
+export class ServiceBan extends Table {
+  constructor(
+    public service_id: u64 = 0,             // Primary key: the removed listing
+    public banned_at: u64 = 0               // When the owner removed it
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.service_id;
+  }
+}
+
 @table("agents", "agentcore")
 export class AgentRef extends Table {
   constructor(
@@ -441,7 +490,10 @@ export class AgentEscrowContract extends Contract {
   private svcDepositsTable: TableStore<ServiceDeposit> = new TableStore<ServiceDeposit>(this.receiver);
   private svcInputsTable: TableStore<ServiceInput> = new TableStore<ServiceInput>(this.receiver);
   private lastBuysTable: TableStore<LastBuy> = new TableStore<LastBuy>(this.receiver);
+  private svcBannedTable: TableStore<ServiceBan> = new TableStore<ServiceBan>(this.receiver);
   private svcConfigSingleton: Singleton<ServiceConfig> = new Singleton<ServiceConfig>(this.receiver);
+  private jobSeqSingleton: Singleton<JobSeq> = new Singleton<JobSeq>(this.receiver);
+  private svcSeqSingleton: Singleton<SvcSeq> = new Singleton<SvcSeq>(this.receiver);
   private configSingleton: Singleton<EscrowConfig> = new Singleton<EscrowConfig>(this.receiver);
 
   // Helper to get agent from configured core contract
@@ -462,6 +514,35 @@ export class AgentEscrowContract extends Contract {
   private readonly DEFAULT_BOOST_MIN: u64 = 10000;     // 1.0000 XPR
   private readonly DEFAULT_BOOST_RATE: u64 = 10000;    // 1.0000 XPR per featured day
   private readonly SVC_FEE_REFUND_DELAY: u64 = 604800; // 7 days
+
+  // ============== MONOTONIC ID ALLOCATION ==============
+  // Never reuse an id, even after the newest row is deleted. The counter
+  // self-initialises from the table's current maximum, so a chain whose rows
+  // predate this code keeps counting from where it left off, and a fresh chain
+  // with no rows starts at 0. The `< availablePrimaryKey` guard makes a
+  // collision impossible even if the counter were ever to fall behind.
+
+  private nextJobId(): u64 {
+    const seq = this.jobSeqSingleton.getOrNull();
+    const fromTable = this.jobsTable.availablePrimaryKey;
+    let next: u64 = seq == null ? fromTable : seq!.next_id;
+    if (next < fromTable) {
+      next = fromTable;
+    }
+    this.jobSeqSingleton.set(new JobSeq(next + 1), this.receiver);
+    return next;
+  }
+
+  private nextServiceId(): u64 {
+    const seq = this.svcSeqSingleton.getOrNull();
+    const fromTable = this.servicesTable.availablePrimaryKey;
+    let next: u64 = seq == null ? fromTable : seq!.next_id;
+    if (next < fromTable) {
+      next = fromTable;
+    }
+    this.svcSeqSingleton.set(new SvcSeq(next + 1), this.receiver);
+    return next;
+  }
 
   private readonly XPR_SYMBOL: Symbol = new Symbol("XPR", 4);
   private readonly TOKEN_CONTRACT: Name = Name.fromString("eosio.token");
@@ -608,7 +689,7 @@ export class AgentEscrowContract extends Contract {
     }
 
     const job = new Job(
-      this.jobsTable.availablePrimaryKey,
+      this.nextJobId(),
       client,
       agent,
       title,
@@ -1312,6 +1393,18 @@ export class AgentEscrowContract extends Contract {
       }
       this.arbitratorsTable.update(arb!, this.receiver);
     } else if (isOwnerFallback) {
+      // Credit the owner for the case they resolved. The owner acts as the
+      // fallback arbitrator, so the work belongs on their arbitrators row like
+      // anyone else's. Only if that row already exists: storing one here would
+      // fabricate an arbitrator record (with zero stake, and `active` set by the
+      // constructor default) for an account that never registered.
+      const ownerArb = this.arbitratorsTable.get(config.owner.N);
+      if (ownerArb != null) {
+        ownerArb.total_cases += 1;
+        ownerArb.successful_cases += 1;
+        this.arbitratorsTable.update(ownerArb, this.receiver);
+      }
+
       // Decrement active_disputes on the designated arbitrator (if any) even for owner fallback
       if (job.arbitrator != EMPTY_NAME) {
         const designatedArb = this.arbitratorsTable.get(job.arbitrator.N);
@@ -1457,6 +1550,57 @@ export class AgentEscrowContract extends Contract {
     }
 
     print(`Job ${job_id} cancelled, ${milestoneCount} milestones deleted`);
+  }
+
+  /**
+   * Seller-initiated cancellation: the agent hands the escrow back to the client.
+   *
+   * Rationale: until now an agent that could not finish a job had exactly one
+   * exit — `dispute` — which needs an arbitrator to resolve. A services-market
+   * purchase carries no arbitrator, so every such dispute escalates to the
+   * contract owner and, in practice, to a multisig. That is a slow multi-party
+   * process for what is a one-sided decision the seller has already made.
+   *
+   * The full unreleased remainder goes back to the client with NO platform fee:
+   * nothing was delivered, so the platform takes nothing. Milestones already
+   * approved stay paid — only what is still in escrow returns.
+   *
+   * No on-chain penalty is applied. Reputation for a cancelled job belongs in
+   * the feedback registry, not here.
+   */
+  @action("agentcancel")
+  agentCancel(agent: Name, job_id: u64, reason: string): void {
+    requireAuth(agent);
+
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+    check(reason.length > 0 && reason.length <= 512, "Reason must be 1-512 characters");
+
+    const job = this.jobsTable.requireGet(job_id, "Job not found");
+    check(job.agent == agent, "Only the assigned agent can cancel");
+    // 1=FUNDED, 2=ACCEPTED, 3=INPROGRESS, 4=DELIVERED.
+    // 0 (CREATED) holds no funds and has no committed agent, 5 (DISPUTED) has
+    // its own resolution path, and 6/7/8 are terminal.
+    check(
+      job.state >= 1 && job.state <= 4,
+      "Job must be funded, accepted, in progress or delivered"
+    );
+
+    check(job.funded_amount >= job.released_amount, "Invalid job state");
+    const refundAmount = job.funded_amount - job.released_amount;
+
+    // CEI PATTERN: all state written before the token transfer, and no check()
+    // afterwards — a revert would roll back the inline transfer with it.
+    job.state = 7; // REFUNDED
+    job.released_amount = job.funded_amount;
+    job.updated_at = currentTimeSec();
+    this.jobsTable.update(job, this.receiver);
+
+    if (refundAmount > 0) {
+      this.sendTokens(job.client, new Asset(refundAmount, this.XPR_SYMBOL), "Agent cancelled - refund");
+    }
+
+    print(`Job ${job_id} cancelled by agent ${agent.toString()}: ${reason}`);
   }
 
   @action("timeout")
@@ -1843,7 +1987,7 @@ export class AgentEscrowContract extends Contract {
 
     const now = currentTimeSec();
     const service = new Service(
-      this.servicesTable.availablePrimaryKey,
+      this.nextServiceId(),
       agent,
       title,
       description,
@@ -1889,6 +2033,7 @@ export class AgentEscrowContract extends Contract {
 
     const service = this.servicesTable.requireGet(service_id, "Service not found");
     check(service.agent == agent, "Only the listing agent can update");
+    check(this.svcBannedTable.get(service_id) == null, "Listing was removed by the platform");
 
     this.validateService(title, description, deliverables, price, turnaround, category, sample_uri, config.min_job_amount);
 
@@ -1931,6 +2076,7 @@ export class AgentEscrowContract extends Contract {
 
     const service = this.servicesTable.requireGet(service_id, "Service not found");
     check(service.agent == agent, "Only the listing agent can relist");
+    check(this.svcBannedTable.get(service_id) == null, "Listing was removed by the platform");
 
     if (!service.active) {
       check(this.countActiveServices(agent) < 10, "Agent already has 10 active services");
@@ -1957,6 +2103,7 @@ export class AgentEscrowContract extends Contract {
 
     const service = this.servicesTable.requireGet(service_id, "Service not found");
     check(service.agent == agent, "Only the listing agent can set inputs");
+    check(this.svcBannedTable.get(service_id) == null, "Listing was removed by the platform");
 
     const existing = this.svcInputsTable.get(service_id);
 
@@ -1988,9 +2135,24 @@ export class AgentEscrowContract extends Contract {
     requireAuth(config.owner);
 
     const service = this.servicesTable.requireGet(service_id, "Service not found");
-    this.servicesTable.remove(service);
 
-    // Drop the listing's input schema with it
+    // SOFT REMOVAL. Deleting the row freed its id for reuse (a later listing
+    // would inherit this one's URL and history) and destroyed the sales record
+    // of every job sold through it. Deactivating takes the listing out of the
+    // catalogue and blocks new purchases and boosts, both of which require
+    // `active`, and frees one of the agent's ten active-listing slots.
+    service.active = false;
+    service.updated_at = currentTimeSec();
+    this.servicesTable.update(service, this.receiver);
+
+    // `relistsvc` would otherwise let the agent switch `active` straight back
+    // on. The ban is a separate table because `services` cannot gain a field.
+    if (this.svcBannedTable.get(service_id) == null) {
+      this.svcBannedTable.store(new ServiceBan(service_id, currentTimeSec()), this.receiver);
+    }
+
+    // Drop the listing's input schema: it only describes a live order form and
+    // the listing can never take another order.
     const inputSchema = this.svcInputsTable.get(service_id);
     if (inputSchema != null) {
       this.svcInputsTable.remove(inputSchema!);
@@ -2206,7 +2368,7 @@ export class AgentEscrowContract extends Contract {
 
       const excess = quantity.amount - price;
       const now = currentTimeSec();
-      const jobId = this.jobsTable.availablePrimaryKey;
+      const jobId = this.nextJobId();
 
       // Buyer notes ride along in the job description; the listing itself is unchanged
       const jobDescription = buyerNotes.length > 0
