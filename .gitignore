@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 package-lock.json
+# ...except the frontend, which Vercel builds from source. Without a committed
+# lockfile `npm install` re-resolves every floating range on each deploy, so the
+# built version drifts from what was reviewed here.
+!frontend/package-lock.json
 
 # Build outputs
 dist/
