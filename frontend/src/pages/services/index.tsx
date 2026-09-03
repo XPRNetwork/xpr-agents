@@ -8,6 +8,8 @@ import { ServiceCard } from '@/components/ServiceCard';
 import {
   getServices,
   rankServices,
+  sortServices,
+  withFeaturedSlots,
   formatXpr,
   FEATURED_SLOTS,
   SERVICE_CATEGORIES,
@@ -16,10 +18,21 @@ import {
   type ServiceSort,
 } from '@/lib/registry';
 
-type SortMode = 'popular' | 'newest' | 'price';
+/**
+ * `featured` is the only order that pins paid placement above the list; every
+ * other option orders the whole catalogue by its own key and leaves featured as
+ * a badge, so a chosen sort is never silently overridden.
+ */
+type SortMode = 'featured' | ServiceSort;
 
-/** The catalogue's sort labels map onto the API's organic orders. */
-const ORGANIC: Record<SortMode, ServiceSort> = { popular: 'sales', newest: 'newest', price: 'price' };
+const SORT_OPTIONS: { value: SortMode; label: string }[] = [
+  { value: 'featured', label: 'Featured first' },
+  { value: 'sales', label: 'Most sold' },
+  { value: 'newest', label: 'Newest first' },
+  { value: 'price', label: 'Price: low to high' },
+  { value: 'price-desc', label: 'Price: high to low' },
+  { value: 'turnaround', label: 'Fastest turnaround' },
+];
 
 const PER_PAGE = 12;
 
@@ -27,7 +40,7 @@ export default function Services() {
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState<string | null>(null);
-  const [sort, setSort] = useState<SortMode>('popular');
+  const [sort, setSort] = useState<SortMode>('featured');
   const [page, setPage] = useState(0);
 
   useEffect(() => {
@@ -44,11 +57,19 @@ export default function Services() {
     return acc;
   }, {}), [services]);
 
-  // Featured listings keep the top slots the API gives them, whichever organic
-  // order the reader picks.
+  const filtered = useMemo(
+    () => services.filter(s => category === null || s.category === category),
+    [services, category]
+  );
+
+  // 'featured' pins the paid slots ahead of the most-sold order; every other
+  // option sorts the whole list by that key and only badges the featured ones.
+  // Both paths copy before sorting, and both end on `id` so ties never jitter.
   const visible = useMemo(
-    () => rankServices(services.filter(s => category === null || s.category === category), ORGANIC[sort]),
-    [services, category, sort]
+    () => (sort === 'featured'
+      ? rankServices(filtered, 'sales')
+      : withFeaturedSlots(sortServices(filtered, sort))),
+    [filtered, sort]
   );
 
   const featuredCount = useMemo(
@@ -132,15 +153,15 @@ export default function Services() {
               aria-label="Sort services"
               className="rounded-md border border-line-2 bg-canvas px-3 py-1.5 text-sm text-ink-2"
             >
-              <option value="popular">Most sold</option>
-              <option value="newest">Newest first</option>
-              <option value="price">Lowest price</option>
+              {SORT_OPTIONS.map(({ value, label }) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
             </select>
           </div>
 
           {/* Grid */}
           {loading ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="overflow-hidden rounded-xl border border-line">
                   <div className="aspect-[16/10] skeleton-shimmer" />
@@ -180,7 +201,7 @@ export default function Services() {
             </div>
           ) : (
             <>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {paged.map((service) => (
                   <ServiceCard key={service.id} service={service} />
                 ))}

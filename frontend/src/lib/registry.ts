@@ -1687,7 +1687,15 @@ function serviceRowsFrom(data: unknown): any[] | null {
   return null;
 }
 
-export type ServiceSort = 'sales' | 'newest' | 'price';
+/**
+ * Organic orders. `sales`, `newest` and `price` are also the values
+ * `/api/services?sort=` understands; the extra client-only keys fall back to
+ * the API default server-side and are applied here.
+ */
+export type ServiceSort = 'sales' | 'newest' | 'price' | 'price-desc' | 'turnaround';
+
+/** The subset of `ServiceSort` that `/api/services?sort=` implements. */
+const API_SERVICE_SORTS = new Set<ServiceSort>(['sales', 'newest', 'price']);
 
 export interface ServiceQuery {
   limit?: number;
@@ -1711,11 +1719,17 @@ export async function getServices(opts: ServiceQuery = {}): Promise<Service[]> {
   if (activeOnly) params.set('active', 'true');
   if (opts.category) params.set('category', opts.category);
   if (opts.agent) params.set('agent', opts.agent);
-  if (opts.sort) params.set('sort', opts.sort);
+  // Only the orders the API implements are worth sending; the rest are applied
+  // below so a client-only sort is never silently served as the API default.
+  const apiSort = opts.sort && API_SERVICE_SORTS.has(opts.sort) ? opts.sort : undefined;
+  if (apiSort) params.set('sort', apiSort);
 
   const data = await indexerFetch<unknown>(`/services?${params.toString()}`);
   const rows = serviceRowsFrom(data);
-  if (rows) return rows.map(serviceFromIndexerRow);
+  if (rows) {
+    const services = rows.map(serviceFromIndexerRow);
+    return opts.sort && !apiSort ? rankServices(services, opts.sort) : services;
+  }
 
   return getServicesRpc({ ...opts, limit, activeOnly });
 }
@@ -2123,28 +2137,58 @@ export function isImageUri(uri: string): boolean {
 /** Featured listings that lead the catalogue, matching the indexer's ranking. */
 export const FEATURED_SLOTS = 3;
 
-const ORGANIC_SORT: Record<ServiceSort, (a: Service, b: Service) => number> = {
+type ServiceComparator = (a: Service, b: Service) => number;
+
+const ORGANIC_SORT: Record<ServiceSort, ServiceComparator> = {
   sales: (a, b) => (b.sales - a.sales) || (b.created_at - a.created_at),
   newest: (a, b) => b.created_at - a.created_at,
   price: (a, b) => a.price - b.price,
+  'price-desc': (a, b) => b.price - a.price,
+  turnaround: (a, b) => a.turnaround - b.turnaround,
 };
+
+/** Every order ends in `id` so ties resolve the same way on every render. */
+function comparatorFor(sort: ServiceSort): ServiceComparator {
+  const organic = ORGANIC_SORT[sort] || ORGANIC_SORT.sales;
+  return (a, b) => organic(a, b) || (a.id - b.id);
+}
+
+/** Copy-then-sort: never reorders the caller's array. */
+export function sortServices(services: Service[], sort: ServiceSort = 'sales'): Service[] {
+  return [...services].sort(comparatorFor(sort));
+}
+
+/**
+ * Stamp `featuredSlot` 1..FEATURED_SLOTS on the running boosts with the highest
+ * lifetime spend (0 on everything else, including a 4th boost) without touching
+ * the order. Keyed on object identity, so it is safe even if two rows share an
+ * id. Only slotted listings get the badge — same rule as `/api/services`.
+ */
+export function withFeaturedSlots(services: Service[]): Service[] {
+  const slots = new Map<Service, number>();
+  services
+    .filter(s => s.featured)
+    .sort((a, b) => (b.boostPaid - a.boostPaid) || (a.id - b.id))
+    .slice(0, FEATURED_SLOTS)
+    .forEach((s, i) => slots.set(s, i + 1));
+  return services.map(s => {
+    const slot = slots.get(s) ?? 0;
+    return s.featuredSlot === slot ? s : { ...s, featuredSlot: slot };
+  });
+}
 
 /**
  * Catalogue order: up to FEATURED_SLOTS running boosts first (highest lifetime
  * boost first), then everything else in the organic order. Same rule as
  * `/api/services`, applied client-side so the RPC fallback and a re-sorted page
- * rank identically.
+ * rank identically. Callers that want the reader's sort to govern the whole
+ * list use `sortServices` + `withFeaturedSlots` instead.
  */
 export function rankServices(services: Service[], sort: ServiceSort = 'sales'): Service[] {
-  const organic = ORGANIC_SORT[sort] || ORGANIC_SORT.sales;
-  const featured = services
-    .filter(s => s.featured)
-    .sort((a, b) => (b.boostPaid - a.boostPaid) || (a.id - b.id))
-    .slice(0, FEATURED_SLOTS);
-  const promoted = new Set(featured.map(s => s.id));
-  const slotted = featured.map((s, i) => ({ ...s, featuredSlot: i + 1 }));
-  const rest = services.filter(s => !promoted.has(s.id)).sort(organic);
-  return [...slotted, ...rest.map(s => (s.featuredSlot ? { ...s, featuredSlot: 0 } : s))];
+  const slotted = withFeaturedSlots(services);
+  const pinned = slotted.filter(s => s.featuredSlot > 0).sort((a, b) => a.featuredSlot - b.featuredSlot);
+  const rest = sortServices(slotted.filter(s => s.featuredSlot === 0), sort);
+  return [...pinned, ...rest];
 }
 
 // ============== SERVICE MARKET CONFIG / LISTING FEE DEPOSITS ==============
