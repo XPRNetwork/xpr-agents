@@ -1,6 +1,7 @@
 import {
   JsonRpc,
   ProtonSession,
+  TransactAction,
   TransactionResult,
   PaginatedResult,
 } from './types';
@@ -132,6 +133,64 @@ export interface BidRaw {
   created_at: string;
 }
 
+export interface Service {
+  id: number;
+  agent: string;
+  title: string;
+  description: string;
+  deliverables: string[];
+  price: number;        // raw units (1 XPR = 10000)
+  turnaround: number;   // seconds
+  category: string;
+  sample_uri: string;
+  active: boolean;
+  sales: number;
+  boostPaid: number;      // lifetime boost total, raw units
+  featuredUntil: number;  // seconds; featured while > now
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ServiceRaw {
+  id: string;
+  agent: string;
+  title: string;
+  description: string;
+  deliverables: string;
+  price: string;
+  turnaround: string;
+  category: string;
+  sample_uri: string;
+  active: number;
+  sales: string;
+  boost_paid?: string;
+  featured_until?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** agentescrow `svcconfig` singleton — listing fee and featured-placement settings */
+export interface ServiceConfig {
+  service_fee: number;  // raw units charged to publish a listing (default 50000 = 5 XPR)
+  boost_min: number;    // minimum boost transfer, raw units (default 10000 = 1 XPR)
+  boost_rate: number;   // raw units that buy one featured day (default 10000 = 1 XPR)
+}
+
+export interface ServiceData {
+  title: string;
+  description: string;
+  deliverables: string[];
+  price: number;        // raw units (1 XPR = 10000)
+  turnaround: number;   // seconds (3600 … 31536000)
+  category?: string;
+  sampleUri?: string;
+}
+
+export interface ServiceListOptions {
+  limit?: number;
+  activeOnly?: boolean;
+}
+
 export interface CreateJobData {
   agent?: string;
   title: string;
@@ -172,6 +231,11 @@ const JOB_STATES: JobState[] = [
   'created', 'funded', 'accepted', 'inprogress',
   'delivered', 'disputed', 'completed', 'refunded', 'arbitrated'
 ];
+// svcconfig defaults, mirrored from the contract, used when the row is unset
+const DEFAULT_SERVICE_FEE = 50000; // 5.0000 XPR to publish a listing
+const DEFAULT_BOOST_MIN = 10000;   // 1.0000 XPR minimum boost
+const DEFAULT_BOOST_RATE = 10000;  // 1.0000 XPR buys one featured day
+
 const MILESTONE_STATES: MilestoneState[] = ['pending', 'submitted', 'approved', 'disputed'];
 const DISPUTE_RESOLUTIONS: DisputeResolution[] = ['pending', 'client_wins', 'agent_wins', 'split'];
 
@@ -1156,12 +1220,337 @@ export class EscrowRegistry {
     });
   }
 
+  // ============== SERVICES ==============
+
+  /**
+   * Read the `svcconfig` singleton (listing fee + featured-placement settings).
+   * Falls back to the contract defaults when the row has not been set yet, so
+   * callers can price a listing before the owner runs `setsvcconfig`.
+   */
+  async getServiceConfig(): Promise<ServiceConfig> {
+    const result = await this.rpc.get_table_rows<{
+      service_fee: string;
+      boost_min: string;
+      boost_rate: string;
+    }>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'svcconfig',
+      limit: 1,
+    });
+
+    const row = result.rows[0];
+    return {
+      service_fee: safeParseInt(row?.service_fee, DEFAULT_SERVICE_FEE),
+      boost_min: safeParseInt(row?.boost_min, DEFAULT_BOOST_MIN),
+      boost_rate: safeParseInt(row?.boost_rate, DEFAULT_BOOST_RATE),
+    };
+  }
+
+  /**
+   * Get a service listing by ID
+   */
+  async getService(id: number): Promise<Service | null> {
+    const result = await this.rpc.get_table_rows<ServiceRaw>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'services',
+      lower_bound: String(id),
+      upper_bound: String(id),
+      limit: 1,
+    });
+
+    if (result.rows.length === 0) return null;
+    return this.parseService(result.rows[0]);
+  }
+
+  /**
+   * List service listings (catalogue). `activeOnly` defaults to true.
+   */
+  async listServices(options: ServiceListOptions = {}): Promise<PaginatedResult<Service>> {
+    const { limit = 100, activeOnly = true } = options;
+
+    const result = await this.rpc.get_table_rows<ServiceRaw>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'services',
+      limit: limit + 1,
+    });
+
+    const hasMore = result.rows.length > limit;
+    const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
+    let services = rows.map(row => this.parseService(row));
+
+    if (activeOnly) {
+      services = services.filter(s => s.active);
+    }
+
+    return {
+      items: services,
+      hasMore,
+      nextCursor: hasMore && rows.length > 0 ? rows[rows.length - 1].id : undefined,
+    };
+  }
+
+  /**
+   * List every service published by an agent (active and delisted)
+   */
+  async listServicesByAgent(agent: string): Promise<Service[]> {
+    const result = await this.rpc.get_table_rows<ServiceRaw>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'services',
+      index_position: 2, // byAgent index
+      key_type: 'name',
+      lower_bound: agent,
+      upper_bound: agent,
+      limit: 100,
+    });
+
+    return result.rows.map(row => this.parseService(row));
+  }
+
+  /**
+   * Publish a service listing (as agent)
+   */
+  async listService(data: ServiceData): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [this.listServiceAction(data)],
+    });
+  }
+
+  /**
+   * Update an existing service listing (as agent)
+   */
+  async updateService(serviceId: number, data: ServiceData): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'updatesvc',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          agent: this.session!.auth.actor,
+          service_id: serviceId,
+          title: data.title,
+          description: data.description,
+          deliverables: JSON.stringify(data.deliverables),
+          price: data.price,
+          turnaround: data.turnaround,
+          category: data.category || '',
+          sample_uri: data.sampleUri || '',
+        },
+      }],
+    });
+  }
+
+  /**
+   * Delist a service (sets active = false; the row is kept for history)
+   */
+  async delistService(serviceId: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'delistsvc',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          agent: this.session!.auth.actor,
+          service_id: serviceId,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Relist a previously delisted service (sets active = true)
+   */
+  async relistService(serviceId: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'relistsvc',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          agent: this.session!.auth.actor,
+          service_id: serviceId,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Pay the listing fee up front: a transfer with memo `svcfee:<agent>` that
+   * credits a `svcdeposits` row. `listsvc` then consumes the deposit.
+   *
+   * @param amountRaw fee in raw units — use `getServiceConfig().service_fee`
+   */
+  async payServiceFee(amountRaw: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [this.serviceFeeAction(amountRaw)],
+    });
+  }
+
+  /**
+   * Reclaim a listing-fee deposit that was never consumed (7 days after payment)
+   */
+  async refundServiceFee(): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'refundsvcfee',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          agent: this.session!.auth.actor,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Pay the listing fee and publish the listing in ONE transaction.
+   * Either both actions apply or neither does, so a failed `listsvc` never
+   * leaves an orphaned deposit behind.
+   */
+  async listServiceWithFee(feeRaw: number, data: ServiceData): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [
+        this.serviceFeeAction(feeRaw),
+        this.listServiceAction(data),
+      ],
+    });
+  }
+
+  /**
+   * Boost a listing into featured placement: a transfer with memo `boost:<id>`.
+   * Each `boost_rate` of raw units buys one featured day. Anyone may boost, but
+   * the listing must be active and its agent must have >= 1 completed job.
+   *
+   * @param amountRaw boost amount in raw units (>= `getServiceConfig().boost_min`)
+   */
+  async boostService(serviceId: number, amountRaw: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: 'eosio.token',
+        name: 'transfer',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          from: this.session!.auth.actor,
+          to: this.contract,
+          quantity: `${(amountRaw / 10000).toFixed(4)} XPR`,
+          memo: `boost:${serviceId}`,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Buy a service: a single XPR transfer with memo `buy:<id>`.
+   * The contract creates and funds the job in the same step.
+   *
+   * @param serviceId listing to buy
+   * @param priceRaw  price in raw units (1 XPR = 10000) — use the listing's `price`
+   */
+  async buyService(serviceId: number, priceRaw: number): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: 'eosio.token',
+        name: 'transfer',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          from: this.session!.auth.actor,
+          to: this.contract,
+          quantity: `${(priceRaw / 10000).toFixed(4)} XPR`,
+          memo: `buy:${serviceId}`,
+        },
+      }],
+    });
+  }
+
   // ============== HELPERS ==============
 
   private requireSession(): void {
     if (!this.session) {
       throw new Error('Session required for write operations');
     }
+  }
+
+  /** `listsvc` action — shared by listService and listServiceWithFee */
+  private listServiceAction(data: ServiceData): TransactAction {
+    return {
+      account: this.contract,
+      name: 'listsvc',
+      authorization: [{
+        actor: this.session!.auth.actor,
+        permission: this.session!.auth.permission,
+      }],
+      data: {
+        agent: this.session!.auth.actor,
+        title: data.title,
+        description: data.description,
+        deliverables: JSON.stringify(data.deliverables),
+        price: data.price,
+        turnaround: data.turnaround,
+        category: data.category || '',
+        sample_uri: data.sampleUri || '',
+      },
+    };
+  }
+
+  /** listing-fee deposit transfer — memo `svcfee:<agent>` */
+  private serviceFeeAction(amountRaw: number): TransactAction {
+    return {
+      account: 'eosio.token',
+      name: 'transfer',
+      authorization: [{
+        actor: this.session!.auth.actor,
+        permission: this.session!.auth.permission,
+      }],
+      data: {
+        from: this.session!.auth.actor,
+        to: this.contract,
+        quantity: `${(amountRaw / 10000).toFixed(4)} XPR`,
+        memo: `svcfee:${this.session!.auth.actor}`,
+      },
+    };
   }
 
   private parseJob(raw: JobRaw): Job {
@@ -1216,6 +1605,36 @@ export class EscrowRegistry {
       timeline: safeParseInt(raw.timeline),
       proposal: raw.proposal,
       created_at: safeParseInt(raw.created_at),
+    };
+  }
+
+  private parseService(raw: ServiceRaw): Service {
+    let deliverables: string[] = [];
+    try {
+      const parsed = JSON.parse(raw.deliverables);
+      if (Array.isArray(parsed)) deliverables = parsed;
+    } catch {
+      deliverables = [];
+    }
+
+    return {
+      id: safeParseInt(raw.id),
+      agent: raw.agent,
+      title: raw.title,
+      description: raw.description,
+      deliverables,
+      price: safeParseInt(raw.price),
+      turnaround: safeParseInt(raw.turnaround),
+      category: raw.category,
+      sample_uri: raw.sample_uri,
+      active: !!raw.active,
+      sales: safeParseInt(raw.sales),
+      // Appended to the chain row after the first services release — absent on
+      // rows written before the boost fields shipped, so default to 0.
+      boostPaid: safeParseInt(raw.boost_paid),
+      featuredUntil: safeParseInt(raw.featured_until),
+      created_at: safeParseInt(raw.created_at),
+      updated_at: safeParseInt(raw.updated_at),
     };
   }
 }

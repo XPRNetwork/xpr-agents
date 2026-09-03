@@ -1,12 +1,16 @@
 /**
- * Escrow tools (20 tools)
+ * Escrow tools (32 tools)
  * Reads: xpr_get_job, xpr_list_jobs, xpr_list_open_jobs, xpr_get_milestones,
- *        xpr_get_job_dispute, xpr_list_arbitrators, xpr_list_bids
+ *        xpr_get_job_dispute, xpr_list_arbitrators, xpr_list_bids,
+ *        xpr_get_service, xpr_list_services
  * Writes: xpr_create_job, xpr_fund_job, xpr_accept_job, xpr_start_job,
- *         xpr_deliver_job, xpr_revise_job, xpr_approve_delivery, xpr_raise_dispute,
+ *         xpr_deliver_job, xpr_deliver_job_nft, xpr_revise_job,
+ *         xpr_approve_delivery, xpr_raise_dispute,
  *         xpr_claim_timeout, xpr_cancel_job,
  *         xpr_submit_milestone, xpr_arbitrate, xpr_resolve_timeout,
- *         xpr_submit_bid, xpr_select_bid, xpr_withdraw_bid
+ *         xpr_submit_bid, xpr_select_bid, xpr_withdraw_bid,
+ *         xpr_list_service, xpr_update_service, xpr_delist_service,
+ *         xpr_relist_service, xpr_buy_service, xpr_boost_service
  */
 
 import { EscrowRegistry } from '@xpr-agents/sdk';
@@ -30,6 +34,47 @@ function jobToXpr(job: Record<string, unknown>): Record<string, unknown> {
     funded_amount_xpr: typeof job.funded_amount === 'number' ? job.funded_amount / 10000 : job.funded_amount,
     released_amount_xpr: typeof job.released_amount === 'number' ? job.released_amount / 10000 : job.released_amount,
   };
+}
+
+/** Convert a service row's raw amounts to XPR and flag featured placement */
+function serviceToXpr(service: Record<string, unknown>): Record<string, unknown> {
+  const now = Math.floor(Date.now() / 1000);
+  const featuredUntil = typeof service.featuredUntil === 'number' ? service.featuredUntil : 0;
+  const boostPaid = typeof service.boostPaid === 'number' ? service.boostPaid : 0;
+  return {
+    ...service,
+    price_xpr: typeof service.price === 'number' ? service.price / 10000 : service.price,
+    boost_paid_xpr: boostPaid / 10000,
+    featured: featuredUntil > now,
+  };
+}
+
+/** Contract default listing fee (5 XPR) — used when svcconfig is unreadable */
+const DEFAULT_SERVICE_FEE_RAW = 50000;
+
+/**
+ * True when a transact() failure looks like the session refusing a
+ * multi-action transaction rather than the chain rejecting the actions.
+ * Only then is retrying as two sequential transactions safe — an EOSIO
+ * transaction is atomic, so a chain-level failure applied nothing and must
+ * surface to the caller instead of being silently retried.
+ */
+function isMultiActionUnsupported(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /multi-?action|multiple actions|single action|one action|batch(ing)? not supported|unsupported action list/i.test(message);
+}
+
+/** Accept a JSON-encoded array as well as a real array (models send both) */
+function normalizeDeliverables(deliverables: string[] | string): string[] {
+  if (Array.isArray(deliverables)) return deliverables;
+  if (typeof deliverables === 'string') {
+    try {
+      const parsed = JSON.parse(deliverables);
+      if (Array.isArray(parsed)) return parsed;
+    } catch { /* fall through */ }
+    return [deliverables];
+  }
+  return [];
 }
 
 function bidToXpr(bid: Record<string, unknown>): Record<string, unknown> {
@@ -803,6 +848,390 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       validatePositiveInt(bid_id, 'bid_id');
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.withdrawBid(bid_id);
+    },
+  });
+
+  // ---- SERVICES ----
+
+  api.registerTool({
+    name: 'xpr_get_service',
+    description: 'Get a fixed-price service listing by ID. price_xpr is the price in XPR, turnaround is in seconds. Buying a service creates and funds a direct-hire job for the listing agent in one step.',
+    parameters: {
+      type: 'object',
+      required: ['id'],
+      properties: {
+        id: { type: 'number', description: 'Service listing ID' },
+      },
+    },
+    handler: async ({ id }: { id: number }) => {
+      validatePositiveInt(id, 'id');
+      const registry = new EscrowRegistry(config.rpc, undefined, contracts.agentescrow);
+      const service = await registry.getService(id);
+      if (!service) {
+        return { error: `Service #${id} not found` };
+      }
+      return serviceToXpr(service as unknown as Record<string, unknown>);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_list_services',
+    description: 'Browse the services catalogue. Filter by agent (their own listings, including delisted ones) or category. Prices are returned as price_xpr in XPR.',
+    parameters: {
+      type: 'object',
+      properties: {
+        agent: { type: 'string', description: 'Filter by selling agent account' },
+        category: {
+          type: 'string',
+          description: 'Filter by category slug (image, data, code, writing, research, nft, defi, other)',
+        },
+        active: { type: 'boolean', description: 'Only active listings (default true)' },
+        limit: { type: 'number', description: 'Max results (default 20, max 100)' },
+      },
+    },
+    handler: async ({ agent, category, active = true, limit = 20 }: {
+      agent?: string;
+      category?: string;
+      active?: boolean;
+      limit?: number;
+    }) => {
+      if (agent) validateAccountName(agent, 'agent');
+      const capped = Math.min(limit, 100);
+      const registry = new EscrowRegistry(config.rpc, undefined, contracts.agentescrow);
+
+      let services;
+      let hasMore = false;
+      if (agent) {
+        services = await registry.listServicesByAgent(agent);
+        if (active) services = services.filter(s => s.active);
+      } else {
+        const result = await registry.listServices({ limit: capped, activeOnly: active });
+        services = result.items;
+        hasMore = result.hasMore;
+      }
+
+      if (category) {
+        services = services.filter(s => s.category === category);
+      }
+
+      return {
+        items: services.slice(0, capped).map(s => serviceToXpr(s as unknown as Record<string, unknown>)),
+        count: Math.min(services.length, capped),
+        hasMore,
+      };
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_list_service',
+    description: 'Publish a fixed-price service listing so buyers can hire you with one click. A purchase arrives as an already-funded direct-hire job — accept, start, deliver as usual. Max 10 active listings per agent. Price is in XPR, turnaround is in seconds (3600 minimum, 31536000 maximum).',
+    parameters: {
+      type: 'object',
+      required: ['title', 'description', 'deliverables', 'price', 'turnaround'],
+      properties: {
+        title: { type: 'string', description: 'Service title (1-128 chars)' },
+        description: { type: 'string', description: 'What the buyer gets (1-2048 chars)' },
+        deliverables: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Exact artifacts you will deliver, e.g. ["logo.svg", "logo.png"]',
+        },
+        price: { type: 'number', description: 'Fixed price in XPR (e.g. 250)' },
+        turnaround: { type: 'number', description: 'Delivery time in seconds (becomes the job deadline)' },
+        category: {
+          type: 'string',
+          description: 'Category slug: image, data, code, writing, research, nft, defi, other',
+        },
+        sample_uri: { type: 'string', description: 'Example output — IPFS/https URL or a JSON manifest' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async (params: {
+      title: string;
+      description: string;
+      deliverables: string[];
+      price: number;
+      turnaround: number;
+      category?: string;
+      sample_uri?: string;
+      confirmed?: boolean;
+    }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validateRequired(params.title, 'title');
+      validateRequired(params.description, 'description');
+      if (params.price <= 0) throw new Error('price must be positive');
+      validatePositiveInt(params.turnaround, 'turnaround');
+
+      // Publishing costs config.service_fee, paid as a `svcfee:` deposit that
+      // listsvc then consumes. Read the live fee so a config change doesn't
+      // silently underpay; fall back to the contract default if svcconfig is
+      // unset or the RPC read fails.
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      let feeRaw = DEFAULT_SERVICE_FEE_RAW;
+      try {
+        feeRaw = (await registry.getServiceConfig()).service_fee;
+      } catch {
+        // svcconfig unreadable — the default matches the contract's own default
+      }
+      // Same enforcement path as xpr_fund_job / xpr_buy_service.
+      validateAmount(feeRaw, config.maxTransferAmount);
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        params.confirmed,
+        'List Service',
+        {
+          title: params.title,
+          price: `${params.price} XPR`,
+          turnaround: params.turnaround,
+          listing_fee: `${feeRaw / 10000} XPR`,
+        },
+        `Publish "${params.title}" at ${params.price} XPR with a ${params.turnaround}s turnaround — costs a ${feeRaw / 10000} XPR listing fee`
+      );
+      if (confirmation) return confirmation;
+
+      const data = {
+        title: params.title,
+        description: params.description,
+        deliverables: normalizeDeliverables(params.deliverables),
+        price: xprToSmallestUnits(params.price),
+        turnaround: params.turnaround,
+        category: params.category || '',
+        sampleUri: params.sample_uri || '',
+      };
+
+      // One atomic transaction is the safe path: if listsvc fails, the fee
+      // transfer rolls back with it and no orphaned deposit is left behind.
+      try {
+        const result = await registry.listServiceWithFee(feeRaw, data);
+        return { ...result, listing_fee_xpr: feeRaw / 10000, fee_transaction: 'combined' };
+      } catch (err) {
+        if (!isMultiActionUnsupported(err)) throw err;
+        // Session can't batch actions — pay the deposit, then list. The deposit
+        // is reclaimable with refundsvcfee if the second step fails.
+        const feeResult = await registry.payServiceFee(feeRaw);
+        const listResult = await registry.listService(data);
+        return {
+          ...listResult,
+          listing_fee_xpr: feeRaw / 10000,
+          fee_transaction: feeResult.transaction_id,
+        };
+      }
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_update_service',
+    description: 'Update one of your service listings. All fields are replaced, so send the full listing. Does not change active status or sales count.',
+    parameters: {
+      type: 'object',
+      required: ['service_id', 'title', 'description', 'deliverables', 'price', 'turnaround'],
+      properties: {
+        service_id: { type: 'number', description: 'Service listing ID to update' },
+        title: { type: 'string', description: 'Service title (1-128 chars)' },
+        description: { type: 'string', description: 'What the buyer gets (1-2048 chars)' },
+        deliverables: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Exact artifacts you will deliver',
+        },
+        price: { type: 'number', description: 'Fixed price in XPR' },
+        turnaround: { type: 'number', description: 'Delivery time in seconds' },
+        category: { type: 'string', description: 'Category slug' },
+        sample_uri: { type: 'string', description: 'Example output URI' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async (params: {
+      service_id: number;
+      title: string;
+      description: string;
+      deliverables: string[];
+      price: number;
+      turnaround: number;
+      category?: string;
+      sample_uri?: string;
+      confirmed?: boolean;
+    }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validatePositiveInt(params.service_id, 'service_id');
+      validateRequired(params.title, 'title');
+      validateRequired(params.description, 'description');
+      if (params.price <= 0) throw new Error('price must be positive');
+      validatePositiveInt(params.turnaround, 'turnaround');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        params.confirmed,
+        'Update Service',
+        { service_id: params.service_id, title: params.title, price: `${params.price} XPR` },
+        `Replace listing #${params.service_id} with "${params.title}" at ${params.price} XPR`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.updateService(params.service_id, {
+        title: params.title,
+        description: params.description,
+        deliverables: normalizeDeliverables(params.deliverables),
+        price: xprToSmallestUnits(params.price),
+        turnaround: params.turnaround,
+        category: params.category || '',
+        sampleUri: params.sample_uri || '',
+      });
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_delist_service',
+    description: 'Take one of your service listings off the catalogue. The row is kept for history and can be relisted later.',
+    parameters: {
+      type: 'object',
+      required: ['service_id'],
+      properties: {
+        service_id: { type: 'number', description: 'Service listing ID to delist' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ service_id, confirmed }: { service_id: number; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validatePositiveInt(service_id, 'service_id');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Delist Service',
+        { service_id },
+        `Remove listing #${service_id} from the services catalogue`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.delistService(service_id);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_relist_service',
+    description: 'Put a previously delisted service back on the catalogue. The 10-active-listing limit applies.',
+    parameters: {
+      type: 'object',
+      required: ['service_id'],
+      properties: {
+        service_id: { type: 'number', description: 'Service listing ID to relist' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ service_id, confirmed }: { service_id: number; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validatePositiveInt(service_id, 'service_id');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Relist Service',
+        { service_id },
+        `Put listing #${service_id} back on the services catalogue`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.relistService(service_id);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_buy_service',
+    description: 'Buy a service listing with a single XPR transfer (memo buy:<id>). The contract creates and funds a direct-hire job for the selling agent in the same transaction — track it with xpr_list_jobs. Pass the price you saw on the listing (in XPR); the purchase is rejected if the on-chain price is higher.',
+    parameters: {
+      type: 'object',
+      required: ['service_id', 'price'],
+      properties: {
+        service_id: { type: 'number', description: 'Service listing ID to buy' },
+        price: { type: 'number', description: 'Price in XPR as shown on the listing (price_xpr from xpr_get_service)' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ service_id, price, confirmed }: { service_id: number; price: number; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validatePositiveInt(service_id, 'service_id');
+      if (price <= 0) throw new Error('price must be positive');
+      // Same enforcement path as xpr_fund_job: per-call cap + aggregate session cap.
+      validateAmount(xprToSmallestUnits(price), config.maxTransferAmount);
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      const service = await registry.getService(service_id);
+      if (!service) return { error: `Service #${service_id} not found` };
+      if (!service.active) return { error: `Service #${service_id} is delisted and cannot be bought` };
+      if (service.price > xprToSmallestUnits(price)) {
+        return {
+          error: `Service #${service_id} now costs ${service.price / 10000} XPR, more than the ${price} XPR you approved. Re-read the listing and try again.`,
+        };
+      }
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Buy Service',
+        { service_id, title: service.title, agent: service.agent, price: `${service.price / 10000} XPR` },
+        `Send ${service.price / 10000} XPR to buy "${service.title}" from ${service.agent} — this creates and funds a job`
+      );
+      if (confirmation) return confirmation;
+
+      return registry.buyService(service_id, service.price);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_boost_service',
+    description: 'Boost a service listing into featured placement with an XPR transfer (memo boost:<id>). Each boost_rate of XPR (1 XPR by default) buys one featured day, added on top of any time already bought. Anyone can boost any listing, but the listing must be active and its agent must have completed at least one job. Only the top 3 featured listings show above the organic catalogue, ranked by lifetime boost_paid — featuring is rarely worth it before you have completed jobs and reviews.',
+    parameters: {
+      type: 'object',
+      required: ['service_id', 'amount'],
+      properties: {
+        service_id: { type: 'number', description: 'Service listing ID to feature' },
+        amount: { type: 'number', description: 'Boost amount in XPR (must be at least boost_min, 1 XPR by default)' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ service_id, amount, confirmed }: { service_id: number; amount: number; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validatePositiveInt(service_id, 'service_id');
+      if (amount <= 0) throw new Error('amount must be positive');
+      // Same enforcement path as xpr_fund_job / xpr_buy_service.
+      const amountRaw = xprToSmallestUnits(amount);
+      validateAmount(amountRaw, config.maxTransferAmount);
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      const service = await registry.getService(service_id);
+      if (!service) return { error: `Service #${service_id} not found` };
+      if (!service.active) return { error: `Service #${service_id} is delisted and cannot be boosted` };
+
+      let boostMin = 10000;
+      let boostRate = 10000;
+      try {
+        const svcConfig = await registry.getServiceConfig();
+        boostMin = svcConfig.boost_min;
+        boostRate = svcConfig.boost_rate;
+      } catch {
+        // svcconfig unreadable — the defaults match the contract's own
+      }
+      if (amountRaw < boostMin) {
+        return { error: `Boost must be at least ${boostMin / 10000} XPR (boost_min)` };
+      }
+
+      const days = Math.floor(amountRaw / boostRate);
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Boost Service',
+        { service_id, title: service.title, amount: `${amount} XPR`, featured_days: days },
+        `Send ${amount} XPR to feature "${service.title}" for about ${days} day(s)`
+      );
+      if (confirmation) return confirmation;
+
+      const result = await registry.boostService(service_id, amountRaw);
+      return { ...result, featured_days: days, boost_xpr: amount };
     },
   });
 }

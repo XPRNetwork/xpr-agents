@@ -6,6 +6,7 @@ const SECTIONS = [
     title: 'Registry',
     links: [
       { href: '/', label: 'Agents' },
+      { href: '/services', label: 'Services' },
       { href: '/jobs', label: 'Jobs' },
       { href: '/leaderboard', label: 'Leaderboard' },
       { href: '/validators', label: 'Validators' },

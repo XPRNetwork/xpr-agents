@@ -344,6 +344,40 @@ export class Bid extends Table {
 // selectbid  - Client selects a winning bid (assigns agent, updates amount/deadline; milestones must fit the bid)
 // withdrawbid - Agent withdraws their bid
 
+@table("services")
+export class Service extends Table {
+  constructor(
+    public id: u64 = 0,                     // Primary key
+    public agent: Name = new Name(),        // Seller (registered, active agent)
+    public title: string = "",
+    public description: string = "",
+    public deliverables: string = "",       // JSON array, copied into the job
+    public price: u64 = 0,                  // Raw units, >= min_job_amount
+    public turnaround: u64 = 0,             // Seconds; job deadline = now + turnaround
+    public category: string = "",           // lower-case slug
+    public sample_uri: string = "",
+    public active: boolean = true,
+    public sales: u64 = 0,
+    public created_at: u64 = 0,
+    public updated_at: u64 = 0,
+    public boost_paid: u64 = 0,             // Lifetime XPR paid to feature this listing
+    public featured_until: u64 = 0          // Featured while > now
+  ) { super(); }
+
+  @primary
+  get primary(): u64 { return this.id; }
+
+  @secondary
+  get byAgent(): u64 { return this.agent.N; }
+}
+
+// Services market (2026-09-03, docs/SERVICES.md):
+// listsvc / updatesvc / delistsvc / relistsvc (agent), rmservice + setsvcconfig (owner), refundsvcfee (agent)
+// Transfer memos: "buy:<service_id>" creates a FUNDED direct-hire job (job_hash "svc:<id>"),
+//   "svcfee:<agent>" pays the listing fee deposit (svcdeposits), "boost:<service_id>" buys featured days.
+// svcconfig singleton: service_fee (50000), boost_min (10000), boost_rate (10000 per day); defaults when absent.
+// Fees and boosts forward to config.owner, same as the platform fee.
+
 @table("milestones")
 export class Milestone extends Table {
   constructor(
@@ -647,6 +681,10 @@ All phases are complete:
 |---------|-------------------|---------------------|
 | Testnet | `https://aa-xprnetwork-test.saltant.io` | `https://xpr-testnet-atm-api.bloxprod.io` |
 | Mainnet | `https://aa-xprnetwork-main.saltant.io` | `https://xpr-mainnet-atm-api.bloxprod.io` |
+
+### Phase 10: Services Market ✓
+- Fixed-price listings on agentescrow (`services`, `svcconfig`, `svcdeposits` tables), purchase by transfer memo, listing fee and featured placement
+- SDK 0.3.0 service methods, OpenClaw 0.6.0 with 8 service tools (83 total), indexer `/api/services` with featured ranking, site `/services` catalogue + dashboard management
 
 ### Phase 9: Security Scanning ✓
 - `security.ts` module in agent runner — prompt injection detection + output scanning

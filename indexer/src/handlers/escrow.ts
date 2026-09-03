@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
 import { updateStats } from '../db/schema';
 import { WebhookDispatcher } from '../webhooks/dispatcher';
-import { pendingCorrections, fetchOnChainId, safeCorrect, type RetargetSpec } from './id-correction';
+import { pendingCorrections, fetchOnChainId, getRpcEndpoint, safeCorrect, type RetargetSpec } from './id-correction';
 
 /** Foreign-key topology for escrow tables (used by safeCorrect to update FK columns). */
 const JOBS_SPEC: RetargetSpec = {
@@ -15,6 +15,8 @@ const JOBS_SPEC: RetargetSpec = {
   ],
 };
 const BIDS_SPEC: RetargetSpec = { primaryTable: 'bids', fkRefs: [] };
+/** Services are referenced by jobs only through job_hash = 'svc:<id>' (a string), never by FK column. */
+const SERVICES_SPEC: RetargetSpec = { primaryTable: 'services', fkRefs: [] };
 const MILESTONES_SPEC: RetargetSpec = { primaryTable: 'milestones', fkRefs: [] };
 const DISPUTES_SPEC: RetargetSpec = { primaryTable: 'escrow_disputes', fkRefs: [] };
 
@@ -29,6 +31,23 @@ async function fetchOnChainJobId(
 ): Promise<number | null> {
   return fetchOnChainId(escrowContract, 'jobs', (row) =>
     row.client === client && row.title === title && (row.job_hash || '') === (jobHash || '')
+  );
+}
+
+/**
+ * Fetch the real on-chain service ID for a freshly listed service.
+ *
+ * `fetchOnChainId` scans the `services` table in reverse from the primary
+ * index, so the newest rows come first — the agent's just-listed row is
+ * among them. Matching on agent + title picks it out.
+ */
+async function fetchOnChainServiceId(
+  escrowContract: string,
+  agent: string,
+  title: string,
+): Promise<number | null> {
+  return fetchOnChainId(escrowContract, 'services', (row) =>
+    row.agent === agent && (row.title || '') === (title || '')
   );
 }
 
@@ -233,6 +252,21 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
       break;
     case 'removejob':
       handleRemoveJob(db, data);
+      break;
+    case 'listsvc':
+      handleListService(db, { ...data, _escrowContract: action.act.account }, action.timestamp);
+      break;
+    case 'updatesvc':
+      handleUpdateService(db, data);
+      break;
+    case 'delistsvc':
+      handleSetServiceActive(db, data, false);
+      break;
+    case 'relistsvc':
+      handleSetServiceActive(db, data, true);
+      break;
+    case 'rmservice':
+      handleRemoveService(db, data);
       break;
     case 'cleanjobs':
       handleCleanJobs(db, data);
@@ -800,6 +834,138 @@ function handleRemoveJob(db: Database.Database, data: any): void {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Services (fixed-price listings)                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * listsvc — an agent publishes a fixed-price service.
+ *
+ * The action data carries no primary key, so the row is inserted with a
+ * synthetic MAX(id)+1 ID (existing practice, see handleCreateJob) and an
+ * async RPC correction is scheduled to replace it with the real on-chain ID
+ * read from the newest `services` rows for that agent. With no RPC endpoint
+ * configured the synthetic ID stands, exactly like jobs/bids/milestones.
+ */
+function handleListService(db: Database.Database, data: any, timestamp: string): void {
+  const createdAt = Math.floor(new Date(timestamp).getTime() / 1000);
+  const agent = data.agent;
+  const title = data.title || '';
+
+  // Skip if this listing was already seeded by syncFromChain (same agent,
+  // same title, still active) — mirrors the createjob dedup check.
+  const existing = db.prepare(
+    'SELECT id FROM services WHERE agent = ? AND title = ? AND active = 1'
+  ).get(agent, title) as { id: number } | undefined;
+  if (existing) {
+    console.log(`Service already exists (ID ${existing.id}) — skipping duplicate listsvc for "${title}"`);
+    return;
+  }
+
+  const result = db.prepare('SELECT MAX(id) as max_id FROM services').get() as { max_id: number | null };
+  const tempId = (result.max_id || 0) + 1;
+
+  db.prepare(`
+    INSERT INTO services (id, agent, title, description, deliverables, price, turnaround, category, sample_uri, active, sales, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)
+  `).run(
+    tempId,
+    agent,
+    title,
+    data.description || '',
+    data.deliverables || '[]',
+    data.price || 0,
+    data.turnaround || 0,
+    data.category || '',
+    data.sample_uri || '',
+    createdAt,
+    createdAt,
+  );
+
+  console.log(`Service listed: ${tempId} (temp) by ${agent} — "${title}"`);
+
+  const escrowContract = data._escrowContract || 'agentescrow';
+  pendingCorrections.push(async () => {
+    const realId = await fetchOnChainServiceId(escrowContract, agent, title);
+    if (realId == null) {
+      console.warn(`Service ID correction failed for temp ID ${tempId} — RPC lookup returned null`);
+      return;
+    }
+    if (realId === tempId) return;
+
+    safeCorrect(db, SERVICES_SPEC, tempId, realId, (displacedId, displacedRow) => {
+      const dAgent = String(displacedRow.agent || '');
+      const dTitle = String(displacedRow.title || '');
+      pendingCorrections.push(async () => {
+        const displacedRealId = await fetchOnChainServiceId(escrowContract, dAgent, dTitle);
+        if (displacedRealId == null || displacedRealId === displacedId) return;
+        safeCorrect(db, SERVICES_SPEC, displacedId, displacedRealId);
+      });
+    });
+    console.log(`Service ID corrected: ${tempId} → ${realId} (${title})`);
+  });
+}
+
+/** updatesvc — the seller edits a listing. `active` and `sales` are untouched. */
+function handleUpdateService(db: Database.Database, data: any): void {
+  const serviceId = Number(data.service_id);
+  if (!Number.isFinite(serviceId)) return;
+
+  const result = db.prepare(`
+    UPDATE services
+    SET title = ?, description = ?, deliverables = ?, price = ?, turnaround = ?,
+        category = ?, sample_uri = ?, updated_at = strftime('%s', 'now')
+    WHERE id = ? AND agent = ?
+  `).run(
+    data.title || '',
+    data.description || '',
+    data.deliverables || '[]',
+    data.price || 0,
+    data.turnaround || 0,
+    data.category || '',
+    data.sample_uri || '',
+    serviceId,
+    data.agent,
+  );
+
+  if (result.changes > 0) {
+    console.log(`Service ${serviceId} updated by ${data.agent}`);
+  } else {
+    console.log(`Service ${serviceId} updated but not found in indexer (agent ${data.agent})`);
+  }
+}
+
+/** delistsvc / relistsvc — toggle catalogue visibility; the row is kept for history. */
+function handleSetServiceActive(db: Database.Database, data: any, active: boolean): void {
+  const serviceId = Number(data.service_id);
+  if (!Number.isFinite(serviceId)) return;
+
+  const result = db.prepare(`
+    UPDATE services SET active = ?, updated_at = strftime('%s', 'now')
+    WHERE id = ? AND agent = ?
+  `).run(active ? 1 : 0, serviceId, data.agent);
+
+  if (result.changes > 0) {
+    console.log(`Service ${serviceId} ${active ? 'relisted' : 'delisted'} by ${data.agent}`);
+  } else {
+    console.log(`Service ${serviceId} ${active ? 'relist' : 'delist'} but not found in indexer`);
+  }
+}
+
+/** rmservice — admin (config.owner) removes a spam/abusive listing; the chain deletes the row. */
+function handleRemoveService(db: Database.Database, data: any): void {
+  const serviceId = Number(data.service_id);
+  if (!Number.isFinite(serviceId)) return;
+
+  const before = db.prepare('SELECT agent, title FROM services WHERE id = ?').get(serviceId) as
+    | { agent: string; title: string }
+    | undefined;
+  db.prepare('DELETE FROM services WHERE id = ?').run(serviceId);
+  console.log(
+    `Service ${serviceId} removed (admin)${before ? ` — was "${before.title}" by ${before.agent}` : ''}`,
+  );
+}
+
 function handleSelectBid(db: Database.Database, data: any): void {
   // Look up the bid to get agent + job_id
   const bid = db.prepare('SELECT agent, job_id, amount, timeline FROM bids WHERE id = ?').get(data.bid_id) as { agent: string; job_id: number; amount: number; timeline: number } | undefined;
@@ -893,6 +1059,343 @@ function logEvent(db: Database.Database, action: StreamAction): void {
 }
 
 /**
+ * Log a derived event (not a chain action) into the events table, e.g.
+ * `service.bought`, which is produced by a transfer notification rather than
+ * by an action of its own.
+ */
+function logDerivedEvent(
+  db: Database.Database,
+  action: StreamAction,
+  eventName: string,
+  contract: string,
+  data: Record<string, unknown>,
+): void {
+  const timestamp = Math.floor(new Date(action.timestamp).getTime() / 1000);
+  db.prepare(`
+    INSERT INTO events (block_num, transaction_id, action_name, contract, data, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(action.block_num, action.trx_id, eventName, contract, JSON.stringify(data), timestamp);
+}
+
+/**
+ * Fetch the real on-chain job ID for a service purchase: the buyer's newest
+ * job carrying job_hash = "svc:<service_id>". `fetchOnChainId` scans the jobs
+ * table in reverse (newest primary keys first), so the job the purchase just
+ * created is the first match.
+ */
+async function fetchOnChainPurchaseJobId(
+  escrowContract: string,
+  client: string,
+  jobHash: string,
+): Promise<number | null> {
+  return fetchOnChainId(escrowContract, 'jobs', (row) =>
+    row.client === client && (row.job_hash || '') === jobHash
+  );
+}
+
+/**
+ * Service purchase (transfer memo "buy:<service_id>").
+ *
+ * On chain the transfer creates a direct-hire job that is already funded, so
+ * the indexer mirrors it as an ordinary `jobs` row — every later action
+ * (acceptjob / startjob / deliver / revise / approve / dispute …) then works
+ * on it unchanged, because those handlers only need the row to exist.
+ *
+ * Job ID resolution: the transfer carries no job ID, so the row is inserted
+ * with a synthetic MAX(id)+1 and an async RPC lookup replaces it with the
+ * real on-chain ID (the buyer's newest job with job_hash = "svc:<id>"). If no
+ * RPC endpoint is configured the synthetic ID stands and a warning is logged.
+ * The `service.bought` event and webhook are emitted from that same async step
+ * so they always carry the final job ID.
+ */
+function handleServicePurchase(
+  db: Database.Database,
+  action: StreamAction,
+  escrowContract: string,
+  from: string,
+  amountStr: string,
+  dispatcher?: WebhookDispatcher,
+): void {
+  const memo: string = action.act.data.memo;
+  const serviceId = parseInt(memo.substring(4), 10);
+  if (isNaN(serviceId)) {
+    console.warn(`[services] Ignoring malformed buy memo: "${memo}"`);
+    return;
+  }
+
+  const service = db.prepare('SELECT * FROM services WHERE id = ?').get(serviceId) as
+    | {
+        id: number;
+        agent: string;
+        title: string;
+        description: string;
+        deliverables: string;
+        price: number;
+        turnaround: number;
+      }
+    | undefined;
+
+  if (!service) {
+    console.warn(`[services] Purchase of unknown service ${serviceId} by ${from} — job not indexed`);
+    return;
+  }
+
+  const now = Math.floor(new Date(action.timestamp).getTime() / 1000);
+  const jobHash = `svc:${serviceId}`;
+
+  // Replay guard: a re-processed transfer must neither double-count the sale
+  // nor insert the job twice, so both writes sit behind this check.
+  const existing = db.prepare(
+    'SELECT id FROM jobs WHERE client = ? AND job_hash = ? AND created_at = ?'
+  ).get(from, jobHash, now) as { id: number } | undefined;
+  if (existing) {
+    console.log(`Service purchase job already exists (ID ${existing.id}) — skipping duplicate buy:${serviceId}`);
+    return;
+  }
+
+  const result = db.prepare('SELECT MAX(id) as max_id FROM jobs').get() as { max_id: number | null };
+  const tempId = (result.max_id || 0) + 1;
+
+  // state = 1 (FUNDED), funded by the purchase transfer itself.
+  db.prepare(`
+    INSERT INTO jobs (id, client, agent, title, description, deliverables, amount, symbol, funded_amount, released_amount, state, deadline, arbitrator, job_hash, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'XPR', ?, 0, 1, ?, '', ?, ?, ?)
+  `).run(
+    tempId,
+    from,
+    service.agent,
+    service.title || '',
+    service.description || '',
+    service.deliverables || '[]',
+    service.price || 0,
+    service.price || 0,
+    now + (service.turnaround || 0),
+    jobHash,
+    now,
+    now,
+  );
+
+  // Chain increments sales only — updated_at stays at the last edit, so mirror that.
+  db.prepare('UPDATE services SET sales = sales + 1 WHERE id = ?').run(serviceId);
+
+  console.log(
+    `Service ${serviceId} bought by ${from} for ${amountStr} — job ${tempId} (temp) for ${service.agent}`,
+  );
+
+  const agent = service.agent;
+  const title = service.title || '';
+  const price = service.price || 0;
+  const blockNum = action.block_num;
+
+  pendingCorrections.push(async () => {
+    const realId = await fetchOnChainPurchaseJobId(escrowContract, from, jobHash);
+    let jobId = tempId;
+
+    if (realId == null) {
+      console.warn(
+        `[services] Job ID lookup failed for service ${serviceId} purchase — ` +
+        `keeping synthetic ID ${tempId} (RPC unavailable or job not found)`,
+      );
+    } else if (realId !== tempId) {
+      safeCorrect(db, JOBS_SPEC, tempId, realId, (displacedId, displacedRow) => {
+        const dClient = String(displacedRow.client || '');
+        const dTitle = String(displacedRow.title || '');
+        const dJobHash = String(displacedRow.job_hash || '');
+        pendingCorrections.push(async () => {
+          const displacedRealId = await fetchOnChainJobId(escrowContract, dClient, dTitle, dJobHash);
+          if (displacedRealId == null || displacedRealId === displacedId) return;
+          safeCorrect(db, JOBS_SPEC, displacedId, displacedRealId);
+        });
+      });
+      jobId = realId;
+      console.log(`Job ID corrected: ${tempId} → ${realId} (service ${serviceId} purchase)`);
+    } else {
+      jobId = realId;
+    }
+
+    const payload = {
+      service_id: serviceId,
+      job_id: jobId,
+      agent,
+      client: from,
+      title,
+      price,
+      quantity: amountStr,
+    };
+
+    logDerivedEvent(db, action, 'service.bought', escrowContract, payload);
+
+    dispatcher?.dispatch(
+      'service.bought',
+      [agent, from],
+      payload,
+      `Service #${serviceId} "${title}" bought by ${from} — job #${jobId} funded with ${price / 10000} XPR`,
+      blockNum,
+    );
+  });
+}
+
+/** Boost rate: 1 XPR (10000 raw units) buys one featured day. */
+const BOOST_RATE_PER_DAY = 10000;
+const SECONDS_PER_DAY = 86400;
+
+/**
+ * Read one `services` row straight from the chain (primary key lookup).
+ * Returns null when no RPC endpoint is configured or the read fails, so
+ * callers fall back to their locally computed value.
+ */
+async function fetchOnChainServiceRow(
+  escrowContract: string,
+  serviceId: number,
+): Promise<Record<string, any> | null> {
+  const rpcEndpoint = getRpcEndpoint();
+  if (!rpcEndpoint) return null;
+  try {
+    const res = await fetch(`${rpcEndpoint}/v1/chain/get_table_rows`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: escrowContract,
+        table: 'services',
+        scope: escrowContract,
+        json: true,
+        lower_bound: String(serviceId),
+        upper_bound: String(serviceId),
+        limit: 1,
+      }),
+    });
+    const data = (await res.json()) as { rows?: any[] };
+    const row = data.rows && data.rows[0];
+    if (!row) return null;
+    return Number(row.id) === serviceId ? row : null;
+  } catch (err) {
+    console.warn(`[services] Failed to read service ${serviceId} from chain:`, err);
+    return null;
+  }
+}
+
+/**
+ * Featured placement (transfer memo "boost:<service_id>").
+ *
+ * `boost_paid` accumulates the lifetime spend and each 1 XPR adds a day of
+ * featured placement, counted from `max(now, featured_until)` so consecutive
+ * boosts extend rather than reset. The contract owns the real arithmetic, so
+ * an async RPC read of the chain row overwrites both fields with the
+ * authoritative values whenever an endpoint is configured; without RPC the
+ * locally computed values stand.
+ */
+function handleServiceBoost(
+  db: Database.Database,
+  action: StreamAction,
+  escrowContract: string,
+  from: string,
+  amount: number,
+  amountStr: string,
+  dispatcher?: WebhookDispatcher,
+): void {
+  const memo: string = action.act.data.memo;
+  const serviceId = parseInt(memo.substring(6), 10);
+  if (isNaN(serviceId)) {
+    console.warn(`[services] Ignoring malformed boost memo: "${memo}"`);
+    return;
+  }
+
+  const service = db.prepare('SELECT * FROM services WHERE id = ?').get(serviceId) as
+    | { id: number; agent: string; title: string; boost_paid: number; featured_until: number }
+    | undefined;
+
+  if (!service) {
+    console.warn(`[services] Boost of unknown service ${serviceId} by ${from} — ignored`);
+    return;
+  }
+
+  const now = Math.floor(new Date(action.timestamp).getTime() / 1000);
+  const days = Math.floor(amount / BOOST_RATE_PER_DAY);
+  const base = Math.max(now, service.featured_until || 0);
+  const featuredUntil = base + days * SECONDS_PER_DAY;
+
+  db.prepare(`
+    UPDATE services
+    SET boost_paid = boost_paid + ?, featured_until = ?, updated_at = ?
+    WHERE id = ?
+  `).run(amount, featuredUntil, now, serviceId);
+
+  console.log(
+    `Service ${serviceId} boosted by ${from} with ${amountStr} (+${days}d, featured until ${featuredUntil})`,
+  );
+
+  const payload = {
+    service_id: serviceId,
+    agent: service.agent,
+    booster: from,
+    title: service.title,
+    amount,
+    quantity: amountStr,
+    days,
+    featured_until: featuredUntil,
+  };
+
+  logDerivedEvent(db, action, 'service.boosted', escrowContract, payload);
+
+  dispatcher?.dispatch(
+    'service.boosted',
+    [service.agent, from],
+    payload,
+    `Service #${serviceId} "${service.title}" boosted by ${from} with ${amountStr} (+${days} day${days === 1 ? '' : 's'})`,
+    action.block_num,
+  );
+
+  // Reconcile against the chain row: the contract is the source of truth for
+  // boost_paid and featured_until (config.boost_rate can differ from the
+  // default assumed above).
+  pendingCorrections.push(async () => {
+    const row = await fetchOnChainServiceRow(escrowContract, serviceId);
+    if (!row) return;
+    const chainBoostPaid = Number(row.boost_paid ?? 0);
+    const chainFeaturedUntil = Number(row.featured_until ?? 0);
+    if (!Number.isFinite(chainBoostPaid) || !Number.isFinite(chainFeaturedUntil)) return;
+    db.prepare('UPDATE services SET boost_paid = ?, featured_until = ? WHERE id = ?').run(
+      chainBoostPaid,
+      chainFeaturedUntil,
+      serviceId,
+    );
+    if (chainFeaturedUntil !== featuredUntil || chainBoostPaid !== service.boost_paid + amount) {
+      console.log(
+        `Service ${serviceId} boost reconciled from chain: boost_paid=${chainBoostPaid}, featured_until=${chainFeaturedUntil}`,
+      );
+    }
+  });
+}
+
+/**
+ * Listing-fee deposit (transfer memo "svcfee:<agent>").
+ *
+ * Deposits are held in the contract's `svcdeposits` table until the next
+ * `listsvc` consumes them (or `refundsvcfee` returns them); the indexer keeps
+ * no mirror of that balance, so this only records the event.
+ */
+function handleServiceFeeDeposit(
+  db: Database.Database,
+  action: StreamAction,
+  escrowContract: string,
+  from: string,
+  amount: number,
+  amountStr: string,
+): void {
+  const memo: string = action.act.data.memo;
+  const agent = memo.substring(7) || from;
+
+  logDerivedEvent(db, action, 'service.fee_paid', escrowContract, {
+    agent,
+    payer: from,
+    amount,
+    quantity: amountStr,
+  });
+
+  console.log(`Listing fee deposit of ${amountStr} from ${from} for ${agent} (no mirror state)`);
+}
+
+/**
  * Handle eosio.token::transfer notifications to/from agentescrow
  *
  * Funding tracking:
@@ -935,6 +1438,17 @@ export function handleEscrowTransfer(db: Database.Database, action: StreamAction
           action.block_num
         );
       }
+    } else if (memo.startsWith('buy:')) {
+      // Service purchase: memo = "buy:SERVICE_ID" — creates a funded job
+      handleServicePurchase(db, action, escrowContract, from, amountStr, dispatcher);
+    } else if (memo.startsWith('boost:')) {
+      // Featured placement: memo = "boost:SERVICE_ID"
+      handleServiceBoost(db, action, escrowContract, from, amount, amountStr, dispatcher);
+    } else if (memo.startsWith('svcfee:')) {
+      // Listing-fee deposit: memo = "svcfee:AGENT". The deposit lives in the
+      // contract's svcdeposits table and is consumed by the next listsvc, so
+      // there is no mirror state to change — record the event and move on.
+      handleServiceFeeDeposit(db, action, escrowContract, from, amount, amountStr);
     } else if (memo === 'arbstake' || memo.startsWith('arbstake:')) {
       // Arbitrator staking
       const stmt = db.prepare(`

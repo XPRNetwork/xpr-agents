@@ -179,6 +179,32 @@ export function initDatabase(dbPath: string): Database.Database {
       updated_at INTEGER
     );
 
+    -- Services table (fixed-price listings published by agents; agentescrow::services)
+    -- A purchase (transfer memo "buy:<id>") becomes an ordinary funded job, so
+    -- nothing here is referenced by the jobs table except via job_hash = 'svc:<id>'.
+    CREATE TABLE IF NOT EXISTS services (
+      id INTEGER PRIMARY KEY,
+      agent TEXT NOT NULL,
+      title TEXT,
+      description TEXT,
+      deliverables TEXT,
+      price INTEGER DEFAULT 0,
+      turnaround INTEGER DEFAULT 0,
+      category TEXT,
+      sample_uri TEXT,
+      active INTEGER DEFAULT 1,
+      sales INTEGER DEFAULT 0,
+      boost_paid INTEGER DEFAULT 0,
+      featured_until INTEGER DEFAULT 0,
+      created_at INTEGER,
+      updated_at INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_services_agent ON services(agent);
+    CREATE INDEX IF NOT EXISTS idx_services_active ON services(active);
+    CREATE INDEX IF NOT EXISTS idx_services_category ON services(category);
+    CREATE INDEX IF NOT EXISTS idx_services_featured ON services(featured_until);
+
     -- Job Evidence table (separate from jobs to avoid serialization issues)
     CREATE TABLE IF NOT EXISTS job_evidence (
       job_id INTEGER PRIMARY KEY,
@@ -233,6 +259,8 @@ export function initDatabase(dbPath: string): Database.Database {
     INSERT OR IGNORE INTO stats (key, value) VALUES ('total_open_jobs', 0);
     INSERT OR IGNORE INTO stats (key, value) VALUES ('total_bids', 0);
     INSERT OR IGNORE INTO stats (key, value) VALUES ('total_arbitrators', 0);
+    INSERT OR IGNORE INTO stats (key, value) VALUES ('total_services', 0);
+    INSERT OR IGNORE INTO stats (key, value) VALUES ('active_services', 0);
 
     -- Bids table (open job board)
     CREATE TABLE IF NOT EXISTS bids (
@@ -374,6 +402,10 @@ export function initDatabase(dbPath: string): Database.Database {
     'ALTER TABLE agents ADD COLUMN kyc_level INTEGER DEFAULT 0',
     'ALTER TABLE agents ADD COLUMN system_stake INTEGER DEFAULT 0',
     'ALTER TABLE agents ADD COLUMN enriched_at INTEGER DEFAULT 0',
+    // Featured placement (transfer memo "boost:<service_id>"): lifetime XPR spent
+    // on a listing and the timestamp its featured slot runs out.
+    'ALTER TABLE services ADD COLUMN boost_paid INTEGER DEFAULT 0',
+    'ALTER TABLE services ADD COLUMN featured_until INTEGER DEFAULT 0',
   ];
 
   // Migrate processed_actions from INTEGER to TEXT key if needed.
@@ -408,6 +440,10 @@ export function updateStats(db: Database.Database): void {
     UPDATE stats SET value = (SELECT COUNT(*) FROM jobs WHERE agent = '' OR agent IS NULL), updated_at = strftime('%s', 'now') WHERE key = 'total_open_jobs';
     UPDATE stats SET value = (SELECT COUNT(*) FROM bids), updated_at = strftime('%s', 'now') WHERE key = 'total_bids';
     UPDATE stats SET value = (SELECT COUNT(*) FROM arbitrators), updated_at = strftime('%s', 'now') WHERE key = 'total_arbitrators';
+    INSERT OR IGNORE INTO stats (key, value) VALUES ('total_services', 0);
+    INSERT OR IGNORE INTO stats (key, value) VALUES ('active_services', 0);
+    UPDATE stats SET value = (SELECT COUNT(*) FROM services), updated_at = strftime('%s', 'now') WHERE key = 'total_services';
+    UPDATE stats SET value = (SELECT COUNT(*) FROM services WHERE active = 1), updated_at = strftime('%s', 'now') WHERE key = 'active_services';
     INSERT OR IGNORE INTO stats (key, value) VALUES ('network_earnings', 0);
     INSERT OR IGNORE INTO stats (key, value) VALUES ('completed_jobs', 0);
     UPDATE stats SET value = (SELECT COALESCE(SUM(amount), 0) FROM jobs WHERE state IN (6, 8)), updated_at = strftime('%s', 'now') WHERE key = 'network_earnings';

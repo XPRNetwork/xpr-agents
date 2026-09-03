@@ -358,6 +358,7 @@ export interface Job {
   state: number;
   deadline: number;
   arbitrator: string;
+  job_hash: string;
   created_at: number;
   updated_at: number;
 }
@@ -521,6 +522,7 @@ function parseJob(row: any): Job {
     state: parseInt(row.state) || 0,
     deadline: parseInt(row.deadline) || 0,
     arbitrator: row.arbitrator || '',
+    job_hash: row.job_hash || '',
     created_at: parseInt(row.created_at) || 0,
     updated_at: parseInt(row.updated_at) || 0,
   };
@@ -1454,5 +1456,380 @@ export async function getCollectionsByAuthor(author: string): Promise<NftCollect
     }));
   } catch {
     return [];
+  }
+}
+
+// ============== SERVICES (agentescrow `services` table) ==============
+
+/** Category slugs the contract accepts (docs/SERVICES.md). */
+export const SERVICE_CATEGORIES = ['image', 'data', 'code', 'writing', 'research', 'nft', 'defi', 'other'] as const;
+export type ServiceCategory = (typeof SERVICE_CATEGORIES)[number];
+
+export const SERVICE_CATEGORY_LABELS: Record<string, string> = {
+  image: 'Image',
+  data: 'Data',
+  code: 'Code',
+  writing: 'Writing',
+  research: 'Research',
+  nft: 'NFT',
+  defi: 'DeFi',
+  other: 'Other',
+};
+
+export interface Service {
+  id: number;
+  agent: string;
+  title: string;
+  description: string;
+  /** Parsed from the on-chain JSON array string. */
+  deliverables: string[];
+  /** Raw units (1 XPR = 10000). */
+  price: number;
+  /** Seconds; becomes the job deadline (now + turnaround). */
+  turnaround: number;
+  category: string;
+  sample_uri: string;
+  active: boolean;
+  sales: number;
+  created_at: number;
+  updated_at: number;
+  /** Lifetime raw XPR spent on featured placement. */
+  boostPaid: number;
+  /** Featured while this unix second is in the future. */
+  featuredUntil: number;
+  /** Indexer's `featured` flag, or `featuredUntil > now` on the RPC path. */
+  featured: boolean;
+  /** 1..FEATURED_SLOTS when the listing occupies a featured slot, else 0 (only slotted listings get the badge). */
+  featuredSlot: number;
+  /** Joined by the indexer — absent on the RPC fallback path. */
+  agent_name?: string;
+  agent_trust?: number;
+  agent_rating?: number;        // avg_score, 0–10000
+  agent_reviews?: number;       // feedback_count
+  agent_completed_jobs?: number;
+}
+
+function parseService(row: any): Service {
+  const featuredUntil = parseInt(row.featured_until) || 0;
+  let deliverables: string[] = [];
+  try {
+    const parsed = JSON.parse(row.deliverables || '[]');
+    if (Array.isArray(parsed)) deliverables = parsed.map((d: unknown) => String(d)).filter(Boolean);
+  } catch { /* malformed — leave empty */ }
+  return {
+    id: parseInt(row.id) || 0,
+    agent: row.agent || '',
+    title: row.title || '',
+    description: row.description || '',
+    deliverables,
+    price: parseInt(row.price) || 0,
+    turnaround: parseInt(row.turnaround) || 0,
+    category: row.category || '',
+    sample_uri: row.sample_uri || '',
+    active: row.active === 1 || row.active === true,
+    sales: parseInt(row.sales) || 0,
+    created_at: parseInt(row.created_at) || 0,
+    updated_at: parseInt(row.updated_at) || 0,
+    boostPaid: parseInt(row.boost_paid) || 0,
+    featuredUntil: featuredUntil,
+    featured: featuredUntil > Math.floor(Date.now() / 1000),
+    featuredSlot: 0,
+  };
+}
+
+/** Indexer rows carry the chain row plus the agent joins from docs/SERVICES.md. */
+function serviceFromIndexerRow(row: any): Service {
+  const svc = parseService(row);
+  const num = (v: unknown) => (typeof v === 'number' ? v : v === undefined || v === null ? undefined : parseInt(String(v)) || 0);
+  return {
+    ...svc,
+    // The API decides what is featured (it applies the same featured_until > now
+    // rule server-side); fall back to the computed flag when the field is absent.
+    featured: row.featured === undefined ? svc.featured : (row.featured === 1 || row.featured === true),
+    featuredSlot: typeof row.featured_slot === 'number' ? row.featured_slot : parseInt(row.featured_slot) || 0,
+    agent_name: row.agent_name || row.name || undefined,
+    agent_trust: num(row.trust_score ?? row.agent_trust),
+    agent_rating: num(row.avg_score ?? row.agent_rating),
+    agent_reviews: num(row.feedback_count ?? row.agent_reviews),
+    agent_completed_jobs: num(row.completed_jobs ?? row.agent_completed_jobs),
+  };
+}
+
+/** `{services:[…]}`, `{data:[…]}` or a bare array — the indexer's exact envelope is not load-bearing. */
+function serviceRowsFrom(data: unknown): any[] | null {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === 'object') {
+    const d = data as Record<string, unknown>;
+    if (Array.isArray(d.services)) return d.services as any[];
+    if (Array.isArray(d.data)) return d.data as any[];
+  }
+  return null;
+}
+
+export type ServiceSort = 'sales' | 'newest' | 'price';
+
+export interface ServiceQuery {
+  limit?: number;
+  offset?: number;
+  activeOnly?: boolean;
+  category?: string;
+  agent?: string;
+  sort?: ServiceSort;
+}
+
+/**
+ * Service catalogue. Indexer first (`GET /api/services`, agent trust/rating joined),
+ * falling back to a direct `services` table read when the indexer is unavailable.
+ */
+export async function getServices(opts: ServiceQuery = {}): Promise<Service[]> {
+  const limit = opts.limit ?? 100;
+  const activeOnly = opts.activeOnly ?? true;
+
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (opts.offset) params.set('offset', String(opts.offset));
+  if (activeOnly) params.set('active', 'true');
+  if (opts.category) params.set('category', opts.category);
+  if (opts.agent) params.set('agent', opts.agent);
+  if (opts.sort) params.set('sort', opts.sort);
+
+  const data = await indexerFetch<unknown>(`/services?${params.toString()}`);
+  const rows = serviceRowsFrom(data);
+  if (rows) return rows.map(serviceFromIndexerRow);
+
+  return getServicesRpc({ ...opts, limit, activeOnly });
+}
+
+async function getServicesRpc(opts: ServiceQuery & { limit: number; activeOnly: boolean }): Promise<Service[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'services',
+    reverse: true,
+    limit: opts.limit,
+  });
+  let services = (result.rows as any[]).map(parseService);
+  if (opts.activeOnly) services = services.filter(s => s.active);
+  if (opts.category) services = services.filter(s => s.category === opts.category);
+  if (opts.agent) services = services.filter(s => s.agent === opts.agent);
+  // Mirror the API's ranking so the fallback page looks the same.
+  return rankServices(services, opts.sort ?? 'sales');
+}
+
+/** One listing. Indexer `GET /api/services/:id` first, then the chain row. */
+export async function getService(id: number): Promise<Service | null> {
+  const data = await indexerFetch<any>(`/services/${id}`);
+  if (data && typeof data === 'object') {
+    const row = data.service ?? data.data ?? data;
+    if (row && (row.id !== undefined || row.agent)) return serviceFromIndexerRow(row);
+  }
+  return getServiceRpc(id);
+}
+
+async function getServiceRpc(id: number): Promise<Service | null> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'services',
+    lower_bound: String(id),
+    upper_bound: String(id),
+    limit: 1,
+  });
+  if (result.rows.length === 0) return null;
+  return parseService(result.rows[0]);
+}
+
+/** Every listing by one agent, active or not (services.byAgent, secondary index 2). */
+export async function getServicesByAgent(agent: string): Promise<Service[]> {
+  const data = await indexerFetch<unknown>(`/services?agent=${encodeURIComponent(agent)}&active=false&limit=100`);
+  const rows = serviceRowsFrom(data);
+  if (rows) {
+    const mapped = rows.map(serviceFromIndexerRow).filter(s => s.agent === agent);
+    if (mapped.length > 0) return mapped.sort((a, b) => b.created_at - a.created_at);
+  }
+
+  try {
+    const result = await rpc.get_table_rows({
+      json: true,
+      code: CONTRACTS.AGENT_ESCROW,
+      scope: CONTRACTS.AGENT_ESCROW,
+      table: 'services',
+      index_position: 2, // byAgent
+      key_type: 'name',
+      lower_bound: agent,
+      upper_bound: agent,
+      limit: 100,
+    });
+    return (result.rows as any[])
+      .map(parseService)
+      .filter(s => s.agent === agent)
+      .sort((a, b) => b.created_at - a.created_at);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The job a `buy:<id>` transfer created: the buyer's newest job carrying
+ * job_hash `svc:<id>` (jobs.byClient, secondary index 2).
+ */
+export async function findServiceJob(client: string, serviceId: number): Promise<Job | null> {
+  try {
+    const result = await rpc.get_table_rows({
+      json: true,
+      code: CONTRACTS.AGENT_ESCROW,
+      scope: CONTRACTS.AGENT_ESCROW,
+      table: 'jobs',
+      index_position: 2, // byClient
+      key_type: 'name',
+      lower_bound: client,
+      upper_bound: client,
+      limit: 200,
+    });
+    const hash = `svc:${serviceId}`;
+    const matches = (result.rows as any[])
+      .map(parseJob)
+      .filter(j => j.client === client && j.job_hash === hash)
+      .sort((a, b) => b.id - a.id);
+    return matches[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Seconds → "6 hours" / "3 days", for service turnaround. */
+export function formatTurnaround(seconds: number): string {
+  if (seconds <= 0) return '—';
+  if (seconds < 3600) {
+    const mins = Math.max(1, Math.round(seconds / 60));
+    return `${mins} min`;
+  }
+  const hours = Math.round(seconds / 3600);
+  if (hours < 48) return `${hours} hour${hours === 1 ? '' : 's'}`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'}`;
+}
+
+/** True when a sample URI is worth rendering as an <img>. */
+export function isImageUri(uri: string): boolean {
+  if (!uri) return false;
+  const s = uri.trim();
+  if (s.startsWith('{')) return false; // manifest JSON
+  if (s.startsWith('data:image/')) return true;
+  if (!/^(https?:\/\/|ipfs:\/\/)/i.test(s)) return false;
+  if (/\.(png|jpe?g|gif|webp|avif|svg)(\?|#|$)/i.test(s)) return true;
+  // Bare IPFS links are images often enough that the gateway fallback is worth a try.
+  return /\/ipfs\/[A-Za-z0-9]+\/?$/.test(s) || /^ipfs:\/\/[A-Za-z0-9]+$/i.test(s);
+}
+
+/** Featured listings that lead the catalogue, matching the indexer's ranking. */
+export const FEATURED_SLOTS = 3;
+
+const ORGANIC_SORT: Record<ServiceSort, (a: Service, b: Service) => number> = {
+  sales: (a, b) => (b.sales - a.sales) || (b.created_at - a.created_at),
+  newest: (a, b) => b.created_at - a.created_at,
+  price: (a, b) => a.price - b.price,
+};
+
+/**
+ * Catalogue order: up to FEATURED_SLOTS running boosts first (highest lifetime
+ * boost first), then everything else in the organic order. Same rule as
+ * `/api/services`, applied client-side so the RPC fallback and a re-sorted page
+ * rank identically.
+ */
+export function rankServices(services: Service[], sort: ServiceSort = 'sales'): Service[] {
+  const organic = ORGANIC_SORT[sort] || ORGANIC_SORT.sales;
+  const featured = services
+    .filter(s => s.featured)
+    .sort((a, b) => (b.boostPaid - a.boostPaid) || (a.id - b.id))
+    .slice(0, FEATURED_SLOTS);
+  const promoted = new Set(featured.map(s => s.id));
+  const slotted = featured.map((s, i) => ({ ...s, featuredSlot: i + 1 }));
+  const rest = services.filter(s => !promoted.has(s.id)).sort(organic);
+  return [...slotted, ...rest.map(s => (s.featuredSlot ? { ...s, featuredSlot: 0 } : s))];
+}
+
+// ============== SERVICE MARKET CONFIG / LISTING FEE DEPOSITS ==============
+
+export interface ServiceConfig {
+  /** Raw units charged to publish a listing. 0 disables the fee. */
+  service_fee: number;
+  /** Smallest accepted boost, raw units. */
+  boost_min: number;
+  /** Raw units that buy one featured day. */
+  boost_rate: number;
+}
+
+/** Contract defaults, used when the svcconfig singleton has never been written. */
+export const DEFAULT_SERVICE_CONFIG: ServiceConfig = {
+  service_fee: 50000,   // 5 XPR
+  boost_min: 10000,     // 1 XPR
+  boost_rate: 10000,    // 1 XPR per featured day
+};
+
+/** agentescrow `svcconfig` singleton. Falls back to the contract defaults. */
+export async function getServiceConfig(): Promise<ServiceConfig> {
+  try {
+    const result = await rpc.get_table_rows({
+      json: true,
+      code: CONTRACTS.AGENT_ESCROW,
+      scope: CONTRACTS.AGENT_ESCROW,
+      table: 'svcconfig',
+      limit: 1,
+    });
+    if (result.rows.length === 0) return { ...DEFAULT_SERVICE_CONFIG };
+    const row = result.rows[0];
+    return {
+      service_fee: row.service_fee === undefined ? DEFAULT_SERVICE_CONFIG.service_fee : (parseInt(row.service_fee) || 0),
+      boost_min: parseInt(row.boost_min) || DEFAULT_SERVICE_CONFIG.boost_min,
+      boost_rate: parseInt(row.boost_rate) || DEFAULT_SERVICE_CONFIG.boost_rate,
+    };
+  } catch {
+    return { ...DEFAULT_SERVICE_CONFIG };
+  }
+}
+
+/** Days of featured placement a raw amount buys at the configured rate. */
+export function boostDays(amountRaw: number, config: ServiceConfig): number {
+  if (config.boost_rate <= 0) return 0;
+  return Math.floor(amountRaw / config.boost_rate);
+}
+
+export interface ServiceDeposit {
+  agent: string;
+  /** Unconsumed listing-fee balance, raw units. */
+  amount: number;
+  paid_at: number;
+  /** Refundable from this unix second (paid_at + 7 days). */
+  refundable_at: number;
+}
+
+export const SVC_FEE_REFUND_DELAY = 7 * 24 * 60 * 60;
+
+/** An agent's unconsumed listing-fee deposit (agentescrow `svcdeposits`). */
+export async function getServiceDeposit(account: string): Promise<ServiceDeposit | null> {
+  try {
+    const result = await rpc.get_table_rows({
+      json: true,
+      code: CONTRACTS.AGENT_ESCROW,
+      scope: CONTRACTS.AGENT_ESCROW,
+      table: 'svcdeposits',
+      lower_bound: account,
+      upper_bound: account,
+      limit: 1,
+    });
+    if (result.rows.length === 0) return null;
+    const row = result.rows[0];
+    if (row.agent !== account) return null;
+    const paidAt = parseInt(row.paid_at) || 0;
+    return {
+      agent: row.agent,
+      amount: parseInt(row.amount) || 0,
+      paid_at: paidAt,
+      refundable_at: paidAt + SVC_FEE_REFUND_DELAY,
+    };
+  } catch {
+    return null;
   }
 }
