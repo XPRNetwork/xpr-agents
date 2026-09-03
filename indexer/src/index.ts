@@ -11,7 +11,7 @@ import { handleEscrowAction, handleEscrowTransfer } from './handlers/escrow';
 import { setRpcEndpoint, flushPendingCorrections, pruneStaleTempRows } from './handlers/id-correction';
 import { createRoutes } from './api/routes';
 import { WebhookDispatcher } from './webhooks/dispatcher';
-import { syncFromChain } from './sync';
+import { syncFromChain, reconcileJobsFromChain } from './sync';
 import { enrichAgents } from './enrich';
 
 // Configuration
@@ -296,6 +296,18 @@ async function startIngestion(): Promise<void> {
 // safeCorrect whose re-correction never completed). Corrections finish within
 // one flush, so anything older than 10 minutes is abandoned and would only
 // surface as a phantom row in the list endpoints.
+// Reconcile mirrored jobs with chain state (handlers can lag the contract, e.g.
+// a revise extends the deadline). Startup + hourly; never inserts rows.
+async function reconcileJobs(tag: string): Promise<void> {
+  try {
+    const r = await reconcileJobsFromChain(db, config.rpcEndpoint, config.contracts.agentescrow);
+    if (r.updated > 0) console.log(`[${tag}] Reconciled ${r.updated}/${r.checked} jobs with chain`);
+  } catch (err: any) {
+    console.warn(`[${tag}] Job reconcile skipped: ${err?.message || err}`);
+  }
+}
+void reconcileJobs('startup');
+
 try {
   const sweep = pruneStaleTempRows(db);
   if (sweep.total > 0) {
@@ -433,6 +445,7 @@ setInterval(() => {
     if (sweep.total > 0) {
       console.log(`[cleanup] Removed ${sweep.total} stale temp row(s): ${JSON.stringify(sweep.deleted)}`);
     }
+    void reconcileJobs('cleanup');
     if (eventsDeleted > 0 || deliveriesDeleted > 0) {
       console.log(`[cleanup] Pruned ${eventsDeleted} events, ${deliveriesDeleted} webhook deliveries`);
     }

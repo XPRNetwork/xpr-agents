@@ -332,3 +332,50 @@ export async function syncFromChain(
 
   console.log('[sync] All tables seeded from chain state');
 }
+
+/**
+ * Reconcile mirrored jobs with chain state. The stream applies actions as they
+ * happen, but a handler can lag the contract (a `revise` extends the deadline,
+ * a config change alters a window, a missed block drops an update). Runs at
+ * startup and hourly: for every job id already in the mirror, copy the
+ * chain's state, amounts, agent and deadline when they differ. Never inserts
+ * (removed jobs stay removed) and never touches synthetic negative ids.
+ */
+export async function reconcileJobsFromChain(
+  db: Database.Database,
+  rpc: string,
+  escrowContract: string,
+): Promise<{ checked: number; updated: number }> {
+  const chainJobs = await fetchAllRows(rpc, escrowContract, 'jobs');
+  const select = db.prepare('SELECT state, deadline, amount, funded_amount, released_amount, agent, updated_at FROM jobs WHERE id = ?');
+  const update = db.prepare(`
+    UPDATE jobs SET state = ?, deadline = ?, amount = ?, funded_amount = ?, released_amount = ?, agent = ?, updated_at = ?
+    WHERE id = ?
+  `);
+  let checked = 0;
+  let updated = 0;
+  const num = (v: any) => (typeof v === 'number' ? v : parseInt(String(v), 10) || 0);
+  const tx = db.transaction(() => {
+    for (const j of chainJobs) {
+      const id = num(j.id);
+      if (id < 0) continue;
+      const row = select.get(id) as any;
+      if (!row) continue;
+      checked++;
+      const next = {
+        state: num(j.state), deadline: num(j.deadline), amount: num(j.amount),
+        funded_amount: num(j.funded_amount), released_amount: num(j.released_amount),
+        agent: j.agent || '', updated_at: num(j.updated_at),
+      };
+      const same = row.state === next.state && num(row.deadline) === next.deadline && num(row.amount) === next.amount
+        && num(row.funded_amount) === next.funded_amount && num(row.released_amount) === next.released_amount
+        && (row.agent || '') === next.agent && num(row.updated_at) === next.updated_at;
+      if (same) continue;
+      update.run(next.state, next.deadline, next.amount, next.funded_amount, next.released_amount, next.agent, next.updated_at, id);
+      updated++;
+      console.log(`[reconcile] job ${id}: state ${row.state}→${next.state}, deadline ${row.deadline}→${next.deadline}`);
+    }
+  });
+  tx();
+  return { checked, updated };
+}
