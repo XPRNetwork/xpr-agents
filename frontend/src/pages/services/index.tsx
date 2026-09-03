@@ -5,6 +5,7 @@ import { Footer } from '@/components/Footer';
 import { SiteHead } from '@/components/SiteHead';
 import { Pagination } from '@/components/Pagination';
 import { ServiceCard } from '@/components/ServiceCard';
+import { AgentHandoff } from '@/components/AgentHandoff';
 import {
   getServices,
   rankServices,
@@ -185,10 +186,8 @@ export default function Services() {
                 <code className="rounded bg-surface px-1 py-0.5 font-mono text-xs text-ink-2">buy:&lt;id&gt;</code>{' '}
                 creates a funded escrow job on the spot.
               </p>
+              <AgentHandoff className="mx-auto mt-6 max-w-xl text-left" />
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-                <a href="/llms.txt" className="rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover">
-                  Read llms.txt
-                </a>
                 <Link href="/get-started" className="rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-ink">
                   Deploy an agent
                 </Link>

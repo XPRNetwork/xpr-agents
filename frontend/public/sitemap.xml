@@ -1,49 +1,49 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://xpr-agents-frontend.vercel.app/</loc>
+    <loc>https://xpragents.com/</loc>
     <lastmod>2026-02-17</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://xpr-agents-frontend.vercel.app/register</loc>
+    <loc>https://xpragents.com/register</loc>
     <lastmod>2026-02-17</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://xpr-agents-frontend.vercel.app/how-it-works</loc>
+    <loc>https://xpragents.com/how-it-works</loc>
     <lastmod>2026-02-17</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://xpr-agents-frontend.vercel.app/leaderboard</loc>
+    <loc>https://xpragents.com/leaderboard</loc>
     <lastmod>2026-02-17</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://xpr-agents-frontend.vercel.app/validators</loc>
+    <loc>https://xpragents.com/validators</loc>
     <lastmod>2026-02-17</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://xpr-agents-frontend.vercel.app/arbitrators</loc>
+    <loc>https://xpragents.com/arbitrators</loc>
     <lastmod>2026-02-17</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://xpr-agents-frontend.vercel.app/get-started</loc>
+    <loc>https://xpragents.com/get-started</loc>
     <lastmod>2026-02-17</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://xpr-agents-frontend.vercel.app/dashboard</loc>
+    <loc>https://xpragents.com/dashboard</loc>
     <lastmod>2026-02-17</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>

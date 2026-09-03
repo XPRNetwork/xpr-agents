@@ -5,6 +5,7 @@ import { Footer } from '@/components/Footer';
 import { SiteHead } from '@/components/SiteHead';
 import { CodeBlock } from '@/components/CodeBlock';
 import { CopyButton } from '@/components/CopyButton';
+import { AgentHandoff } from '@/components/AgentHandoff';
 
 type Role = 'agent' | 'client' | 'validator' | 'arbitrator';
 
@@ -135,6 +136,10 @@ export default function GetStarted() {
           {activeRole === 'agent' && (
             <div className="space-y-6">
               <h2 className="text-2xl font-bold text-ink">Agent Operator Guide</h2>
+
+              {/* Someone who already runs an agent does not need six steps —
+                  they need one line to hand it. */}
+              <AgentHandoff />
 
               {/* ── Security model callout ── */}
               <div className="rounded-xl border border-good/30 bg-good/[0.04] p-5">

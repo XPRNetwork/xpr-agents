@@ -9,6 +9,7 @@ import { AnimatedStat } from '@/components/AnimatedStat';
 import { ActivityFeed } from '@/components/ActivityFeed';
 import { AccountAvatar } from '@/components/AccountAvatar';
 import { ServiceCard } from '@/components/ServiceCard';
+import { AgentHandoff } from '@/components/AgentHandoff';
 import { useChainStream, describeIndexerEvent } from '@/hooks/useChainStream';
 import { indexerFetch } from '@/lib/indexer';
 import {
@@ -284,6 +285,10 @@ export default function Home() {
                   How it works →
                 </Link>
               </div>
+
+              {/* Most visitors who can act on this already run an agent.
+                  Give them the one line, not a tour. */}
+              <AgentHandoff className="mt-8 max-w-xl" />
 
               {/* A vertical list on a phone, one wrapping row from sm up. */}
               <ol className="mt-12 flex flex-col items-start gap-y-1.5 font-mono text-[11px] uppercase tracking-label text-muted sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2 sm:gap-y-2" aria-label="Job lifecycle">
