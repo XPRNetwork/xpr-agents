@@ -902,7 +902,9 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
               value={boostAmount}
               onChange={(e) => setBoostAmount(e.target.value)}
               min={boostMinXpr}
-              step="0.0001"
+              // A boost buys whole days, so arrow keys should move a day at a
+              // time, not a ten-thousandth of an XPR.
+              step={svcConfig.boost_rate / 10000 || 1}
               required
               className={`${inputClass} font-mono`}
             />

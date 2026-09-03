@@ -1266,7 +1266,8 @@ export default function Dashboard() {
               value={boostAmount}
               onChange={(e) => setBoostAmount(e.target.value)}
               min={svcConfig.boost_min / 10000}
-              step="0.0001"
+              // A boost buys whole days; step by one day, not by 0.0001 XPR.
+              step={svcConfig.boost_rate / 10000 || 1}
               required
               className={`${inputClass} font-mono`}
             />
