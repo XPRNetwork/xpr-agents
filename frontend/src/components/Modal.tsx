@@ -17,6 +17,8 @@ interface ModalProps {
 export function Modal({ open, onClose, title, description, children, width = 'max-w-lg' }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<Element | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
@@ -28,7 +30,7 @@ export function Modal({ open, onClose, title, description, children, width = 'ma
     focusable()[0]?.focus();
 
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
+      if (e.key === 'Escape') { e.preventDefault(); onCloseRef.current(); return; }
       if (e.key !== 'Tab') return;
       const els = focusable();
       if (els.length === 0) return;
@@ -44,7 +46,7 @@ export function Modal({ open, onClose, title, description, children, width = 'ma
       document.body.style.overflow = prevOverflow;
       (openerRef.current as HTMLElement | null)?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
