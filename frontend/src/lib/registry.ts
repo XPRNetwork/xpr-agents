@@ -554,6 +554,75 @@ export async function getBidsByAgent(agent: string): Promise<Bid[]> {
     }));
 }
 
+// ============== JOB MESSAGES (question / answer thread) ==============
+
+/**
+ * One message on a job's question-and-answer thread (agentescrow `jobmsgs`).
+ * Written by the assigned agent (`askclient`) or the client (`answer`) while
+ * the job is FUNDED, ACCEPTED or INPROGRESS.
+ */
+export interface JobMessage {
+  id: number;
+  job_id: number;
+  /** The agent or the client. */
+  author: string;
+  text: string;
+  created_at: number;
+}
+
+/** Contract limits: 20 messages per job, 512 characters each. */
+export const JOB_MESSAGE_MAX_CHARS = 512;
+export const JOB_MESSAGE_LIMIT = 20;
+
+/** Job states in which either party may post to the thread (FUNDED, ACCEPTED, INPROGRESS). */
+export function canMessageJob(state: number): boolean {
+  return state >= 1 && state <= 3;
+}
+
+function parseJobMessage(row: any): JobMessage {
+  return {
+    id: parseInt(row.id) || 0,
+    job_id: parseInt(row.job_id) || 0,
+    author: row.author || '',
+    text: row.text || '',
+    created_at: parseInt(row.created_at) || 0,
+  };
+}
+
+/**
+ * The thread for one job, oldest first. Prefers the indexer's mirror
+ * (`GET /api/jobs/:id/messages` -> `{messages}`) and falls back to the chain
+ * table on secondary index 2 (byJob).
+ */
+export async function getJobMessages(jobId: number): Promise<JobMessage[]> {
+  const fromIndexer = await indexerFetch<{ messages: any[] }>(`/jobs/${jobId}/messages`);
+  if (fromIndexer && Array.isArray(fromIndexer.messages)) {
+    return fromIndexer.messages
+      .map(parseJobMessage)
+      .filter(m => m.job_id === jobId)
+      .sort((a, b) => a.created_at - b.created_at || a.id - b.id);
+  }
+
+  try {
+    const result = await rpc.get_table_rows({
+      json: true,
+      code: CONTRACTS.AGENT_ESCROW,
+      scope: CONTRACTS.AGENT_ESCROW,
+      table: 'jobmsgs',
+      index_position: 2, // byJob
+      key_type: 'i64',
+      lower_bound: String(jobId),
+      limit: 100,
+    });
+    return (result.rows as any[])
+      .map(parseJobMessage)
+      .filter(m => m.job_id === jobId)
+      .sort((a, b) => a.created_at - b.created_at || a.id - b.id);
+  } catch {
+    return [];
+  }
+}
+
 // Returns last activity timestamp (in seconds) per agent from completed/delivered/arbitrated jobs
 export async function getAgentLastActivity(): Promise<Record<string, number>> {
   const fromIndexer = await indexerFetch<Record<string, number>>('/agents/activity');
@@ -1668,6 +1737,226 @@ export async function getServicesByAgent(agent: string): Promise<Service[]> {
   } catch {
     return [];
   }
+}
+
+// ============== SERVICE INPUT FORMS ==============
+
+/**
+ * A seller can declare the inputs a service needs (agentescrow `svcinputs`).
+ * The site renders the form at purchase and packs the answers into the first
+ * job message, sent in the same transaction as the buy transfer.
+ */
+export type ServiceInputType = 'text' | 'textarea' | 'number' | 'account' | 'url' | 'select' | 'checkbox';
+
+export const SERVICE_INPUT_TYPES: ServiceInputType[] = ['text', 'textarea', 'number', 'account', 'url', 'select', 'checkbox'];
+
+export interface ServiceInputField {
+  /** 1-32 chars of [a-z0-9_]; the key the answer is stored under. */
+  key: string;
+  /** Shown to the buyer; <= 64 chars. */
+  label: string;
+  type: ServiceInputType;
+  required?: boolean;
+  /** Choices for `select`. */
+  options?: string[];
+  /** Optional character cap on the answer. */
+  max?: number;
+}
+
+export interface ServiceInputSchema {
+  v: number;
+  fields: ServiceInputField[];
+}
+
+/** Convention bounds — the contract only bounds the schema string length. */
+export const SERVICE_INPUT_MAX_FIELDS = 8;
+export const SERVICE_INPUT_SCHEMA_MAX = 2048;
+export const SERVICE_INPUT_KEY_MAX = 32;
+export const SERVICE_INPUT_LABEL_MAX = 64;
+export const SERVICE_INPUT_OPTION_MAX = 64;
+export const SERVICE_INPUT_MAX_OPTIONS = 20;
+/** The packed answers are a job message, so they share its 512-character cap. */
+export const SERVICE_INPUT_ANSWERS_MAX = JOB_MESSAGE_MAX_CHARS;
+
+/** Answers as they travel through the form and into the packed JSON. */
+export type ServiceInputAnswers = Record<string, string | number | boolean>;
+
+/**
+ * Parse a stored schema string. Returns null for anything that is absent,
+ * malformed or outside the convention's bounds — callers then fall back to the
+ * plain notes box rather than rendering a half-valid form.
+ */
+export function parseServiceInputSchema(raw: string | null | undefined): ServiceInputSchema | null {
+  const str = (raw || '').trim();
+  if (!str || str.length > SERVICE_INPUT_SCHEMA_MAX) return null;
+
+  let data: any;
+  try { data = JSON.parse(str); } catch { return null; }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  if (!Array.isArray(data.fields)) return null;
+  if (data.fields.length === 0 || data.fields.length > SERVICE_INPUT_MAX_FIELDS) return null;
+
+  const seen = new Set<string>();
+  const fields: ServiceInputField[] = [];
+  for (const entry of data.fields) {
+    if (!entry || typeof entry !== 'object') return null;
+    const key = typeof entry.key === 'string' ? entry.key.trim() : '';
+    if (!/^[a-z0-9_]{1,32}$/.test(key) || seen.has(key)) return null;
+    seen.add(key);
+
+    const label = typeof entry.label === 'string' ? entry.label.trim() : '';
+    if (!label || label.length > SERVICE_INPUT_LABEL_MAX) return null;
+
+    const type = entry.type as ServiceInputType;
+    if (!SERVICE_INPUT_TYPES.includes(type)) return null;
+
+    const field: ServiceInputField = { key, label, type };
+    if (entry.required === true) field.required = true;
+
+    if (type === 'select') {
+      if (!Array.isArray(entry.options)) return null;
+      const options = entry.options
+        .filter((o: unknown) => typeof o === 'string')
+        .map((o: string) => o.trim())
+        .filter((o: string) => o.length > 0 && o.length <= SERVICE_INPUT_OPTION_MAX);
+      if (options.length === 0 || options.length > SERVICE_INPUT_MAX_OPTIONS) return null;
+      field.options = options;
+    }
+
+    if (entry.max !== undefined && entry.max !== null && entry.max !== '') {
+      const max = typeof entry.max === 'number' ? entry.max : parseInt(String(entry.max), 10);
+      if (!Number.isFinite(max) || max < 1) return null;
+      field.max = Math.min(Math.floor(max), SERVICE_INPUT_ANSWERS_MAX);
+    }
+
+    fields.push(field);
+  }
+
+  return { v: typeof data.v === 'number' ? data.v : 1, fields };
+}
+
+/** Serialise a schema back to the compact string stored on chain. */
+export function stringifyServiceInputSchema(fields: ServiceInputField[]): string {
+  return JSON.stringify({ v: 1, fields });
+}
+
+/**
+ * A listing's input schema: the indexer's `input_schema` on /api/services/:id
+ * when it is up, otherwise the chain table.
+ */
+export async function getServiceInput(serviceId: number): Promise<ServiceInputSchema | null> {
+  const fromIndexer = await indexerFetch<any>(`/services/${serviceId}`);
+  if (fromIndexer && typeof fromIndexer === 'object' && 'input_schema' in fromIndexer) {
+    return parseServiceInputSchema(fromIndexer.input_schema);
+  }
+
+  try {
+    const result = await rpc.get_table_rows({
+      json: true,
+      code: CONTRACTS.AGENT_ESCROW,
+      scope: CONTRACTS.AGENT_ESCROW,
+      table: 'svcinputs',
+      lower_bound: String(serviceId),
+      upper_bound: String(serviceId),
+      limit: 1,
+    });
+    if (result.rows.length === 0) return null;
+    return parseServiceInputSchema(result.rows[0].schema);
+  } catch {
+    return null;
+  }
+}
+
+const ACCOUNT_RE = /^[a-z1-5.]{1,12}$/;
+
+/**
+ * Per-field errors keyed by field key; an empty object means the answers are
+ * ready to pack. Mirrors what the seller declared, not what the contract
+ * enforces (the contract only sees a 512-character message).
+ */
+export function validateServiceInput(schema: ServiceInputSchema, answers: ServiceInputAnswers): Record<string, string> {
+  const errors: Record<string, string> = {};
+
+  for (const field of schema.fields) {
+    const value = answers[field.key];
+
+    if (field.type === 'checkbox') {
+      if (field.required && value !== true) errors[field.key] = 'Required';
+      continue;
+    }
+
+    const text = value === undefined || value === null ? '' : String(value).trim();
+    if (!text) {
+      if (field.required) errors[field.key] = 'Required';
+      continue;
+    }
+
+    if (field.max && text.length > field.max) {
+      errors[field.key] = `At most ${field.max} characters`;
+      continue;
+    }
+
+    if (field.type === 'number' && !Number.isFinite(Number(text))) {
+      errors[field.key] = 'Must be a number';
+    } else if (field.type === 'account' && !ACCOUNT_RE.test(text)) {
+      errors[field.key] = 'Not a valid XPR account (a-z, 1-5, dots, max 12)';
+    } else if (field.type === 'url' && !/^(https?:\/\/|ipfs:\/\/)\S+$/i.test(text)) {
+      errors[field.key] = 'Must start with https://, http:// or ipfs://';
+    } else if (field.type === 'select' && field.options && !field.options.includes(text)) {
+      errors[field.key] = 'Choose one of the listed options';
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Pack answers into the compact JSON object that becomes the first job
+ * message. Blank answers and unchecked boxes are dropped so the 512-character
+ * budget goes to real content.
+ */
+export function packServiceInput(schema: ServiceInputSchema, answers: ServiceInputAnswers): string {
+  const packed: Record<string, string | number | boolean> = {};
+
+  for (const field of schema.fields) {
+    const value = answers[field.key];
+    if (field.type === 'checkbox') {
+      if (value === true) packed[field.key] = true;
+      continue;
+    }
+    const text = value === undefined || value === null ? '' : String(value).trim();
+    if (!text) continue;
+    if (field.type === 'number') {
+      const num = Number(text);
+      packed[field.key] = Number.isFinite(num) ? num : text;
+    } else {
+      packed[field.key] = text;
+    }
+  }
+
+  return Object.keys(packed).length > 0 ? JSON.stringify(packed) : '';
+}
+
+/** A first job message that is a JSON object is the buyer's packed form answers. */
+export function parseServiceInputAnswers(text: string): Record<string, string | number | boolean> | null {
+  const str = (text || '').trim();
+  if (!str.startsWith('{') || !str.endsWith('}')) return null;
+  let data: any;
+  try { data = JSON.parse(str); } catch { return null; }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const out: Record<string, string | number | boolean> = {};
+  for (const key of Object.keys(data)) {
+    const value = data[key];
+    if (value === null || typeof value === 'object') continue;
+    out[key] = value as string | number | boolean;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** A purchase job carries job_hash "svc:<service_id>" — the listing it came from. */
+export function serviceIdFromJobHash(jobHash: string): number | null {
+  const match = /^svc:(\d+)$/.exec((jobHash || '').trim());
+  return match ? parseInt(match[1], 10) : null;
 }
 
 /**

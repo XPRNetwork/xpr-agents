@@ -133,6 +133,26 @@ export interface BidRaw {
   created_at: string;
 }
 
+/** A message in a job's question/answer thread (`jobmsgs` table) */
+export interface JobMessage {
+  id: number;
+  job_id: number;
+  author: string;
+  text: string;
+  created_at: number;
+}
+
+export interface JobMessageRaw {
+  id: string;
+  job_id: string;
+  author: string;
+  text: string;
+  created_at: string;
+}
+
+/** Buyer notes cap — the on-chain memo is capped at 256 bytes */
+export const MAX_BUYER_NOTES_LENGTH = 200;
+
 export interface Service {
   id: number;
   agent: string;
@@ -174,6 +194,203 @@ export interface ServiceConfig {
   service_fee: number;  // raw units charged to publish a listing (default 50000 = 5 XPR)
   boost_min: number;    // minimum boost transfer, raw units (default 10000 = 1 XPR)
   boost_rate: number;   // raw units that buy one featured day (default 10000 = 1 XPR)
+}
+
+/** Field types a service input form can declare */
+export type ServiceInputFieldType =
+  | 'text' | 'textarea' | 'number' | 'account' | 'url' | 'select' | 'checkbox';
+
+/** One question on a service's input form */
+export interface ServiceInputField {
+  key: string;                 // 1-32 chars, [a-z0-9_]
+  label: string;               // <= 64 chars
+  type?: ServiceInputFieldType; // defaults to 'text'
+  required?: boolean;
+  max?: number;                // max characters for text-ish fields
+  options?: string[];          // required for type 'select'
+}
+
+/** The `svcinputs` schema a seller declares for a listing (stored as a string) */
+export interface ServiceInputSchema {
+  v: number;
+  fields: ServiceInputField[];
+}
+
+/** agentescrow `svcinputs` row */
+export interface ServiceInputRaw {
+  service_id: string;
+  schema: string;
+  updated_at: string;
+}
+
+export interface ValidationOutcome {
+  valid: boolean;
+  errors: string[];
+}
+
+/** Schema string cap enforced by the contract */
+export const MAX_SERVICE_INPUT_SCHEMA_LENGTH = 2048;
+/** Packed answers cap — a job message is at most 512 characters */
+export const MAX_SERVICE_INPUT_ANSWERS_LENGTH = 512;
+/** A form may ask at most 8 questions */
+export const MAX_SERVICE_INPUT_FIELDS = 8;
+
+const FIELD_TYPES: ServiceInputFieldType[] = ['text', 'textarea', 'number', 'account', 'url', 'select', 'checkbox'];
+const FIELD_KEY_RE = /^[a-z0-9_]{1,32}$/;
+const ACCOUNT_RE = /^[a-z1-5.]{1,12}$/;
+
+/** Parse a `svcinputs` schema string. Returns null when absent or malformed. */
+export function parseServiceInputSchema(raw: string | null | undefined): ServiceInputSchema | null {
+  if (!raw || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.fields)) return null;
+    return {
+      v: typeof parsed.v === 'number' ? parsed.v : 1,
+      fields: parsed.fields as ServiceInputField[],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Validate a schema a seller wants to publish. Pure — no chain access.
+ * Mirrors the conventions in docs/SERVICES.md: <= 8 fields, keys [a-z0-9_]{1,32},
+ * labels <= 64 chars, known types, options on select, JSON <= 2048 characters.
+ */
+export function validateServiceInputSchema(
+  schema: ServiceInputSchema | string
+): ValidationOutcome & { json: string } {
+  const errors: string[] = [];
+  let parsed: ServiceInputSchema | null;
+
+  if (typeof schema === 'string') {
+    parsed = parseServiceInputSchema(schema);
+    if (!parsed) {
+      return { valid: false, errors: ['schema must be JSON of the form {"v":1,"fields":[...]}'], json: '' };
+    }
+  } else {
+    parsed = schema;
+  }
+
+  if (!parsed || !Array.isArray(parsed.fields)) {
+    return { valid: false, errors: ['schema must have a "fields" array'], json: '' };
+  }
+  if (parsed.fields.length === 0) errors.push('schema must declare at least one field');
+  if (parsed.fields.length > MAX_SERVICE_INPUT_FIELDS) {
+    errors.push(`schema must declare at most ${MAX_SERVICE_INPUT_FIELDS} fields (got ${parsed.fields.length})`);
+  }
+
+  const seen = new Set<string>();
+  for (const field of parsed.fields) {
+    if (!field || typeof field !== 'object') {
+      errors.push('each field must be an object');
+      continue;
+    }
+    if (typeof field.key !== 'string' || !FIELD_KEY_RE.test(field.key)) {
+      errors.push(`field key "${String(field.key)}" must be 1-32 characters of a-z, 0-9 or _`);
+    } else if (seen.has(field.key)) {
+      errors.push(`duplicate field key "${field.key}"`);
+    } else {
+      seen.add(field.key);
+    }
+    if (typeof field.label !== 'string' || field.label.length === 0 || field.label.length > 64) {
+      errors.push(`field "${String(field.key)}" needs a label of 1-64 characters`);
+    }
+    const type = field.type || 'text';
+    if (!FIELD_TYPES.includes(type)) {
+      errors.push(`field "${String(field.key)}" has unknown type "${type}" (use ${FIELD_TYPES.join(', ')})`);
+    }
+    if (type === 'select' && (!Array.isArray(field.options) || field.options.length === 0)) {
+      errors.push(`field "${String(field.key)}" is a select and needs a non-empty options array`);
+    }
+    if (field.max !== undefined && (typeof field.max !== 'number' || field.max <= 0)) {
+      errors.push(`field "${String(field.key)}" has an invalid max`);
+    }
+  }
+
+  const json = JSON.stringify({ v: parsed.v || 1, fields: parsed.fields });
+  if (json.length > MAX_SERVICE_INPUT_SCHEMA_LENGTH) {
+    errors.push(`schema must be at most ${MAX_SERVICE_INPUT_SCHEMA_LENGTH} characters (got ${json.length})`);
+  }
+
+  return { valid: errors.length === 0, errors, json };
+}
+
+/**
+ * Validate a buyer's answers against a listing's schema. Pure — no chain access.
+ * Shared by the SDK, the plugin and the site so all three reject the same input.
+ */
+export function validateServiceInput(
+  schema: ServiceInputSchema | null | undefined,
+  answers: Record<string, unknown>
+): ValidationOutcome {
+  const errors: string[] = [];
+
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
+    return { valid: false, errors: ['answers must be an object keyed by field key'] };
+  }
+  if (!schema || !Array.isArray(schema.fields)) {
+    // No schema published — any answers are a free-form note, nothing to check
+    return { valid: true, errors: [] };
+  }
+
+  const known = new Set(schema.fields.map(f => f && f.key).filter(Boolean) as string[]);
+  for (const key of Object.keys(answers)) {
+    if (!known.has(key)) errors.push(`unknown field "${key}" — the form asks for: ${[...known].join(', ')}`);
+  }
+
+  for (const field of schema.fields) {
+    if (!field || typeof field.key !== 'string') continue;
+    const value = answers[field.key];
+    const missing = value === undefined || value === null || value === '';
+
+    if (missing) {
+      if (field.required) errors.push(`"${field.key}" (${field.label || field.key}) is required`);
+      continue;
+    }
+
+    const type = field.type || 'text';
+    const asString = typeof value === 'string' ? value : String(value);
+
+    switch (type) {
+      case 'number':
+        if (typeof value !== 'number' && !/^-?\d+(\.\d+)?$/.test(asString)) {
+          errors.push(`"${field.key}" must be a number`);
+        }
+        break;
+      case 'account':
+        if (!ACCOUNT_RE.test(asString)) {
+          errors.push(`"${field.key}" must be an XPR account name (max 12 chars of a-z, 1-5, .)`);
+        }
+        break;
+      case 'url':
+        if (!/^https?:\/\/\S+$/i.test(asString)) {
+          errors.push(`"${field.key}" must be an http(s) URL`);
+        }
+        break;
+      case 'select':
+        if (!Array.isArray(field.options) || !field.options.includes(asString)) {
+          errors.push(`"${field.key}" must be one of: ${(field.options || []).join(', ')}`);
+        }
+        break;
+      case 'checkbox':
+        if (typeof value !== 'boolean' && asString !== 'true' && asString !== 'false') {
+          errors.push(`"${field.key}" must be true or false`);
+        }
+        break;
+      default:
+        if (typeof value === 'object') errors.push(`"${field.key}" must be text`);
+        break;
+    }
+
+    if (field.max && asString.length > field.max) {
+      errors.push(`"${field.key}" must be at most ${field.max} characters (got ${asString.length})`);
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
 }
 
 export interface ServiceData {
@@ -587,6 +804,78 @@ export class EscrowRegistry {
         },
       }],
     });
+  }
+
+  // ============== JOB MESSAGES (question / answer thread) ==============
+
+  /**
+   * Ask the client a question about a job (as the assigned agent).
+   * Valid while the job is FUNDED, ACCEPTED or INPROGRESS. A question does not
+   * pause the deadline — ask once, precisely, and keep working.
+   */
+  async askClient(jobId: number, text: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'askclient',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          agent: this.session!.auth.actor,
+          job_id: jobId,
+          text,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Answer the agent's question on a job (as the client).
+   * Valid while the job is FUNDED, ACCEPTED or INPROGRESS.
+   */
+  async answerAgent(jobId: number, text: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'answer',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          client: this.session!.auth.actor,
+          job_id: jobId,
+          text,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Read a job's message thread, oldest first (max 20 messages per job).
+   */
+  async getJobMessages(jobId: number): Promise<JobMessage[]> {
+    const result = await this.rpc.get_table_rows<JobMessageRaw>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'jobmsgs',
+      index_position: 2, // byJob index
+      key_type: 'i64',
+      lower_bound: String(jobId),
+      upper_bound: String(jobId),
+      limit: 100,
+    });
+
+    return result.rows
+      .map(row => this.parseJobMessage(row))
+      .sort((a, b) => a.id - b.id);
   }
 
   /**
@@ -1478,14 +1767,24 @@ export class EscrowRegistry {
   }
 
   /**
-   * Buy a service: a single XPR transfer with memo `buy:<id>`.
-   * The contract creates and funds the job in the same step.
+   * Buy a service: a single XPR transfer with memo `buy:<id>`, or
+   * `buy:<id>:<notes>` when the buyer has something to tell the agent.
+   * The contract creates and funds the job in the same step; the notes are
+   * appended to the job description as `Buyer notes: <notes>`.
    *
    * @param serviceId listing to buy
    * @param priceRaw  price in raw units (1 XPR = 10000) — use the listing's `price`
+   * @param notes     optional brief for the agent (max 200 characters)
    */
-  async buyService(serviceId: number, priceRaw: number): Promise<TransactionResult> {
+  async buyService(serviceId: number, priceRaw: number, notes?: string): Promise<TransactionResult> {
     this.requireSession();
+
+    const trimmedNotes = notes ? notes.trim() : '';
+    if (trimmedNotes.length > MAX_BUYER_NOTES_LENGTH) {
+      throw new Error(
+        `notes must be at most ${MAX_BUYER_NOTES_LENGTH} characters (got ${trimmedNotes.length})`
+      );
+    }
 
     return this.session!.link.transact({
       actions: [{
@@ -1499,9 +1798,115 @@ export class EscrowRegistry {
           from: this.session!.auth.actor,
           to: this.contract,
           quantity: `${(priceRaw / 10000).toFixed(4)} XPR`,
-          memo: `buy:${serviceId}`,
+          memo: trimmedNotes ? `buy:${serviceId}:${trimmedNotes}` : `buy:${serviceId}`,
         },
       }],
+    });
+  }
+
+  /**
+   * Read a listing's input form schema (`svcinputs` table).
+   * Returns null when the seller has not declared one (or it is malformed).
+   */
+  async getServiceInput(serviceId: number): Promise<ServiceInputSchema | null> {
+    const result = await this.rpc.get_table_rows<ServiceInputRaw>({
+      json: true,
+      code: this.contract,
+      scope: this.contract,
+      table: 'svcinputs',
+      lower_bound: String(serviceId),
+      upper_bound: String(serviceId),
+      limit: 1,
+    });
+
+    if (result.rows.length === 0) return null;
+    return parseServiceInputSchema(result.rows[0].schema);
+  }
+
+  /**
+   * Declare (or replace) the input form for a listing you own.
+   * Pass an empty string to remove the form.
+   */
+  async setServiceInput(
+    serviceId: number,
+    schema: string | ServiceInputSchema
+  ): Promise<TransactionResult> {
+    this.requireSession();
+
+    const schemaJson = typeof schema === 'string' ? schema.trim() : JSON.stringify(schema);
+    if (schemaJson.length > MAX_SERVICE_INPUT_SCHEMA_LENGTH) {
+      throw new Error(
+        `schema must be at most ${MAX_SERVICE_INPUT_SCHEMA_LENGTH} characters (got ${schemaJson.length})`
+      );
+    }
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'setsvcinput',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          agent: this.session!.auth.actor,
+          service_id: serviceId,
+          schema: schemaJson,
+        },
+      }],
+    });
+  }
+
+  /**
+   * Buy a service and submit the buyer's answers to its input form in ONE
+   * transaction: `transfer(buy:<id>)` followed by `svcinput`. The contract
+   * appends the answers to the new job's message thread, so the buyer signs once.
+   *
+   * @param answers packed answers — an object or a JSON string, max 512 characters
+   */
+  async buyServiceWithInput(
+    serviceId: number,
+    priceRaw: number,
+    answers: string | Record<string, unknown>
+  ): Promise<TransactionResult> {
+    this.requireSession();
+
+    const answersJson = typeof answers === 'string' ? answers.trim() : JSON.stringify(answers);
+    if (!answersJson) throw new Error('answers are required — use buyService() for a purchase without input');
+    if (answersJson.length > MAX_SERVICE_INPUT_ANSWERS_LENGTH) {
+      throw new Error(
+        `answers must be at most ${MAX_SERVICE_INPUT_ANSWERS_LENGTH} characters (got ${answersJson.length})`
+      );
+    }
+
+    const auth = [{
+      actor: this.session!.auth.actor,
+      permission: this.session!.auth.permission,
+    }];
+
+    return this.session!.link.transact({
+      actions: [
+        {
+          account: 'eosio.token',
+          name: 'transfer',
+          authorization: auth,
+          data: {
+            from: this.session!.auth.actor,
+            to: this.contract,
+            quantity: `${(priceRaw / 10000).toFixed(4)} XPR`,
+            memo: `buy:${serviceId}`,
+          },
+        },
+        {
+          account: this.contract,
+          name: 'svcinput',
+          authorization: auth,
+          data: {
+            client: this.session!.auth.actor,
+            text: answersJson,
+          },
+        },
+      ],
     });
   }
 
@@ -1593,6 +1998,16 @@ export class EscrowRegistry {
       evidence_uri: raw.evidence_uri,
       submitted_at: safeParseInt(raw.submitted_at),
       approved_at: safeParseInt(raw.approved_at),
+    };
+  }
+
+  private parseJobMessage(raw: JobMessageRaw): JobMessage {
+    return {
+      id: safeParseInt(raw.id),
+      job_id: safeParseInt(raw.job_id),
+      author: raw.author,
+      text: raw.text,
+      created_at: safeParseInt(raw.created_at),
     };
   }
 

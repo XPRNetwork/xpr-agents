@@ -193,6 +193,32 @@ export async function syncFromChain(
     console.log(`[sync] Services: ${services.length}`);
   }
 
+  // ── Service Inputs ────────────────────────────────
+  const serviceInputs = await fetchAllRows(rpc, contracts.agentescrow, 'svcinputs');
+  if (serviceInputs.length > 0) {
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO service_inputs (service_id, schema, updated_at)
+      VALUES (?, ?, ?)
+    `);
+    for (const si of serviceInputs) {
+      stmt.run(si.service_id, si.schema || '', si.updated_at || 0);
+    }
+    console.log(`[sync] Service inputs: ${serviceInputs.length}`);
+  }
+
+  // ── Job Messages ──────────────────────────────────
+  const jobMessages = await fetchAllRows(rpc, contracts.agentescrow, 'jobmsgs');
+  if (jobMessages.length > 0) {
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO job_messages (id, job_id, author, text, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    for (const m of jobMessages) {
+      stmt.run(m.id, m.job_id, m.author || '', m.text || '', m.created_at || 0);
+    }
+    console.log(`[sync] Job messages: ${jobMessages.length}`);
+  }
+
   // ── Bids ──────────────────────────────────────────
   const bids = await fetchAllRows(rpc, contracts.agentescrow, 'bids');
   if (bids.length > 0) {

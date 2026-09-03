@@ -2,23 +2,19 @@ import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
 import { updateStats } from '../db/schema';
 import { WebhookDispatcher } from '../webhooks/dispatcher';
-import { pendingCorrections, fetchOnChainId, getRpcEndpoint, safeCorrect, type RetargetSpec } from './id-correction';
-
-/** Foreign-key topology for escrow tables (used by safeCorrect to update FK columns). */
-const JOBS_SPEC: RetargetSpec = {
-  primaryTable: 'jobs',
-  fkRefs: [
-    { table: 'bids', col: 'job_id' },
-    { table: 'milestones', col: 'job_id' },
-    { table: 'escrow_disputes', col: 'job_id' },
-    { table: 'job_evidence', col: 'job_id' },
-  ],
-};
-const BIDS_SPEC: RetargetSpec = { primaryTable: 'bids', fkRefs: [] };
-/** Services are referenced by jobs only through job_hash = 'svc:<id>' (a string), never by FK column. */
-const SERVICES_SPEC: RetargetSpec = { primaryTable: 'services', fkRefs: [] };
-const MILESTONES_SPEC: RetargetSpec = { primaryTable: 'milestones', fkRefs: [] };
-const DISPUTES_SPEC: RetargetSpec = { primaryTable: 'escrow_disputes', fkRefs: [] };
+import {
+  pendingCorrections,
+  fetchOnChainId,
+  getRpcEndpoint,
+  safeCorrect,
+  resolveDisplacedRow,
+  JOBS_SPEC,
+  BIDS_SPEC,
+  SERVICES_SPEC,
+  MILESTONES_SPEC,
+  DISPUTES_SPEC,
+  JOB_MESSAGES_SPEC,
+} from './id-correction';
 
 /**
  * Fetch the real on-chain job ID by looking up the jobs table for a matching record.
@@ -250,6 +246,15 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
     case 'withdrawbid':
       handleWithdrawBid(db, data);
       break;
+    case 'askclient':
+      handleJobMessage(db, action, data.agent, dispatcher);
+      break;
+    case 'answer':
+      handleJobMessage(db, action, data.client, dispatcher);
+      break;
+    case 'svcinput':
+      handleServiceInput(db, action, dispatcher);
+      break;
     case 'removejob':
       handleRemoveJob(db, data);
       break;
@@ -264,6 +269,9 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
       break;
     case 'relistsvc':
       handleSetServiceActive(db, data, true);
+      break;
+    case 'setsvcinput':
+      handleSetServiceInput(db, data, action.timestamp);
       break;
     case 'rmservice':
       handleRemoveService(db, data);
@@ -348,8 +356,7 @@ function handleCreateJob(db: Database.Database, data: any, timestamp: string): v
       const dJobHash = String(displacedRow.job_hash || '');
       pendingCorrections.push(async () => {
         const displacedRealId = await fetchOnChainJobId(escrowContract, dClient, dTitle, dJobHash);
-        if (displacedRealId == null || displacedRealId === displacedId) return;
-        safeCorrect(db, JOBS_SPEC, displacedId, displacedRealId);
+        resolveDisplacedRow(db, JOBS_SPEC, displacedId, displacedRealId);
       });
     });
     console.log(`Job ID corrected: ${tempId} → ${realId} (${title})`);
@@ -474,8 +481,7 @@ function handleDispute(db: Database.Database, data: any, timestamp: string): voi
         const displacedRealId = await fetchOnChainId(disputeContract, 'disputes', (row) =>
           row.job_id == dJobId && row.raised_by === dRaisedBy
         );
-        if (displacedRealId == null || displacedRealId === displacedId) return;
-        safeCorrect(db, DISPUTES_SPEC, displacedId, displacedRealId);
+        resolveDisplacedRow(db, DISPUTES_SPEC, displacedId, displacedRealId);
       });
     });
     console.log(`Dispute ID corrected: ${tempId} → ${realId}`);
@@ -671,8 +677,7 @@ function handleAddMilestone(db: Database.Database, data: any): void {
         const displacedRealId = await fetchOnChainId(milestoneContract, 'milestones', (row) =>
           row.job_id == dJobId && row.title === dTitle
         );
-        if (displacedRealId == null || displacedRealId === displacedId) return;
-        safeCorrect(db, MILESTONES_SPEC, displacedId, displacedRealId);
+        resolveDisplacedRow(db, MILESTONES_SPEC, displacedId, displacedRealId);
       });
     });
     console.log(`Milestone ID corrected: ${tempId} → ${realId}`);
@@ -801,8 +806,7 @@ function handleSubmitBid(db: Database.Database, data: any, timestamp: string): v
         const displacedRealId = await fetchOnChainId(bidContract, 'bids', (row) =>
           row.job_id == dJobId && row.agent === dAgent
         );
-        if (displacedRealId == null || displacedRealId === displacedId) return;
-        safeCorrect(db, BIDS_SPEC, displacedId, displacedRealId);
+        resolveDisplacedRow(db, BIDS_SPEC, displacedId, displacedRealId);
       });
     });
     console.log(`Bid ID corrected: ${tempId} → ${realId}`);
@@ -827,11 +831,280 @@ function handleRemoveJob(db: Database.Database, data: any): void {
     db.prepare('DELETE FROM milestones WHERE job_id = ?').run(jobId);
     db.prepare('DELETE FROM escrow_disputes WHERE job_id = ?').run(jobId);
     db.prepare('DELETE FROM job_evidence WHERE job_id = ?').run(jobId);
+    db.prepare('DELETE FROM job_messages WHERE job_id = ?').run(jobId);
     db.prepare('DELETE FROM jobs WHERE id = ?').run(jobId);
   })();
   console.log(
     `Job ${jobId} removed (admin)${before ? ` — was "${before.title}" by ${before.client}` : ''}`,
   );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Job messages (question / answer thread)                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Fetch the real on-chain ID of a freshly stored `jobmsgs` row.
+ *
+ * `fetchOnChainId` scans the table in reverse from the primary index, so the
+ * message just written is among the newest rows; job_id + author + text picks
+ * it out (the same message twice in a row resolves to the newest, which is the
+ * correct answer for the row we just inserted).
+ */
+async function fetchOnChainJobMessageId(
+  escrowContract: string,
+  jobId: number,
+  author: string,
+  text: string,
+): Promise<number | null> {
+  return fetchOnChainId(escrowContract, 'jobmsgs', (row) =>
+    Number(row.job_id) === jobId && row.author === author && (row.text || '') === (text || '')
+  );
+}
+
+/**
+ * askclient / answer — one message in a job's question/answer thread.
+ *
+ * The action data carries no primary key, so the row goes in with a synthetic
+ * MAX(id)+1 and an async RPC lookup corrects it to the real `jobmsgs` ID
+ * (same machinery as jobs/bids/services). Without an RPC endpoint the
+ * synthetic ID stands.
+ *
+ * The derived event and the webhook are emitted from the async step so they
+ * always carry the final message ID. The webhook goes to the *other* party:
+ * a question notifies the client, an answer notifies the agent.
+ */
+function handleJobMessage(
+  db: Database.Database,
+  action: StreamAction,
+  author: string,
+  dispatcher?: WebhookDispatcher,
+): void {
+  const data = action.act.data;
+  const jobId = Number(data.job_id);
+
+  if (!Number.isFinite(jobId)) {
+    console.warn(`[job-messages] Ignoring malformed ${action.act.name}: job_id=${data.job_id} author=${author}`);
+    return;
+  }
+
+  insertJobMessage(db, action, {
+    author,
+    jobId,
+    isQuestion: action.act.name === 'askclient',
+  }, dispatcher);
+}
+
+/**
+ * svcinput — the buyer's answers to a service's input form, sent in the same
+ * transaction as the purchase transfer. Indexed exactly like `answer` (a
+ * `jobmsgs` row authored by the client, a `job.answer` event and a webhook to
+ * the agent); only the job ID needs finding, because the action data doesn't
+ * carry one.
+ *
+ * Resolution order:
+ *  1. the client's newest `svc:` job in the mirror — the purchase transfer in
+ *     the same transaction was handled a moment ago, so this is normally it;
+ *  2. the chain `lastbuys` table for that client, read in the async step and
+ *     applied when it disagrees. Best-effort: the contract deletes the row as
+ *     part of `svcinput`, so this usually reads back empty and step 1 stands.
+ *
+ * A later correction of the job's own ID drags the message along through
+ * JOBS_SPEC's foreign-key list, so the thread stays attached either way.
+ */
+function handleServiceInput(
+  db: Database.Database,
+  action: StreamAction,
+  dispatcher?: WebhookDispatcher,
+): void {
+  const data = action.act.data;
+  const client: string = data.client || '';
+
+  if (!client) {
+    console.warn(`[job-messages] Ignoring malformed svcinput: client=${data.client}`);
+    return;
+  }
+
+  const escrowContract = action.act.account;
+
+  // Newest service-purchase job for this buyer (the one just funded).
+  const mirrored = db.prepare(`
+    SELECT id FROM jobs
+    WHERE client = ? AND job_hash LIKE 'svc:%'
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+  `).get(client) as { id: number } | undefined;
+
+  if (!mirrored) {
+    console.warn(`[job-messages] svcinput from ${client} — no service purchase job in the mirror yet`);
+  }
+
+  insertJobMessage(db, action, {
+    author: client,
+    jobId: mirrored?.id ?? 0,
+    isQuestion: false,
+    resolveJobId: () => fetchLastBuyJobId(escrowContract, client),
+  }, dispatcher);
+}
+
+/**
+ * Read `lastbuys[client].job_id` from the chain. Returns null when no RPC
+ * endpoint is configured, the row is gone (the usual case — `svcinput`
+ * consumes it) or the read fails.
+ */
+async function fetchLastBuyJobId(escrowContract: string, client: string): Promise<number | null> {
+  const rpcEndpoint = getRpcEndpoint();
+  if (!rpcEndpoint) return null;
+  try {
+    const res = await fetch(`${rpcEndpoint}/v1/chain/get_table_rows`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: escrowContract,
+        table: 'lastbuys',
+        scope: escrowContract,
+        json: true,
+        lower_bound: client,
+        upper_bound: client,
+        limit: 1,
+      }),
+    });
+    const data = (await res.json()) as { rows?: any[] };
+    const row = data.rows && data.rows[0];
+    if (!row || row.client !== client) return null;
+    const jobId = Number(row.job_id);
+    return Number.isFinite(jobId) ? jobId : null;
+  } catch (err) {
+    console.warn(`[job-messages] Failed to read lastbuys for ${client}:`, err);
+    return null;
+  }
+}
+
+interface JobMessageInsert {
+  /** Message author (the agent for a question, the client for an answer). */
+  author: string;
+  /** Job the message belongs to; 0 when it could not be resolved yet. */
+  jobId: number;
+  /** true = job.question (agent asked), false = job.answer (client replied). */
+  isQuestion: boolean;
+  /** Optional chain lookup that may correct `jobId` in the async step. */
+  resolveJobId?: () => Promise<number | null>;
+}
+
+/**
+ * Shared write path for every kind of job message (askclient / answer /
+ * svcinput): synthetic-ID insert now, chain corrections + derived event +
+ * webhook in the async step, so both always carry the final IDs.
+ */
+function insertJobMessage(
+  db: Database.Database,
+  action: StreamAction,
+  opts: JobMessageInsert,
+  dispatcher?: WebhookDispatcher,
+): void {
+  const { author, isQuestion, resolveJobId } = opts;
+  const escrowContract = action.act.account;
+  const text: string = action.act.data.text || '';
+
+  if (!author) {
+    console.warn(`[job-messages] Ignoring ${action.act.name} with no author`);
+    return;
+  }
+
+  const jobId = opts.jobId;
+  const createdAt = Math.floor(new Date(action.timestamp).getTime() / 1000);
+
+  // Replay guard: the same message from the same author in the same second is
+  // a re-processed action, not a second message.
+  const existing = db.prepare(
+    'SELECT id FROM job_messages WHERE job_id = ? AND author = ? AND text = ? AND created_at = ?'
+  ).get(jobId, author, text, createdAt) as { id: number } | undefined;
+  if (existing) {
+    console.log(`Job message already exists (ID ${existing.id}) — skipping duplicate ${action.act.name} on job ${jobId}`);
+    return;
+  }
+
+  const result = db.prepare('SELECT MAX(id) as max_id FROM job_messages').get() as { max_id: number | null };
+  const tempId = (result.max_id || 0) + 1;
+
+  db.prepare(`
+    INSERT INTO job_messages (id, job_id, author, text, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(tempId, jobId, author, text, createdAt);
+
+  console.log(
+    `Job ${jobId} ${isQuestion ? 'question' : 'answer'} from ${author} — message ${tempId} (temp)`,
+  );
+
+  const blockNum = action.block_num;
+
+  pendingCorrections.push(async () => {
+    // 1. The chain may know a better job ID than the one guessed locally.
+    if (resolveJobId) {
+      const chainJobId = await resolveJobId();
+      if (chainJobId != null && chainJobId !== jobId) {
+        db.prepare('UPDATE job_messages SET job_id = ? WHERE id = ?').run(chainJobId, tempId);
+        console.log(`Job message ${tempId} re-attached to job ${chainJobId} (was ${jobId})`);
+      }
+    }
+
+    // Re-read: an earlier correction in this batch may have moved the job.
+    const current = db.prepare('SELECT job_id FROM job_messages WHERE id = ?').get(tempId) as
+      | { job_id: number }
+      | undefined;
+    const finalJobId = current ? Number(current.job_id) : jobId;
+
+    // 2. Replace the synthetic message ID with the real jobmsgs ID.
+    const realId = await fetchOnChainJobMessageId(escrowContract, finalJobId, author, text);
+    let messageId = tempId;
+
+    if (realId == null) {
+      console.warn(
+        `[job-messages] ID lookup failed for job ${finalJobId} ${isQuestion ? 'question' : 'answer'} — ` +
+        `keeping synthetic ID ${tempId} (RPC unavailable or row not found)`,
+      );
+    } else if (realId !== tempId) {
+      safeCorrect(db, JOB_MESSAGES_SPEC, tempId, realId, (displacedId, displacedRow) => {
+        const dJobId = Number(displacedRow.job_id);
+        const dAuthor = String(displacedRow.author || '');
+        const dText = String(displacedRow.text || '');
+        pendingCorrections.push(async () => {
+          const displacedRealId = await fetchOnChainJobMessageId(escrowContract, dJobId, dAuthor, dText);
+          resolveDisplacedRow(db, JOB_MESSAGES_SPEC, displacedId, displacedRealId);
+        });
+      });
+      messageId = realId;
+      console.log(`Job message ID corrected: ${tempId} -> ${realId} (job ${finalJobId})`);
+    } else {
+      messageId = realId;
+    }
+
+    const eventName = isQuestion ? 'job.question' : 'job.answer';
+    const payload = {
+      job_id: finalJobId,
+      message_id: messageId,
+      author,
+      text,
+    };
+
+    logDerivedEvent(db, action, eventName, escrowContract, payload);
+
+    // A question is for the client to answer; an answer is for the agent.
+    const job = db.prepare('SELECT client, agent FROM jobs WHERE id = ?').get(finalJobId) as
+      | { client: string; agent: string }
+      | undefined;
+    const recipient = isQuestion ? job?.client : job?.agent;
+
+    dispatcher?.dispatch(
+      eventName,
+      recipient ? [recipient] : [],
+      payload,
+      isQuestion
+        ? `Job #${finalJobId}: ${author} asked a question — "${text}"`
+        : `Job #${finalJobId}: ${author} answered — "${text}"`,
+      blockNum,
+    );
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -898,8 +1171,7 @@ function handleListService(db: Database.Database, data: any, timestamp: string):
       const dTitle = String(displacedRow.title || '');
       pendingCorrections.push(async () => {
         const displacedRealId = await fetchOnChainServiceId(escrowContract, dAgent, dTitle);
-        if (displacedRealId == null || displacedRealId === displacedId) return;
-        safeCorrect(db, SERVICES_SPEC, displacedId, displacedRealId);
+        resolveDisplacedRow(db, SERVICES_SPEC, displacedId, displacedRealId);
       });
     });
     console.log(`Service ID corrected: ${tempId} → ${realId} (${title})`);
@@ -953,6 +1225,36 @@ function handleSetServiceActive(db: Database.Database, data: any, active: boolea
 }
 
 /** rmservice — admin (config.owner) removes a spam/abusive listing; the chain deletes the row. */
+/**
+ * setsvcinput — the seller declares (or clears) the input form for a listing.
+ * An empty schema removes the row, exactly as the contract does. The schema is
+ * stored verbatim: the site owns its shape, the mirror only carries it.
+ */
+function handleSetServiceInput(db: Database.Database, data: any, timestamp: string): void {
+  const serviceId = Number(data.service_id);
+  if (!Number.isFinite(serviceId)) {
+    console.warn(`[services] Ignoring setsvcinput with bad service_id: ${data.service_id}`);
+    return;
+  }
+
+  const schema: string = data.schema || '';
+  const updatedAt = Math.floor(new Date(timestamp).getTime() / 1000);
+
+  if (schema === '') {
+    db.prepare('DELETE FROM service_inputs WHERE service_id = ?').run(serviceId);
+    console.log(`Service ${serviceId} input form cleared`);
+    return;
+  }
+
+  db.prepare(`
+    INSERT INTO service_inputs (service_id, schema, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(service_id) DO UPDATE SET schema = excluded.schema, updated_at = excluded.updated_at
+  `).run(serviceId, schema, updatedAt);
+
+  console.log(`Service ${serviceId} input form set (${schema.length} chars)`);
+}
+
 function handleRemoveService(db: Database.Database, data: any): void {
   const serviceId = Number(data.service_id);
   if (!Number.isFinite(serviceId)) return;
@@ -960,7 +1262,10 @@ function handleRemoveService(db: Database.Database, data: any): void {
   const before = db.prepare('SELECT agent, title FROM services WHERE id = ?').get(serviceId) as
     | { agent: string; title: string }
     | undefined;
-  db.prepare('DELETE FROM services WHERE id = ?').run(serviceId);
+  db.transaction(() => {
+    db.prepare('DELETE FROM service_inputs WHERE service_id = ?').run(serviceId);
+    db.prepare('DELETE FROM services WHERE id = ?').run(serviceId);
+  })();
   console.log(
     `Service ${serviceId} removed (admin)${before ? ` — was "${before.title}" by ${before.agent}` : ''}`,
   );
@@ -1016,6 +1321,9 @@ function handleCleanJobs(db: Database.Database, data: any): void {
 
   for (const job of jobs) {
     db.prepare('UPDATE milestones SET archived = 1 WHERE job_id = ?').run(job.id);
+    // The chain deletes the thread with the job, so the mirror does too — the
+    // job row itself is only archived (history), but its messages are gone.
+    db.prepare('DELETE FROM job_messages WHERE job_id = ?').run(job.id);
     db.prepare('UPDATE jobs SET archived = 1 WHERE id = ?').run(job.id);
   }
 
@@ -1117,11 +1425,20 @@ function handleServicePurchase(
   dispatcher?: WebhookDispatcher,
 ): void {
   const memo: string = action.act.data.memo;
-  const serviceId = parseInt(memo.substring(4), 10);
-  if (isNaN(serviceId)) {
+
+  // "buy:<service_id>" or "buy:<service_id>:<buyer notes>". The notes may
+  // themselves contain colons, so only the digits before the *first* colon
+  // after the ID are the ID.
+  const rest = memo.substring(4);
+  const sep = rest.indexOf(':');
+  const idPart = sep === -1 ? rest : rest.substring(0, sep);
+  const notes = sep === -1 ? '' : rest.substring(sep + 1);
+
+  if (!/^\d+$/.test(idPart)) {
     console.warn(`[services] Ignoring malformed buy memo: "${memo}"`);
     return;
   }
+  const serviceId = parseInt(idPart, 10);
 
   const service = db.prepare('SELECT * FROM services WHERE id = ?').get(serviceId) as
     | {
@@ -1142,6 +1459,12 @@ function handleServicePurchase(
 
   const now = Math.floor(new Date(action.timestamp).getTime() / 1000);
   const jobHash = `svc:${serviceId}`;
+
+  // The contract appends the buyer's notes to the job description (the listing's
+  // own description is untouched), so the mirror does exactly the same.
+  const description = notes
+    ? `${service.description || ''}\n\nBuyer notes: ${notes}`
+    : service.description || '';
 
   // Replay guard: a re-processed transfer must neither double-count the sale
   // nor insert the job twice, so both writes sit behind this check.
@@ -1165,7 +1488,7 @@ function handleServicePurchase(
     from,
     service.agent,
     service.title || '',
-    service.description || '',
+    description,
     service.deliverables || '[]',
     service.price || 0,
     service.price || 0,
@@ -1203,8 +1526,7 @@ function handleServicePurchase(
         const dJobHash = String(displacedRow.job_hash || '');
         pendingCorrections.push(async () => {
           const displacedRealId = await fetchOnChainJobId(escrowContract, dClient, dTitle, dJobHash);
-          if (displacedRealId == null || displacedRealId === displacedId) return;
-          safeCorrect(db, JOBS_SPEC, displacedId, displacedRealId);
+          resolveDisplacedRow(db, JOBS_SPEC, displacedId, displacedRealId);
         });
       });
       jobId = realId;

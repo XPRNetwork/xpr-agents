@@ -37,7 +37,8 @@ export interface ServiceListResult {
 
 /**
  * A listing plus the seller's trust signals, so a catalogue card needs one
- * request. Mirrors the /agents joins (agent_scores for rating, a jobs
+ * request. `input_schema` is the seller's declared input form (a string) or
+ * null when the listing has none. Mirrors the /agents joins (agent_scores for rating, a jobs
  * subquery for completed work). `featured` is 1 while the boost is running.
  */
 const SERVICE_SELECT = `
@@ -46,7 +47,8 @@ const SERVICE_SELECT = `
          COALESCE(sc.avg_score, 0) AS avg_score,
          COALESCE(sc.feedback_count, 0) AS feedback_count,
          COALESCE(cj.completed_jobs, 0) AS completed_jobs,
-         CASE WHEN COALESCE(s.featured_until, 0) > @now THEN 1 ELSE 0 END AS featured
+         CASE WHEN COALESCE(s.featured_until, 0) > @now THEN 1 ELSE 0 END AS featured,
+         (SELECT si.schema FROM service_inputs si WHERE si.service_id = s.id) AS input_schema
   FROM services s
   LEFT JOIN agents a ON a.account = s.agent
   LEFT JOIN agent_scores sc ON sc.agent = s.agent
@@ -76,7 +78,8 @@ export function queryServices(db: Database.Database, opts: ServiceQueryOptions =
   const now = opts.now ?? Math.floor(Date.now() / 1000);
 
   const params: Record<string, unknown> = { now, limit, offset };
-  let where = ' WHERE 1=1';
+  // id >= 0 hides displacement leftovers (negative temp ids from safeCorrect).
+  let where = ' WHERE s.id >= 0';
 
   // Default is the live catalogue. Anything else ("false", "all") drops the
   // filter so a seller dashboard can list its delisted rows too.

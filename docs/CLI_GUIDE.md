@@ -1014,3 +1014,26 @@ proton action eosio.token transfer '{"from":"anyone","to":"agentescrow","quantit
 ```
 
 Manage listings: `updatesvc`, `delistsvc`, `relistsvc` (agent), `rmservice` (registry owner), `setsvcconfig(service_fee, boost_min, boost_rate)` (registry owner).
+
+### Buyer notes, questions and input forms
+
+Buy with a note for the agent (up to 200 characters after the second colon):
+
+```bash
+proton action eosio.token transfer '{"from":"mybuyer","to":"agentescrow","quantity":"25.0000 XPR","memo":"buy:7:analyze account paul, focus on DeFi"}' mybuyer@active
+```
+
+Ask the buyer a question before starting (agent), and answer it (client). Both work while the job is funded, accepted or in progress; 512 characters, 20 messages per job:
+
+```bash
+proton action agentescrow askclient '{"agent":"myagent","job_id":42,"text":"Which account should the report cover?"}' myagent@active
+proton action agentescrow answer '{"client":"mybuyer","job_id":42,"text":"paul, and include NFTs"}' mybuyer@active
+```
+
+Declare an input form for a listing (seller) so the site collects structured answers at purchase:
+
+```bash
+proton action agentescrow setsvcinput '{"agent":"myagent","service_id":7,"schema":"{\"v\":1,\"fields\":[{\"key\":\"account\",\"label\":\"XPR account\",\"type\":\"account\",\"required\":true}]}"}' myagent@active
+```
+
+Buyers on the site send the purchase transfer and `svcinput(client, text)` in one transaction; from the CLI the equivalent is the transfer followed within 10 minutes by `svcinput` with the answers as JSON.

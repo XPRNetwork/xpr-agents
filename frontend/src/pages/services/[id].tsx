@@ -24,16 +24,25 @@ import {
   FEATURED_SLOTS,
   boostDays,
   findServiceJob,
+  getServiceInput,
+  validateServiceInput,
+  packServiceInput,
+  SERVICE_INPUT_ANSWERS_MAX,
   parseDeliverableManifest,
   SERVICE_CATEGORY_LABELS,
   DEFAULT_SERVICE_CONFIG,
+  type Job,
   type Service,
+  type ServiceInputSchema,
+  type ServiceInputAnswers,
   type ServiceConfig,
 } from '@/lib/registry';
 import { getTxId } from '@/lib/job-constants';
 
 const POLL_TRIES = 10;
 const POLL_INTERVAL_MS = 1500;
+/** Contract cap on the buyer note carried in the `buy:<id>:<notes>` memo. */
+const BUY_NOTES_MAX = 200;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -49,6 +58,11 @@ export default function ServicePage() {
   const [buying, setBuying] = useState(false);
   const [buyStatus, setBuyStatus] = useState<string | null>(null);
   const [orphanJob, setOrphanJob] = useState(false);
+  const [showBuy, setShowBuy] = useState(false);
+  const [buyNotes, setBuyNotes] = useState('');
+  // Sellers can declare the inputs they need; the form replaces the notes box.
+  const [inputSchema, setInputSchema] = useState<ServiceInputSchema | null>(null);
+  const [inputAnswers, setInputAnswers] = useState<ServiceInputAnswers>({});
   const buyingRef = useRef(false);
 
   // Featured placement
@@ -59,6 +73,8 @@ export default function ServicePage() {
 
   const { agent, score, trustScore } = useAgent(service?.agent);
   const [agentStats, setAgentStats] = useState<{ completed_jobs?: number; earnings?: number } | null>(null);
+  // An earlier purchase of this listing by the connected account, if any.
+  const [myJob, setMyJob] = useState<Job | null>(null);
 
   useEffect(() => {
     if (id === undefined) return;
@@ -85,6 +101,24 @@ export default function ServicePage() {
     return () => { cancelled = true; };
   }, [service?.agent]);
 
+  useEffect(() => {
+    if (!service) { setInputSchema(null); return; }
+    let cancelled = false;
+    getServiceInput(service.id)
+      .then((schema) => { if (!cancelled) { setInputSchema(schema); setInputAnswers({}); } })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [service?.id]);
+
+  useEffect(() => {
+    if (!session || !service) { setMyJob(null); return; }
+    let cancelled = false;
+    findServiceJob(session.auth.actor, service.id)
+      .then((job) => { if (!cancelled) setMyJob(job); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [session?.auth.actor, service?.id]);
+
   const manifest = useMemo(
     () => (service?.sample_uri ? parseDeliverableManifest(service.sample_uri) : null),
     [service?.sample_uri]
@@ -94,6 +128,18 @@ export default function ServicePage() {
   // The contract also refuses purchases from the agent's KYC'd owner; say so instead of surfacing a chain error.
   const isOwner = !!session && !!agent && !!agent.owner && agent.owner === session.auth.actor;
   const priceStr = service ? `${(service.price / 10000).toFixed(4)} XPR` : '';
+  // The memo carries the whole brief: everything after the second colon is the buyer's note,
+  // which the contract copies into the job description. Newlines would break the memo.
+  const cleanNotes = buyNotes.replace(/[\r\n]+/g, ' ').trim().slice(0, BUY_NOTES_MAX);
+  const buyMemo = service ? (cleanNotes && !inputSchema ? `buy:${service.id}:${cleanNotes}` : `buy:${service.id}`) : '';
+  // Chain memos are capped at 256 bytes, which only bites when the note uses multi-byte characters.
+  const memoTooLong = new TextEncoder().encode(buyMemo).length > 256;
+  // With a schema the memo stays a plain `buy:<id>` and the answers ride along
+  // as a `svcinput` action in the same transaction — one signature either way.
+  const packedInput = inputSchema ? packServiceInput(inputSchema, inputAnswers) : '';
+  const inputErrors = inputSchema ? validateServiceInput(inputSchema, inputAnswers) : {};
+  const inputTooLong = packedInput.length > SERVICE_INPUT_ANSWERS_MAX;
+  const inputBlocked = !!inputSchema && (Object.keys(inputErrors).length > 0 || inputTooLong);
   const completedJobs = agentStats?.completed_jobs ?? agent?.total_jobs;
   const reviews = score?.feedback_count ?? service?.agent_reviews ?? 0;
   const rating = score?.avg_score ?? service?.agent_rating ?? 0;
@@ -153,7 +199,9 @@ export default function ServicePage() {
       const previous = await findServiceJob(session.auth.actor, service.id);
       const previousId = previous ? previous.id : -1;
 
-      const result = await transact([
+      // One signature: the transfer creates and funds the job, and `svcinput`
+      // appends the packed form answers as the job's first message.
+      const actions: any[] = [
         {
           account: 'eosio.token',
           name: 'transfer',
@@ -161,12 +209,23 @@ export default function ServicePage() {
             from: session.auth.actor,
             to: CONTRACTS.AGENT_ESCROW,
             quantity: priceStr,
-            memo: `buy:${service.id}`,
+            memo: buyMemo,
           },
         },
-      ]);
+      ];
+      if (inputSchema && packedInput) {
+        actions.push({
+          account: CONTRACTS.AGENT_ESCROW,
+          name: 'svcinput',
+          data: { client: session.auth.actor, text: packedInput },
+        });
+      }
+      const result = await transact(actions);
 
       addToast({ type: 'success', message: `Bought "${service.title}" for ${priceStr}`, txId: getTxId(result) });
+      setShowBuy(false);
+      setBuyNotes('');
+      setInputAnswers({});
       setBuyStatus('Opening your escrow job…');
 
       for (let i = 0; i < POLL_TRIES; i++) {
@@ -377,6 +436,9 @@ export default function ServicePage() {
                     <dl className="divide-y divide-line">
                       {railRow('Turnaround', <span className="font-mono tabular">{formatTurnaround(service.turnaround)}</span>)}
                       {railRow('Sales', <span className="font-mono tabular">{service.sales}</span>)}
+                      {myJob && railRow('You bought this', (
+                        <Link href={`/jobs/${myJob.id}`} className="font-mono text-accent hover:underline">job #{myJob.id}</Link>
+                      ))}
                       {service.featured && service.featuredSlot === 0 && railRow('Featured', <span className="text-xs text-muted">Boost running, outside the top {FEATURED_SLOTS} slots</span>)}
                       {service.featured && railRow('Featured until', (
                         <span className="font-mono tabular text-accent" title={formatDate(service.featuredUntil)}>
@@ -400,7 +462,7 @@ export default function ServicePage() {
                         <p className="text-xs text-muted">You own <span className="font-mono">{service.agent}</span>, so you cannot buy from it. Use another account to test the purchase flow.</p>
                       ) : (
                         <button
-                          onClick={handleBuy}
+                          onClick={() => setShowBuy(true)}
                           disabled={buying}
                           className="w-full rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted"
                         >
@@ -433,7 +495,8 @@ export default function ServicePage() {
 
                       <p className="text-xs text-muted">
                         One transfer to <span className="font-mono">{CONTRACTS.AGENT_ESCROW}</span> with memo{' '}
-                        <span className="font-mono">buy:{service.id}</span>. That creates a funded escrow job assigned to{' '}
+                        <span className="font-mono">buy:{service.id}</span> (notes are appended as{' '}
+                        <span className="font-mono">buy:{service.id}:…</span>). That creates a funded escrow job assigned to{' '}
                         <span className="font-mono">{service.agent}</span>, due in {formatTurnaround(service.turnaround)}.
                       </p>
                     </div>
@@ -450,6 +513,144 @@ export default function ServicePage() {
 
         <Footer />
       </div>
+
+      <Modal
+        open={showBuy && !!session && !!service && service.active}
+        onClose={() => { if (!buying) setShowBuy(false); }}
+        title={service ? `Buy "${service.title}"` : 'Buy'}
+        description={inputSchema
+          ? 'The seller needs these details to start. They are sent with the purchase, in the same transaction, as the job\u2019s first message.'
+          : 'One transfer funds the escrow job. Anything you add below reaches the agent with the job, before it starts work.'}
+      >
+        <form
+          onSubmit={(e) => { e.preventDefault(); handleBuy(); }}
+          className="space-y-4"
+        >
+          {inputSchema ? (
+            <div className="space-y-4">
+              {inputSchema.fields.map((field) => {
+                const fieldId = `svcin-${field.key}`;
+                const value = inputAnswers[field.key];
+                const text = value === undefined || value === null || value === false ? '' : String(value);
+                const error = inputErrors[field.key];
+                const setValue = (v: string | boolean) => setInputAnswers((prev) => ({ ...prev, [field.key]: v }));
+                const monoTypes = field.type === 'account' || field.type === 'url' || field.type === 'number';
+                return (
+                  <Field key={field.key} label={field.label} htmlFor={fieldId} required={field.required}>
+                    <>
+                      {field.type === 'textarea' ? (
+                        <textarea
+                          id={fieldId}
+                          value={text}
+                          rows={3}
+                          maxLength={field.max}
+                          onChange={(e) => setValue(e.target.value)}
+                          className={inputClass}
+                        />
+                      ) : field.type === 'select' ? (
+                        <select id={fieldId} value={text} onChange={(e) => setValue(e.target.value)} className={inputClass}>
+                          <option value="">Choose…</option>
+                          {(field.options || []).map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
+                      ) : field.type === 'checkbox' ? (
+                        <label className="flex items-center gap-2 text-sm text-ink-2">
+                          <input
+                            id={fieldId}
+                            type="checkbox"
+                            checked={value === true}
+                            onChange={(e) => setValue(e.target.checked)}
+                            className="h-4 w-4 rounded border-line-2 accent-accent"
+                          />
+                          Yes
+                        </label>
+                      ) : (
+                        <input
+                          id={fieldId}
+                          type={field.type === 'number' ? 'number' : 'text'}
+                          inputMode={field.type === 'number' ? 'decimal' : undefined}
+                          value={text}
+                          maxLength={field.max}
+                          onChange={(e) => setValue(e.target.value)}
+                          placeholder={field.type === 'account' ? 'mybuyer' : field.type === 'url' ? 'https://…' : undefined}
+                          className={monoTypes ? `${inputClass} font-mono` : inputClass}
+                        />
+                      )}
+                      {field.max !== undefined && field.type !== 'checkbox' && (
+                        <p className="mt-1.5 text-right font-mono text-xs tabular text-muted">
+                          {text.trim().length}/{field.max}
+                        </p>
+                      )}
+                      {error && <p className="mt-1 text-xs text-crit">{error}</p>}
+                    </>
+                  </Field>
+                );
+              })}
+
+              <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
+                <span className="text-xs text-muted">Sent with the purchase as the job&apos;s first message.</span>
+                <span className={`font-mono text-xs tabular ${inputTooLong ? 'text-crit' : 'text-muted'}`}>
+                  {packedInput.length}/{SERVICE_INPUT_ANSWERS_MAX}
+                </span>
+              </div>
+              {inputTooLong && (
+                <p className="text-xs text-crit">Your answers are too long for one job message — shorten them.</p>
+              )}
+            </div>
+          ) : (
+            <Field
+              label="Notes for the agent"
+              htmlFor="buy-notes"
+              hint="Optional. Copied into the job description, so the agent reads it before starting."
+            >
+              <>
+                <textarea
+                  id="buy-notes"
+                  value={buyNotes}
+                  onChange={(e) => setBuyNotes(e.target.value.slice(0, BUY_NOTES_MAX))}
+                  maxLength={BUY_NOTES_MAX}
+                  rows={4}
+                  placeholder="Which account to analyze, brand colours, file to use…"
+                  className={inputClass}
+                />
+                <p className={`mt-1.5 text-right font-mono text-xs tabular ${memoTooLong ? 'text-crit' : 'text-muted'}`}>
+                  {cleanNotes.length}/{BUY_NOTES_MAX}
+                </p>
+                {memoTooLong && (
+                  <p className="mt-1 text-xs text-crit">
+                    Too long for the transfer memo (256 bytes) — shorten the note.
+                  </p>
+                )}
+              </>
+            </Field>
+          )}
+
+          <p className="text-xs text-muted">
+            Longer briefs?{' '}
+            <Link href="/jobs" className="text-accent hover:underline">Post a custom job</Link>{' '}
+            instead — you describe the work in full and choose from the bids.
+          </p>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="submit"
+              disabled={buying || memoTooLong || inputBlocked}
+              className="flex-1 rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted"
+            >
+              {buying ? (buyStatus || 'Confirming…') : service ? `Buy for ${formatXpr(service.price)}` : 'Buy'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowBuy(false)}
+              disabled={buying}
+              className="rounded-md border border-line-2 px-4 py-2.5 text-sm text-ink-2 hover:bg-surface disabled:text-muted"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal
         open={showBoost && !!session && !!service}

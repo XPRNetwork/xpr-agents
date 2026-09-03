@@ -205,6 +205,28 @@ export function initDatabase(dbPath: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_services_category ON services(category);
     CREATE INDEX IF NOT EXISTS idx_services_featured ON services(featured_until);
 
+    -- Service Inputs table (agentescrow::svcinputs) — the input form a seller
+    -- declares for a listing. One row per service; an empty schema removes it,
+    -- and rmservice clears it with the listing.
+    CREATE TABLE IF NOT EXISTS service_inputs (
+      service_id INTEGER PRIMARY KEY,
+      schema TEXT,
+      updated_at INTEGER
+    );
+
+    -- Job Messages table (agentescrow::jobmsgs) — the question/answer thread
+    -- between the assigned agent and the client on a funded job. Deleted with
+    -- the job by removejob / cleanjobs, exactly as the contract does.
+    CREATE TABLE IF NOT EXISTS job_messages (
+      id INTEGER PRIMARY KEY,
+      job_id INTEGER NOT NULL,
+      author TEXT NOT NULL,
+      text TEXT,
+      created_at INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_job_messages_job ON job_messages(job_id);
+
     -- Job Evidence table (separate from jobs to avoid serialization issues)
     CREATE TABLE IF NOT EXISTS job_evidence (
       job_id INTEGER PRIMARY KEY,

@@ -242,6 +242,35 @@ export class JobEvidence extends Table {
   }
 }
 
+// Question/answer thread between the agent and the client on a funded job.
+// Kept in its own table so the Job row serialization is untouched.
+@table("jobmsgs")
+export class JobMessage extends Table {
+  constructor(
+    public id: u64 = 0,
+    public job_id: u64 = 0,                 // Job this message belongs to
+    public author: Name = EMPTY_NAME,       // The agent or the client
+    public text: string = "",               // 1-512 characters
+    public created_at: u64 = 0
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.id;
+  }
+
+  @secondary
+  get byJob(): u64 {
+    return this.job_id;
+  }
+
+  set byJob(value: u64) {
+    this.job_id = value;
+  }
+}
+
 // CRITICAL FIX: Track arbitrator unstaking requests
 @table("arbunstakes")
 export class ArbUnstake extends Table {
@@ -333,6 +362,43 @@ export class ServiceDeposit extends Table {
 
 // External table reference for agent verification
 // Note: Agents use system staking (eosio::voters), not contract-managed staking
+// Optional input form a seller declares for a listing. The contract only bounds the
+// length; the shape (see docs/SERVICES.md) is a site/SDK convention.
+@table("svcinputs")
+export class ServiceInput extends Table {
+  constructor(
+    public service_id: u64 = 0,             // Primary key: the listing
+    public schema: string = "",             // JSON schema string, <= 2048 chars
+    public updated_at: u64 = 0
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.service_id;
+  }
+}
+
+// Last service purchase per buyer, so a `svcinput` action bundled in the same
+// transaction as the buy transfer can find the job it belongs to.
+@table("lastbuys")
+export class LastBuy extends Table {
+  constructor(
+    public client: Name = EMPTY_NAME,       // Primary key: the buyer
+    public job_id: u64 = 0,                 // Job created by the purchase
+    public service_id: u64 = 0,             // Listing bought
+    public created_at: u64 = 0
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.client.N;
+  }
+}
+
 @table("agents", "agentcore")
 export class AgentRef extends Table {
   constructor(
@@ -370,8 +436,11 @@ export class AgentEscrowContract extends Contract {
   private arbUnstakesTable: TableStore<ArbUnstake> = new TableStore<ArbUnstake>(this.receiver);
   private bidsTable: TableStore<Bid> = new TableStore<Bid>(this.receiver);
   private jobEvidenceTable: TableStore<JobEvidence> = new TableStore<JobEvidence>(this.receiver);
+  private jobMessagesTable: TableStore<JobMessage> = new TableStore<JobMessage>(this.receiver);
   private servicesTable: TableStore<Service> = new TableStore<Service>(this.receiver);
   private svcDepositsTable: TableStore<ServiceDeposit> = new TableStore<ServiceDeposit>(this.receiver);
+  private svcInputsTable: TableStore<ServiceInput> = new TableStore<ServiceInput>(this.receiver);
+  private lastBuysTable: TableStore<LastBuy> = new TableStore<LastBuy>(this.receiver);
   private svcConfigSingleton: Singleton<ServiceConfig> = new Singleton<ServiceConfig>(this.receiver);
   private configSingleton: Singleton<EscrowConfig> = new Singleton<EscrowConfig>(this.receiver);
 
@@ -902,6 +971,126 @@ export class AgentEscrowContract extends Contract {
     this.jobsTable.update(job, this.receiver);
 
     print(`Job ${job_id} sent back for revision: ${notes}`);
+  }
+
+  // ============== JOB MESSAGES ==============
+
+  private readonly MAX_JOB_MESSAGES: u64 = 20;
+  private readonly SVC_INPUT_WINDOW: u64 = 600; // seconds a purchase accepts its input form
+
+  // Count a job's messages via the byJob secondary index.
+  // The backwards walk is a no-op on chain (find() is a lower_bound, so the row
+  // before it always has a different key) but keeps the count exact under test
+  // harnesses whose secondary-index find() does not land on the first duplicate.
+  private countJobMessages(job_id: u64): u64 {
+    const start = this.jobMessagesTable.getBySecondaryU64(job_id, 0);
+    if (start == null) return 0;
+
+    let count: u64 = 0;
+    let guard: u64 = 0;
+
+    let prev = this.jobMessagesTable.previousBySecondaryU64(start!, 0);
+    while (prev != null && prev!.job_id == job_id && guard < 1000) {
+      count++;
+      prev = this.jobMessagesTable.previousBySecondaryU64(prev!, 0);
+      guard++;
+    }
+
+    let msg: JobMessage | null = start;
+    while (msg != null && msg!.job_id == job_id && guard < 1000) {
+      count++;
+      msg = this.jobMessagesTable.nextBySecondaryU64(msg!, 0);
+      guard++;
+    }
+
+    return count;
+  }
+
+  // Re-find after every removal (same shape as the milestone cleanup in removejob).
+  // A single forward walk is not enough: a secondary find() is a lower_bound and
+  // test harnesses do not always land on the first row of a duplicate key.
+  private cleanMessagesForJob(job_id: u64): void {
+    let guard: u64 = 0;
+    let msg = this.jobMessagesTable.getBySecondaryU64(job_id, 0);
+    while (msg != null && msg!.job_id == job_id && guard < 1000) {
+      this.jobMessagesTable.remove(msg!);
+      msg = this.jobMessagesTable.getBySecondaryU64(job_id, 0);
+      guard++;
+    }
+  }
+
+  // Shared guards for both sides of the thread. The party check is done by the
+  // caller so each side reports its own message.
+  private addJobMessage(job: Job, author: Name, text: string): void {
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+    check(text.length > 0 && text.length <= 512, "Message must be 1-512 characters");
+    // FUNDED(1), ACCEPTED(2) or INPROGRESS(3). Delivered/terminal jobs keep their
+    // thread as history but take no new messages.
+    check(job.state >= 1 && job.state <= 3, "Job must be funded, accepted or in progress");
+    check(this.countJobMessages(job.id) < this.MAX_JOB_MESSAGES, "Job message limit reached");
+
+    this.jobMessagesTable.store(
+      new JobMessage(
+        this.jobMessagesTable.availablePrimaryKey,
+        job.id,
+        author,
+        text,
+        currentTimeSec()
+      ),
+      this.receiver
+    );
+  }
+
+  /** Agent asks the client a question about a funded job. */
+  @action("askclient")
+  askClient(agent: Name, job_id: u64, text: string): void {
+    requireAuth(agent);
+
+    const job = this.jobsTable.requireGet(job_id, "Job not found");
+    check(job.agent == agent, "Only the assigned agent can ask");
+
+    this.addJobMessage(job, agent, text);
+
+    print(`Job ${job_id} question from ${agent.toString()}`);
+  }
+
+  /** Client answers the agent on a funded job. */
+  @action("answer")
+  answerAgent(client: Name, job_id: u64, text: string): void {
+    requireAuth(client);
+
+    const job = this.jobsTable.requireGet(job_id, "Job not found");
+    check(job.client == client, "Only the client can answer");
+
+    this.addJobMessage(job, client, text);
+
+    print(`Job ${job_id} answer from ${client.toString()}`);
+  }
+
+  /**
+   * First message on a just-purchased service job: the buyer's answers to the
+   * listing's input form. Meant to ride in the same transaction as the `buy:`
+   * transfer, so the buyer signs once. Single use, and only while the job is
+   * still freshly funded.
+   */
+  @action("svcinput")
+  serviceInput(client: Name, text: string): void {
+    requireAuth(client);
+
+    const lastBuy = this.lastBuysTable.get(client.N);
+    check(lastBuy != null, "No recent purchase");
+
+    const job = this.jobsTable.requireGet(lastBuy!.job_id, "Job not found");
+    check(job.state == 1, "Purchase input window closed");
+    check(currentTimeSec() <= job.created_at + this.SVC_INPUT_WINDOW, "Purchase input window closed");
+
+    this.addJobMessage(job, client, text);
+
+    // Single use: the row goes even though the job message stays
+    this.lastBuysTable.remove(lastBuy!);
+
+    print(`Service input recorded for job ${job.id}`);
   }
 
   @action("approve")
@@ -1754,6 +1943,45 @@ export class AgentEscrowContract extends Contract {
     print(`Service ${service_id} relisted`);
   }
 
+  /**
+   * Declare (or clear) the input form a listing needs. An empty schema removes the row.
+   * The contract only bounds the length; the site validates the shape.
+   */
+  @action("setsvcinput")
+  setServiceInput(agent: Name, service_id: u64, schema: string): void {
+    requireAuth(agent);
+
+    const config = this.configSingleton.get();
+    check(!config.paused, "Contract is paused");
+    check(schema.length <= 2048, "Schema must be <= 2048 characters");
+
+    const service = this.servicesTable.requireGet(service_id, "Service not found");
+    check(service.agent == agent, "Only the listing agent can set inputs");
+
+    const existing = this.svcInputsTable.get(service_id);
+
+    if (schema.length == 0) {
+      if (existing != null) {
+        this.svcInputsTable.remove(existing!);
+      }
+      print(`Service ${service_id} input schema cleared`);
+      return;
+    }
+
+    if (existing != null) {
+      existing!.schema = schema;
+      existing!.updated_at = currentTimeSec();
+      this.svcInputsTable.update(existing!, this.receiver);
+    } else {
+      this.svcInputsTable.store(
+        new ServiceInput(service_id, schema, currentTimeSec()),
+        this.receiver
+      );
+    }
+
+    print(`Service ${service_id} input schema set`);
+  }
+
   @action("rmservice")
   removeService(service_id: u64): void {
     const config = this.configSingleton.get();
@@ -1761,6 +1989,12 @@ export class AgentEscrowContract extends Contract {
 
     const service = this.servicesTable.requireGet(service_id, "Service not found");
     this.servicesTable.remove(service);
+
+    // Drop the listing's input schema with it
+    const inputSchema = this.svcInputsTable.get(service_id);
+    if (inputSchema != null) {
+      this.svcInputsTable.remove(inputSchema!);
+    }
 
     print(`Service ${service_id} removed by admin`);
   }
@@ -1802,6 +2036,9 @@ export class AgentEscrowContract extends Contract {
         this.arbitratorsTable.update(arb, this.receiver);
       }
     }
+
+    // Delete associated messages
+    this.cleanMessagesForJob(job_id);
 
     // Delete job evidence
     const evidence = this.jobEvidenceTable.get(job_id);
@@ -1851,6 +2088,9 @@ export class AgentEscrowContract extends Contract {
           if (ms != null && ms.job_id != current.id) ms = null;
           this.milestonesTable.remove(currentMs);
         }
+
+        // Delete associated messages
+        this.cleanMessagesForJob(current.id);
 
         this.jobsTable.remove(current);
         deleted++;
@@ -1936,12 +2176,18 @@ export class AgentEscrowContract extends Contract {
       print(`Job ${jobId} funded with ${job.amount}. Excess refunded: ${excess}`);
     } else if (memo.startsWith("buy:")) {
       // Services market: purchase a listing. Creates an already-funded direct-hire job.
-      const svcIdStr = memo.substring(4);
+      // Memo is "buy:<service_id>" or "buy:<service_id>:<notes>"; everything after the
+      // second colon is the buyer's note and may itself contain colons.
+      const buyRest = memo.substring(4);
+      const notesSep = buyRest.indexOf(":");
+      const svcIdStr = notesSep >= 0 ? buyRest.substring(0, notesSep) : buyRest;
+      const buyerNotes = notesSep >= 0 ? buyRest.substring(notesSep + 1) : "";
       check(svcIdStr.length > 0 && svcIdStr.length <= 20, "Invalid service ID format");
       for (let i = 0; i < svcIdStr.length; i++) {
         const c = svcIdStr.charCodeAt(i);
         check(c >= 48 && c <= 57, "Service ID must be numeric");
       }
+      check(buyerNotes.length <= 200, "Buyer notes must be <= 200 characters");
       const serviceId = U64.parseInt(svcIdStr);
 
       const config = this.configSingleton.get();
@@ -1962,13 +2208,18 @@ export class AgentEscrowContract extends Contract {
       const now = currentTimeSec();
       const jobId = this.jobsTable.availablePrimaryKey;
 
+      // Buyer notes ride along in the job description; the listing itself is unchanged
+      const jobDescription = buyerNotes.length > 0
+        ? service.description + "\n\nBuyer notes: " + buyerNotes
+        : service.description;
+
       // The purchase looks exactly like a direct-hire job that was just funded
       const job = new Job(
         jobId,
         from,                     // client
         service.agent,            // agent
         service.title,
-        service.description,
+        jobDescription,
         service.deliverables,
         service.price,            // amount
         "XPR",                    // symbol
@@ -1982,6 +2233,17 @@ export class AgentEscrowContract extends Contract {
         now
       );
       this.jobsTable.store(job, this.receiver);
+
+      // Remember the purchase so a `svcinput` action in the same transaction can find it
+      const lastBuy = this.lastBuysTable.get(from.N);
+      if (lastBuy != null) {
+        lastBuy!.job_id = jobId;
+        lastBuy!.service_id = serviceId;
+        lastBuy!.created_at = now;
+        this.lastBuysTable.update(lastBuy!, this.receiver);
+      } else {
+        this.lastBuysTable.store(new LastBuy(from, jobId, serviceId, now), this.receiver);
+      }
 
       service.sales += 1;
       this.servicesTable.update(service, this.receiver);

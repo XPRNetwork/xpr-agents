@@ -112,3 +112,123 @@ a sold service arrives as a funded job and is delivered like any other.
 - Indexer: mirror the two fields, handle `boost:` transfers (add to `boost_paid`, set `featured_until` from the chain row if RPC is available, else compute), `svcfee:` transfers are no-ops for the mirror. `/api/services` returns `featured` and applies the ordering above; `?sort=` still applies to the organic tail.
 - Site: "Featured" chip on cards and the listing page; a "Feature this listing" action (amount in XPR, days preview) on the seller's dashboard card and on the listing page for anyone; listing fee shown on the New service form with the deposit transfer sent first.
 - llms.txt and CLI guide: the fee, the memos, the featuring rule.
+
+## Buyer notes and job messages (addendum 2)
+
+Two gaps found on the first real purchase: a buyer cannot tell the agent anything at
+purchase time, and an agent cannot ask the buyer anything before starting.
+
+### Buyer notes at purchase
+
+- Memo `buy:<service_id>:<notes>`. Everything after the second colon is the note; it may
+  contain further colons. Plain `buy:<id>` keeps working.
+- `notes` must be at most 200 characters (the memo itself is capped at 256 bytes on chain).
+- The purchase job's `description` becomes `<listing description>\n\nBuyer notes: <notes>`.
+  No other job field changes. The listing's own description is unchanged.
+- SDK `buyService(serviceId, priceRaw, notes?)`; plugin `xpr_buy_service` gains optional `notes`;
+  site Buy step gets an optional "Notes for the agent" box with a 200-character counter.
+
+### Job messages (question and answer thread)
+
+Table `jobmsgs` on agentescrow (new table):
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | u64 | primary key, `availablePrimaryKey` |
+| `job_id` | u64 | secondary index 2 (`byJob`) |
+| `author` | name | the agent or the client |
+| `text` | string | 1–512 chars |
+| `created_at` | u64 | seconds |
+
+Actions:
+
+| Action | Auth | Rules |
+|---|---|---|
+| `askclient(agent, job_id, text)` | agent | `agent == job.agent`; job state 1, 2 or 3 (FUNDED, ACCEPTED, INPROGRESS); not paused |
+| `answer(client, job_id, text)` | client | `client == job.client`; same states; not paused |
+
+- At most 20 messages per job (`"Job message limit reached"`).
+- `removejob` and `cleanjobs` delete the job's messages with the job. `timeout`, `cancel`,
+  `approve`, `arbitrate` leave them (history).
+- No new job states. A question does not pause the deadline; the existing `timeout` refund
+  is the buyer's protection if an agent never proceeds.
+
+Runner behaviour (poller, both modes):
+- On a new funded job the prompt includes the buyer notes (they are inside the description).
+  If a required input is genuinely missing, the agent calls `xpr_ask_client` once with a
+  specific question and stops without delivering a placeholder. The poller records the
+  asked job id in its state.
+- The poller polls `jobmsgs` for jobs it asked on; a new message by the client triggers a run
+  with the answer in the prompt. As a client (delegator/hybrid), a new agent question triggers
+  a run that answers with `xpr_answer_agent`.
+- Operator skill: never deliver a placeholder to ask a question; use the thread. Ask once,
+  precisely; if nothing arrives, wait for the deadline and let timeout refund the buyer.
+
+SDK: `askClient(jobId, text)`, `answerAgent(jobId, text)`, `getJobMessages(jobId)` (byJob
+index, key_type i64). Plugin: `xpr_ask_client`, `xpr_answer_agent`, `xpr_get_job_messages`
+(read). Both writes confirmation-gated like the others.
+
+Indexer: `job_messages` table mirror, handlers for `askclient` / `answer` (id from the chain
+row: newest `jobmsgs` row for that job by author+text, else synthetic with correction),
+`GET /api/jobs/:id/messages`, events `job.question` / `job.answer`, webhooks to the other
+party. `removejob` / `cleanjobs` cascade. Buy memo parsing tolerates the `:notes` suffix.
+
+Site: job page gets a "Messages" panel (thread, reply box for the client or the agent when
+connected as that party, only while the job is in states 1–3), History labels `askclient`
+as "Question" and `answer` as "Answer", the description block renders "Buyer notes" as its
+own paragraph, and the listing page explains that longer briefs belong in a custom job.
+
+Guidance: llms.txt (memo form, actions, etiquette), CLI guide examples, CLAUDE.md.
+
+## Service input forms (addendum 3)
+
+A seller can declare the inputs a service needs; the site renders a form at purchase and the
+answers become the first job message, in the same transaction as the purchase.
+
+### Schema (convention, stored as a string)
+
+```json
+{"v":1,"fields":[
+  {"key":"account","label":"XPR account to analyze","type":"account","required":true},
+  {"key":"focus","label":"Focus","type":"select","options":["everything","defi","nfts"]},
+  {"key":"notes","label":"Anything else","type":"textarea","max":200}
+]}
+```
+
+- `type`: `text` | `textarea` | `number` | `account` | `url` | `select` | `checkbox`.
+- `key` 1–32 chars `[a-z0-9_]`; `label` ≤ 64; `max` (chars) optional; `options` for select; `required` optional.
+- At most 8 fields. Schema string ≤ 2048 chars. The site validates; the contract only bounds the length.
+- Answers are packed as a JSON object keyed by `key`, e.g. `{"account":"paul","focus":"defi"}`, ≤ 512 chars (the job message limit). The site shows the counter and blocks longer input.
+
+### On chain (agentescrow)
+
+- Table `svcinputs`: `service_id` (pk), `schema` (string ≤ 2048), `updated_at`. Actions
+  `setsvcinput(agent, service_id, schema)` (auth agent; agent must own the listing; empty schema removes the row)
+  and it is deleted by `rmservice`.
+- Table `lastbuys`: `client` (pk), `job_id`, `service_id`, `created_at`. The `buy:` path upserts it.
+- Action `svcinput(client, text)`: auth client; reads `lastbuys[client]` ("No recent purchase"); the job must
+  still be in state 1 (FUNDED) and created within the last 600 seconds ("Purchase input window closed");
+  appends a `jobmsgs` row with author = client (same 512 cap, same 20-message cap) and removes the
+  `lastbuys` row so it cannot be reused. Purpose: the site sends `transfer(buy:<id>)` + `svcinput` as one
+  transaction, so the buyer signs once.
+- Plain `buy:<id>:<notes>` keeps working for sellers without a schema.
+
+### SDK / plugin / runner
+
+- SDK: `getServiceInput(serviceId)`, `setServiceInput(serviceId, schema)`, `buyServiceWithInput(serviceId, priceRaw, answersJson)`
+  (one transaction: transfer + svcinput), types `ServiceInputSchema`, `ServiceInputField`.
+- Plugin: `xpr_set_service_input(service_id, schema, confirmed)`, `xpr_get_service_input(service_id)`;
+  `xpr_buy_service` gains optional `input` (object → JSON) and uses the one-transaction path when given.
+- Runner / operator skill: when listing a service that needs inputs, declare them; when a purchased job
+  arrives, read the first client message as JSON keyed by the schema before starting; only ask a question
+  if something required is still missing.
+
+### Indexer / site
+
+- Indexer: `service_inputs` mirror (`setsvcinput`), `GET /api/services/:id` includes `input_schema`
+  (string or null); `svcinput` is just another `jobmsgs` row (handle the action like `answer`, author = client).
+- Site: Buy modal renders the form from the schema (falls back to the notes box when absent); dashboard
+  "New / Edit service" gets a schema builder (add field: key, label, type, required, options, max) that
+  writes `setsvcinput` after `listsvc`/`updatesvc` in the same transaction where possible (for a new
+  listing the service id is not known in-tx, so send `setsvcinput` as a second transaction after the
+  listing lands); the job page renders a JSON first message as a labelled key/value block.

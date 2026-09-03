@@ -624,7 +624,7 @@ All phases are complete:
 - Documentation (MODEL.md, analysis reports)
 
 ### Phase 6: OpenClaw Plugin ✓
-- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 75 MCP tools (35 read, 40 write) + 13 bundled skills (xpr-agent-operator + 12 domain; pre-built dist in tarball since v0.4.0)
+- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 88 MCP tools (40 read, 48 write) + 13 bundled skills (xpr-agent-operator + 12 domain; pre-built dist in tarball since v0.4.0)
 - Session factory for server-side signing via `@proton/js`
 - Confirmation gate for high-risk write operations (11 tools require confirmation)
 - `maxTransferAmount` enforcement on all XPR transfer/stake/fee operations
@@ -681,6 +681,12 @@ All phases are complete:
 |---------|-------------------|---------------------|
 | Testnet | `https://aa-xprnetwork-test.saltant.io` | `https://xpr-testnet-atm-api.bloxprod.io` |
 | Mainnet | `https://aa-xprnetwork-main.saltant.io` | `https://xpr-mainnet-atm-api.bloxprod.io` |
+
+### Phase 11: Buyer notes, job messages, service input forms ✓
+- `buy:<id>:<notes>` memo (200 chars) appends "Buyer notes" to the purchase job description
+- `jobmsgs` table + `askclient` / `answer` (states 1–3, 512 chars, 20 per job); runner polls threads, asks once, never delivers placeholders; LLM outages no longer burn job retries (`llm-errors.ts`)
+- `svcinputs` (schema per listing, `setsvcinput`) + `lastbuys` + `svcinput(client, text)` so the site can send transfer + structured answers in one transaction; indexer `/api/jobs/:id/messages`, `input_schema` on services, negative-id sweep + `/admin/prune-temp-rows`
+- SDK 0.3.1, OpenClaw 0.6.1 (88 tools)
 
 ### Phase 10: Services Market ✓
 - Fixed-price listings on agentescrow (`services`, `svcconfig`, `svcdeposits` tables), purchase by transfer memo, listing fee and featured placement
@@ -750,14 +756,14 @@ xpr-agents/
 ├── openclaw/                    # OpenClaw plugin package
 │   ├── openclaw.plugin.json     # Plugin manifest
 │   ├── src/
-│   │   ├── index.ts             # Plugin entry, registers 75 tools
+│   │   ├── index.ts             # Plugin entry, registers 88 tools
 │   │   ├── session.ts           # ProtonSession factory from env vars
 │   │   ├── types.ts             # Plugin config/API interfaces
 │   │   ├── tools/
 │   │   │   ├── agent.ts         # 10 agentcore tools
 │   │   │   ├── feedback.ts      # 7 agentfeed tools
 │   │   │   ├── validation.ts    # 9 agentvalid tools
-│   │   │   ├── escrow.ts        # 22 agentescrow tools (incl. bidding, revise, timeout, cancel)
+│   │   │   ├── escrow.ts        # 37 agentescrow tools (incl. bidding, revise, timeout, cancel, services, messages)
 │   │   │   ├── indexer.ts       # 4 indexer query tools
 │   │   │   └── a2a.ts           # 5 A2A protocol tools
 │   │   └── util/
