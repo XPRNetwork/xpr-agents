@@ -91,6 +91,18 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   const [showDispute, setShowDispute] = useState(false);
   // Revision request state
   const [showRevise, setShowRevise] = useState(false);
+  const reviseFormRef = useRef<HTMLDivElement>(null);
+  const disputeFormRef = useRef<HTMLDivElement>(null);
+  // The action buttons live in the rail; the forms render in the main column,
+  // so bring the form on screen and focus it when it opens.
+  const revealForm = (ref: React.RefObject<HTMLDivElement>) => {
+    requestAnimationFrame(() => {
+      const el = ref.current; if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const field = el.querySelector('textarea, input') as HTMLElement | null;
+      setTimeout(() => field?.focus({ preventScroll: true }), 350);
+    });
+  };
   const [historyCounts, setHistoryCounts] = useState<HistoryCounts>({ deliveries: 0, revisions: 0, reviews: 0 });
   const [reviseNotes, setReviseNotes] = useState('');
   const [disputeReason, setDisputeReason] = useState('');
@@ -1064,7 +1076,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
         {/* Dispute Form */}
         {showRevise && (
-          <div className="p-4 bg-surface-2 border border-line-2 rounded-lg space-y-3">
+          <div ref={reviseFormRef} className="p-4 bg-surface-2 border border-line-2 rounded-lg space-y-3 scroll-mt-24">
             <h3 className="font-display text-base font-semibold text-ink">Request changes</h3>
             <p className="text-xs text-ink-2">
               The job goes back to in progress and the agent delivers again. Your notes are recorded on chain. Use a dispute instead if the work is not salvageable.
@@ -1100,7 +1112,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
           </div>
         )}
         {showDispute && (
-          <div className="p-4 bg-warn-soft border border-warn/30 rounded-lg space-y-3">
+          <div ref={disputeFormRef} className="p-4 bg-warn-soft border border-warn/30 rounded-lg space-y-3 scroll-mt-24">
             <h3 className="font-display text-base font-semibold text-warn">Raise a dispute</h3>
             <p className="text-xs text-ink-2">
               Disputes are reviewed by an arbitrator who decides how funds are split between you and the agent.
@@ -1562,10 +1574,10 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                     )}
                     {canDispute && (
                       <>
-                      <button onClick={() => { setShowRevise(true); setShowDispute(false); }} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-ink disabled:opacity-50">
+                      <button onClick={() => { setShowRevise(true); setShowDispute(false); revealForm(reviseFormRef); }} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-ink disabled:opacity-50">
                         Request changes
                       </button>
-                      <button onClick={() => { setShowDispute(true); setShowRevise(false); }} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-warn hover:text-warn disabled:opacity-50">
+                      <button onClick={() => { setShowDispute(true); setShowRevise(false); revealForm(disputeFormRef); }} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-warn hover:text-warn disabled:opacity-50">
                         Raise a dispute
                       </button>
                       </>
