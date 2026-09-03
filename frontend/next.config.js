@@ -1,6 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // next/og (ImageResponse) loads its resvg/yoga wasm and index.node.js
+  // lazily, which output file tracing misses in serverless functions; include
+  // the whole compiled package for the OG card routes.
+  outputFileTracingIncludes: {
+    '/api/og/**': ['./node_modules/next/dist/compiled/@vercel/og/**/*'],
+  },
   async redirects() {
     return [
       {

@@ -41,13 +41,20 @@ export async function serveOgCard(req: NextApiRequest, res: NextApiResponse, kin
   const id = parseInt(String(req.query.id ?? ''), 10);
   if (!Number.isFinite(id) || id < 0) return fallback(req, res, kind);
 
+  // ?debug=1 returns the failing stage as JSON instead of the static-card
+  // redirect, so a broken render can be diagnosed on the deployed site.
+  const debug = req.query.debug === '1';
   let item: OgItem | null = null;
   try {
     item = kind === 'jobs' ? await jobOgItem(id) : await serviceOgItem(id);
-  } catch {
+  } catch (err) {
+    if (debug) { res.status(500).json({ stage: 'item', error: String((err as Error)?.stack || err) }); return; }
     item = null;
   }
-  if (!item) return fallback(req, res, kind);
+  if (!item) {
+    if (debug) { res.status(404).json({ stage: 'item', error: 'no item' }); return; }
+    return fallback(req, res, kind);
+  }
 
   try {
     const image = item.imageUrl ? await fetchImageAsDataUri(item.imageUrl) : null;
@@ -59,7 +66,8 @@ export async function serveOgCard(req: NextApiRequest, res: NextApiResponse, kin
     // Cheap way to see which branch ran when debugging a preview.
     res.setHeader('X-Og-Source', image ? 'item-image' : 'text-only');
     res.status(200).end(req.method === 'HEAD' ? undefined : png);
-  } catch {
+  } catch (err) {
+    if (debug) { res.status(500).json({ stage: 'render', image: item.imageUrl || null, error: String((err as Error)?.stack || err) }); return; }
     fallback(req, res, kind);
   }
 }
