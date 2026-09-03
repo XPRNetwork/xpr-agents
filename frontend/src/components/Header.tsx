@@ -50,7 +50,7 @@ function NetworkBadge() {
     <button
       onClick={toggle}
       title={`Switch to ${isTestnet ? 'mainnet' : 'testnet'}`}
-      className={`rounded-md border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-label transition-colors ${
+      className={`shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-label transition-colors ${
         isTestnet
           ? 'border-warn/30 bg-warn-soft text-warn'
           : 'border-line text-muted hover:border-line-2 hover:text-ink-2'
@@ -112,10 +112,10 @@ export function Header({ activePage }: { activePage?: Page }) {
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-canvas/90 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-        <div className="mr-6 flex shrink-0 items-center gap-3">
-          <Link href="/" className="flex items-center gap-2" aria-label="XPR Agents home">
-            <Logo className="h-6 w-6" />
-            <span className="font-display text-[17px] font-semibold text-ink">XPR Agents</span>
+        <div className="flex min-w-0 items-center gap-2 md:mr-6 md:shrink-0 md:gap-3">
+          <Link href="/" className="flex min-w-0 items-center gap-2" aria-label="XPR Agents home">
+            <Logo className="h-6 w-6 shrink-0" />
+            <span className="truncate font-display text-[17px] font-semibold text-ink">XPR Agents</span>
           </Link>
           <NetworkBadge />
         </div>
@@ -202,7 +202,7 @@ export function Header({ activePage }: { activePage?: Page }) {
           )}
         </div>
 
-        <div className="flex items-center gap-1 md:hidden">
+        <div className="flex shrink-0 items-center gap-1 md:hidden">
           <ThemeToggle />
           {!loading && session && (
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-soft font-mono text-[11px] font-semibold text-accent">

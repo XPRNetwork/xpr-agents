@@ -419,8 +419,8 @@ export default function Arbitrators() {
   };
 
   const rowGrid = 'sm:grid-cols-[minmax(0,1fr)_5.5rem_7.5rem_7.5rem]';
-  const statValue = 'font-mono text-sm tabular text-ink sm:text-right';
-  const statCell = 'flex items-baseline justify-between gap-2 sm:block';
+  const statValue = 'min-w-0 break-words font-mono text-sm tabular text-ink sm:text-right';
+  const statCell = 'flex min-w-0 items-baseline justify-between gap-2 sm:block';
 
   const clientAmount = resolveDispute ? Math.floor(resolveDispute.job.funded_amount * clientPercent / 100) : 0;
   const agentAmount = resolveDispute ? resolveDispute.job.funded_amount - clientAmount : 0;
@@ -569,7 +569,7 @@ export default function Arbitrators() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-3 sm:contents">
+                        <div className="grid grid-cols-3 gap-2 sm:contents sm:gap-3">
                           <div className={statCell}>
                             <span className="label sm:hidden">Fee</span>
                             <span className={statValue}>{bpsToPercent(a.fee_percent)}</span>

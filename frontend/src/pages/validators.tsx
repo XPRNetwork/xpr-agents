@@ -612,7 +612,7 @@ export default function Validators() {
 
   const validateFormFields = (idPrefix: string) => (
     <>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Verdict" htmlFor={`${idPrefix}-result`}>
           <select id={`${idPrefix}-result`} value={valResult} onChange={(e) => setValResult(parseInt(e.target.value))} className={inputClass}>
             {RESULT_OPTIONS}
@@ -931,18 +931,18 @@ export default function Validators() {
                               )}
                             </span>
                           </span>
-                          <span className="grid grid-cols-3 gap-4 sm:text-right">
-                            <span className="block">
+                          <span className="grid grid-cols-3 gap-2 sm:gap-4 sm:text-right">
+                            <span className="block min-w-0">
                               <span className="label block">Stake</span>
-                              <span className="block font-mono text-sm tabular text-ink">{formatXpr(v.stake)}</span>
+                              <span className="block break-words font-mono text-sm tabular text-ink">{formatXpr(v.stake)}</span>
                             </span>
-                            <span className="block">
+                            <span className="block min-w-0">
                               <span className="label block">Accuracy</span>
-                              <span className={`block font-mono text-sm tabular ${accuracyColor(v.accuracy_score)}`}>{formatAccuracy(v.accuracy_score)}</span>
+                              <span className={`block break-words font-mono text-sm tabular ${accuracyColor(v.accuracy_score)}`}>{formatAccuracy(v.accuracy_score)}</span>
                             </span>
-                            <span className="block">
+                            <span className="block min-w-0">
                               <span className="label block">Validations</span>
-                              <span className="block font-mono text-sm tabular text-ink">{v.total_validations}</span>
+                              <span className="block break-words font-mono text-sm tabular text-ink">{v.total_validations}</span>
                             </span>
                           </span>
                         </button>
@@ -955,7 +955,7 @@ export default function Validators() {
             </section>
 
             {/* Side panel */}
-            <aside className="lg:col-span-4">
+            <aside className="min-w-0 lg:col-span-4">
               <div className="space-y-4 lg:sticky lg:top-20">
                 {!session ? (
                   <>

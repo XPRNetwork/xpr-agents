@@ -65,6 +65,13 @@ body {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
+/* Safety net: nothing on the site is meant to scroll sideways. `clip` rather
+   than `hidden` so the sticky header keeps working — clip does not create a
+   scroll container. Real overflow is fixed at the component, not here. */
+html {
+  overflow-x: clip;
+}
+
 ::selection {
   background-color: var(--selection);
   color: rgb(var(--c-ink));

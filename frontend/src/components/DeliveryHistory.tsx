@@ -203,7 +203,7 @@ export default function DeliveryHistory({ jobId, agent, refreshKey = 0, onCounts
               <p className={`mt-1 whitespace-pre-wrap break-words text-sm ${e.action === 'revise' ? 'rounded-md bg-warn-soft px-3 py-2 text-ink' : e.action === 'review' ? 'font-medium text-ink' : 'text-ink-2'}`}>{e.note}</p>
             )}
             {e.uri && (
-              <a href={e.uri.startsWith('{') ? undefined : e.uri} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block font-mono text-xs text-accent hover:underline">
+              <a href={e.uri.startsWith('{') ? undefined : e.uri} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block max-w-full break-all font-mono text-xs text-accent hover:underline">
                 {shortUri(e.uri)}
               </a>
             )}

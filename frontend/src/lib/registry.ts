@@ -1761,6 +1761,62 @@ async function getServiceRpc(id: number): Promise<Service | null> {
   return parseService(result.rows[0]);
 }
 
+/**
+ * One listing, read straight from the chain with the indexer skipped.
+ *
+ * The indexer trails the chain by a block or two and caches, which is fine for
+ * browsing but not for the moment a buyer presses Buy: a listing delisted since
+ * the page loaded still reads as active there, and the wallet is the first thing
+ * to say otherwise. Use this for pre-flight checks before asking for a signature.
+ */
+export async function getServiceFromChain(id: number): Promise<Service | null> {
+  return getServiceRpc(id);
+}
+
+/** Every listing by one agent, straight from the chain (no indexer). */
+export async function getServicesByAgentFromChain(agent: string): Promise<Service[]> {
+  try {
+    const result = await rpc.get_table_rows({
+      json: true,
+      code: CONTRACTS.AGENT_ESCROW,
+      scope: CONTRACTS.AGENT_ESCROW,
+      table: 'services',
+      index_position: 2, // byAgent
+      key_type: 'name',
+      lower_bound: agent,
+      upper_bound: agent,
+      limit: 100,
+    });
+    return (result.rows as any[])
+      .map(parseService)
+      .filter((s) => s.agent === agent)
+      .sort((a, b) => b.created_at - a.created_at);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The listing that replaces a delisted one, when it is unambiguous: the same
+ * seller's active listing with the same title, or their only active listing.
+ * Anything less certain returns null rather than pointing the buyer at the
+ * wrong offer.
+ */
+export async function findReplacementService(delisted: Service): Promise<Service | null> {
+  const all = await getServicesByAgentFromChain(delisted.agent);
+  const active = all.filter((s) => s.active && s.id !== delisted.id);
+  if (active.length === 0) return null;
+
+  const sameTitle = active.filter(
+    (s) => s.title.trim().toLowerCase() === delisted.title.trim().toLowerCase()
+  );
+  if (sameTitle.length > 0) {
+    // Newest wins if the seller relisted more than once.
+    return sameTitle.sort((a, b) => b.created_at - a.created_at)[0];
+  }
+  return active.length === 1 ? active[0] : null;
+}
+
 /** Every listing by one agent, active or not (services.byAgent, secondary index 2). */
 export async function getServicesByAgent(agent: string): Promise<Service[]> {
   const data = await indexerFetch<unknown>(`/services?agent=${encodeURIComponent(agent)}&active=false&limit=100`);

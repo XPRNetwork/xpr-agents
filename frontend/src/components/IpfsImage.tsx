@@ -45,9 +45,9 @@ export default function IpfsImage({ src, fallback, alt, className, ...rest }: Pr
   if (index >= candidates.length) {
     return (
       <>{fallback ?? (
-        <a href={src} target="_blank" rel="noopener noreferrer" className={`flex items-center justify-center gap-2 border border-dashed border-line-2 rounded-lg px-4 py-6 text-sm text-ink-2 hover:text-ink ${className || ''}`}>
+        <a href={src} target="_blank" rel="noopener noreferrer" className={`flex flex-wrap items-center justify-center gap-2 border border-dashed border-line-2 rounded-lg px-4 py-6 text-center text-sm text-ink-2 hover:text-ink ${className || ''}`}>
           <span>Preview unavailable from IPFS gateways.</span>
-          <span className="font-mono text-accent">Open {alt || 'file'} ↗</span>
+          <span className="min-w-0 break-all font-mono text-accent">Open {alt || 'file'} ↗</span>
         </a>
       )}</>
     );

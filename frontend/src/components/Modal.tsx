@@ -86,7 +86,7 @@ export function Modal({ open, onClose, title, description, children, width = 'ma
 /** Field label + control wrapper used inside forms. */
 export function Field({ label, hint, htmlFor, children, required }: { label: string; hint?: string; htmlFor: string; children: ReactNode; required?: boolean }) {
   return (
-    <div>
+    <div className="min-w-0">
       <label htmlFor={htmlFor} className="mb-1.5 block text-sm font-medium text-ink">
         {label}{required && <span className="ml-0.5 text-crit" aria-hidden="true">*</span>}
       </label>
@@ -97,4 +97,4 @@ export function Field({ label, hint, htmlFor, children, required }: { label: str
 }
 
 export const inputClass =
-  'w-full rounded-md border border-line-2 bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20';
+  'w-full min-w-0 rounded-md border border-line-2 bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20';

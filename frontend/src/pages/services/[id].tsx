@@ -8,6 +8,7 @@ import { AccountAvatar } from '@/components/AccountAvatar';
 import { TrustBadge } from '@/components/TrustBadge';
 import { ServiceSample, serviceStars, FeaturedChip } from '@/components/ServiceCard';
 import { Modal, Field, inputClass } from '@/components/Modal';
+import { Notice } from '@/components/Notice';
 import { useProton } from '@/hooks/useProton';
 import { useToast } from '@/contexts/ToastContext';
 import { useAgent } from '@/hooks/useAgent';
@@ -20,6 +21,8 @@ import {
   formatTurnaround,
   isImageUri,
   getService,
+  getServiceFromChain,
+  findReplacementService,
   getServiceConfig,
   FEATURED_SLOTS,
   boostDays,
@@ -38,6 +41,7 @@ import {
   type ServiceConfig,
 } from '@/lib/registry';
 import { getTxId } from '@/lib/job-constants';
+import { explainChainError } from '@/lib/chain-errors';
 
 const POLL_TRIES = 10;
 const POLL_INTERVAL_MS = 1500;
@@ -45,6 +49,20 @@ const POLL_INTERVAL_MS = 1500;
 const BUY_NOTES_MAX = 200;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Why the wallet was not opened, or why the transaction failed.
+ *
+ * A seller can delist and relist between the page load and the click — that is
+ * exactly how a buyer once got "Transaction Error: Service is not active" from
+ * their wallet after filling in the whole intake form. Everything here is
+ * decided before a signature is requested, so nothing is ever charged.
+ */
+type BuyBlock =
+  | { kind: 'delisted'; at: number }
+  | { kind: 'gone' }
+  | { kind: 'price'; from: number; to: number }
+  | { kind: 'error'; title: string; detail: string; hint?: string };
 
 export default function ServicePage() {
   const router = useRouter();
@@ -64,6 +82,11 @@ export default function ServicePage() {
   const [inputSchema, setInputSchema] = useState<ServiceInputSchema | null>(null);
   const [inputAnswers, setInputAnswers] = useState<ServiceInputAnswers>({});
   const buyingRef = useRef(false);
+  // Pre-flight / chain-error state for the Buy modal.
+  const [buyBlock, setBuyBlock] = useState<BuyBlock | null>(null);
+  // The seller's current listing for the same offer, when this one is delisted.
+  const [replacement, setReplacement] = useState<Service | null>(null);
+  const recheckingRef = useRef(false);
 
   // Featured placement
   const [svcConfig, setSvcConfig] = useState<ServiceConfig>(DEFAULT_SERVICE_CONFIG);
@@ -119,6 +142,69 @@ export default function ServicePage() {
     return () => { cancelled = true; };
   }, [session?.auth.actor, service?.id]);
 
+  // A delisted listing is a dead end unless the seller relisted the same offer —
+  // find that listing so every dead end can point somewhere.
+  useEffect(() => {
+    if (!service || service.active) { setReplacement(null); return; }
+    let cancelled = false;
+    findReplacementService(service)
+      .then((s) => { if (!cancelled) setReplacement(s); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [service?.id, service?.active]);
+
+  /**
+   * Re-read the listing from the chain, skipping the indexer. Returns what is
+   * standing in the buyer's way, or null when the page is still accurate.
+   * Network failures return null: the contract is the real gate, and a friendly
+   * error beats blocking a purchase because one RPC call timed out.
+   */
+  async function checkListing(current: Service): Promise<BuyBlock | null> {
+    let fresh: Service | null;
+    try {
+      fresh = await getServiceFromChain(current.id);
+    } catch {
+      return null;
+    }
+    if (fresh === null) return { kind: 'gone' };
+    if (!fresh.active) {
+      setService(fresh);
+      return { kind: 'delisted', at: fresh.updated_at };
+    }
+    if (fresh.price !== current.price) {
+      setService(fresh);
+      return { kind: 'price', from: current.price, to: fresh.price };
+    }
+    // Silent drift (title, turnaround, sales) — just take the newer row.
+    if (fresh.updated_at !== current.updated_at) setService(fresh);
+    return null;
+  }
+
+  // Tabs sit open for hours. When one comes back to the front, make sure the
+  // page is not still advertising a listing the seller has since pulled.
+  useEffect(() => {
+    if (!service?.active) return;
+    const serviceId = service.id;
+    function onVisible() {
+      if (document.visibilityState !== 'visible' || recheckingRef.current || buyingRef.current) return;
+      recheckingRef.current = true;
+      getServiceFromChain(serviceId)
+        .then((fresh) => {
+          if (!fresh) return;
+          setService((prev) => (prev && prev.id === serviceId ? fresh : prev));
+          if (!fresh.active) setBuyBlock({ kind: 'delisted', at: fresh.updated_at });
+        })
+        .catch(() => {})
+        .finally(() => { recheckingRef.current = false; });
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [service?.id, service?.active]);
+
   const manifest = useMemo(
     () => (service?.sample_uri ? parseDeliverableManifest(service.sample_uri) : null),
     [service?.sample_uri]
@@ -140,6 +226,9 @@ export default function ServicePage() {
   const inputErrors = inputSchema ? validateServiceInput(inputSchema, inputAnswers) : {};
   const inputTooLong = packedInput.length > SERVICE_INPUT_ANSWERS_MAX;
   const inputBlocked = !!inputSchema && (Object.keys(inputErrors).length > 0 || inputTooLong);
+  // Delisted or gone: there is nothing left to fill in, so the form is replaced
+  // by the notice. A price change or a chain error keeps the form on screen.
+  const buyBlocked = buyBlock?.kind === 'delisted' || buyBlock?.kind === 'gone';
   const completedJobs = agentStats?.completed_jobs ?? agent?.total_jobs;
   const reviews = score?.feedback_count ?? service?.agent_reviews ?? 0;
   const rating = score?.avg_score ?? service?.agent_rating ?? 0;
@@ -193,7 +282,15 @@ export default function ServicePage() {
     setBuying(true);
     setOrphanJob(false);
     setBuyStatus(null);
+    setBuyBlock(null);
     try {
+      // Pre-flight against the chain, not the indexer: the wallet must never be
+      // the first thing to tell a buyer their listing is gone or repriced.
+      setBuyStatus('Checking the listing…');
+      const block = await checkListing(service);
+      setBuyStatus(null);
+      if (block) { setBuyBlock(block); return; }
+
       // Any earlier purchase of this listing by the same buyer — so the poll below
       // waits for the *new* job rather than jumping to an old one.
       const previous = await findServiceJob(session.auth.actor, service.id);
@@ -238,19 +335,111 @@ export default function ServicePage() {
       }
       setBuyStatus(null);
       setOrphanJob(true);
-    } catch (e: any) {
-      addToast({ type: 'error', message: e.message || 'Purchase failed' });
+    } catch (e: unknown) {
+      // Anything the pre-flight could not foresee (a delist landing in the same
+      // block, a paused contract) still gets explained in plain language.
+      const info = explainChainError(e);
+      setBuyBlock({ kind: 'error', ...info });
+      addToast({ type: 'error', message: `${info.title} — ${info.detail}` });
       setBuyStatus(null);
+      // Whatever the chain refused, the page's copy of the listing is suspect.
+      getServiceFromChain(service.id)
+        .then((fresh) => { if (fresh) setService(fresh); })
+        .catch(() => {});
     } finally {
       buyingRef.current = false;
       setBuying(false);
     }
   }
 
+  /** "This listing was delisted 3h ago" — `updated_at` is set by `delistsvc`. */
+  const delistedHeadline = (s: Service) =>
+    s.updated_at > 0
+      ? `This listing was delisted ${formatRelativeTime(s.updated_at)}`
+      : 'This listing was delisted';
+
+  const replacementLink = replacement ? (
+    <Link
+      href={`/services/${replacement.id}`}
+      className="inline-block rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover"
+    >
+      Buy the current version → service #{replacement.id}
+    </Link>
+  ) : null;
+
+  /** Nothing here has been signed — every branch is reached before the wallet opens. */
+  const buyBlockNotice = () => {
+    if (!buyBlock || !service) return null;
+
+    if (buyBlock.kind === 'gone') {
+      return (
+        <Notice tone="crit" title="This listing no longer exists" action={replacementLink}>
+          <p>
+            It has been removed from the registry. Your wallet was not opened and no XPR left your account.
+          </p>
+        </Notice>
+      );
+    }
+
+    if (buyBlock.kind === 'delisted') {
+      const when = buyBlock.at > 0 ? formatRelativeTime(buyBlock.at) : null;
+      return (
+        <Notice
+          tone="crit"
+          title={when ? `This listing was delisted ${when}` : 'This listing was delisted'}
+          action={replacementLink}
+        >
+          <p>
+            The seller pulled it while this page was open, so we stopped before opening your wallet.
+            Nothing was charged.
+          </p>
+          {!replacement && (
+            <p>
+              <Link href={`/agent/${service.agent}`} className="text-accent hover:underline">
+                See what {service.agent} is selling now →
+              </Link>
+            </p>
+          )}
+        </Notice>
+      );
+    }
+
+    if (buyBlock.kind === 'price') {
+      return (
+        <Notice
+          tone="warn"
+          title={`Price changed to ${formatXpr(buyBlock.to)}`}
+          action={
+            <button
+              type="button"
+              onClick={() => handleBuy()}
+              disabled={buying}
+              className="rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted"
+            >
+              {buying ? (buyStatus || 'Confirming…') : `Continue at ${formatXpr(buyBlock.to)}`}
+            </button>
+          }
+        >
+          <p>
+            It was {formatXpr(buyBlock.from)} when this page loaded. Nothing was signed — confirm the new
+            price to carry on, or cancel.
+          </p>
+        </Notice>
+      );
+    }
+
+    return (
+      <Notice tone="crit" title={buyBlock.title}>
+        <p>{buyBlock.detail}</p>
+        {buyBlock.hint && <p className="text-muted">{buyBlock.hint}</p>}
+      </Notice>
+    );
+  };
+
   const railRow = (label: string, value: React.ReactNode) => (
     <div className="flex items-center justify-between gap-4 px-5 py-3 text-sm">
-      <dt className="text-muted">{label}</dt>
-      <dd className="text-right text-ink">{value}</dd>
+      <dt className="shrink-0 text-muted">{label}</dt>
+      <dd className="min-w-0 break-words text-right text-ink">{value}</dd>
     </div>
   );
 
@@ -309,8 +498,17 @@ export default function ServicePage() {
                       listed {formatRelativeTime(service.created_at)}
                     </span>
                   </div>
-                  <h1 className="font-display text-3xl font-semibold leading-tight text-ink">{service.title}</h1>
+                  <h1 className="break-words font-display text-3xl font-semibold leading-tight text-ink">{service.title}</h1>
                 </div>
+
+                {!service.active && (
+                  <Notice tone="crit" title={delistedHeadline(service)} action={replacementLink}>
+                    <p>
+                      The seller took this listing off the catalogue, so it can no longer be bought. The
+                      escrow contract refuses purchases of a delisted service.
+                    </p>
+                  </Notice>
+                )}
 
                 {/* Sample */}
                 {service.sample_uri && (
@@ -451,7 +649,16 @@ export default function ServicePage() {
 
                     <div className="space-y-2 border-t border-line p-4">
                       {!service.active ? (
-                        <p className="text-xs text-muted">This listing has been delisted and cannot be bought.</p>
+                        <Notice tone="crit" title={delistedHeadline(service)} action={replacementLink}>
+                          <p>The seller took it off the catalogue, so it can no longer be bought.</p>
+                          {!replacement && (
+                            <p>
+                              <Link href={`/agent/${service.agent}`} className="text-accent hover:underline">
+                                See what {service.agent} is selling now →
+                              </Link>
+                            </p>
+                          )}
+                        </Notice>
                       ) : !session ? (
                         <button onClick={login} className="w-full rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-canvas hover:bg-ink/85">
                           Connect wallet to buy
@@ -515,13 +722,28 @@ export default function ServicePage() {
       </div>
 
       <Modal
-        open={showBuy && !!session && !!service && service.active}
-        onClose={() => { if (!buying) setShowBuy(false); }}
+        // Stays open when the pre-flight blocks the purchase \u2014 that notice is
+        // the answer to the click, and closing the dialog would swallow it.
+        open={showBuy && !!session && !!service && (service.active || !!buyBlock)}
+        onClose={() => { if (!buying) { setShowBuy(false); setBuyBlock(null); } }}
         title={service ? `Buy "${service.title}"` : 'Buy'}
-        description={inputSchema
-          ? 'The seller needs these details to start. They are sent with the purchase, in the same transaction, as the job\u2019s first message.'
-          : 'One transfer funds the escrow job. Anything you add below reaches the agent with the job, before it starts work.'}
+        description={buyBlocked
+          ? undefined
+          : inputSchema
+            ? 'The seller needs these details to start. They are sent with the purchase, in the same transaction, as the job\u2019s first message.'
+            : 'One transfer funds the escrow job. Anything you add below reaches the agent with the job, before it starts work.'}
       >
+        {buyBlock && <div className="mb-4">{buyBlockNotice()}</div>}
+
+        {buyBlocked ? (
+          <button
+            type="button"
+            onClick={() => { setShowBuy(false); setBuyBlock(null); }}
+            className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm text-ink-2 hover:bg-surface"
+          >
+            Close
+          </button>
+        ) : (
         <form
           onSubmit={(e) => { e.preventDefault(); handleBuy(); }}
           className="space-y-4"
@@ -633,23 +855,30 @@ export default function ServicePage() {
           </p>
 
           <div className="flex gap-2 pt-2">
-            <button
-              type="submit"
-              disabled={buying || memoTooLong || inputBlocked}
-              className="flex-1 rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted"
-            >
-              {buying ? (buyStatus || 'Confirming…') : service ? `Buy for ${formatXpr(service.price)}` : 'Buy'}
-            </button>
+            {/* A repriced listing is confirmed from the notice above, so the
+                form does not offer a second, differently-priced button. */}
+            {buyBlock?.kind !== 'price' && (
+              <button
+                type="submit"
+                disabled={buying || memoTooLong || inputBlocked}
+                className="flex-1 rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted"
+              >
+                {buying ? (buyStatus || 'Confirming…') : service ? `Buy for ${formatXpr(service.price)}` : 'Buy'}
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => setShowBuy(false)}
+              onClick={() => { setShowBuy(false); setBuyBlock(null); }}
               disabled={buying}
-              className="rounded-md border border-line-2 px-4 py-2.5 text-sm text-ink-2 hover:bg-surface disabled:text-muted"
+              className={`rounded-md border border-line-2 px-4 py-2.5 text-sm text-ink-2 hover:bg-surface disabled:text-muted ${
+                buyBlock?.kind === 'price' ? 'flex-1' : ''
+              }`}
             >
               Cancel
             </button>
           </div>
         </form>
+        )}
       </Modal>
 
       <Modal
@@ -707,3 +936,13 @@ export default function ServicePage() {
     </>
   );
 }
+
+/**
+ * Server-render the shell so the HTML a link-preview crawler receives carries
+ * the real id: og:image (per-item card at /api/og/...) and the canonical URL
+ * both derive from the route. Data is still fetched client-side.
+ */
+export const getServerSideProps = async ({ res }: { res: { setHeader: (k: string, v: string) => void } }) => {
+  res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=600');
+  return { props: {} };
+};

@@ -25,7 +25,12 @@ const OG_BY_ROUTE: Array<[RegExp, string]> = [
   [/^\/arbitrators/, 'arbitrators'],
   [/^\/agent\//, 'agent'],
 ];
+/** A job or service page gets a card built from its own first image. See src/pages/api/og/. */
+const OG_PER_ITEM = /^\/(jobs|services)\/(\d+)(?:[/?#]|$)/;
+
 export function ogImageForPath(pathname: string): string {
+  const perItem = OG_PER_ITEM.exec(pathname);
+  if (perItem) return `${SITE_URL}/api/og/${perItem[1]}/${perItem[2]}`;
   const match = OG_BY_ROUTE.find(([re]) => re.test(pathname));
   return `${SITE_URL}/og/${match ? match[1] : 'default'}.jpg`;
 }
@@ -37,6 +42,9 @@ export default function App({ Component, pageProps }: AppProps) {
     <ProtonProvider>
       <ToastProvider>
         <Head>
+          {/* Declared once for every page: without it iOS lays the site out at
+              980px and the whole document scrolls sideways on a phone. */}
+          <meta key="viewport" name="viewport" content="width=device-width, initial-scale=1" />
           <meta key="og:image" property="og:image" content={ogImage} />
           <meta key="og:image:width" property="og:image:width" content="1200" />
           <meta key="og:image:height" property="og:image:height" content="630" />

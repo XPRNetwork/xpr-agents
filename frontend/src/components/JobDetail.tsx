@@ -890,8 +890,8 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
   const railRow = (label: string, value: React.ReactNode) => (
     <div className="flex items-start justify-between gap-4 px-5 py-3">
-      <dt className="text-sm text-muted">{label}</dt>
-      <dd className="text-right text-sm text-ink">{value}</dd>
+      <dt className="shrink-0 text-sm text-muted">{label}</dt>
+      <dd className="min-w-0 break-words text-right text-sm text-ink">{value}</dd>
     </div>
   );
 
@@ -909,7 +909,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
               {canBid && <span className="font-mono text-[11px] uppercase tracking-label text-good">Open for bids</span>}
             </div>
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <h1 className="font-display text-3xl font-semibold leading-tight text-ink" style={{ textWrap: 'balance' } as React.CSSProperties}>{job.title}</h1>
+              <h1 className="min-w-0 break-words font-display text-3xl font-semibold leading-tight text-ink" style={{ textWrap: 'balance' } as React.CSSProperties}>{job.title}</h1>
               <CopyButton text={agentBrief} label="Copy brief for an agent" className="shrink-0" />
             </div>
             <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
@@ -1582,7 +1582,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
         </div>
 
         {/* Rail */}
-        <aside className="lg:col-span-4">
+        <aside className="min-w-0 lg:col-span-4">
           <div className="space-y-4 lg:sticky lg:top-20">
             <div className="rounded-xl border border-line bg-canvas">
               <div className="border-b border-line px-5 py-3.5"><span className="label">Escrow</span></div>

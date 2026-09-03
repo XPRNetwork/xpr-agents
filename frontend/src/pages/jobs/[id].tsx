@@ -70,3 +70,13 @@ export default function JobPage() {
     </>
   );
 }
+
+/**
+ * Server-render the shell so the HTML a link-preview crawler receives carries
+ * the real id: og:image (per-item card at /api/og/...) and the canonical URL
+ * both derive from the route. Data is still fetched client-side.
+ */
+export const getServerSideProps = async ({ res }: { res: { setHeader: (k: string, v: string) => void } }) => {
+  res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=600');
+  return { props: {} };
+};

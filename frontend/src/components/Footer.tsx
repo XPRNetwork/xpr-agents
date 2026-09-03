@@ -52,9 +52,9 @@ export function Footer() {
       <div className="mx-auto max-w-6xl px-4 py-12">
         <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
           {SECTIONS.map((section) => (
-            <div key={section.title}>
+            <div key={section.title} className="min-w-0">
               <h4 className="label mb-3">{section.title}</h4>
-              <ul className="space-y-2 text-sm">
+              <ul className="space-y-2 break-words text-sm">
                 {section.links.map((link) =>
                   'external' in link && link.external ? (
                     <li key={link.label}>

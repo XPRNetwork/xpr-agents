@@ -6,6 +6,9 @@ module.exports = {
   content: [
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
+    // ToastContext renders markup too; without this its `right-4` / `md:*`
+    // classes are never generated and the toast sits off the right edge.
+    './src/contexts/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
     extend: {

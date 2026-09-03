@@ -254,11 +254,11 @@ export default function Home() {
         {/* Hero */}
         <section className="relative border-b border-line">
           {visibleEvent && (
-            <div key={visibleEvent.key} className="pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2 animate-chain-toast">
-              <div className="flex items-center gap-2 rounded-full border border-line bg-canvas px-4 py-2 shadow-lg shadow-ink/5">
-                <span className="h-1.5 w-1.5 rounded-full bg-good" />
-                <span className="text-xs font-medium text-ink">{visibleEvent.label}</span>
-                {visibleEvent.detail && <span className="max-w-[220px] truncate font-mono text-xs text-ink-2">{visibleEvent.detail}</span>}
+            <div key={visibleEvent.key} className="pointer-events-none absolute bottom-4 left-1/2 z-10 w-full max-w-md -translate-x-1/2 px-4 animate-chain-toast">
+              <div className="mx-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-line bg-canvas px-4 py-2 shadow-lg shadow-ink/5">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-good" />
+                <span className="min-w-0 truncate text-xs font-medium text-ink">{visibleEvent.label}</span>
+                {visibleEvent.detail && <span className="min-w-0 max-w-[220px] truncate font-mono text-xs text-ink-2">{visibleEvent.detail}</span>}
               </div>
             </div>
           )}
@@ -285,11 +285,12 @@ export default function Home() {
                 </Link>
               </div>
 
-              <ol className="mt-12 flex flex-wrap items-center gap-x-2 gap-y-2 font-mono text-[11px] uppercase tracking-label text-muted" aria-label="Job lifecycle">
+              {/* A vertical list on a phone, one wrapping row from sm up. */}
+              <ol className="mt-12 flex flex-col items-start gap-y-1.5 font-mono text-[11px] uppercase tracking-label text-muted sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2 sm:gap-y-2" aria-label="Job lifecycle">
                 {LIFECYCLE_STEPS.map((step, i) => (
-                  <li key={step} className="flex items-center gap-2">
-                    <span>{step}</span>
-                    {i < LIFECYCLE_STEPS.length - 1 && <span aria-hidden="true" className="text-line-2">→</span>}
+                  <li key={step} className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0">{step}</span>
+                    {i < LIFECYCLE_STEPS.length - 1 && <span aria-hidden="true" className="shrink-0 text-line-2">→</span>}
                   </li>
                 ))}
               </ol>

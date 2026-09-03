@@ -653,12 +653,12 @@ export default function Dashboard() {
             <div className="md:col-span-2 space-y-6">
               {/* Agent Overview */}
               <div className="bg-surface border border-line rounded-xl p-6">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h1 className="text-2xl font-bold text-ink">{agent.name}</h1>
-                    <p className="text-muted">@{agent.account}</p>
+                <div className="flex flex-wrap justify-between items-start gap-3">
+                  <div className="min-w-0">
+                    <h1 className="break-words text-2xl font-bold text-ink">{agent.name}</h1>
+                    <p className="break-all text-muted">@{agent.account}</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-2">
                     <span
                       className={`px-3 py-1 rounded-full text-sm ${
                         agent.active
@@ -765,21 +765,21 @@ export default function Dashboard() {
 
               {/* Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-surface border border-line rounded-xl p-4">
+                <div className="min-w-0 bg-surface border border-line rounded-xl p-4">
                   <div className="text-sm text-ink-2">Stake</div>
-                  <div className="text-xl font-semibold text-ink">{formatXpr(agent.stake)}</div>
+                  <div className="text-xl font-semibold text-ink break-words">{formatXpr(agent.stake)}</div>
                 </div>
-                <div className="bg-surface border border-line rounded-xl p-4">
+                <div className="min-w-0 bg-surface border border-line rounded-xl p-4">
                   <div className="text-sm text-ink-2">Total Jobs</div>
-                  <div className="text-xl font-semibold text-ink">{agent.total_jobs}</div>
+                  <div className="text-xl font-semibold text-ink break-words">{agent.total_jobs}</div>
                 </div>
-                <div className="bg-surface border border-line rounded-xl p-4">
+                <div className="min-w-0 bg-surface border border-line rounded-xl p-4">
                   <div className="text-sm text-ink-2">Feedback</div>
-                  <div className="text-xl font-semibold text-ink">{score?.feedback_count || 0}</div>
+                  <div className="text-xl font-semibold text-ink break-words">{score?.feedback_count || 0}</div>
                 </div>
-                <div className="bg-surface border border-line rounded-xl p-4">
+                <div className="min-w-0 bg-surface border border-line rounded-xl p-4">
                   <div className="text-sm text-ink-2">KYC Level</div>
-                  <div className="text-xl font-semibold text-ink">{kycLevel}/3</div>
+                  <div className="text-xl font-semibold text-ink break-words">{kycLevel}/3</div>
                 </div>
               </div>
 
@@ -911,7 +911,7 @@ export default function Dashboard() {
                         placeholder="Amount"
                         min="0"
                         step="0.0001"
-                        className="flex-1 px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg"
+                        className="min-w-0 flex-1 px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg"
                       />
                       <button
                         onClick={handleStake}
@@ -934,7 +934,7 @@ export default function Dashboard() {
                         min="0"
                         step="0.0001"
                         max={agent.stake / 10000}
-                        className="flex-1 px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg"
+                        className="min-w-0 flex-1 px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg"
                       />
                       <button
                         onClick={handleUnstake}
@@ -1002,9 +1002,9 @@ export default function Dashboard() {
                   <div className="space-y-3">
                     {myBids.map((bid) => (
                       <Link key={bid.id} href={`/jobs/${bid.job_id}`} className="block p-3 border border-line rounded-lg hover:border-line-2 transition-colors">
-                        <div className="flex justify-between items-start">
-                          <div className="text-sm font-medium text-ink">Job #{bid.job_id}</div>
-                          <div className="text-sm text-accent">{formatXpr(bid.amount)}</div>
+                        <div className="flex justify-between items-start gap-3">
+                          <div className="min-w-0 text-sm font-medium text-ink">Job #{bid.job_id}</div>
+                          <div className="shrink-0 text-sm text-accent">{formatXpr(bid.amount)}</div>
                         </div>
                         <div className="text-xs text-muted mt-1">
                           {formatTimeline(bid.timeline)} timeline

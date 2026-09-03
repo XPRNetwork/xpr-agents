@@ -118,29 +118,29 @@ export default function AgentDetail() {
 
             {/* Stats */}
             <div className="mt-6 grid grid-cols-2 md:grid-cols-3 gap-4">
-              <div className="bg-surface-2 rounded-lg p-4">
+              <div className="min-w-0 bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">Wallet Balance</div>
-                <div className="text-lg font-semibold text-ink">{formatXpr(walletBalance)}</div>
+                <div className="text-lg font-semibold text-ink break-words">{formatXpr(walletBalance)}</div>
               </div>
-              <div className="bg-surface-2 rounded-lg p-4">
+              <div className="min-w-0 bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">Total Earnings</div>
-                <div className="text-lg font-semibold text-good">{formatXpr(totalEarnings)}</div>
+                <div className="text-lg font-semibold text-good break-words">{formatXpr(totalEarnings)}</div>
               </div>
-              <div className="bg-surface-2 rounded-lg p-4">
+              <div className="min-w-0 bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">Stake</div>
-                <div className="text-lg font-semibold text-ink">{formatXpr(agent.stake)}</div>
+                <div className="text-lg font-semibold text-ink break-words">{formatXpr(agent.stake)}</div>
               </div>
-              <div className="bg-surface-2 rounded-lg p-4">
+              <div className="min-w-0 bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">Total Jobs</div>
-                <div className="text-lg font-semibold text-ink">{agent.total_jobs}</div>
+                <div className="text-lg font-semibold text-ink break-words">{agent.total_jobs}</div>
               </div>
-              <div className="bg-surface-2 rounded-lg p-4">
+              <div className="min-w-0 bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">KYC Level</div>
-                <div className="text-lg font-semibold text-ink">{kycLevel}/3</div>
+                <div className="text-lg font-semibold text-ink break-words">{kycLevel}/3</div>
               </div>
-              <div className="bg-surface-2 rounded-lg p-4">
+              <div className="min-w-0 bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">Registered</div>
-                <div className="text-lg font-semibold text-ink">{formatDate(agent.registered_at)}</div>
+                <div className="text-lg font-semibold text-ink break-words">{formatDate(agent.registered_at)}</div>
               </div>
             </div>
 
@@ -167,18 +167,18 @@ export default function AgentDetail() {
                   <Link
                     key={job.id}
                     href={`/jobs/${job.id}`}
-                    className="flex justify-between items-center p-3 border border-line rounded-lg cursor-pointer hover:border-line-2 transition-colors"
+                    className="flex justify-between items-center gap-3 p-3 border border-line rounded-lg cursor-pointer hover:border-line-2 transition-colors"
                   >
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono text-muted">#{job.id}</span>
-                        <span className="font-medium text-ink">{job.title}</span>
+                        <span className="shrink-0 text-xs font-mono text-muted">#{job.id}</span>
+                        <span className="min-w-0 truncate font-medium text-ink">{job.title}</span>
                       </div>
                       <div className="text-sm text-muted flex items-center gap-1">
                         Client: <AccountLink account={job.client} className="text-xs" /> &middot; <span title={formatDate(job.created_at)}>{formatRelativeTime(job.created_at)}</span>
                       </div>
                     </div>
-                    <div className="text-right">
+                    <div className="shrink-0 text-right">
                       <div className="text-sm font-semibold text-accent">{formatXpr(job.amount)}</div>
                       <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs ${
                         job.state === 6 ? 'bg-good-soft text-good' :
@@ -201,9 +201,9 @@ export default function AgentDetail() {
               <div className="space-y-3">
                 {agentBids.map((bid) => (
                   <div key={bid.id} className="p-3 border border-line rounded-lg">
-                    <div className="flex justify-between items-start">
-                      <div className="text-sm font-medium text-ink">Job #{bid.job_id}</div>
-                      <div className="text-sm text-accent">{formatXpr(bid.amount)}</div>
+                    <div className="flex justify-between items-start gap-3">
+                      <div className="min-w-0 text-sm font-medium text-ink">Job #{bid.job_id}</div>
+                      <div className="shrink-0 text-sm text-accent">{formatXpr(bid.amount)}</div>
                     </div>
                     <div className="text-xs text-muted mt-1">
                       {formatTimeline(bid.timeline)} timeline
