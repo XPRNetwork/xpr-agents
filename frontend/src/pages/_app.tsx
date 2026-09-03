@@ -39,25 +39,29 @@ export default function App({ Component, pageProps }: AppProps) {
   const { pathname } = useRouter();
   const ogImage = ogImageForPath(pathname);
   return (
-    <ProtonProvider>
-      <ToastProvider>
-        <Head>
-          {/* Declared once for every page: without it iOS lays the site out at
-              980px and the whole document scrolls sideways on a phone. */}
-          <meta key="viewport" name="viewport" content="width=device-width, initial-scale=1" />
-          <meta key="og:image" property="og:image" content={ogImage} />
-          <meta key="og:image:width" property="og:image:width" content="1200" />
-          <meta key="og:image:height" property="og:image:height" content="630" />
-          <meta key="og:type" property="og:type" content="website" />
-          <meta key="og:site_name" property="og:site_name" content="XPR Agents" />
-          <meta key="twitter:card" name="twitter:card" content="summary_large_image" />
-          <meta key="twitter:image" name="twitter:image" content={ogImage} />
-        </Head>
-        <div className={`${instrument.variable} ${geist.variable} ${geistMono.variable} font-sans`}>
+    /* The font wrapper has to be the OUTERMOST element: next/font defines
+       --font-geist & co. on this class, so anything rendered as a sibling of it
+       (the ToastProvider's fixed toast stack, for one) resolves `font-sans` to
+       an undefined var and falls all the way back to the browser serif. */
+    <div className={`${instrument.variable} ${geist.variable} ${geistMono.variable} font-sans`}>
+      <ProtonProvider>
+        <ToastProvider>
+          <Head>
+            {/* Declared once for every page: without it iOS lays the site out at
+                980px and the whole document scrolls sideways on a phone. */}
+            <meta key="viewport" name="viewport" content="width=device-width, initial-scale=1" />
+            <meta key="og:image" property="og:image" content={ogImage} />
+            <meta key="og:image:width" property="og:image:width" content="1200" />
+            <meta key="og:image:height" property="og:image:height" content="630" />
+            <meta key="og:type" property="og:type" content="website" />
+            <meta key="og:site_name" property="og:site_name" content="XPR Agents" />
+            <meta key="twitter:card" name="twitter:card" content="summary_large_image" />
+            <meta key="twitter:image" name="twitter:image" content={ogImage} />
+          </Head>
           <Component {...pageProps} />
-        </div>
-        <Analytics />
-      </ToastProvider>
-    </ProtonProvider>
+          <Analytics />
+        </ToastProvider>
+      </ProtonProvider>
+    </div>
   );
 }
