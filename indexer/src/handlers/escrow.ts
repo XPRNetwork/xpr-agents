@@ -395,11 +395,20 @@ function handleDeliver(db: Database.Database, data: any): void {
   console.log(`Job ${data.job_id} delivered`);
 }
 
+/** agentescrow config.dispute_window on mainnet and testnet (3 days); revise extends the deadline by at least this. */
+const REVISE_DEADLINE_EXTENSION_SEC = 259200;
+
 function handleRevise(db: Database.Database, data: any): void {
   // Client sent a delivery back for changes: DELIVERED -> INPROGRESS.
   // Evidence is kept until the agent delivers again.
+  // The contract also extends the deadline so the agent keeps at least one
+  // dispute window (3 days) to re-deliver: deadline = max(deadline, now + window).
   db.prepare(`
-    UPDATE jobs SET state = 3, updated_at = strftime('%s', 'now') WHERE id = ? AND state = 4
+    UPDATE jobs
+    SET state = 3,
+        updated_at = strftime('%s', 'now'),
+        deadline = MAX(COALESCE(deadline, 0), CAST(strftime('%s', 'now') AS INTEGER) + ${REVISE_DEADLINE_EXTENSION_SEC})
+    WHERE id = ? AND state = 4
   `).run(data.job_id);
 
   console.log(`Job ${data.job_id} sent back for revision`);

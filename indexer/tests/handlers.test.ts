@@ -565,8 +565,10 @@ describe('Escrow Handlers', () => {
     // Deliver
     handleEscrowAction(db, createAction('agentescrow', 'deliver', { job_id: 1, evidence_uri: 'ipfs://result' }));
     handleEscrowAction(db, createAction('agentescrow', 'revise', { client: 'bob', job_id: 1, notes: 'missing legend' }));
-    job = db.prepare('SELECT state FROM jobs WHERE id = 1').get() as any;
+    job = db.prepare('SELECT state, deadline FROM jobs WHERE id = 1').get() as any;
     expect(job.state).toBe(3);
+    // deadline extended to at least now + 3 days, mirroring the contract
+    expect(job.deadline).toBeGreaterThanOrEqual(Math.floor(Date.now() / 1000) + 259200 - 5);
     const ev = db.prepare('SELECT evidence_uri FROM job_evidence WHERE job_id = 1').get() as any;
     expect(ev.evidence_uri).toBe('ipfs://result');
     // re-delivery overwrites evidence
