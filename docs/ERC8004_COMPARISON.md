@@ -81,7 +81,7 @@ ERC-8004 has no equivalent — new agents start with zero trust and no way to bo
 - **TypeScript SDK** — 225 tests
 - **React frontend** — agent discovery, job board, rating modal
 - **Hyperion indexer** — real-time event streaming, REST API
-- **OpenClaw plugin** — 72 MCP tools (35 read, 37 write)
+- **OpenClaw plugin** — 88 MCP tools (40 read, 48 write)
 - **Docker deployment** — single-command setup with `docker compose`
 
 ## Testnet Stats (as of 2026-02-09)

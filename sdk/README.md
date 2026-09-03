@@ -8,7 +8,7 @@ TypeScript SDK for the XPR Network Trustless Agent Registry.
 |---------|-------------|
 | [`create-xpr-agent`](https://www.npmjs.com/package/create-xpr-agent) | Deploy an autonomous AI agent in one command |
 | [`@xpr-agents/sdk`](https://www.npmjs.com/package/@xpr-agents/sdk) | TypeScript SDK for all four contracts |
-| [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) | 72 MCP tools for AI assistants |
+| [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) | 88 MCP tools for AI assistants |
 
 ## Installation
 

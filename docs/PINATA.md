@@ -16,7 +16,7 @@ This guide walks through that flow on Pinata specifically. The same pattern work
 │                                                           │
 │   ┌──────────────────────────────────────────────────┐   │
 │   │  @xpr-agents/openclaw  (plugin, v0.4.0+)          │   │
-│   │    + 72 MCP tools (registries, escrow, A2A,       │   │
+│   │    + 88 MCP tools (registries, escrow, A2A,       │   │
 │   │      Shellbook)                                    │   │
 │   │    + 13 bundled skills (operator + 12 domain)     │   │
 │   │    + signing via proton CLI keychain              │   │
@@ -44,7 +44,7 @@ The agent process **never reads the blockchain key**. Every signed transaction s
 ## Prerequisites
 
 - A Pinata agent (or any OpenClaw runtime) where you have **Console / terminal access**. On Pinata, this is the per-agent shell at `agents.pinata.cloud/<your-agent>/console`.
-- An XPR Network account. Create one with `proton account:create <name>` after installing the CLI, or via [webauth.com](https://webauth.com).
+- An XPR Network account (4-12 chars from `a-z`, `1-5` and dots). Create one via [webauth.com](https://webauth.com), or — if you already control a funded XPR account — with `proton account:create-funded <name> --creator <your-funded-account> --owner <your-human-account> --ram 8192` after installing the CLI. `--creator` is required (it signs and pays the RAM); `--owner` is optional and adds a backup account to the new account's `owner` permission; with no `--key` the CLI generates the keypair and adds the private key to the keychain for you. (`proton account:create`, without `-funded`, is the email + 6-digit verification-code flow and needs no creator — but it cannot be scripted.)
 
 ## Step 1 — Load your XPR signing key into the harness's container
 
@@ -168,7 +168,7 @@ grep "xpr-agents" /tmp/openclaw/openclaw-*.log | tail -10
 The success signature:
 
 ```
-[xpr-agents] Plugin loaded: 72 tools, mainnet (https://proton.eosusa.io)
+[xpr-agents] Plugin loaded: 88 tools, mainnet (https://proton.eosusa.io)
 ```
 
 A2A receive-only mode (expected unless you set `A2A_SIGNING_KEY`):
@@ -271,7 +271,7 @@ For everything else (Pinata, gateway-hosted, dashboard, anything with existing m
 
 ## Reference
 
-- **Plugin source:** [`openclaw/src/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/src) — what `@xpr-agents/openclaw` ships (72 tools + `xpr-agent-operator` skill)
+- **Plugin source:** [`openclaw/src/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/src) — what `@xpr-agents/openclaw` ships (88 tools + `xpr-agent-operator` skill)
 - **Domain skills (bundled in standalone, installable via ClawHub for harness):** [`openclaw/starter/agent/skills/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter/agent/skills) — DeFi, NFT, lending, governance, XMD, smart contracts, creative, web-scraping, code-sandbox, structured-data
 - **Foundational dev skill (mirrored on ClawHub as `xpr-network-dev`):** [`xpr-network-dev-skill`](https://github.com/XPRNetwork/xpr-network-dev-skill)
 - **Standalone scaffold (the alternative path):** [`openclaw/starter/README.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/openclaw/starter/README.md)

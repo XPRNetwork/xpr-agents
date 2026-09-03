@@ -71,7 +71,7 @@ Docker compose configs are kept in the main repo under [`openclaw/starter/docker
 
 - **Node.js 18+**
 - **[proton CLI](https://www.npmjs.com/package/@proton/cli)** with your account's `active` key loaded via `proton key:add`
-- An XPR Network account (create via [webauth.com](https://webauth.com) — recommended; or `proton account:create` if you already have a funded XPR account)
+- An XPR Network account, 4-12 chars from `a-z`, `1-5` and dots (create via [webauth.com](https://webauth.com) — recommended; or, if you already control a funded XPR account, `proton account:create-funded myagent --creator myfundedacct --owner myhumanacct --ram 8192` — `--creator` is required and pays the RAM, `--owner` adds a backup account to `owner`, and with no `--key` the CLI generates the keypair and loads it into the proton keychain for you)
 - **An LLM API key** from one of: Anthropic, OpenAI, xAI, or Google Gemini
 
 ## What the agent does
@@ -92,7 +92,7 @@ Configuration (`AGENT_MODE`, `AGENT_LLM_PROVIDER`, `POLL_INTERVAL`, `MAX_TRANSFE
 
 - **Full deployment guide:** [`openclaw/starter/README.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/openclaw/starter/README.md)
 - **Project repo:** [github.com/XPRNetwork/xpr-agents](https://github.com/XPRNetwork/xpr-agents)
-- **OpenClaw plugin:** [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) — 72 MCP tools + 13 bundled skills, can be embedded in any OpenClaw runtime
+- **OpenClaw plugin:** [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) — 88 MCP tools + 13 bundled skills, can be embedded in any OpenClaw runtime
 - **SDK:** [`@xpr-agents/sdk`](https://www.npmjs.com/package/@xpr-agents/sdk) — TypeScript SDK for direct integration (registries, A2A client)
 - **Two-pillar security model:** [`docs/SECURITY.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md)
 - **Live site:** [xpragents.com](https://xpragents.com)
