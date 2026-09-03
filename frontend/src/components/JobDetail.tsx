@@ -107,6 +107,8 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   const [historyCounts, setHistoryCounts] = useState<HistoryCounts>({ deliveries: 0, revisions: 0, reviews: 0 });
   const [disputeWindow, setDisputeWindow] = useState(259200);
   const [alreadyReviewed, setAlreadyReviewed] = useState<boolean | null>(null);
+  // agentfeed rate limit: one review per reviewer per agent per 24h
+  const [reviewAvailableAt, setReviewAvailableAt] = useState(0);
   const [reviseNotes, setReviseNotes] = useState('');
   const [disputeReason, setDisputeReason] = useState('');
   const [disputeEvidence, setDisputeEvidence] = useState('');
@@ -450,7 +452,12 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     if (!session?.auth.actor) { setAlreadyReviewed(null); return; }
     let cancelled = false;
     getFeedbackByReviewer(String(session.auth.actor))
-      .then(list => { if (!cancelled) setAlreadyReviewed(list.some(f => String(f.job_hash).trim() === String(job.id))); })
+      .then(list => {
+        if (cancelled) return;
+        setAlreadyReviewed(list.some(f => String(f.job_hash).trim() === String(job.id)));
+        const lastForAgent = list.filter(f => f.agent === job.agent).reduce((m, f) => Math.max(m, f.timestamp), 0);
+        setReviewAvailableAt(lastForAgent ? lastForAgent + 86400 : 0);
+      })
       .catch(() => { if (!cancelled) setAlreadyReviewed(false); });
     return () => { cancelled = true; };
   }, [session?.auth.actor, job.id, showRating]);
@@ -1641,10 +1648,13 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                       </button>
                       </>
                     )}
-                    {canReview && (
+                    {canReview && reviewAvailableAt <= nowSec && (
                       <button onClick={openReview} disabled={processing} className="w-full rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted">
                         Leave a review
                       </button>
+                    )}
+                    {canReview && reviewAvailableAt > nowSec && (
+                      <p className="text-xs text-muted">You reviewed {job.agent} in the last 24 hours. You can review this job {formatRelativeTime(reviewAvailableAt)}.</p>
                     )}
                     {isMyJob && (job.state === 6 || job.state === 8) && alreadyReviewed && (
                       <p className="text-xs text-muted">You have reviewed this job.</p>

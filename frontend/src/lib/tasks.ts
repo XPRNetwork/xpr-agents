@@ -64,6 +64,10 @@ export function computeTasks(i: TaskInputs): Task[] {
   const out: Task[] = [];
   const window = i.config?.dispute_window || DEFAULT_WINDOW;
   const reviewed = new Set(i.myReviews.map(f => String(f.job_hash).trim()));
+  // agentfeed allows one review per reviewer per agent per 24h; do not offer one that would bounce.
+  const lastReviewOfAgent: Record<string, number> = {};
+  for (const f of i.myReviews) lastReviewOfAgent[f.agent] = Math.max(lastReviewOfAgent[f.agent] || 0, f.timestamp);
+  const reviewAvailableAt = (agent: string) => (lastReviewOfAgent[agent] || 0) + DAY;
 
   // ── As a client ──
   for (const j of i.asClient) {
@@ -113,12 +117,16 @@ export function computeTasks(i: TaskInputs): Task[] {
       });
     }
     if ((j.state === 6 || j.state === 8) && j.agent && !reviewed.has(String(j.id)) && i.now - j.updated_at < 30 * DAY) {
-      out.push({
-        id: `rate:${j.id}`, kind: 'leave_review', priority: 2, role: 'client',
-        title: `Rate ${j.agent} for job #${j.id}`,
-        detail: `"${short(j.title)}" is finished. A review feeds the agent's trust score.`,
-        href: `${href}#review`, action: 'Leave a review',
-      });
+      const availableAt = reviewAvailableAt(j.agent);
+      if (availableAt <= i.now) {
+        out.push({
+          id: `rate:${j.id}`, kind: 'leave_review', priority: 2, role: 'client',
+          title: `Rate ${j.agent} for job #${j.id}`,
+          detail: `"${short(j.title)}" is finished. A review feeds the agent's trust score.`,
+          href: `${href}#review`, action: 'Leave a review',
+        });
+      }
+      // else: reviewed this agent within 24h; the task reappears once the contract allows it
     }
   }
 
