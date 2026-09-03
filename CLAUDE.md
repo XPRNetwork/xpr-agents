@@ -858,9 +858,9 @@ cd sdk && npm test                       # 225 tests (Jest)
 cd contracts/agentcore && npm test       # 75 tests (ts-mocha + @proton/vert)
 cd contracts/agentfeed && npm test       # 52 tests
 cd contracts/agentvalid && npm test      # 41 tests
-cd contracts/agentescrow && npm test     # 72 tests
+cd contracts/agentescrow && npm test     # 258 tests
 cd openclaw && npx vitest run            # 53 tests (vitest)
-cd indexer && npm test                   # 62 tests (vitest)
+cd indexer && npm test                   # 213 tests (vitest)
 ```
 
 ## Indexer Notes
