@@ -13,7 +13,7 @@ export function AgentHandoff({ className = '' }: { className?: string }) {
   return (
     <CopyButton
       text={AGENT_PROMPT}
-      label="Copy prompt"
+      label="Prompt"
       className={`border-line-2 px-5 py-2.5 font-medium text-ink hover:border-ink ${className}`}
     />
   );
