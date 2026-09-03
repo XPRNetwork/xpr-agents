@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 
 export function useCountUp(target: number, duration = 1000, enabled = true): number {
   const [value, setValue] = useState(0);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!enabled || target === 0) {

@@ -96,7 +96,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   const disputeFormRef = useRef<HTMLDivElement>(null);
   // The action buttons live in the rail; the forms render in the main column,
   // so bring the form on screen and focus it when it opens.
-  const revealForm = (ref: React.RefObject<HTMLDivElement>) => {
+  const revealForm = (ref: React.RefObject<HTMLDivElement | null>) => {
     requestAnimationFrame(() => {
       const el = ref.current; if (!el) return;
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
