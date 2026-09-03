@@ -35,12 +35,28 @@ cd contracts/agentescrow && npm install && npm run build && cd ../..
 ```bash
 proton chain:set proton-test  # or proton for mainnet
 
-# Create accounts (requires XPR for RAM)
-proton account:create agentcore
-proton account:create agentfeed
-proton account:create agentvalid
-proton account:create agentescrow
+# Create accounts. --creator is an existing funded account you control:
+# it signs each creation and pays for the RAM. --owner (optional) adds a
+# backup account to the new account's owner permission. --ram defaults to
+# 3000 bytes, which is not enough for a contract — give each account room
+# for its wasm + ABI.
+proton account:create-funded agentcore   --creator <your-account> --owner <your-account> --ram <bytes>
+proton account:create-funded agentfeed   --creator <your-account> --owner <your-account> --ram <bytes>
+proton account:create-funded agentvalid  --creator <your-account> --owner <your-account> --ram <bytes>
+proton account:create-funded agentescrow --creator <your-account> --owner <your-account> --ram <bytes>
 ```
+
+Size `--ram` to the wasm + ABI plus room for table rows: the built contracts are roughly 60-120 KB each (`ls -l contracts/*/assembly/target/*.wasm`). RAM is charged to the creator at roughly 6-7 XPR per 3000 bytes, so budget accordingly, or buy more RAM later before `contract:set`.
+
+With no `--key`, the CLI generates a keypair per account, prints the public key, private key and a 12-word mnemonic, and adds the private key to the proton keychain. Save each one — they are not shown again.
+
+Or use the helper, which skips accounts that already exist:
+
+```bash
+./scripts/setup-accounts.sh proton-test agentcore agentfeed agentvalid agentescrow <creator> [owner]
+```
+
+> `proton account:create` (without `-funded`) is a different command: it prompts for a private key, an email address, a display name and a 6-digit code emailed to you. It has no creator/funding option and cannot be scripted — don't use it here.
 
 ### 3. Deploy Contracts
 

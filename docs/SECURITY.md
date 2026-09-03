@@ -151,9 +151,9 @@ After this lands, your WebAuth `PUB_WA_` key is no longer on the agent account a
 
 ---
 
-### Flow B — Your account was created via `proton account:create`
+### Flow B — Your account was created via `proton account:create-funded`
 
-You'll see something like:
+`proton account:create-funded <name> --creator <funded-account>` puts the same generated K1 on both permissions:
 
 ```
 permissions:
@@ -161,10 +161,21 @@ permissions:
   active:   threshold 1, keys: [PUB_K1_xxx]          ← controls both
 ```
 
-Simpler case: the K1 is already on active and only needs to be removed from owner. Single `updateauth`:
+If you passed `--owner <your-human-account>` at creation, `owner` also carries that account:
+
+```
+permissions:
+  owner:    threshold 1, keys: [PUB_K1_xxx], accounts: [<your-human-account>@active]
+  active:   threshold 1, keys: [PUB_K1_xxx]
+```
+
+`--owner` **adds** a recovery path; it does not remove the agent's key from `owner`. Threshold is 1, so the raw K1 alone still has owner authority — the lockdown below is still required either way.
+
+Simpler case than Flow A: the K1 is already on active and only needs to be removed from owner. Single `updateauth`:
 
 ```bash
 # 1. Load the K1 into the proton CLI keychain (if you haven't already):
+#    account:create-funded with no --key already did this for you.
 proton key:add                  # paste PVT_K1_yourkey
 
 # 2. Rewrite owner to point at your human account, removing the raw K1:
@@ -174,6 +185,8 @@ proton account:updateauth <your-agent> owner '' \
 ```
 
 The agent's `active` permission isn't named in the call, so it keeps the same K1 — same key the agent was already signing with, no rotation.
+
+(`proton account:create`, without `-funded`, is a different command — the email + 6-digit verification-code flow. Accounts made that way land in the same shape as Flow B, so use the same lockdown.)
 
 ---
 

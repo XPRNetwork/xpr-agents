@@ -845,10 +845,21 @@ await api.transact({
 ### Via CLI
 
 ```bash
-# Create account
+# Create an account from an existing funded account (scriptable).
+# --creator is required: it signs the creation and pays for the RAM.
+# --owner (optional) adds a backup account to the new account's owner
+# permission. --ram defaults to 3000 bytes (the minimum; ~6-7 XPR per
+# 3000 bytes, charged to the creator). With no --key the CLI generates
+# the keypair, prints the public key, private key and a 12-word
+# mnemonic, and adds the private key to the proton keychain.
+proton account:create-funded newaccount --creator fundedacct --owner humanacct --ram 8192
+
+# Alternative: the email flow. Interactive only — it prompts for a
+# private key, an email address, a display name and a 6-digit code
+# emailed to you. No creator/funding option, so it cannot be scripted.
 proton account:create newaccount
 
-# If created manually, register for free resources
+# If created manually (raw eosio::newaccount), register for free resources
 proton action eosio.proton newaccres '{"account":"newaccount"}' newaccount
 
 # Set display name
@@ -858,10 +869,10 @@ proton action eosio.proton setusername '{"acc":"newaccount","name":"Display Name
 ### Key Points
 
 - **`newaccres` is mandatory** — without it, accounts created via `eosio::newaccount` have 0 CPU/NET and are effectively frozen
-- **Normal account creation** (via wallet/CLI `account:create`) handles this automatically
+- **Normal account creation** (via a wallet, or the CLI's `account:create-funded` / `account:create`) handles this automatically — `account:create-funded` sends `eosio::newaccount`, `eosio::buyrambytes` (creator pays) and `eosio.proton::newaccres` in one transaction
 - **Programmatic creation** via raw `newaccount` action skips this step — you must call it yourself
 - **Bootstrap pattern** — use an existing account as first authorizer when the new account has no resources
-- **Account names** — 1-12 characters, lowercase a-z and 1-5 only
+- **Account names** — 4-12 characters, lowercase a-z, digits 1-5 and dots only (no `0`, no `6`-`9`, no uppercase)
 - **RAM** — minimum ~4KB needed, creator pays
 
 ---

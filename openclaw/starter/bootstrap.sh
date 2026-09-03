@@ -37,6 +37,7 @@ NC='\033[0m'
 # Defaults
 NETWORK="testnet"
 XPR_ACCOUNT=""
+XPR_CREATOR=""
 ANTHROPIC_API_KEY=""
 AGENT_MODEL=""
 MAX_TRANSFER_AMOUNT=""
@@ -56,6 +57,8 @@ ${BOLD}USAGE:${NC}
 
 ${BOLD}OPTIONS:${NC}
     --account <name>      XPR Network account name
+    --creator <name>      Funded account that creates/pays for a new
+                          account (only used when creating one)
     --api-key <key>       Anthropic API key
     --network <net>       Network: testnet (default) or mainnet
     --model <model>       Claude model (default: claude-sonnet-4-6)
@@ -73,6 +76,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case $1 in
     --account)      XPR_ACCOUNT="$2"; shift 2 ;;
+    --creator)      XPR_CREATOR="$2"; shift 2 ;;
     --key)
       echo "Error: --key is no longer supported. Use the proton CLI keychain:" >&2
       echo "  npm i -g @proton/cli" >&2
@@ -309,16 +313,32 @@ if [ -z "$XPR_ACCOUNT" ]; then
       if [ "$NETWORK" = "mainnet" ]; then
         fail "Automatic account creation is only available on testnet"
       fi
-      echo ""
-      echo -en "${BOLD}Choose an account name${NC} (1-12 chars, a-z 1-5 and .): "
-      read -r XPR_ACCOUNT
-      if ! echo "$XPR_ACCOUNT" | grep -qE '^[a-z1-5.]{1,12}$'; then
-        fail "Invalid account name '$XPR_ACCOUNT'. Use only a-z, 1-5, and dots (max 12 chars)"
+      # We use `account:create-funded`, which needs an existing funded
+      # account to sign the creation and buy the RAM. (`account:create`,
+      # without -funded, is the email + 6-digit-verification-code flow —
+      # it cannot run unattended from a script.)
+      if ! echo "$CLI_KEYS" | grep -q "publicKey"; then
+        echo ""
+        echo "Creating an account needs an existing funded account to sign and pay for it."
+        echo "Load that account's key first, then re-run bootstrap.sh:"
+        echo "  $PROTON_CMD key:add"
+        fail "No key in the proton CLI keychain to create an account with."
       fi
-      log "Creating account '$XPR_ACCOUNT' on testnet via proton CLI..."
-      $PROTON_CMD account:create "$XPR_ACCOUNT" || \
-        fail "Account creation failed. The name may be taken — try a different one."
-      success "Account '$XPR_ACCOUNT' created. Key stored in proton CLI keychain (not printed here)."
+      echo ""
+      echo -en "${BOLD}Choose an account name${NC} (4-12 chars, a-z 1-5 and .): "
+      read -r XPR_ACCOUNT
+      if ! echo "$XPR_ACCOUNT" | grep -qE '^[a-z1-5.]{4,12}$'; then
+        fail "Invalid account name '$XPR_ACCOUNT'. Use 4-12 chars from a-z, 1-5, and dots"
+      fi
+      prompt_value XPR_CREATOR "Creator account (funded — signs and pays the RAM)" "$EXISTING_CLI_ACCOUNT"
+      if ! echo "$XPR_CREATOR" | grep -qE '^[a-z1-5.]{4,12}$'; then
+        fail "Invalid creator account '$XPR_CREATOR'. Use 4-12 chars from a-z, 1-5, and dots"
+      fi
+      log "Creating account '$XPR_ACCOUNT' on testnet (creator: $XPR_CREATOR)..."
+      $PROTON_CMD account:create-funded "$XPR_ACCOUNT" --creator "$XPR_CREATOR" --ram 8192 || \
+        fail "Account creation failed. The name may be taken, or '$XPR_CREATOR' may not have enough XPR for RAM."
+      success "Account '$XPR_ACCOUNT' created."
+      warn "The CLI printed the new private key and a 12-word mnemonic above, and added the key to the keychain. Save them somewhere safe now — they are not shown again."
     fi
   fi
 

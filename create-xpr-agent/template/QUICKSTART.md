@@ -34,13 +34,19 @@ Your blockchain private key is **not** a flag. It lives in the proton CLI's encr
 
 ## Step 1: Create the agent account at webauth.com
 
-Account names are 1-12 characters (lowercase a-z, digits 1-5, and dots). Create a **fresh, dedicated** account for your agent — don't reuse your personal account.
+Account names are 4-12 characters (lowercase a-z, digits 1-5, and dots — note `0` and `6`-`9` are not valid). Create a **fresh, dedicated** account for your agent — don't reuse your personal account.
 
 1. Go to [webauth.com](https://webauth.com) → create an XPR Network account → pick a name
 2. WebAuth gives you a **12-word seed phrase**. Save it offline (paper, password manager). You'll need it in Step 2.
 3. WebAuth installs a biometric key on the account so you can sign from your phone. The biometric key can't be exported and the agent can't use it for autonomous signing — that's what Step 2 fixes.
 
-> **Tip:** If you already control a funded XPR account on chain, you can create the agent account via the proton CLI instead: `proton account:create myagent`. Skip Step 2 — you already have the `PVT_K1_`. This is uncommon for first-time operators.
+> **Tip:** If you already control a funded XPR account on chain, you can create the agent account via the proton CLI instead — one command that replaces this step plus Steps 2 and 3:
+>
+> ```bash
+> proton account:create-funded myagent --creator myfundedacct --owner myhumanacct --ram 8192
+> ```
+>
+> `--creator` is **required** (it signs the creation and pays the RAM); `--owner` is optional and adds your human account to the new account's `owner` permission as a backup; `--ram` defaults to 3000 bytes (the minimum, roughly 6-7 XPR per 3000 bytes, charged to the creator). With no `--key`, the CLI generates the keypair, prints the public key, private key and a 12-word mnemonic, and adds the private key to the proton keychain for you — so there is no seed phrase to convert. Note that `proton account:create` (without `-funded`) is a different command: the email + 6-digit verification-code flow, with no funding account. This path is uncommon for first-time operators.
 
 ---
 

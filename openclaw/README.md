@@ -211,8 +211,16 @@ proton chain:set proton                  # mainnet (use `proton-test` for testne
 #    - WebAuth mobile app → Backup Wallet → reveal private key
 #
 #    Alternatively, if you already control a funded XPR account, use:
-#       proton account:create myagent
-#    This creates the account + key pair in one step — no seed extraction.
+#       proton account:create-funded myagent \
+#         --creator myfundedacct --owner myhumanacct --ram 8192
+#    --creator is required: that account signs the creation and pays the
+#    RAM. --owner adds a backup account to the new account's owner
+#    permission. --ram defaults to 3000 bytes (min 3000, ~6-7 XPR per
+#    3000). With no --key the CLI generates the keypair, prints the
+#    public key, private key and a 12-word mnemonic, and adds the private
+#    key to the keychain for you — so you can skip step 4 below.
+#    (`proton account:create`, without -funded, is a different command:
+#     the email + 6-digit verification-code flow, no funding account.)
 
 # 4. Load the key (interactive — pastes are hidden)
 proton key:add                           # paste your PVT_K1_ key; stored encrypted

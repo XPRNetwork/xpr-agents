@@ -78,7 +78,7 @@ If you later want the keychain encrypted, `proton key:lock` will prompt for a pa
 
 | Flag | What it is | Example |
 |------|-----------|---------|
-| `--account` | Your XPR Network account name (1-12 chars: a-z, 1-5, dots) | `myagent` |
+| `--account` | Your XPR Network account name (4-12 chars: a-z, 1-5, dots) | `myagent` |
 | `--api-key` | An LLM API key from any supported provider | `sk-ant-...` / `sk-...` / `xai-...` / `AI...` |
 
 Supported providers — the runner detects which one from the key prefix:
@@ -96,7 +96,7 @@ Override the auto-detection with `--provider <anthropic|openai|xai|gemini>`. Ove
 
 The canonical flow:
 
-1. **Create the agent account at [webauth.com](https://webauth.com)** — pick a 1-12 char name (`a-z`, `1-5`, dots). WebAuth gives you a 12-word seed phrase. Save it offline.
+1. **Create the agent account at [webauth.com](https://webauth.com)** — pick a 4-12 char name (`a-z`, `1-5`, dots). WebAuth gives you a 12-word seed phrase. Save it offline.
 2. **Extract the K1 private key from the seed phrase.** Two paths:
    - **Explorer utility:** open [`explorer.xprnetwork.org/wallet/utilities/format-keys`](https://explorer.xprnetwork.org/wallet/utilities/format-keys) → "Mnemonic to Private Key" → paste seed → copy `PVT_K1_...`
    - **WebAuth mobile app:** open the account → "Backup Wallet" → reveal / export private key → copy `PVT_K1_...`
@@ -113,7 +113,15 @@ The canonical flow:
 
 The key now lives encrypted on disk. The agent shells out to `proton transaction:push` for every signed action — the key never enters the agent process's memory.
 
-> **Already have a funded XPR account?** You can create the agent account from the proton CLI instead: `proton account:create myagent`. You'll get the `PVT_K1_` directly — skip step 2. This path only works if you already control a funded creator account; most operators come through the webauth.com path.
+> **Already have a funded XPR account?** One proton CLI command replaces steps 1-3:
+>
+> ```bash
+> proton account:create-funded myagent --creator myfundedacct --owner myhumanacct --ram 8192
+> ```
+>
+> `--creator` is **required** — that account signs the creation and pays for the RAM. `--owner` (optional) adds your human account to the new account's `owner` permission as a backup recovery path. `--ram` defaults to 3000 bytes (the minimum; roughly 6-7 XPR per 3000 bytes, charged to the creator). With no `--key`, the CLI generates the keypair, prints the public key, private key and a 12-word mnemonic, and adds the private key to the proton keychain for you — so there is no seed extraction and no `proton key:add`.
+>
+> Note that `proton account:create` (without `-funded`) is a *different* command: it is the email + 6-digit verification-code flow and has no creator/funding option. Most operators come through the webauth.com path above.
 
 > **Pillar 2 lockdown after first boot:** once the agent is running, run `./setup-security.sh` to delegate the agent's `owner` permission to a separate human account. Even if the keychain key ever leaks, an attacker can't rotate you out of the account. See [`docs/SECURITY.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md).
 
@@ -127,7 +135,7 @@ The key now lives encrypted on disk. The agent shells out to `proton transaction
 │   (port 3001)    │                  │   (port 8080)    │
 │                  │ ←─── tool calls  │                  │
 │  Streams chain   │                  │  Claude + Tools  │
-│  events via      │                  │  72 XPR tools    │
+│  events via      │                  │  88 XPR tools    │
 │  Hyperion        │                  │  Agentic loop    │
 └────────┬─────────┘                  └────────┬─────────┘
          │                                     │
@@ -137,7 +145,7 @@ The key now lives encrypted on disk. The agent shells out to `proton transaction
 
 1. The **indexer** streams blockchain events via Hyperion and stores them in SQLite
 2. When events match the agent's account, it sends webhooks to the **agent runner**
-3. The agent runner passes the event to Claude with 72 XPR tools available
+3. The agent runner passes the event to Claude with 88 XPR tools available
 4. Claude decides what actions to take and executes them on-chain
 
 ## What the Agent Can Do
@@ -262,7 +270,7 @@ A2A_MIN_TRUST_SCORE=30
 
 ### Tool Sandboxing
 
-By default, A2A callers trigger the full agentic loop with all 72 tools. To restrict A2A callers to read-only tools (get, list, search):
+By default, A2A callers trigger the full agentic loop with all 88 tools. To restrict A2A callers to read-only tools (get, list, search):
 
 ```env
 A2A_TOOL_MODE=readonly
