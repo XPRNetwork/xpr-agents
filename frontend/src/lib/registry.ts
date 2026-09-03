@@ -717,6 +717,58 @@ async function getRegistryStatsRpc(): Promise<RegistryStats> {
 }
 
 // Get jobs for a specific agent
+/** Jobs where the account is the client or the agent. Indexer first (filtered server-side), RPC scan fallback. */
+export async function getJobsForAccount(account: string): Promise<{ asClient: Job[]; asAgent: Job[] }> {
+  const [c, a] = await Promise.all([
+    indexerFetch<{ jobs: any[] } | any[]>(`/jobs?client=${encodeURIComponent(account)}&limit=200`),
+    indexerFetch<{ jobs: any[] } | any[]>(`/jobs?agent=${encodeURIComponent(account)}&limit=200`),
+  ]);
+  const rows = (x: any): any[] | null => (x == null ? null : Array.isArray(x) ? x : Array.isArray(x.jobs) ? x.jobs : null);
+  const cr = rows(c), ar = rows(a);
+  if (cr && ar) {
+    return { asClient: cr.map(parseJob), asAgent: ar.map(parseJob) };
+  }
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_ESCROW,
+    scope: CONTRACTS.AGENT_ESCROW,
+    table: 'jobs',
+    limit: 500,
+    reverse: true,
+  });
+  const all = (result.rows as any[]).map(parseJob);
+  return { asClient: all.filter(j => j.client === account), asAgent: all.filter(j => j.agent === account) };
+}
+
+/** Reviews written by an account (feedback.byReviewer secondary index). */
+export async function getFeedbackByReviewer(reviewer: string, limit = 100): Promise<Feedback[]> {
+  const result = await rpc.get_table_rows({
+    json: true,
+    code: CONTRACTS.AGENT_FEED,
+    scope: CONTRACTS.AGENT_FEED,
+    table: 'feedback',
+    index_position: 3,
+    key_type: 'name',
+    lower_bound: reviewer,
+    upper_bound: reviewer,
+    limit,
+  });
+  return (result.rows as any[]).filter(r => r.reviewer === reviewer).map(r => ({
+    id: parseInt(r.id),
+    agent: r.agent,
+    reviewer: r.reviewer,
+    reviewer_kyc_level: parseInt(r.reviewer_kyc_level) || 0,
+    score: parseInt(r.score) || 0,
+    tags: typeof r.tags === 'string' ? r.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [],
+    job_hash: r.job_hash || '',
+    evidence_uri: r.evidence_uri || '',
+    amount_paid: parseInt(r.amount_paid) || 0,
+    timestamp: parseInt(r.timestamp) || 0,
+    disputed: !!r.disputed,
+    resolved: !!r.resolved,
+  }));
+}
+
 export async function getJobsByAgent(agent: string): Promise<Job[]> {
   const result = await rpc.get_table_rows({
     json: true,

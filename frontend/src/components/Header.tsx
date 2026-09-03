@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useProton } from '@/hooks/useProton';
 import { getSelectedNetwork, switchNetwork, type NetworkId } from '@/lib/networks';
 import { ThemeToggle } from './ThemeToggle';
+import { TaskBell } from './TaskBell';
 import { Logo } from './Logo';
 
 export type Page = 'discover' | 'services' | 'jobs' | 'leaderboard' | 'validators' | 'arbitrators' | 'how-it-works' | 'get-started' | 'dashboard';
@@ -156,6 +157,7 @@ export function Header({ activePage }: { activePage?: Page }) {
 
         <div className="hidden items-center gap-2 md:flex">
           <ThemeToggle />
+          {session && <TaskBell account={String(session.auth.actor)} />}
           {loading ? (
             <div className="h-8 w-24 skeleton-shimmer rounded-md" />
           ) : session ? (

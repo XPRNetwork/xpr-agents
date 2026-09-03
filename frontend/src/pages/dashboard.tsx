@@ -5,6 +5,7 @@ import { WalletButton } from '@/components/WalletButton';
 import { Header } from '@/components/Header';
 import { indexerFetch } from '@/lib/indexer';
 import { AccountAvatar } from '@/components/AccountAvatar';
+import { TaskInbox } from '@/components/TaskInbox';
 import { Footer } from '@/components/Footer';
 import { TrustBadge } from '@/components/TrustBadge';
 import { PluginSelector } from '@/components/PluginSelector';
@@ -564,6 +565,7 @@ export default function Dashboard() {
         <div className="min-h-screen bg-canvas">
           <Header activePage="dashboard" />
           <main className="max-w-6xl mx-auto px-4 py-12">
+            <div className="mb-10"><TaskInbox account={String(session.auth.actor)} /></div>
             {ownedLoading ? (
               <p className="text-center text-ink-2">Loading…</p>
             ) : ownedAgents.length > 0 ? (
@@ -645,6 +647,7 @@ export default function Dashboard() {
         <Header activePage="dashboard" />
 
         <main className="max-w-6xl mx-auto px-4 py-8">
+          <div className="mb-8"><TaskInbox account={String(session.auth.actor)} /></div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Main Info */}
             <div className="md:col-span-2 space-y-6">
