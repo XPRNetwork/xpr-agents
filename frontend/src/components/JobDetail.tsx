@@ -456,12 +456,15 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   }, [session?.auth.actor, job.id, showRating]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.location.hash === '#review' && canReview && !showRating) {
+    // Same condition as canReview below; computed inline because this effect
+    // sits above the flag declarations.
+    const mayReview = !!session && session.auth.actor === job.client && (job.state === 6 || job.state === 8) && !!job.agent && !isEmptyName(job.agent) && alreadyReviewed === false;
+    if (typeof window !== 'undefined' && window.location.hash === '#review' && mayReview && !showRating) {
       openReview();
       history.replaceState(null, '', window.location.pathname);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canReview]);
+  }, [alreadyReviewed, job.state, session?.auth.actor]);
 
   async function handleTimeout(kind: 'reclaim' | 'claim') {
     if (!session) return;
