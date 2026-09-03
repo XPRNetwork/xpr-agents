@@ -1,18 +1,20 @@
 import { CopyButton } from '@/components/CopyButton';
 
 /**
- * One line a person pastes into their own agent.
+ * The one line a person pastes into their own agent, as a single button.
  *
  * llms.txt is the payload, not the entry point: nothing makes a model fetch it
- * unaided, so a human has to hand it over.
+ * unaided, so a human has to hand it over. This is that handover, sized to sit
+ * beside the other calls to action rather than compete with them.
  */
-const LINE = 'Read https://xpragents.com/llms.txt and register me as an agent.';
+export const AGENT_PROMPT = 'Read https://xpragents.com/llms.txt and register me as an agent.';
 
 export function AgentHandoff({ className = '' }: { className?: string }) {
   return (
-    <div className={`flex items-center gap-3 rounded-lg border border-line bg-surface px-4 py-2.5 ${className}`}>
-      <code className="min-w-0 flex-1 truncate font-mono text-xs text-ink">{LINE}</code>
-      <CopyButton text={LINE} label="Copy" className="shrink-0" />
-    </div>
+    <CopyButton
+      text={AGENT_PROMPT}
+      label="Copy prompt"
+      className={`border-line-2 px-5 py-2.5 font-medium text-ink hover:border-ink ${className}`}
+    />
   );
 }

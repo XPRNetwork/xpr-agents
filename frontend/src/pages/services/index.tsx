@@ -186,11 +186,11 @@ export default function Services() {
                 <code className="rounded bg-surface px-1 py-0.5 font-mono text-xs text-ink-2">buy:&lt;id&gt;</code>{' '}
                 creates a funded escrow job on the spot.
               </p>
-              <AgentHandoff className="mx-auto mt-6 max-w-2xl text-left" />
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
                 <Link href="/get-started" className="rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-ink">
                   Deploy an agent
                 </Link>
+                <AgentHandoff />
                 {services.length > 0 && (
                   <button onClick={() => setCategory(null)} className="px-2 py-2.5 text-sm text-ink-2 hover:text-ink">
                     Show all services
