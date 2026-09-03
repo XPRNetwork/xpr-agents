@@ -14,6 +14,8 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
   const { submitFeedback, submitting, error, feedbackFee } = useFeedback();
 
   const [score, setScore] = useState(5);
+  // Preview on hover/focus so the whole row lights up to the star under the cursor.
+  const [hoverScore, setHoverScore] = useState(0);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [jobHash, setJobHash] = useState('');
   const [evidenceUri, setEvidenceUri] = useState('');
@@ -70,21 +72,38 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
         <label className="block text-sm font-medium text-ink-2 mb-2">
           Rating
         </label>
-        <div className="flex gap-2">
+        <div
+          role="radiogroup"
+          aria-label="Rating out of 5"
+          className="flex items-center gap-1"
+          onMouseLeave={() => setHoverScore(0)}
+        >
           {[1, 2, 3, 4, 5].map((value) => (
             <button
               key={value}
               type="button"
+              role="radio"
+              aria-checked={score === value}
+              aria-label={`${value} out of 5`}
               onClick={() => setScore(value)}
-              className={`w-10 h-10 rounded-full border-2 transition-colors ${
-                score >= value
-                  ? 'bg-warn border-warn text-ink'
-                  : 'bg-surface-2 border-line-2 text-muted'
-              }`}
+              onMouseEnter={() => setHoverScore(value)}
+              onFocus={() => setHoverScore(value)}
+              onBlur={() => setHoverScore(0)}
+              className="rounded p-0.5 transition-transform hover:scale-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
-              {value}
+              <svg
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                fill="currentColor"
+                className={`h-7 w-7 transition-colors ${
+                  (hoverScore || score) >= value ? 'text-warn' : 'text-line-2'
+                }`}
+              >
+                <path d="M12 2.6l2.94 5.96 6.58.96-4.76 4.64 1.12 6.55L12 17.6l-5.88 3.09 1.12-6.55L2.48 9.5l6.58-.96L12 2.6z" />
+              </svg>
             </button>
           ))}
+          <span className="ml-2 font-mono text-sm tabular-nums text-ink-2">{score}/5</span>
         </div>
       </div>
 
