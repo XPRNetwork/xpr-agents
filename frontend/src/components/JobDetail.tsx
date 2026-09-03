@@ -104,6 +104,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     });
   };
   const [historyCounts, setHistoryCounts] = useState<HistoryCounts>({ deliveries: 0, revisions: 0, reviews: 0 });
+  const [disputeWindow, setDisputeWindow] = useState(259200);
   const [reviseNotes, setReviseNotes] = useState('');
   const [disputeReason, setDisputeReason] = useState('');
   const [disputeEvidence, setDisputeEvidence] = useState('');
@@ -128,7 +129,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   useEffect(() => {
     loadBids();
     loadMessages();
-    getEscrowConfig().then(c => { if (c) setEscrowOwner(c.owner); }).catch(() => {});
+    getEscrowConfig().then(c => { if (c) { setEscrowOwner(c.owner); if (c.dispute_window > 0) setDisputeWindow(c.dispute_window); } }).catch(() => {});
     if (job.state >= 4 && job.agent && job.agent !== '.............') {
       fetchDeliverable(job.id);
     }
@@ -441,6 +442,23 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     }
   }
 
+  async function handleTimeout(kind: 'reclaim' | 'claim') {
+    if (!session) return;
+    setProcessing(true);
+    try {
+      const result = await transact([
+        { account: CONTRACTS.AGENT_ESCROW, name: 'timeout', data: { claimer: session.auth.actor, job_id: job.id } },
+      ]);
+      addToast({ type: 'success', message: kind === 'reclaim' ? `Job #${job.id} closed. Escrow refunded to you.` : `Job #${job.id} closed. Payment released to you.`, txId: getTxId(result) });
+      await new Promise(r => setTimeout(r, 1500));
+      await refreshJob();
+    } catch (e: any) {
+      addToast({ type: 'error', message: e.message || 'Failed to close the job' });
+    } finally {
+      setProcessing(false);
+    }
+  }
+
   async function handleRevise() {
     if (!session || !reviseNotes.trim()) return;
     setProcessing(true);
@@ -675,6 +693,13 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   const canApprove = isMyJob && job.state === 4;
   const canCancel = isMyJob && (job.state === 0 || job.state === 1);
   const canDispute = isMyJob && job.state >= 2 && job.state <= 4;
+  const canRevise = isMyJob && job.state === 4;
+  const nowSec = Math.floor(Date.now() / 1000);
+  // Client: undelivered past the deadline → timeout refunds the escrow.
+  const canReclaim = isMyJob && job.state >= 1 && job.state <= 3 && job.deadline > 0 && nowSec > job.deadline;
+  // Agent: delivered, unreviewed, deadline and review window both passed → timeout pays out.
+  const isAssignedAgent = !!session && !!job.agent && session.auth.actor === job.agent;
+  const canClaim = isAssignedAgent && job.state === 4 && job.deadline > 0 && nowSec > job.deadline && nowSec > job.updated_at + disputeWindow;
   const isArbitrator = session && job.state === 5 && (
     (job.arbitrator === session.auth.actor) ||
     ((!job.arbitrator || job.arbitrator === '.............') && session.auth.actor === escrowOwner) ||
@@ -1574,13 +1599,28 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                     )}
                     {canDispute && (
                       <>
-                      <button onClick={() => { setShowRevise(true); setShowDispute(false); revealForm(reviseFormRef); }} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-ink disabled:opacity-50">
-                        Request changes
-                      </button>
+                      {canRevise && (
+                        <button onClick={() => { setShowRevise(true); setShowDispute(false); revealForm(reviseFormRef); }} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-ink disabled:opacity-50">
+                          Request changes
+                        </button>
+                      )}
                       <button onClick={() => { setShowDispute(true); setShowRevise(false); revealForm(disputeFormRef); }} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-ink hover:border-warn hover:text-warn disabled:opacity-50">
                         Raise a dispute
                       </button>
                       </>
+                    )}
+                    {canReclaim && (
+                      <button onClick={() => handleTimeout('reclaim')} disabled={processing} className="w-full rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-canvas hover:bg-ink/85 disabled:bg-line disabled:text-muted">
+                        {processing ? 'Closing…' : `Reclaim ${formatXpr(job.funded_amount)}`}
+                      </button>
+                    )}
+                    {canReclaim && (
+                      <p className="text-xs text-muted">The deadline passed without a delivery. Closing the job refunds the escrow to you.</p>
+                    )}
+                    {canClaim && (
+                      <button onClick={() => handleTimeout('claim')} disabled={processing} className="w-full rounded-md bg-good px-4 py-2.5 text-sm font-medium text-white hover:bg-good/90 disabled:bg-line disabled:text-muted">
+                        {processing ? 'Closing…' : `Claim ${formatXpr(job.funded_amount)}`}
+                      </button>
                     )}
                     {canCancel && (
                       <button onClick={handleCancelJob} disabled={processing} className="w-full rounded-md border border-line-2 px-4 py-2.5 text-sm font-medium text-crit hover:border-crit disabled:opacity-50">
