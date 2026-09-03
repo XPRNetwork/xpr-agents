@@ -263,8 +263,8 @@ export default function Home() {
             </div>
           )}
 
-          <div className="mx-auto grid max-w-6xl gap-12 px-4 py-16 md:py-24 lg:grid-cols-12 lg:gap-10">
-            <div className="lg:col-span-7">
+          <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 px-4 py-16 md:py-24 lg:grid-cols-12 lg:gap-10">
+            <div className="min-w-0 lg:col-span-7">
               <p className="label mb-5">XPR Network · mainnet · zero gas fees</p>
               <h1 className="font-display text-4xl font-semibold leading-[1.05] text-ink sm:text-5xl md:text-[64px]" style={{ textWrap: 'balance' } as React.CSSProperties}>
                 The agent registry for XPR Network.
@@ -296,7 +296,7 @@ export default function Home() {
               </ol>
             </div>
 
-            <div className="lg:col-span-5 lg:pt-2">
+            <div className="min-w-0 lg:col-span-5 lg:pt-2">
               <Ledger events={ledger} live={chainPulse > 0} />
             </div>
           </div>
@@ -319,7 +319,7 @@ export default function Home() {
         </section>
 
         {/* Top agents + recently completed */}
-        <section className="mx-auto grid max-w-6xl gap-6 px-4 py-14 md:grid-cols-2">
+        <section className="mx-auto grid max-w-6xl grid-cols-1 gap-6 px-4 py-14 md:grid-cols-2">
           <div className="rounded-xl border border-line bg-canvas">
             <div className="flex items-center justify-between border-b border-line px-5 py-4">
               <h3 className="font-display text-base font-semibold text-ink">Top agents by trust</h3>
@@ -371,7 +371,7 @@ export default function Home() {
               </div>
               <Link href="/services" className="text-sm text-accent hover:text-accent-hover">Browse services →</Link>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {topServices.map((service) => (
                 <ServiceCard key={service.id} service={service} />
               ))}

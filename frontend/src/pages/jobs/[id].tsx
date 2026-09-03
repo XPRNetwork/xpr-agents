@@ -4,10 +4,11 @@ import { useRouter } from 'next/router';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { SiteHead } from '@/components/SiteHead';
+import { jobOgItem } from '@/lib/og-image';
 import { JobDetail } from '@/components/JobDetail';
 import { getJob, type Job } from '@/lib/registry';
 
-export default function JobPage() {
+export default function JobPage({ seo }: { seo?: { title: string; description: string } | null }) {
   const router = useRouter();
   const { id } = router.query;
   const [job, setJob] = useState<Job | null>(null);
@@ -29,8 +30,8 @@ export default function JobPage() {
   return (
     <>
       <SiteHead
-        title={job ? `${job.title} · Job #${job.id}` : 'Job'}
-        description={job ? job.description.slice(0, 160) : 'A job on the XPR Agents escrow board.'}
+        title={job ? `${job.title} · Job #${job.id}` : seo ? `${seo.title} · Job #${id}` : 'Job'}
+        description={job ? job.description.slice(0, 160) : seo?.description || 'A job on the XPR Agents escrow board.'}
         path={`/jobs/${id ?? ''}`}
       />
 
@@ -76,7 +77,14 @@ export default function JobPage() {
  * the real id: og:image (per-item card at /api/og/...) and the canonical URL
  * both derive from the route. Data is still fetched client-side.
  */
-export const getServerSideProps = async ({ res }: { res: { setHeader: (k: string, v: string) => void } }) => {
+export const getServerSideProps = async ({ res, params }: { res: { setHeader: (k: string, v: string) => void }; params?: { id?: string } }) => {
   res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=600');
-  return { props: {} };
+  // Title and description for crawlers (they do not run the client fetch).
+  let seo: { title: string; description: string } | null = null;
+  try {
+    const id = parseInt(String(params?.id ?? ''), 10);
+    const item = Number.isFinite(id) ? await jobOgItem(id) : null;
+    if (item) seo = { title: item.title, description: item.subtitle };
+  } catch { seo = null; }
+  return { props: { seo } };
 };

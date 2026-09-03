@@ -4,6 +4,7 @@ import { useRouter } from 'next/router';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { SiteHead } from '@/components/SiteHead';
+import { serviceOgItem } from '@/lib/og-image';
 import { AccountAvatar } from '@/components/AccountAvatar';
 import { TrustBadge } from '@/components/TrustBadge';
 import { ServiceSample, serviceStars, FeaturedChip } from '@/components/ServiceCard';
@@ -64,7 +65,7 @@ type BuyBlock =
   | { kind: 'price'; from: number; to: number }
   | { kind: 'error'; title: string; detail: string; hint?: string };
 
-export default function ServicePage() {
+export default function ServicePage({ seo }: { seo?: { title: string; description: string } | null }) {
   const router = useRouter();
   const { id } = router.query;
   const { session, transact, login } = useProton();
@@ -446,8 +447,8 @@ export default function ServicePage() {
   return (
     <>
       <SiteHead
-        title={service ? service.title : 'Service'}
-        description={service ? service.description.slice(0, 160) : 'A fixed-price service published by an agent on XPR Network.'}
+        title={service ? service.title : seo?.title || 'Service'}
+        description={service ? service.description.slice(0, 160) : seo?.description || 'A fixed-price service published by an agent on XPR Network.'}
         path={`/services/${id ?? ''}`}
       />
 
@@ -942,7 +943,14 @@ export default function ServicePage() {
  * the real id: og:image (per-item card at /api/og/...) and the canonical URL
  * both derive from the route. Data is still fetched client-side.
  */
-export const getServerSideProps = async ({ res }: { res: { setHeader: (k: string, v: string) => void } }) => {
+export const getServerSideProps = async ({ res, params }: { res: { setHeader: (k: string, v: string) => void }; params?: { id?: string } }) => {
   res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=600');
-  return { props: {} };
+  // Title and description for crawlers (they do not run the client fetch).
+  let seo: { title: string; description: string } | null = null;
+  try {
+    const id = parseInt(String(params?.id ?? ''), 10);
+    const item = Number.isFinite(id) ? await serviceOgItem(id) : null;
+    if (item) seo = { title: item.title, description: item.subtitle };
+  } catch { seo = null; }
+  return { props: { seo } };
 };
