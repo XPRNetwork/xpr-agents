@@ -2,7 +2,16 @@
 export { AgentRegistry } from './AgentRegistry';
 export { FeedbackRegistry } from './FeedbackRegistry';
 export { ValidationRegistry } from './ValidationRegistry';
-export { EscrowRegistry } from './EscrowRegistry';
+export {
+  EscrowRegistry,
+  MAX_BUYER_NOTES_LENGTH,
+  MAX_SERVICE_INPUT_SCHEMA_LENGTH,
+  MAX_SERVICE_INPUT_ANSWERS_LENGTH,
+  MAX_SERVICE_INPUT_FIELDS,
+  parseServiceInputSchema,
+  validateServiceInputSchema,
+  validateServiceInput,
+} from './EscrowRegistry';
 export { A2AClient, A2AError } from './A2AClient';
 export { createA2ADigest, hashBody, signA2ARequest, recoverA2APublicKey } from './eosio-auth';
 
@@ -16,11 +25,18 @@ export type {
   DisputeResolution,
   Arbitrator,
   Bid,
+  JobMessage,
+  JobMessageRaw,
   Service,
   ServiceRaw,
   ServiceData,
   ServiceConfig,
   ServiceListOptions,
+  ServiceInputSchema,
+  ServiceInputField,
+  ServiceInputFieldType,
+  ServiceInputRaw,
+  ValidationOutcome,
   CreateJobData,
   SubmitBidData,
   AddMilestoneData,

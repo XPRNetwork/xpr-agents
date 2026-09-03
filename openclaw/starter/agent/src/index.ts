@@ -22,6 +22,7 @@ import type { SkillLoadResult } from './skill-loader';
 import { loadSecurityConfig, scanInbound, scanOutput, getSecurityStats } from './security';
 import { findHousekeepingActions, describeHousekeeping, DEFAULT_DISPUTE_WINDOW_SEC, DEFAULT_MAX_TIMEOUT_ATTEMPTS } from './timeouts';
 import type { EscrowJobLike, HousekeepingAction } from './timeouts';
+import { isLlmUnavailableError, describeLlmError } from './llm-errors';
 
 // Tool collection types (matches openclaw PluginApi)
 interface ToolDef {
@@ -374,8 +375,42 @@ Featuring a listing with xpr_boost_service (1 XPR = 1 featured day) is OPTIONAL
 and only worth it once you have completed jobs and real reviews; the chain
 rejects boosts for agents with no completed jobs. Spend on delivery first.
 A sold service arrives as an ordinary FUNDED job (job_hash = svc:<id>) — accept,
-start and deliver it exactly like any other job.`;
-systemPrompt += `\n\n## Delivering Jobs
+start and deliver it exactly like any other job. The buyer may have added notes at
+purchase: they appear at the END of the job description as "Buyer notes: ...". Read
+them before you start and treat them as part of the brief. When YOU buy another
+agent's service, pass the same few specifics in xpr_buy_service's optional notes
+(max 200 characters); anything longer belongs in a custom job with xpr_create_job.
+
+If a listing of yours needs specifics from the buyer (an account to analyse, a
+target URL, a style choice), declare an input form with xpr_set_service_input
+RIGHT AFTER xpr_list_service: at most 8 fields, each with a key ([a-z0-9_], max
+32 chars), a label (max 64 chars) and a type (text, textarea, number, account,
+url, select with options, checkbox), marking the ones you cannot work without as
+required. Buyers then answer the form at purchase and the answers arrive as the
+FIRST client message on the job thread, as JSON keyed by your field keys — read
+it with xpr_get_job_messages before you start, and only use xpr_ask_client if
+something required is still missing. Before buying someone else's service, call
+xpr_get_service_input and, if it returns a schema, pass your answers to
+xpr_buy_service as its "input" parameter (they travel with the purchase in one transaction).`;
+systemPrompt += `\n\n## Asking the Buyer a Question
+Every job has a message thread (max 20 messages, open while the job is FUNDED,
+ACCEPTED or INPROGRESS). Read it with xpr_get_job_messages before you deliver.
+On a service purchase the FIRST client message may be the buyer's answers to your
+input form: a JSON object keyed by your schema's field keys. Treat it as part of
+the brief, not as a question to answer.
+If a required input is genuinely missing — something you cannot infer from the
+title, description, buyer notes or deliverables — call xpr_ask_client ONCE with
+one specific message that asks for everything you need, then stop and wait.
+NEVER deliver a placeholder, a draft or a "please confirm" file in order to ask a
+question: that is a delivery, and it gets disputed and 1-star reviewed.
+A question does NOT pause the deadline. If no answer arrives, do not ask again:
+either deliver your best interpretation of the brief in good time, or let the
+deadline pass so the buyer's timeout refund protects them. When the answer
+arrives, use it and deliver.
+As a client, answer the agent's question with xpr_answer_agent from the brief you
+wrote; if you cannot answer, say so plainly so the agent can proceed.
+
+## Delivering Jobs
 If a job you delivered goes back to INPROGRESS, the client requested changes (revise action, notes in the tx): fix the work and deliver again. You may also re-deliver while the job is still DELIVERED to correct a mistake. If the same note comes back twice, re-read the brief and llms.txt before re-delivering; do not re-send the same file. As a client, request changes at most twice, then approve or dispute.
 
 When delivering a job, ALWAYS:
@@ -1109,12 +1144,47 @@ function recordEval(): void {
   console.log(`[poller] Eval ${dailyEvalCount}/${JOB_POLLER_MAX_EVALS_PER_DAY} today`);
 }
 
+/** Give the credit back when the run never reached the model (see llm-errors.ts) */
+function refundEval(): void {
+  if (dailyEvalCount > 0) dailyEvalCount--;
+}
+
+/**
+ * Handle a rejected agent run.
+ *
+ * If the model was never reached (no API credits, bad key, 429, 5xx, network),
+ * the job is not at fault: undo whatever the poller recorded before the run
+ * (attempt counters, "already seen" ids), give the eval credit back and let the
+ * next-but-one poll try again. Anything else is a real failure and is only logged.
+ */
+function handleRunFailure(err: any, label: string, opts: { jobId?: number; rollback?: () => void } = {}): void {
+  if (isLlmUnavailableError(err)) {
+    try { opts.rollback?.(); } catch { /* best effort */ }
+    refundEval();
+    if (opts.jobId != null) llmBackoffJobs.add(opts.jobId);
+    console.error(`[poller] LLM unavailable (${describeLlmError(err)}): ${label} will be retried next poll`);
+    return;
+  }
+  console.error(`[poller] ${label} failed:`, err?.message || String(err));
+}
+
+/** Undo one recorded attempt for a job whose run never reached the model */
+function rollbackFundedAttempt(jobId: number): void {
+  const n = fundedJobAttempts.get(jobId) || 0;
+  if (n <= 1) fundedJobAttempts.delete(jobId);
+  else fundedJobAttempts.set(jobId, n - 1);
+}
+
 // Tracked state for change detection
 const knownJobStates = new Map<number, number>();   // job_id → state
 const knownOpenJobIds = new Set<number>();           // open job ids already seen
 const knownFeedbackIds = new Set<number>();          // feedback ids already seen
 const knownChallengeIds = new Set<number>();         // challenge ids already seen
 const knownDelegatorBidIds = new Set<number>();      // bid ids already evaluated by delegator
+const llmBackoffJobs = new Set<number>();            // jobs to skip for one cycle after an LLM outage
+let cycleBackoffJobs = new Set<number>();            // snapshot of the above, taken at the start of each cycle
+const askedJobs = new Set<number>();                 // jobs we asked the client about, awaiting an answer
+const seenJobMessageIds = new Set<number>();         // job message ids already processed
 const knownPostIds = new Set<number>();              // shellbook post ids already seen by social mode
 const activeJobIds = new Set<number>();              // jobs currently being processed (per-job lock)
 const fundedJobAttempts = new Map<number, number>(); // job_id → number of times agent was invoked
@@ -1232,6 +1302,8 @@ interface PollerState {
   knownChallengeIds: number[];
   knownDelegatorBidIds?: number[];
   knownPostIds?: number[];
+  askedJobs?: number[];
+  seenJobMessageIds?: number[];
   fundedJobAttempts?: Record<string, number>;
   timeoutAttempts?: Record<string, number>;
   dailyEvalCount?: number;
@@ -1247,6 +1319,8 @@ function savePollerState(): void {
       knownChallengeIds: [...knownChallengeIds],
       knownDelegatorBidIds: [...knownDelegatorBidIds],
       knownPostIds: [...knownPostIds],
+      askedJobs: [...askedJobs],
+      seenJobMessageIds: [...seenJobMessageIds],
       fundedJobAttempts: Object.fromEntries(fundedJobAttempts),
       timeoutAttempts: Object.fromEntries(timeoutAttempts),
       dailyEvalCount,
@@ -1271,6 +1345,8 @@ function loadPollerState(): boolean {
     for (const id of state.knownChallengeIds) knownChallengeIds.add(id);
     if (state.knownDelegatorBidIds) for (const id of state.knownDelegatorBidIds) knownDelegatorBidIds.add(id);
     if (state.knownPostIds) for (const id of state.knownPostIds) knownPostIds.add(id);
+    if (state.askedJobs) for (const id of state.askedJobs) askedJobs.add(id);
+    if (state.seenJobMessageIds) for (const id of state.seenJobMessageIds) seenJobMessageIds.add(id);
     if (state.fundedJobAttempts) {
       for (const [k, v] of Object.entries(state.fundedJobAttempts)) {
         fundedJobAttempts.set(Number(k), v);
@@ -1460,6 +1536,146 @@ async function estimateJobCost(title: string, description: string, deliverables:
   return { estimated_usd: totalWithMargin, estimated_xpr: estimatedXpr, breakdown, job_type: jobType, xpr_price_usd: xprPrice };
 }
 
+// ── Job message thread (question / answer) ───
+// The agent asks the client with xpr_ask_client when a required input is
+// genuinely missing; the client answers with xpr_answer_agent. Both are only
+// valid while the job is FUNDED(1), ACCEPTED(2) or INPROGRESS(3).
+interface JobMessageLike { id: number; job_id?: number; author: string; text: string; created_at?: number }
+
+const THREAD_OPEN_STATES = [1, 2, 3];                // FUNDED, ACCEPTED, INPROGRESS
+const MAX_THREAD_CHECKS_PER_POLL = 10;               // bound RPC reads per cycle
+
+/** Read a job's message thread. Returns [] when the tool or table is unavailable. */
+async function fetchJobMessages(jobId: number): Promise<JobMessageLike[]> {
+  const getMessages = tools.find(t => t.name === 'xpr_get_job_messages');
+  if (!getMessages) return [];
+  try {
+    const res: any = await getMessages.handler({ job_id: jobId });
+    const list: any[] = res?.messages || res?.items || (Array.isArray(res) ? res : []);
+    return list.filter((m: any) => m && m.id != null && typeof m.author === 'string');
+  } catch (err: any) {
+    console.warn(`[poller/messages] Could not read thread for job #${jobId}: ${err.message}`);
+    return [];
+  }
+}
+
+/** Render the tail of a thread for a prompt, with each message security-scanned. */
+function formatThread(messages: JobMessageLike[], account: string): string {
+  return messages.slice(-6).map(m => {
+    const who = m.author === account ? `${m.author} (you)` : m.author;
+    return `- ${who}: ${scanInbound(m.text || '', 'poller').text}`;
+  }).join('\n');
+}
+
+/**
+ * After a run on a job we are assigned to: if the last message in the thread is
+ * ours, we asked a question and are waiting on the client. Record it so the next
+ * poll watches for the answer.
+ */
+async function recordAskedIfPending(jobId: number, account: string): Promise<void> {
+  const messages = await fetchJobMessages(jobId);
+  if (messages.length === 0) return;
+  for (const m of messages) seenJobMessageIds.add(m.id);
+  const last = messages[messages.length - 1];
+  if (last.author === account) {
+    askedJobs.add(jobId);
+    console.log(`[poller/messages] Job #${jobId}: question posted, waiting for the client's answer`);
+  } else {
+    askedJobs.delete(jobId);
+  }
+}
+
+/**
+ * The buyer's answers to a service input form arrive as the first client message
+ * on the thread (the site sends `transfer(buy:<id>)` + `svcinput` in one
+ * transaction). Returns the parsed object, or null for an ordinary message.
+ */
+function extractBuyerInput(messages: JobMessageLike[], client: string): Record<string, unknown> | null {
+  for (const m of messages) {
+    if (m.author !== client) continue;
+    const text = scanInbound(m.text || '', 'poller').text.trim();
+    if (!text.startsWith('{')) continue;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch { /* just an ordinary message */ }
+  }
+  return null;
+}
+
+/**
+ * Poll the message threads of live jobs and trigger a run when the other party
+ * has said something new.
+ *
+ *  - role 'agent'  — jobs assigned to us: a new client message (an answer to our
+ *                    question, or a late clarification) resumes the work.
+ *  - role 'client' — jobs we created: a new agent question needs an answer.
+ *
+ * On the seed poll every id is only marked as seen, so a restart never replays
+ * an old thread as if it were new.
+ */
+async function pollJobThreads(jobs: any[], role: 'agent' | 'client', account: string, seedOnly: boolean): Promise<void> {
+  if (!tools.find(t => t.name === 'xpr_get_job_messages')) return;
+
+  const live = jobs.filter(j => j && j.id != null && THREAD_OPEN_STATES.includes(Number(j.state))
+    && !activeJobIds.has(j.id) && !cycleBackoffJobs.has(j.id));
+  // Jobs we asked on first — those are the ones actually waiting on a reply
+  const ordered = [
+    ...live.filter(j => askedJobs.has(j.id)),
+    ...live.filter(j => !askedJobs.has(j.id)),
+  ].slice(0, MAX_THREAD_CHECKS_PER_POLL);
+
+  for (const job of ordered) {
+    const messages = await fetchJobMessages(job.id);
+    if (messages.length === 0) continue;
+
+    const fresh = messages.filter(m => !seenJobMessageIds.has(m.id));
+    const incoming = fresh.filter(m => (role === 'agent' ? m.author !== account : m.author === job.agent));
+
+    if (seedOnly || incoming.length === 0) {
+      for (const m of fresh) seenJobMessageIds.add(m.id);
+      if (!seedOnly && role === 'agent' && fresh.length > 0) {
+        // Only our own messages are new — we are still waiting
+        const last = messages[messages.length - 1];
+        if (last.author === account) askedJobs.add(job.id);
+      }
+      continue;
+    }
+
+    if (!canSpendCredits(`job #${job.id} message thread`)) continue;
+
+    for (const m of fresh) seenJobMessageIds.add(m.id);
+    askedJobs.delete(job.id);
+
+    const safeTitle = scanInbound(job.title || '', 'poller').text;
+    const transcript = formatThread(messages, account);
+    console.log(`[poller/messages] Job #${job.id}: ${incoming.length} new message(s) from the ${role === 'agent' ? 'client' : 'agent'}`);
+
+    activeJobIds.add(job.id);
+    recordEval();
+
+    const prompt = role === 'agent'
+      ? `The client replied on the message thread of job #${job.id} "${safeTitle}".\n\nThread:\n${transcript}\n\nUse the answer to finish the work and deliver it with xpr_deliver_job. Do not ask a second question and never deliver a placeholder — if the reply still leaves something open, deliver your best interpretation of the brief.`
+      : `The agent ${job.agent} asked a question on job #${job.id} "${safeTitle}", which you created.\n\nThread:\n${transcript}\n\nAnswer with xpr_answer_agent using the job brief. If you cannot answer, say so plainly in the same message so the agent can proceed with its best interpretation.`;
+
+    runAgent(role === 'agent' ? 'poll:client_answer' : 'poll:agent_question', {
+      job_id: job.id, client: job.client, agent: job.agent, title: safeTitle,
+      state: job.state,
+      messages: messages.slice(-6).map(m => ({ id: m.id, author: m.author, text: scanInbound(m.text || '', 'poller').text })),
+    }, prompt)
+      .catch(err => handleRunFailure(err, `job #${job.id} message thread`, {
+        jobId: job.id,
+        rollback: () => {
+          for (const m of fresh) seenJobMessageIds.delete(m.id);
+          if (role === 'agent') askedJobs.add(job.id);
+        },
+      }))
+      .finally(() => activeJobIds.delete(job.id));
+  }
+}
+
 const POLL_TIMEOUT = 120_000; // 2 minutes max per poll cycle
 
 async function pollOnChain(): Promise<void> {
@@ -1487,6 +1703,14 @@ async function pollOnChainInner(): Promise<void> {
   const account = process.env.XPR_ACCOUNT;
   if (!account) return;
 
+  // Jobs whose last run died because the LLM API was unreachable sit out exactly
+  // one cycle, then get another chance (the attempt counter was rolled back).
+  cycleBackoffJobs = new Set(llmBackoffJobs);
+  llmBackoffJobs.clear();
+  if (cycleBackoffJobs.size > 0) {
+    console.log(`[poller] Backing off ${cycleBackoffJobs.size} job(s) for one cycle after an LLM outage`);
+  }
+
   const listJobs = tools.find(t => t.name === 'xpr_list_jobs');
   const listOpenJobs = tools.find(t => t.name === 'xpr_list_open_jobs');
   const listFeedback = tools.find(t => t.name === 'xpr_list_agent_feedback');
@@ -1508,11 +1732,13 @@ async function pollOnChainInner(): Promise<void> {
     //    (worker + hybrid modes only — delegators and validators don't have assigned jobs)
     //    Fetch up to 100 jobs (secondary index returns oldest first),
     //    then only track the most recent 50 for state change detection.
+    let myAssignedJobs: any[] = [];
     if (listJobs && ['worker', 'hybrid'].includes(AGENT_MODE)) {
       const res: any = await listJobs.handler({ agent: account, limit: 100 });
       const allJobs: any[] = res?.items || res || [];
       // Only care about the most recent 50 — old completed jobs won't change
       const jobs: any[] = allJobs.length > 50 ? allJobs.slice(-50) : allJobs;
+      myAssignedJobs = jobs;
       for (const job of jobs) {
         if (!job || job.id == null) continue;
         const prevState = knownJobStates.get(job.id);
@@ -1520,6 +1746,8 @@ async function pollOnChainInner(): Promise<void> {
 
         // Per-job lock: skip if this job is already being processed
         if (activeJobIds.has(job.id)) continue;
+        // Cooling off after an LLM outage — retried next cycle
+        if (cycleBackoffJobs.has(job.id)) continue;
 
         // First poll — just seed state, don't trigger
         if (prevState === undefined) {
@@ -1536,13 +1764,23 @@ async function pollOnChainInner(): Promise<void> {
             const deliverables = scanInbound(job.deliverables || '', 'poller').text;
             const safeTitle = scanInbound(job.title || '', 'poller').text;
             const safeDescription = scanInbound(job.description || '', 'poller').text;
+            // A service purchase can carry the buyer's answers to the listing's
+            // input form as the first client message — hand them to the run.
+            const thread = await fetchJobMessages(job.id);
+            for (const m of thread) seenJobMessageIds.add(m.id);
+            const buyerInput = extractBuyerInput(thread, job.client);
+            const inputNote = buyerInput ? ` The buyer answered your service input form: ${JSON.stringify(buyerInput)}.` : '';
             runAgent('poll:job_assigned', {
               job_id: job.id, client: job.client, agent: job.agent,
               state: job.state, title: safeTitle, description: safeDescription,
-              deliverables, budget_xpr: jobBudgetXpr,
-            }, `You have been assigned to job #${job.id} "${safeTitle}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing.`).catch(err => {
-              console.error(`[poller] Failed to process newly assigned job:`, err.message);
-            }).finally(() => activeJobIds.delete(job.id));
+              deliverables, budget_xpr: jobBudgetXpr, buyer_input: buyerInput,
+            }, `You have been assigned to job #${job.id} "${safeTitle}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing. Buyer notes, if any, are at the end of the description.${inputNote} If a required input is genuinely missing, call xpr_ask_client ONCE with a specific question and stop — do not deliver a placeholder.`)
+              .then(() => recordAskedIfPending(job.id, account))
+              .catch(err => handleRunFailure(err, `newly assigned job #${job.id}`, {
+                jobId: job.id,
+                rollback: () => rollbackFundedAttempt(job.id),
+              }))
+              .finally(() => activeJobIds.delete(job.id));
           }
           continue;
         }
@@ -1560,16 +1798,24 @@ async function pollOnChainInner(): Promise<void> {
           const deliverables = scanInbound(job.deliverables || '', 'poller').text;
           const safeTitle = scanInbound(job.title || '', 'poller').text;
           const safeDescription = scanInbound(job.description || '', 'poller').text;
+          const thread = await fetchJobMessages(job.id);
+          for (const m of thread) seenJobMessageIds.add(m.id);
+          const buyerInput = extractBuyerInput(thread, job.client);
+          const inputNote = buyerInput ? ` The buyer answered your service input form: ${JSON.stringify(buyerInput)}.` : '';
           console.log(`[poller] Re-evaluating FUNDED job #${job.id} (attempt ${attempts + 1}/${MAX_FUNDED_RETRIES})`);
           activeJobIds.add(job.id);
           recordEval();
           runAgent('poll:job_assigned', {
             job_id: job.id, client: job.client, agent: job.agent,
             state: job.state, title: safeTitle, description: safeDescription,
-            deliverables, budget_xpr: jobBudgetXpr,
-          }, `You have been assigned to job #${job.id} "${safeTitle}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing.`).catch(err => {
-            console.error(`[poller] Failed to process FUNDED job:`, err.message);
-          }).finally(() => activeJobIds.delete(job.id));
+            deliverables, budget_xpr: jobBudgetXpr, buyer_input: buyerInput,
+          }, `You have been assigned to job #${job.id} "${safeTitle}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing. Buyer notes, if any, are at the end of the description.${inputNote} If a required input is genuinely missing, call xpr_ask_client ONCE with a specific question and stop — do not deliver a placeholder.`)
+            .then(() => recordAskedIfPending(job.id, account))
+            .catch(err => handleRunFailure(err, `FUNDED job #${job.id}`, {
+              jobId: job.id,
+              rollback: () => rollbackFundedAttempt(job.id),
+            }))
+            .finally(() => activeJobIds.delete(job.id));
           continue;
         }
 
@@ -1602,10 +1848,24 @@ async function pollOnChainInner(): Promise<void> {
             from_state: prevState, to_state: job.state,
             title: safeTitle, description: safeDescription,
             deliverables, budget_xpr: jobBudgetXpr,
-          }, `Job #${job.id} "${safeTitle}" (budget: ${jobBudgetXpr} XPR) changed from ${fromName} to ${toName}. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Review and take appropriate action. If working on this job, ensure ALL requested deliverables are uploaded and xpr_deliver_job is called before finishing.`).catch(err => {
-            console.error(`[poller] Failed to process job state change:`, err.message);
-          }).finally(() => activeJobIds.delete(job.id));
+          }, `Job #${job.id} "${safeTitle}" (budget: ${jobBudgetXpr} XPR) changed from ${fromName} to ${toName}. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Review and take appropriate action. If working on this job, ensure ALL requested deliverables are uploaded and xpr_deliver_job is called before finishing.`)
+            .catch(err => handleRunFailure(err, `job #${job.id} state change ${fromName}→${toName}`, {
+              jobId: job.id,
+              // Restore the previous state so the change is detected again
+              rollback: () => knownJobStates.set(job.id, prevState),
+            }))
+            .finally(() => activeJobIds.delete(job.id));
         }
+      }
+    }
+
+    // 1b. Message threads on jobs assigned to us: a new client message (usually
+    //     the answer to a question we asked) resumes the work on that job.
+    if (myAssignedJobs.length > 0 && ['worker', 'hybrid'].includes(AGENT_MODE)) {
+      try {
+        await pollJobThreads(myAssignedJobs, 'agent', account, firstPoll);
+      } catch (err: any) {
+        console.error(`[poller/messages] Error polling assigned job threads:`, err.message);
       }
     }
 
@@ -1624,6 +1884,7 @@ async function pollOnChainInner(): Promise<void> {
       for (const job of jobs) {
         if (!job || job.id == null) continue;
         if (knownOpenJobIds.has(job.id)) continue;
+        if (cycleBackoffJobs.has(job.id)) continue;
         knownOpenJobIds.add(job.id);
 
         // Skip stale open jobs — they're likely abandoned test data
@@ -1673,9 +1934,10 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
           job_id: job.id, client: job.client, title: safeTitle,
           description: safeDescription, budget_xpr: budgetXpr.toFixed(4), deadline: job.deadline,
           cost_estimate: cost,
-        }, prompt).catch(err => {
-          console.error(`[poller] Failed to process open job:`, err.message);
-        });
+        }, prompt).catch(err => handleRunFailure(err, `open job #${job.id}`, {
+          jobId: job.id,
+          rollback: () => knownOpenJobIds.delete(job.id),
+        }));
       }
     }
 
@@ -1721,16 +1983,19 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
     }
 
     // 5. Delegator mode: poll jobs this agent CREATED (as client) to track bids and deliveries
+    let myClientJobs: any[] = [];
     if (['delegator', 'hybrid'].includes(AGENT_MODE) && listJobs) {
       const listBids = tools.find(t => t.name === 'xpr_list_bids');
       const res: any = await listJobs.handler({ client: account, limit: 50 });
       const clientJobs: any[] = res?.items || res || [];
+      myClientJobs = clientJobs;
       for (const job of clientJobs) {
         if (!job || job.id == null) continue;
         const prevState = knownJobStates.get(job.id);
         knownJobStates.set(job.id, job.state);
 
         if (activeJobIds.has(job.id)) continue;
+        if (cycleBackoffJobs.has(job.id)) continue;
 
         // Skip seed
         if (prevState === undefined && firstPoll) continue;
@@ -1752,9 +2017,12 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
             runAgent('poll:delegator_delivery', {
               job_id: job.id, agent: job.agent, title: safeTitle,
               state: job.state, deliverables: job.deliverables,
-            }, `Job #${job.id} "${safeTitle}" has been DELIVERED by agent ${job.agent}. Review the deliverables and either approve with xpr_approve_delivery or raise a dispute.`).catch(err => {
-              console.error(`[poller/delegator] Failed to evaluate delivery:`, err.message);
-            }).finally(() => activeJobIds.delete(job.id));
+            }, `Job #${job.id} "${safeTitle}" has been DELIVERED by agent ${job.agent}. Review the deliverables and either approve with xpr_approve_delivery or raise a dispute.`)
+              .catch(err => handleRunFailure(err, `delegator delivery review for job #${job.id}`, {
+                jobId: job.id,
+                rollback: () => knownJobStates.set(job.id, prevState),
+              }))
+              .finally(() => activeJobIds.delete(job.id));
           }
         }
 
@@ -1776,14 +2044,26 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
                 job_id: job.id, title: safeTitle, new_bid_count: newBids.length, bids: bids.map((b: any) => ({
                   bid_id: b.id, agent: b.agent, amount: b.amount, proposal: b.proposal,
                 })),
-              }, `Job #${job.id} "${safeTitle}" has ${bids.length} bid(s) total, ${newBids.length} new since last poll. Evaluate the bids and select the best one using xpr_select_bid if any are suitable.`).catch(err => {
-                console.error(`[poller/delegator] Failed to evaluate bids:`, err.message);
-              }).finally(() => activeJobIds.delete(job.id));
+              }, `Job #${job.id} "${safeTitle}" has ${bids.length} bid(s) total, ${newBids.length} new since last poll. Evaluate the bids and select the best one using xpr_select_bid if any are suitable.`)
+                .catch(err => handleRunFailure(err, `delegator bid review for job #${job.id}`, {
+                  jobId: job.id,
+                  rollback: () => { for (const b of newBids) if (b && b.id != null) knownDelegatorBidIds.delete(b.id); },
+                }))
+                .finally(() => activeJobIds.delete(job.id));
             }
           } catch (err: any) {
             console.error(`[poller/delegator] Failed to fetch bids for job #${job.id}:`, err.message);
           }
         }
+      }
+    }
+
+    // 5b. Message threads on jobs we created: an agent question needs an answer.
+    if (myClientJobs.length > 0 && ['delegator', 'hybrid'].includes(AGENT_MODE)) {
+      try {
+        await pollJobThreads(myClientJobs, 'client', account, firstPoll);
+      } catch (err: any) {
+        console.error(`[poller/messages] Error polling client job threads:`, err.message);
       }
     }
 
@@ -1800,6 +2080,7 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
         knownJobStates.set(job.id, job.state);
 
         if (activeJobIds.has(job.id)) continue;
+        if (cycleBackoffJobs.has(job.id)) continue;
         if (prevState !== undefined) continue; // Already seen
 
         if (firstPoll) continue;
@@ -1815,9 +2096,12 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
           job_id: job.id, agent: job.agent, client: job.client,
           title: safeTitle, description: safeDescription,
           deliverables: job.deliverables,
-        }, `Job #${job.id} "${safeTitle}" has been DELIVERED by ${job.agent}. Validate the work quality: review deliverables against the description, then submit a validation using xpr_submit_validation.`).catch(err => {
-          console.error(`[poller/validator] Failed to validate job:`, err.message);
-        }).finally(() => activeJobIds.delete(job.id));
+        }, `Job #${job.id} "${safeTitle}" has been DELIVERED by ${job.agent}. Validate the work quality: review deliverables against the description, then submit a validation using xpr_submit_validation.`)
+          .catch(err => handleRunFailure(err, `validator review for job #${job.id}`, {
+            jobId: job.id,
+            rollback: () => knownJobStates.delete(job.id),
+          }))
+          .finally(() => activeJobIds.delete(job.id));
       }
     }
 
@@ -1840,9 +2124,10 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
                 posts: newPosts.slice(0, 5).map((p: any) => ({
                   id: p.id, author: p.author, content: (p.content || '').slice(0, 200),
                 })),
-              }, `Here are ${newPosts.length} new Shellbook post(s) since last poll. Engage with the most interesting ones — vote, comment, or create your own post if inspired. Be genuine and add value.`).catch(err => {
-                console.error(`[poller/social] Failed to engage timeline:`, err.message);
-              });
+              }, `Here are ${newPosts.length} new Shellbook post(s) since last poll. Engage with the most interesting ones — vote, comment, or create your own post if inspired. Be genuine and add value.`)
+                .catch(err => handleRunFailure(err, 'social timeline engagement', {
+                  rollback: () => { for (const p of newPosts) if (p && p.id != null) knownPostIds.delete(p.id); },
+                }));
             }
           }
         } catch (err: any) {
@@ -1866,6 +2151,8 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
   capSet(knownChallengeIds);
   capSet(knownDelegatorBidIds);
   capSet(knownPostIds);
+  capSet(askedJobs);
+  capSet(seenJobMessageIds);
 
   // Persist state after each poll cycle
   savePollerState();

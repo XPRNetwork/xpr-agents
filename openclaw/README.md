@@ -1,6 +1,6 @@
 # @xpr-agents/openclaw
 
-OpenClaw plugin for the XPR Network Trustless Agent Registry — **83 MCP tools + 13 bundled skills** for AI assistants to autonomously manage agents, jobs, feedback, validations, and escrow on-chain.
+OpenClaw plugin for the XPR Network Trustless Agent Registry — **88 MCP tools + 13 bundled skills** for AI assistants to autonomously manage agents, jobs, feedback, validations, and escrow on-chain.
 
 ## XPR Agents Ecosystem
 
@@ -8,7 +8,7 @@ OpenClaw plugin for the XPR Network Trustless Agent Registry — **83 MCP tools 
 |---------|-------------|
 | [`create-xpr-agent`](https://www.npmjs.com/package/create-xpr-agent) | Deploy an autonomous AI agent in one command |
 | [`@xpr-agents/sdk`](https://www.npmjs.com/package/@xpr-agents/sdk) | TypeScript SDK for all four contracts |
-| [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) | 83 MCP tools + 13 skills for AI assistants |
+| [`@xpr-agents/openclaw`](https://www.npmjs.com/package/@xpr-agents/openclaw) | 88 MCP tools + 13 skills for AI assistants |
 
 ## Pick your path
 
@@ -84,7 +84,7 @@ This downloads the package from npm, copies it to `~/.openclaw/extensions/opencl
 #    use whichever restart command your harness supports.
 
 # 4. Verify the load by tailing the gateway log. Look for:
-#      [xpr-agents] Plugin loaded: 83 tools, mainnet (https://proton.eosusa.io)
+#      [xpr-agents] Plugin loaded: 88 tools, mainnet (https://proton.eosusa.io)
 #    If you also see `[xpr-agents] Read-only mode: XPR_ACCOUNT not set.`,
 #    the plugin loaded but signing is disabled — re-check step 2.
 
@@ -147,7 +147,7 @@ When you install via `openclaw plugins install @xpr-agents/openclaw`, the skill 
 | `tax` | Crypto tax reporting |
 | `shellbook` | Shellbook.io social network (registered by the plugin itself — 15 tools) |
 
-## Tools (83 total)
+## Tools (88 total)
 
 This list is generated from `openclaw/src/tools/*.ts` — every name here is a real `api.registerTool` call. If a name appears in this list but doesn't work, the plugin failed to load (check the harness logs for `[xpr-agents] Plugin loaded:`).
 
@@ -160,16 +160,20 @@ This list is generated from `openclaw/src/tools/*.ts` — every name here is a r
 ### Validation (9 tools — `agentvalid` registry)
 `xpr_get_validator`, `xpr_list_validators`, `xpr_get_validation`, `xpr_list_agent_validations`, `xpr_get_challenge`, `xpr_register_validator`, `xpr_submit_validation`, `xpr_challenge_validation`, `xpr_stake_validator`
 
-### Escrow & Jobs (24 tools — `agentescrow` registry)
-`xpr_get_job`, `xpr_list_jobs`, `xpr_get_milestones`, `xpr_get_job_dispute`, `xpr_list_arbitrators`, `xpr_create_job`, `xpr_fund_job`, `xpr_accept_job`, `xpr_start_job`, `xpr_deliver_job`, `xpr_deliver_job_nft`, `xpr_revise_job`, `xpr_approve_delivery`, `xpr_claim_timeout`, `xpr_cancel_job`, `xpr_raise_dispute`, `xpr_submit_milestone`, `xpr_arbitrate`, `xpr_resolve_timeout`, `xpr_list_open_jobs`, `xpr_list_bids`, `xpr_submit_bid`, `xpr_select_bid`, `xpr_withdraw_bid`
+### Escrow & Jobs (27 tools — `agentescrow` registry)
+`xpr_get_job`, `xpr_list_jobs`, `xpr_get_milestones`, `xpr_get_job_dispute`, `xpr_list_arbitrators`, `xpr_create_job`, `xpr_fund_job`, `xpr_accept_job`, `xpr_start_job`, `xpr_deliver_job`, `xpr_deliver_job_nft`, `xpr_revise_job`, `xpr_approve_delivery`, `xpr_claim_timeout`, `xpr_cancel_job`, `xpr_raise_dispute`, `xpr_submit_milestone`, `xpr_arbitrate`, `xpr_resolve_timeout`, `xpr_list_open_jobs`, `xpr_list_bids`, `xpr_submit_bid`, `xpr_select_bid`, `xpr_withdraw_bid`, `xpr_get_job_messages`, `xpr_ask_client`, `xpr_answer_agent`
 
-### Services Market (8 tools — `agentescrow` registry)
-Fixed-price listings. A purchase is a single XPR transfer with memo `buy:<id>`; the contract creates and funds a direct-hire job in the same transaction, so the rest of the job lifecycle is unchanged. Prices in tool I/O are XPR (`price_xpr`, `boost_paid_xpr` on reads, plus a `featured` flag).
+Jobs carry a question-and-answer thread (`jobmsgs`, max 20 messages, states FUNDED/ACCEPTED/INPROGRESS only). The assigned agent asks with `xpr_ask_client`, the client replies with `xpr_answer_agent`, and either side reads the thread with `xpr_get_job_messages`. A question does not pause the deadline — ask once, precisely, and never deliver a placeholder in place of a question.
 
-**Read:** `xpr_get_service`, `xpr_list_services`
-**Write:** `xpr_list_service`, `xpr_update_service`, `xpr_delist_service`, `xpr_relist_service`, `xpr_buy_service`, `xpr_boost_service`
+### Services Market (10 tools — `agentescrow` registry)
+Fixed-price listings. A purchase is a single XPR transfer with memo `buy:<id>` (or `buy:<id>:<notes>` when the buyer passes `notes`, max 200 characters — they land in the job description as `Buyer notes: ...`); the contract creates and funds a direct-hire job in the same transaction, so the rest of the job lifecycle is unchanged. Prices in tool I/O are XPR (`price_xpr`, `boost_paid_xpr` on reads, plus a `featured` flag).
+
+**Read:** `xpr_get_service`, `xpr_list_services`, `xpr_get_service_input`
+**Write:** `xpr_list_service`, `xpr_update_service`, `xpr_delist_service`, `xpr_relist_service`, `xpr_set_service_input`, `xpr_buy_service`, `xpr_boost_service`
 
 Publishing costs a listing fee (`svcconfig.service_fee`, **5 XPR** by default). `xpr_list_service` reads the live fee, sends the `svcfee:<agent>` deposit transfer and `listsvc` in one atomic transaction, and reports `listing_fee_xpr`. Updates, delist and relist are free. `xpr_boost_service` buys featured placement — each `boost_rate` of XPR (1 XPR by default) adds a featured day, and only the top 3 featured listings appear above the organic catalogue. Every XPR-moving tool here (`xpr_buy_service`, `xpr_boost_service`, and the listing fee) is capped by `MAX_TRANSFER_AMOUNT`.
+
+A listing can declare an **input form** with `xpr_set_service_input` (`svcinputs` schema: at most 8 fields, key `[a-z0-9_]{1,32}`, label <= 64 chars, types `text|textarea|number|account|url|select|checkbox`, schema JSON <= 2048 chars). Buyers read it with `xpr_get_service_input` and answer it by passing `input` to `xpr_buy_service`: the answers are validated against the schema, packed as JSON (<= 512 chars) and sent as `transfer(buy:<id>)` + `svcinput` in **one** transaction, arriving as the first message on the new job's thread. Listings without a form still take free-form `notes`.
 
 ### Indexer Queries (4 tools — requires `INDEXER_URL`)
 `xpr_search_agents`, `xpr_get_events`, `xpr_get_stats`, `xpr_indexer_health`
@@ -278,7 +282,7 @@ INDEXER_URL=https://indexer.xpragents.com
 # Safety caps. Defaults shown — adjust at your own risk.
 MAX_TRANSFER_AMOUNT=10000000              # 10000000 = 1000 XPR; caps every
                                           # signed XPR transfer / stake / fee
-# confirmHighRisk=true (in plugin config) — 21 destructive tools (slash,
+# confirmHighRisk=true (in plugin config) — 25 destructive tools (slash,
 # admin removal, high-value transfers, etc.) require `confirmed: true` in
 # the tool call to actually execute. Pass through your agent's confirm UX
 # or disable for fully autonomous mode.

@@ -18,6 +18,14 @@ import { CONTRACTS, formatXpr, formatTimeline, formatDate, getBidsByAgent, type 
   getServicesByAgent,
   getServiceConfig,
   getServiceDeposit,
+  getServiceInput,
+  stringifyServiceInputSchema,
+  parseServiceInputSchema,
+  SERVICE_INPUT_TYPES,
+  SERVICE_INPUT_MAX_FIELDS,
+  SERVICE_INPUT_SCHEMA_MAX,
+  SERVICE_INPUT_LABEL_MAX,
+  SERVICE_INPUT_KEY_MAX,
   boostDays,
   formatTurnaround,
   SERVICE_CATEGORIES,
@@ -27,6 +35,8 @@ import { CONTRACTS, formatXpr, formatTimeline, formatDate, getBidsByAgent, type 
   type Service,
   type ServiceConfig,
   type ServiceDeposit,
+  type ServiceInputField,
+  type ServiceInputType,
 } from '@/lib/registry';
 
 const EMPTY_SERVICE_FORM = {
@@ -38,6 +48,51 @@ const EMPTY_SERVICE_FORM = {
   category: 'other',
   sampleUri: '',
 };
+
+/** One editable row of the buyer-input builder (everything is a string while editing). */
+interface SchemaRow {
+  key: string;
+  label: string;
+  type: ServiceInputType;
+  required: boolean;
+  /** Comma-separated while editing; only used by `select`. */
+  options: string;
+  max: string;
+}
+
+const EMPTY_SCHEMA_ROW: SchemaRow = { key: '', label: '', type: 'text', required: false, options: '', max: '' };
+
+function rowsFromFields(fields: ServiceInputField[]): SchemaRow[] {
+  return fields.map(f => ({
+    key: f.key,
+    label: f.label,
+    type: f.type,
+    required: !!f.required,
+    options: (f.options || []).join(', '),
+    max: f.max ? String(f.max) : '',
+  }));
+}
+
+/** The compact schema string these rows describe, or '' when there is nothing to store. */
+function schemaStringFromRows(rows: SchemaRow[]): string {
+  const fields: ServiceInputField[] = [];
+  for (const row of rows) {
+    const key = row.key.trim().toLowerCase();
+    const label = row.label.trim();
+    if (!key || !label) continue;
+    const field: ServiceInputField = { key, label, type: row.type };
+    if (row.required) field.required = true;
+    if (row.type === 'select') {
+      const options = row.options.split(',').map(o => o.trim()).filter(Boolean);
+      if (options.length === 0) continue;
+      field.options = options;
+    }
+    const max = parseInt(row.max, 10);
+    if (Number.isFinite(max) && max > 0) field.max = max;
+    fields.push(field);
+  }
+  return fields.length > 0 ? stringifyServiceInputSchema(fields) : '';
+}
 
 export default function Dashboard() {
   const { session, transact } = useProton();
@@ -67,6 +122,9 @@ export default function Dashboard() {
   const [showServiceForm, setShowServiceForm] = useState(false);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [serviceForm, setServiceForm] = useState(EMPTY_SERVICE_FORM);
+  // Buyer-input builder for the service form
+  const [schemaRows, setSchemaRows] = useState<SchemaRow[]>([]);
+  const [originalSchema, setOriginalSchema] = useState('');
   const [svcConfig, setSvcConfig] = useState<ServiceConfig>(DEFAULT_SERVICE_CONFIG);
   const [svcDeposit, setSvcDeposit] = useState<ServiceDeposit | null>(null);
   const [boostService, setBoostService] = useState<Service | null>(null);
@@ -239,6 +297,8 @@ export default function Dashboard() {
   const openNewService = () => {
     setEditingService(null);
     setServiceForm(EMPTY_SERVICE_FORM);
+    setSchemaRows([]);
+    setOriginalSchema('');
     setShowServiceForm(true);
   };
 
@@ -253,8 +313,25 @@ export default function Dashboard() {
       category: service.category || 'other',
       sampleUri: service.sample_uri,
     });
+    setSchemaRows([]);
+    setOriginalSchema('');
     setShowServiceForm(true);
+    // The listing's declared buyer inputs, if it has any.
+    getServiceInput(service.id)
+      .then((schema) => {
+        if (!schema) return;
+        setSchemaRows(rowsFromFields(schema.fields));
+        setOriginalSchema(stringifyServiceInputSchema(schema.fields));
+      })
+      .catch(() => {});
   };
+
+  const schemaPreview = schemaStringFromRows(schemaRows);
+  const schemaTooLong = schemaPreview.length > SERVICE_INPUT_SCHEMA_MAX;
+  // Rows missing a key, a label or (for a select) options are silently dropped.
+  const schemaComplete = schemaRows.every(r => r.key.trim() && r.label.trim() && (r.type !== 'select' || r.options.split(',').some(o => o.trim())));
+  // The stored string must round-trip through the same parser the buy form uses.
+  const schemaValid = schemaPreview === '' || parseServiceInputSchema(schemaPreview) !== null;
 
   const handleSaveService = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -299,6 +376,16 @@ export default function Dashboard() {
           ? { account: CONTRACTS.AGENT_ESCROW, name: 'updatesvc', data: { ...shared, service_id: editingService.id } }
           : { account: CONTRACTS.AGENT_ESCROW, name: 'listsvc', data: shared }
       );
+      // The buyer-input schema rides along with an edit; a new listing has no id
+      // yet, so it is sent as a second transaction once the listing lands.
+      const schemaString = schemaStringFromRows(schemaRows);
+      if (editingService && schemaString !== originalSchema) {
+        actions.push({
+          account: CONTRACTS.AGENT_ESCROW,
+          name: 'setsvcinput',
+          data: { agent: session.auth.actor, service_id: editingService.id, schema: schemaString },
+        });
+      }
       const result = await transact(actions);
       addToast({
         type: 'success',
@@ -309,6 +396,27 @@ export default function Dashboard() {
       setEditingService(null);
       setServiceForm(EMPTY_SERVICE_FORM);
       await new Promise(r => setTimeout(r, 1500));
+
+      if (!editingService && schemaString) {
+        const listed = await getServicesByAgent(session.auth.actor).catch(() => [] as Service[]);
+        const newest = listed.reduce<Service | null>((best, s) => (!best || s.id > best.id ? s : best), null);
+        if (newest) {
+          try {
+            const schemaResult = await transact([
+              {
+                account: CONTRACTS.AGENT_ESCROW,
+                name: 'setsvcinput',
+                data: { agent: session.auth.actor, service_id: newest.id, schema: schemaString },
+              },
+            ]);
+            addToast({ type: 'success', message: `Buyer input form saved on service #${newest.id}`, txId: getTxId(schemaResult) });
+          } catch {
+            addToast({ type: 'error', message: 'Listing created, but the input form was not saved. Edit the listing to try again.' });
+          }
+        }
+      }
+      setSchemaRows([]);
+      setOriginalSchema('');
       await loadServices();
     } catch (e: any) {
       addToast({ type: 'error', message: e.message || 'Failed to save service' });
@@ -985,6 +1093,131 @@ export default function Dashboard() {
             <input id="svc-sample" type="text" value={serviceForm.sampleUri} onChange={(e) => setServiceForm({ ...serviceForm, sampleUri: e.target.value })}
               placeholder="https://ipfs.io/ipfs/<cid>" maxLength={2048} className={`${inputClass} font-mono`} />
           </Field>
+          {/* Buyer input form (agentescrow svcinputs) */}
+          <div className="rounded-lg border border-line bg-surface px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="label">Buyer input form</span>
+              <button
+                type="button"
+                onClick={() => setSchemaRows([...schemaRows, { ...EMPTY_SCHEMA_ROW }])}
+                disabled={schemaRows.length >= SERVICE_INPUT_MAX_FIELDS}
+                className="rounded-md border border-line-2 px-2.5 py-1 text-xs font-medium text-ink hover:border-ink disabled:text-muted"
+              >
+                Add field
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-muted">
+              Optional. Buyers fill this in at purchase and the answers arrive as the job&apos;s first message —
+              no more guessing what to ask for. Up to {SERVICE_INPUT_MAX_FIELDS} fields.
+            </p>
+
+            {schemaRows.length > 0 && (
+              <div className="mt-3 space-y-3">
+                {schemaRows.map((row, index) => {
+                  const update = (patch: Partial<SchemaRow>) =>
+                    setSchemaRows(schemaRows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+                  return (
+                    <div key={index} className="rounded-md border border-line bg-canvas p-3">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <input
+                          type="text"
+                          value={row.key}
+                          onChange={(e) => update({ key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })}
+                          placeholder="key"
+                          maxLength={SERVICE_INPUT_KEY_MAX}
+                          aria-label={`Field ${index + 1} key`}
+                          className={`${inputClass} font-mono`}
+                        />
+                        <input
+                          type="text"
+                          value={row.label}
+                          onChange={(e) => update({ label: e.target.value })}
+                          placeholder="Label shown to the buyer"
+                          maxLength={SERVICE_INPUT_LABEL_MAX}
+                          aria-label={`Field ${index + 1} label`}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_7rem_auto_auto] sm:items-center">
+                        <select
+                          value={row.type}
+                          onChange={(e) => update({ type: e.target.value as ServiceInputType })}
+                          aria-label={`Field ${index + 1} type`}
+                          className={inputClass}
+                        >
+                          {SERVICE_INPUT_TYPES.map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          value={row.max}
+                          onChange={(e) => update({ max: e.target.value })}
+                          placeholder="max"
+                          min="1"
+                          max="512"
+                          aria-label={`Field ${index + 1} maximum characters`}
+                          className={`${inputClass} font-mono`}
+                        />
+                        <label className="flex items-center gap-2 whitespace-nowrap text-xs text-ink-2">
+                          <input
+                            type="checkbox"
+                            checked={row.required}
+                            onChange={(e) => update({ required: e.target.checked })}
+                            className="h-4 w-4 rounded border-line-2 accent-accent"
+                          />
+                          Required
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setSchemaRows(schemaRows.filter((_, i) => i !== index))}
+                          className="justify-self-start text-xs text-muted hover:text-crit sm:justify-self-end"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      {row.type === 'select' && (
+                        <input
+                          type="text"
+                          value={row.options}
+                          onChange={(e) => update({ options: e.target.value })}
+                          placeholder="Options, comma separated: everything, defi, nfts"
+                          aria-label={`Field ${index + 1} options`}
+                          className={`${inputClass} mt-2`}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {schemaPreview && (
+              <div className="mt-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="label">Stored schema</span>
+                  <span className={`font-mono text-xs tabular ${schemaTooLong ? 'text-crit' : 'text-muted'}`}>
+                    {schemaPreview.length}/{SERVICE_INPUT_SCHEMA_MAX}
+                  </span>
+                </div>
+                <pre className="mt-1 overflow-x-auto rounded-md border border-line bg-canvas px-3 py-2 font-mono text-[11px] leading-5 text-ink-2">{schemaPreview}</pre>
+                {!schemaComplete && (
+                  <p className="mt-1 text-xs text-warn">
+                    Each field needs a key and a label (and at least one option for a select). Incomplete fields are dropped.
+                  </p>
+                )}
+                {!schemaValid && (
+                  <p className="mt-1 text-xs text-crit">
+                    This schema will not render — check the keys (lower case, letters, digits and underscores) and labels.
+                  </p>
+                )}
+              </div>
+            )}
+            {editingService && !schemaPreview && originalSchema && (
+              <p className="mt-2 text-xs text-warn">Saving now removes the input form from this listing.</p>
+            )}
+          </div>
+
           {!editingService && svcConfig.service_fee > 0 && (
             <div className="rounded-lg border border-line bg-surface px-4 py-3 text-xs text-ink-2">
               <span className="label">Listing fee</span>
@@ -998,7 +1231,7 @@ export default function Dashboard() {
           )}
 
           <div className="flex gap-2 pt-2">
-            <button type="submit" disabled={processing}
+            <button type="submit" disabled={processing || schemaTooLong || !schemaValid}
               className="flex-1 rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted">
               {processing ? 'Saving…' : editingService ? 'Save changes' : svcConfig.service_fee > 0 ? `List service · ${formatXpr(svcConfig.service_fee)}` : 'List service'}
             </button>

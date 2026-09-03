@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { SiteHead } from '@/components/SiteHead';
@@ -18,6 +19,7 @@ import {
   getBidCounts,
   getJobStateLabel,
   isEmptyName,
+  serviceIdFromJobHash,
   type Job,
 } from '@/lib/registry';
 import { STATE_COLORS, getTxId } from '@/lib/job-constants';
@@ -42,6 +44,7 @@ const JOBS_PER_PAGE = 15;
 const EMPTY_FORM = { title: '', description: '', amount: '', deadline: '', deliverables: '', agent: '', arbitrator: '' };
 
 export default function Jobs() {
+  const router = useRouter();
   const { session, transact, login } = useProton();
   const { addToast } = useToast();
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -276,6 +279,7 @@ export default function Jobs() {
                   const assigned = !isEmptyName(job.agent);
                   const bids = bidCounts.get(job.id) || 0;
                   const partial = job.funded_amount > 0 && job.funded_amount < job.amount;
+                  const serviceId = serviceIdFromJobHash(job.job_hash);
                   return (
                     <li key={job.id}>
                       <Link href={`/jobs/${job.id}`} className="grid gap-3 px-5 py-4 transition-colors hover:bg-surface sm:grid-cols-[1fr_auto] sm:items-center">
@@ -289,7 +293,19 @@ export default function Jobs() {
                               </span>
                             )}
                           </div>
-                          <h3 className="truncate text-[15px] font-medium text-ink">{job.title}</h3>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <h3 className="truncate text-[15px] font-medium text-ink">{job.title}</h3>
+                            {serviceId !== null && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); router.push(`/services/${serviceId}`); }}
+                                title={`Bought from service #${serviceId}`}
+                                className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-label text-ink-2 hover:text-accent"
+                              >
+                                Service
+                              </button>
+                            )}
+                          </div>
                           <p className="mt-0.5 truncate text-sm text-muted">{job.description}</p>
                           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-muted">
                             <span className="flex items-center gap-1.5"><AccountAvatar account={job.client} size={16} />{job.client}</span>

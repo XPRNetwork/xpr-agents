@@ -4,6 +4,8 @@ import { WebhookDispatcher } from '../webhooks/dispatcher';
 import { enrichAgents } from '../enrich';
 import { updateStats } from '../db/schema';
 import { queryService, queryServices } from './services-query';
+import { jobExists, jobMessageCount, queryJobMessages } from './job-messages-query';
+import { pruneStaleTempRows } from '../handlers/id-correction';
 
 export interface RouteOptions {
   /** nodeos RPC endpoint used by on-demand enrichment (POST /admin/sync-kyc). */
@@ -237,7 +239,9 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
     const limitNum = Math.min(parseInt(limit as string) || 100, 500);
     const offsetNum = parseInt(offset as string) || 0;
 
-    let query = 'SELECT * FROM jobs WHERE 1=1';
+    // id >= 0 excludes displacement leftovers (negative temp ids parked by
+    // safeCorrect); the startup sweep removes them, this is the belt-and-braces.
+    let query = 'SELECT * FROM jobs WHERE id >= 0';
     const params: any[] = [];
 
     if (include_archived !== 'true') {
@@ -275,7 +279,7 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
 
     const jobs = db.prepare(`
       SELECT * FROM jobs
-      WHERE (agent = '' OR agent IS NULL) AND state IN (0, 1)
+      WHERE id >= 0 AND (agent = '' OR agent IS NULL) AND state IN (0, 1)
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?
     `).all(limitNum, offsetNum);
@@ -283,19 +287,36 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
     res.json({ jobs });
   });
 
-  // Get single job
+  // Get single job. `message_count` is the size of the question/answer thread
+  // so a client knows whether to fetch /jobs/:id/messages at all.
   router.get('/jobs/:id', (req: Request, res: Response) => {
     const { id } = req.params;
 
+    const jobId = parseInt(id);
     const job = db.prepare(
       'SELECT j.*, je.evidence_uri FROM jobs j LEFT JOIN job_evidence je ON j.id = je.job_id WHERE j.id = ?'
-    ).get(parseInt(id));
+    ).get(jobId);
 
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
 
-    return res.json(job);
+    return res.json({ ...job, message_count: jobMessageCount(db, jobId) });
+  });
+
+  // Get a job's question/answer thread (askclient / answer), oldest first.
+  router.get('/jobs/:id/messages', (req: Request, res: Response) => {
+    const jobId = parseInt(req.params.id, 10);
+
+    if (!Number.isFinite(jobId)) {
+      return res.status(400).json({ error: 'Invalid job id' });
+    }
+
+    if (!jobExists(db, jobId)) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    return res.json({ messages: queryJobMessages(db, jobId) });
   });
 
   // Get job milestones
@@ -367,7 +388,7 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
     const stateParam = String(req.query.state || '');
     const activeOnly = String(req.query.active || '') === 'true';
 
-    let sql = 'SELECT * FROM bids WHERE job_id = ?';
+    let sql = 'SELECT * FROM bids WHERE id >= 0 AND job_id = ?';
     const params: (number | string)[] = [parseInt(id)];
 
     if (stateParam) {
@@ -393,7 +414,7 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
       SELECT b.*, j.title as job_title, j.description as job_description, j.amount as job_amount, j.state as job_state
       FROM bids b
       JOIN jobs j ON b.job_id = j.id
-      WHERE b.agent = ?
+      WHERE b.id >= 0 AND b.agent = ?
       ORDER BY b.created_at DESC
     `).all(account);
 
@@ -545,6 +566,28 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
       const result = await enrichAgents(db, opts.rpcEndpoint, { log: (m) => console.warn(m) });
       updateStats(db);
       return res.json({ status: 'ok', ...result });
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * Remove displacement leftovers on demand: rows still parked at a negative
+   * id whose re-correction never completed (see id-correction.ts). The same
+   * sweep runs at startup and on the hourly cleanup tick.
+   *
+   * Auth: Authorization: Bearer $ADMIN_API_TOKEN (same as /admin/sync-kyc).
+   * Body (optional): { "max_age_sec": 600 }
+   */
+  router.post('/admin/prune-temp-rows', (req: Request, res: Response) => {
+    if (!requireAdminAuth(req, res)) return;
+
+    const raw = (req.body || {}).max_age_sec;
+    const maxAgeSec = Number.isFinite(Number(raw)) && Number(raw) >= 0 ? Number(raw) : 600;
+
+    try {
+      const sweep = pruneStaleTempRows(db, maxAgeSec);
+      return res.json({ status: 'ok', max_age_sec: maxAgeSec, total: sweep.total, deleted: sweep.deleted });
     } catch (err) {
       return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }

@@ -1,4 +1,10 @@
-import { EscrowRegistry } from '../src/EscrowRegistry';
+import {
+  EscrowRegistry,
+  validateServiceInput,
+  validateServiceInputSchema,
+  parseServiceInputSchema,
+} from '../src/EscrowRegistry';
+import type { ServiceInputSchema } from '../src/EscrowRegistry';
 import type { JsonRpc, ProtonSession } from '../src/types';
 
 // ============== Test Helpers ==============
@@ -967,6 +973,45 @@ describe('EscrowRegistry service write operations', () => {
       const data = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0].data;
       expect(data.quantity).toBe('1.2345 XPR');
     });
+
+    it('appends buyer notes to the memo as "buy:ID:notes"', async () => {
+      const session = mockSession('buyer');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.buyService(3, 250000, 'Logo for "Acme": blue, SVG please');
+
+      const data = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0].data;
+      expect(data.memo).toBe('buy:3:Logo for "Acme": blue, SVG please');
+    });
+
+    it('trims notes and omits the suffix when they are empty', async () => {
+      const session = mockSession('buyer');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.buyService(3, 250000, '   ');
+
+      const data = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0].data;
+      expect(data.memo).toBe('buy:3');
+    });
+
+    it('accepts notes of exactly 200 characters', async () => {
+      const session = mockSession('buyer');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.buyService(3, 250000, 'x'.repeat(200));
+
+      const data = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0].data;
+      expect(data.memo).toBe(`buy:3:${'x'.repeat(200)}`);
+    });
+
+    it('rejects notes longer than 200 characters before signing', async () => {
+      const session = mockSession('buyer');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await expect(registry.buyService(3, 250000, 'x'.repeat(201)))
+        .rejects.toThrow('notes must be at most 200 characters');
+      expect(session.link.transact).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -1351,6 +1396,322 @@ describe('EscrowRegistry service fee and boost', () => {
           title: 't', description: 'd', deliverables: [], price: 10000, turnaround: 3600,
         })
       ).rejects.toThrow('Session required');
+    });
+  });
+});
+
+// ============== Job Messages (question / answer thread) ==============
+
+describe('EscrowRegistry job messages', () => {
+  describe('askClient()', () => {
+    it('sends "askclient" with the session actor as agent', async () => {
+      const session = mockSession('myagent');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.askClient(7, 'Which colour palette should I use?');
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.account).toBe('agentescrow');
+      expect(action.name).toBe('askclient');
+      expect(action.authorization).toEqual([{ actor: 'myagent', permission: 'active' }]);
+      expect(action.data).toEqual({
+        agent: 'myagent',
+        job_id: 7,
+        text: 'Which colour palette should I use?',
+      });
+    });
+
+    it('throws without a session', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      await expect(registry.askClient(1, 'hi')).rejects.toThrow('Session required');
+    });
+  });
+
+  describe('answerAgent()', () => {
+    it('sends "answer" with the session actor as client', async () => {
+      const session = mockSession('buyer');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.answerAgent(7, 'Use navy and white.');
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.name).toBe('answer');
+      expect(action.data).toEqual({
+        client: 'buyer',
+        job_id: 7,
+        text: 'Use navy and white.',
+      });
+    });
+
+    it('throws without a session', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      await expect(registry.answerAgent(1, 'hi')).rejects.toThrow('Session required');
+    });
+  });
+
+  describe('getJobMessages()', () => {
+    it('queries jobmsgs with the byJob secondary index', async () => {
+      const rpc = mockRpc();
+      const registry = new EscrowRegistry(rpc);
+
+      await registry.getJobMessages(42);
+
+      expect(rpc.get_table_rows).toHaveBeenCalledWith({
+        json: true,
+        code: 'agentescrow',
+        scope: 'agentescrow',
+        table: 'jobmsgs',
+        index_position: 2,
+        key_type: 'i64',
+        lower_bound: '42',
+        upper_bound: '42',
+        limit: 100,
+      });
+    });
+
+    it('parses rows and sorts them oldest first', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [
+          { id: '5', job_id: '42', author: 'buyer', text: 'Navy and white.', created_at: '1704067300' },
+          { id: '4', job_id: '42', author: 'myagent', text: 'Which palette?', created_at: '1704067200' },
+        ],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const messages = await registry.getJobMessages(42);
+
+      expect(messages).toEqual([
+        { id: 4, job_id: 42, author: 'myagent', text: 'Which palette?', created_at: 1704067200 },
+        { id: 5, job_id: 42, author: 'buyer', text: 'Navy and white.', created_at: 1704067300 },
+      ]);
+    });
+
+    it('returns an empty array when the job has no thread', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      expect(await registry.getJobMessages(1)).toEqual([]);
+    });
+  });
+});
+
+// ============== Service Input Forms ==============
+
+const inputSchema: ServiceInputSchema = {
+  v: 1,
+  fields: [
+    { key: 'account', label: 'XPR account to analyze', type: 'account', required: true },
+    { key: 'focus', label: 'Focus', type: 'select', options: ['everything', 'defi', 'nfts'] },
+    { key: 'notes', label: 'Anything else', type: 'textarea', max: 200 },
+  ],
+};
+
+describe('parseServiceInputSchema()', () => {
+  it('parses a stored schema string', () => {
+    const parsed = parseServiceInputSchema(JSON.stringify(inputSchema));
+    expect(parsed!.fields).toHaveLength(3);
+    expect(parsed!.v).toBe(1);
+  });
+
+  it('returns null for empty or malformed schemas', () => {
+    expect(parseServiceInputSchema('')).toBeNull();
+    expect(parseServiceInputSchema(undefined)).toBeNull();
+    expect(parseServiceInputSchema('not json')).toBeNull();
+    expect(parseServiceInputSchema('{"v":1}')).toBeNull();
+  });
+});
+
+describe('validateServiceInputSchema()', () => {
+  it('accepts a well-formed schema and returns its JSON', () => {
+    const result = validateServiceInputSchema(inputSchema);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(JSON.parse(result.json).fields).toHaveLength(3);
+  });
+
+  it('rejects bad keys, labels, types and missing select options', () => {
+    const result = validateServiceInputSchema({
+      v: 1,
+      fields: [
+        { key: 'Bad Key', label: 'x' },
+        { key: 'ok', label: 'y'.repeat(65) },
+        { key: 'ok2', label: 'fine', type: 'colour' as any },
+        { key: 'ok3', label: 'pick', type: 'select' },
+      ],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/must be 1-32 characters/);
+    expect(result.errors.join(' ')).toMatch(/label of 1-64 characters/);
+    expect(result.errors.join(' ')).toMatch(/unknown type/);
+    expect(result.errors.join(' ')).toMatch(/options array/);
+  });
+
+  it('rejects more than 8 fields and duplicate keys', () => {
+    const many = validateServiceInputSchema({
+      v: 1,
+      fields: Array.from({ length: 9 }, (_, i) => ({ key: `f${i}`, label: `Field ${i}` })),
+    });
+    expect(many.valid).toBe(false);
+    expect(many.errors.join(' ')).toMatch(/at most 8 fields/);
+
+    const dup = validateServiceInputSchema({
+      v: 1,
+      fields: [{ key: 'a', label: 'A' }, { key: 'a', label: 'A again' }],
+    });
+    expect(dup.errors.join(' ')).toMatch(/duplicate field key/);
+  });
+
+  it('rejects a schema string that is not a schema', () => {
+    expect(validateServiceInputSchema('nonsense').valid).toBe(false);
+  });
+});
+
+describe('validateServiceInput()', () => {
+  it('accepts valid answers', () => {
+    const result = validateServiceInput(inputSchema, { account: 'paul', focus: 'defi', notes: 'thanks' });
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it('requires required fields', () => {
+    const result = validateServiceInput(inputSchema, { focus: 'defi' });
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/"account".*is required/);
+  });
+
+  it('rejects unknown keys, bad accounts, bad options and over-long text', () => {
+    const result = validateServiceInput(inputSchema, {
+      account: 'NOT-AN-ACCOUNT',
+      focus: 'sports',
+      notes: 'x'.repeat(201),
+      extra: 'nope',
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/unknown field "extra"/);
+    expect(result.errors.join(' ')).toMatch(/must be an XPR account name/);
+    expect(result.errors.join(' ')).toMatch(/must be one of/);
+    expect(result.errors.join(' ')).toMatch(/at most 200 characters/);
+  });
+
+  it('checks number, url and checkbox types', () => {
+    const schema: ServiceInputSchema = {
+      v: 1,
+      fields: [
+        { key: 'count', label: 'How many', type: 'number' },
+        { key: 'site', label: 'Website', type: 'url' },
+        { key: 'nsfw', label: 'Allow NSFW', type: 'checkbox' },
+      ],
+    };
+    expect(validateServiceInput(schema, { count: 3, site: 'https://x.dev', nsfw: true }).valid).toBe(true);
+    expect(validateServiceInput(schema, { count: '12' }).valid).toBe(true);
+    const bad = validateServiceInput(schema, { count: 'many', site: 'ftp://x', nsfw: 'maybe' });
+    expect(bad.errors).toHaveLength(3);
+  });
+
+  it('passes anything through when the listing has no schema', () => {
+    expect(validateServiceInput(null, { whatever: 1 })).toEqual({ valid: true, errors: [] });
+  });
+
+  it('rejects non-object answers', () => {
+    expect(validateServiceInput(inputSchema, [] as any).valid).toBe(false);
+  });
+});
+
+describe('EscrowRegistry service input form operations', () => {
+  describe('getServiceInput()', () => {
+    it('reads the svcinputs row by service id', async () => {
+      const rpc = mockRpc();
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({
+        rows: [{ service_id: '3', schema: JSON.stringify(inputSchema), updated_at: '1704067200' }],
+        more: false,
+      });
+      const registry = new EscrowRegistry(rpc);
+
+      const schema = await registry.getServiceInput(3);
+
+      expect(rpc.get_table_rows).toHaveBeenCalledWith(
+        expect.objectContaining({ table: 'svcinputs', lower_bound: '3', upper_bound: '3' })
+      );
+      expect(schema!.fields[0].key).toBe('account');
+    });
+
+    it('returns null when no form is declared', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      expect(await registry.getServiceInput(3)).toBeNull();
+    });
+  });
+
+  describe('setServiceInput()', () => {
+    it('sends "setsvcinput" with the schema JSON', async () => {
+      const session = mockSession('seller');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.setServiceInput(3, inputSchema);
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.name).toBe('setsvcinput');
+      expect(action.data.agent).toBe('seller');
+      expect(action.data.service_id).toBe(3);
+      expect(JSON.parse(action.data.schema).fields).toHaveLength(3);
+    });
+
+    it('sends an empty schema to remove the form', async () => {
+      const session = mockSession('seller');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.setServiceInput(3, '');
+
+      const action = (session.link.transact as jest.Mock).mock.calls[0][0].actions[0];
+      expect(action.data.schema).toBe('');
+    });
+
+    it('rejects a schema longer than 2048 characters', async () => {
+      const session = mockSession('seller');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await expect(registry.setServiceInput(3, 'x'.repeat(2049))).rejects.toThrow('at most 2048 characters');
+      expect(session.link.transact).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('buyServiceWithInput()', () => {
+    it('sends transfer + svcinput in one transaction, in that order', async () => {
+      const session = mockSession('buyer');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.buyServiceWithInput(3, 250000, { account: 'paul', focus: 'defi' });
+
+      const actions = (session.link.transact as jest.Mock).mock.calls[0][0].actions;
+      expect(actions).toHaveLength(2);
+      expect(actions[0].account).toBe('eosio.token');
+      expect(actions[0].data.memo).toBe('buy:3');
+      expect(actions[0].data.quantity).toBe('25.0000 XPR');
+      expect(actions[1].account).toBe('agentescrow');
+      expect(actions[1].name).toBe('svcinput');
+      expect(actions[1].data).toEqual({ client: 'buyer', text: '{"account":"paul","focus":"defi"}' });
+    });
+
+    it('accepts a pre-packed JSON string', async () => {
+      const session = mockSession('buyer');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await registry.buyServiceWithInput(3, 250000, '{"account":"paul"}');
+
+      const actions = (session.link.transact as jest.Mock).mock.calls[0][0].actions;
+      expect(actions[1].data.text).toBe('{"account":"paul"}');
+    });
+
+    it('rejects empty and over-long answers', async () => {
+      const session = mockSession('buyer');
+      const registry = new EscrowRegistry(mockRpc(), session);
+
+      await expect(registry.buyServiceWithInput(3, 250000, '  ')).rejects.toThrow('answers are required');
+      await expect(registry.buyServiceWithInput(3, 250000, 'x'.repeat(513))).rejects.toThrow('at most 512 characters');
+      expect(session.link.transact).not.toHaveBeenCalled();
+    });
+
+    it('throws without a session', async () => {
+      const registry = new EscrowRegistry(mockRpc());
+      await expect(registry.buyServiceWithInput(1, 10000, { a: 1 })).rejects.toThrow('Session required');
     });
   });
 });

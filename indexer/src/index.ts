@@ -8,7 +8,7 @@ import { handleAgentAction, handleAgentCoreTransfer } from './handlers/agent';
 import { handleFeedbackAction } from './handlers/feedback';
 import { handleValidationAction, handleValidationTransfer } from './handlers/validation';
 import { handleEscrowAction, handleEscrowTransfer } from './handlers/escrow';
-import { setRpcEndpoint, flushPendingCorrections } from './handlers/id-correction';
+import { setRpcEndpoint, flushPendingCorrections, pruneStaleTempRows } from './handlers/id-correction';
 import { createRoutes } from './api/routes';
 import { WebhookDispatcher } from './webhooks/dispatcher';
 import { syncFromChain } from './sync';
@@ -292,6 +292,19 @@ async function startIngestion(): Promise<void> {
   }
 }
 
+// Startup sweep: drop displacement leftovers (rows parked at a negative id by
+// safeCorrect whose re-correction never completed). Corrections finish within
+// one flush, so anything older than 10 minutes is abandoned and would only
+// surface as a phantom row in the list endpoints.
+try {
+  const sweep = pruneStaleTempRows(db);
+  if (sweep.total > 0) {
+    console.log(`[startup] Removed ${sweep.total} stale temp row(s): ${JSON.stringify(sweep.deleted)}`);
+  }
+} catch (err) {
+  console.error('[startup] Stale temp-row sweep failed:', err);
+}
+
 // Set RPC endpoint for on-chain ID correction lookups
 const correctionRpc = config.hyperionEndpoints[0].replace(/\/v2.*$/, '').replace(/\/$/, '');
 setRpcEndpoint(correctionRpc);
@@ -416,6 +429,10 @@ setInterval(() => {
     const eventsDeleted = pruneEvents(db, EVENT_MAX_AGE);
     const deliveriesDeleted = pruneWebhookDeliveries(db, DELIVERY_MAX_AGE);
     pruneProcessedActions(db, 0);
+    const sweep = pruneStaleTempRows(db);
+    if (sweep.total > 0) {
+      console.log(`[cleanup] Removed ${sweep.total} stale temp row(s): ${JSON.stringify(sweep.deleted)}`);
+    }
     if (eventsDeleted > 0 || deliveriesDeleted > 0) {
       console.log(`[cleanup] Pruned ${eventsDeleted} events, ${deliveriesDeleted} webhook deliveries`);
     }

@@ -1,19 +1,28 @@
 /**
- * Escrow tools (32 tools)
+ * Escrow tools (37 tools)
  * Reads: xpr_get_job, xpr_list_jobs, xpr_list_open_jobs, xpr_get_milestones,
  *        xpr_get_job_dispute, xpr_list_arbitrators, xpr_list_bids,
- *        xpr_get_service, xpr_list_services
+ *        xpr_get_job_messages, xpr_get_service, xpr_list_services,
+ *        xpr_get_service_input
  * Writes: xpr_create_job, xpr_fund_job, xpr_accept_job, xpr_start_job,
  *         xpr_deliver_job, xpr_deliver_job_nft, xpr_revise_job,
  *         xpr_approve_delivery, xpr_raise_dispute,
  *         xpr_claim_timeout, xpr_cancel_job,
  *         xpr_submit_milestone, xpr_arbitrate, xpr_resolve_timeout,
  *         xpr_submit_bid, xpr_select_bid, xpr_withdraw_bid,
+ *         xpr_ask_client, xpr_answer_agent,
  *         xpr_list_service, xpr_update_service, xpr_delist_service,
- *         xpr_relist_service, xpr_buy_service, xpr_boost_service
+ *         xpr_relist_service, xpr_set_service_input,
+ *         xpr_buy_service, xpr_boost_service
  */
 
-import { EscrowRegistry } from '@xpr-agents/sdk';
+import {
+  EscrowRegistry,
+  validateServiceInput,
+  validateServiceInputSchema,
+  MAX_SERVICE_INPUT_ANSWERS_LENGTH,
+} from '@xpr-agents/sdk';
+import type { ServiceInputSchema } from '@xpr-agents/sdk';
 import type { PluginApi, PluginConfig } from '../types';
 import {
   validateAccountName,
@@ -181,6 +190,29 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       const registry = new EscrowRegistry(config.rpc, undefined, contracts.agentescrow);
       const milestones = await registry.getJobMilestones(job_id);
       return { milestones, count: milestones.length };
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_get_job_messages',
+    description: 'Read a job\'s question-and-answer thread (the jobmsgs table), oldest message first. The agent asks with xpr_ask_client, the client replies with xpr_answer_agent. At most 20 messages per job. Use this before delivering to check whether a question was answered.',
+    parameters: {
+      type: 'object',
+      required: ['job_id'],
+      properties: {
+        job_id: { type: 'number', description: 'Job ID' },
+      },
+    },
+    handler: async ({ job_id }: { job_id: number }) => {
+      validatePositiveInt(job_id, 'job_id');
+      const registry = new EscrowRegistry(config.rpc, undefined, contracts.agentescrow);
+      const messages = await registry.getJobMessages(job_id);
+      const last = messages[messages.length - 1];
+      return {
+        messages,
+        count: messages.length,
+        last_author: last ? last.author : null,
+      };
     },
   });
 
@@ -519,6 +551,70 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.reviseJob(job_id, notes);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_ask_client',
+    description: 'Ask the client a question about a job you are assigned to (agentescrow askclient). Valid while the job is FUNDED, ACCEPTED or INPROGRESS, max 20 messages per job. Use this ONCE, with one specific question, when a required input is genuinely missing — never deliver a placeholder to ask a question. The question does NOT pause the deadline: if no answer arrives, either deliver your best interpretation or let the deadline pass and the buyer be refunded.',
+    parameters: {
+      type: 'object',
+      required: ['job_id', 'text'],
+      properties: {
+        job_id: { type: 'number', description: 'Job ID you are assigned to' },
+        text: { type: 'string', description: 'The question (1-512 characters). Be specific and ask everything you need in one message.' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ job_id, text, confirmed }: { job_id: number; text: string; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validatePositiveInt(job_id, 'job_id');
+      validateRequired(text, 'text');
+      if (text.length > 512) throw new Error('text must be at most 512 characters');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Ask Client',
+        { job_id, text },
+        `Post a public question to the client of job #${job_id}`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.askClient(job_id, text);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_answer_agent',
+    description: 'Answer the agent\'s question on a job you created (agentescrow answer). Valid while the job is FUNDED, ACCEPTED or INPROGRESS, max 20 messages per job. Answer from the job brief; if you cannot answer, say so plainly so the agent can proceed with its best interpretation.',
+    parameters: {
+      type: 'object',
+      required: ['job_id', 'text'],
+      properties: {
+        job_id: { type: 'number', description: 'Job ID you created (you are the client)' },
+        text: { type: 'string', description: 'The answer (1-512 characters)' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ job_id, text, confirmed }: { job_id: number; text: string; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validatePositiveInt(job_id, 'job_id');
+      validateRequired(text, 'text');
+      if (text.length > 512) throw new Error('text must be at most 512 characters');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Answer Agent',
+        { job_id, text },
+        `Post a public answer to the agent on job #${job_id}`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.answerAgent(job_id, text);
     },
   });
 
@@ -1141,21 +1237,98 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
   });
 
   api.registerTool({
+    name: 'xpr_get_service_input',
+    description: 'Read the input form a service listing declares (the svcinputs schema): the questions a buyer answers at purchase. Returns null when the seller has not declared one. Call this before xpr_buy_service so you know what `input` to pass.',
+    parameters: {
+      type: 'object',
+      required: ['service_id'],
+      properties: {
+        service_id: { type: 'number', description: 'Service listing ID' },
+      },
+    },
+    handler: async ({ service_id }: { service_id: number }) => {
+      validatePositiveInt(service_id, 'service_id');
+      const registry = new EscrowRegistry(config.rpc, undefined, contracts.agentescrow);
+      const schema = await registry.getServiceInput(service_id);
+      return { service_id, schema, has_schema: schema !== null };
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_set_service_input',
+    description: 'Declare the input form for a listing you own (agentescrow setsvcinput). Buyers answer it at purchase and the answers arrive as the first message on the job thread, so you start with everything you need instead of having to ask. Schema shape: {"v":1,"fields":[{"key":"account","label":"XPR account to analyze","type":"account","required":true}]} — at most 8 fields, key 1-32 chars of a-z/0-9/_, label <= 64 chars, type text|textarea|number|account|url|select|checkbox (select needs options), optional max (characters). Pass an empty string to remove the form. Call this right after xpr_list_service for any listing that needs specifics from the buyer.',
+    parameters: {
+      type: 'object',
+      required: ['service_id', 'schema'],
+      properties: {
+        service_id: { type: 'number', description: 'Service listing ID you own' },
+        schema: { description: 'The schema object (or its JSON string), or "" to remove the form' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ service_id, schema, confirmed }: {
+      service_id: number;
+      schema: ServiceInputSchema | string;
+      confirmed?: boolean;
+    }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validatePositiveInt(service_id, 'service_id');
+
+      const removing = schema === '' || schema === null || schema === undefined;
+      let schemaJson = '';
+      let fieldCount = 0;
+
+      if (!removing) {
+        const check = validateServiceInputSchema(schema as ServiceInputSchema | string);
+        if (!check.valid) {
+          return { error: `Invalid input schema: ${check.errors.join('; ')}` };
+        }
+        schemaJson = check.json;
+        fieldCount = JSON.parse(check.json).fields.length;
+      }
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        removing ? 'Remove Service Input Form' : 'Set Service Input Form',
+        { service_id, fields: fieldCount, schema: schemaJson },
+        removing
+          ? `Remove the input form from listing #${service_id}`
+          : `Publish a ${fieldCount}-field input form on listing #${service_id}`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      const result = await registry.setServiceInput(service_id, schemaJson);
+      return { ...result, service_id, fields: fieldCount, removed: removing };
+    },
+  });
+
+  api.registerTool({
     name: 'xpr_buy_service',
-    description: 'Buy a service listing with a single XPR transfer (memo buy:<id>). The contract creates and funds a direct-hire job for the selling agent in the same transaction — track it with xpr_list_jobs. Pass the price you saw on the listing (in XPR); the purchase is rejected if the on-chain price is higher.',
+    description: 'Buy a service listing with a single XPR transfer (memo buy:<id>, or buy:<id>:<notes> when you pass notes). The contract creates and funds a direct-hire job for the selling agent in the same transaction — track it with xpr_list_jobs. Pass the price you saw on the listing (in XPR); the purchase is rejected if the on-chain price is higher. Use `notes` for the few specifics the agent cannot guess (brand name, colours, target audience); anything longer than 200 characters belongs in a custom job instead. If the listing declares an input form (xpr_get_service_input), answer it with `input` instead — the answers travel with the purchase in the same transaction.',
     parameters: {
       type: 'object',
       required: ['service_id', 'price'],
       properties: {
         service_id: { type: 'number', description: 'Service listing ID to buy' },
         price: { type: 'number', description: 'Price in XPR as shown on the listing (price_xpr from xpr_get_service)' },
+        notes: { type: 'string', description: 'Optional brief for the agent (max 200 characters). Appended to the job description as "Buyer notes: ...".' },
+        input: { type: 'object', description: 'Optional answers to the listing\'s input form, keyed by field key (see xpr_get_service_input). Sent with the purchase in one transaction and delivered as the first message on the job thread. Packed JSON must be at most 512 characters.' },
         confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
       },
     },
-    handler: async ({ service_id, price, confirmed }: { service_id: number; price: number; confirmed?: boolean }) => {
+    handler: async ({ service_id, price, notes, input, confirmed }: {
+      service_id: number;
+      price: number;
+      notes?: string;
+      input?: Record<string, unknown> | string;
+      confirmed?: boolean;
+    }) => {
       if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
       validatePositiveInt(service_id, 'service_id');
       if (price <= 0) throw new Error('price must be positive');
+      if (notes && notes.trim().length > 200) throw new Error('notes must be at most 200 characters');
       // Same enforcement path as xpr_fund_job: per-call cap + aggregate session cap.
       validateAmount(xprToSmallestUnits(price), config.maxTransferAmount);
 
@@ -1169,16 +1342,49 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
         };
       }
 
+      // Answers to the listing's input form travel with the purchase in one
+      // transaction. Validate them against the seller's schema first — a
+      // rejected svcinput would roll the transfer back with it.
+      let answersJson = '';
+      if (input !== undefined && input !== null && input !== '') {
+        let answers: Record<string, unknown>;
+        if (typeof input === 'string') {
+          try {
+            answers = JSON.parse(input);
+          } catch {
+            return { error: 'input must be an object (or a JSON object string) keyed by the form\'s field keys' };
+          }
+        } else {
+          answers = input;
+        }
+
+        const schema = await registry.getServiceInput(service_id);
+        const check = validateServiceInput(schema, answers);
+        if (!check.valid) {
+          return { error: `Input does not match the listing's form: ${check.errors.join('; ')}`, schema };
+        }
+
+        answersJson = JSON.stringify(answers);
+        if (answersJson.length > MAX_SERVICE_INPUT_ANSWERS_LENGTH) {
+          return { error: `Packed input must be at most ${MAX_SERVICE_INPUT_ANSWERS_LENGTH} characters (got ${answersJson.length}) — shorten your answers or commission a custom job` };
+        }
+      }
+
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
         confirmed,
         'Buy Service',
-        { service_id, title: service.title, agent: service.agent, price: `${service.price / 10000} XPR` },
+        { service_id, title: service.title, agent: service.agent, price: `${service.price / 10000} XPR`, notes: notes || '', input: answersJson },
         `Send ${service.price / 10000} XPR to buy "${service.title}" from ${service.agent} — this creates and funds a job`
       );
       if (confirmation) return confirmation;
 
-      return registry.buyService(service_id, service.price);
+      if (answersJson) {
+        // transfer(buy:<id>) + svcinput, signed once
+        return registry.buyServiceWithInput(service_id, service.price, answersJson);
+      }
+
+      return registry.buyService(service_id, service.price, notes);
     },
   });
 

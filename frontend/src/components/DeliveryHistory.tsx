@@ -51,6 +51,8 @@ const ACTION_LABELS: Record<string, string> = {
   startjob: 'Started',
   deliver: 'Delivered',
   revise: 'Changes requested',
+  askclient: 'Question',
+  answer: 'Answer',
   submitmile: 'Milestone submitted',
   approvemile: 'Milestone approved',
   approve: 'Approved and paid',
@@ -80,7 +82,7 @@ export function parseJobEvents(raw: RawEvent[]): JobEvent[] {
     let d: Record<string, unknown> = {};
     try { d = JSON.parse(e.data || '{}'); } catch { /* keep empty */ }
     const actor = String(d.client ?? d.agent ?? d.raised_by ?? d.arbitrator ?? d.claimer ?? d.bidder ?? '');
-    const note = String(d.notes ?? d.reason ?? d.resolution_notes ?? d.proposal ?? '');
+    const note = String(d.notes ?? d.reason ?? d.resolution_notes ?? d.proposal ?? d.text ?? '');
     const uri = typeof d.evidence_uri === 'string' ? d.evidence_uri : '';
     return { id: e.id, action: e.action_name, actor, note, uri, timestamp: e.timestamp, txId: e.transaction_id };
   }).filter(e => ACTION_LABELS[e.action]);

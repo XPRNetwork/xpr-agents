@@ -97,10 +97,10 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_stake_validator')).toBe(true);
   });
 
-  it('registers 32 escrow tools', () => {
+  it('registers 37 escrow tools', () => {
     const api = createMockApi();
     registerEscrowTools(api, createConfig());
-    expect(api.tools.size).toBe(32);
+    expect(api.tools.size).toBe(37);
     expect(api.tools.has('xpr_get_job')).toBe(true);
     expect(api.tools.has('xpr_list_jobs')).toBe(true);
     expect(api.tools.has('xpr_get_milestones')).toBe(true);
@@ -126,6 +126,10 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_submit_bid')).toBe(true);
     expect(api.tools.has('xpr_select_bid')).toBe(true);
     expect(api.tools.has('xpr_withdraw_bid')).toBe(true);
+    // Job message thread tools
+    expect(api.tools.has('xpr_get_job_messages')).toBe(true);
+    expect(api.tools.has('xpr_ask_client')).toBe(true);
+    expect(api.tools.has('xpr_answer_agent')).toBe(true);
     // Services market tools
     expect(api.tools.has('xpr_get_service')).toBe(true);
     expect(api.tools.has('xpr_list_services')).toBe(true);
@@ -135,6 +139,9 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_relist_service')).toBe(true);
     expect(api.tools.has('xpr_buy_service')).toBe(true);
     expect(api.tools.has('xpr_boost_service')).toBe(true);
+    // Service input forms
+    expect(api.tools.has('xpr_get_service_input')).toBe(true);
+    expect(api.tools.has('xpr_set_service_input')).toBe(true);
   });
 
   it('registers 4 indexer tools', () => {
@@ -158,7 +165,7 @@ describe('Tool Registration', () => {
     expect(api.tools.has('xpr_a2a_delegate_job')).toBe(true);
   });
 
-  it('registers 68 total tools', () => {
+  it('registers 73 total tools', () => {
     const api = createMockApi();
     const config = createConfig();
     registerAgentTools(api, config);
@@ -167,7 +174,7 @@ describe('Tool Registration', () => {
     registerEscrowTools(api, config);
     registerIndexerTools(api, config);
     registerA2ATools(api, config);
-    expect(api.tools.size).toBe(68);
+    expect(api.tools.size).toBe(73);
   });
 });
 
@@ -210,6 +217,22 @@ describe('Input Validation', () => {
     await expect(
       tool.handler({ agent: 'alice', job_hash: 'abc', result: 'pass', confidence: 101 })
     ).rejects.toThrow('between 0 and 100');
+  });
+
+  it('rejects job message text longer than 512 characters', async () => {
+    const ask = api.tools.get('xpr_ask_client')!;
+    await expect(ask.handler({ job_id: 1, text: 'x'.repeat(513) })).rejects.toThrow('at most 512 characters');
+    await expect(ask.handler({ job_id: 1, text: '' })).rejects.toThrow('text is required');
+
+    const answer = api.tools.get('xpr_answer_agent')!;
+    await expect(answer.handler({ job_id: 1, text: 'x'.repeat(513) })).rejects.toThrow('at most 512 characters');
+  });
+
+  it('rejects buyer notes longer than 200 characters', async () => {
+    const tool = api.tools.get('xpr_buy_service')!;
+    await expect(
+      tool.handler({ service_id: 1, price: 5, notes: 'x'.repeat(201), confirmed: true })
+    ).rejects.toThrow('at most 200 characters');
   });
 
   it('rejects invalid client_percent for arbitration', async () => {
@@ -292,6 +315,124 @@ describe('Confirmation Gate', () => {
     // Verify second-step confirmed=true bypasses the gate
     const result2 = await fundTool.handler({ job_id: 1, amount: 1000, confirmed: true });
     expect(result2).not.toHaveProperty('needs_confirmation');
+  });
+
+  it('gates the job message write tools', async () => {
+    const api = createMockApi();
+    const config = createConfig({ confirmHighRisk: true });
+    registerEscrowTools(api, config);
+
+    const ask = api.tools.get('xpr_ask_client')!;
+    const asked = await ask.handler({ job_id: 1, text: 'Which colour palette?' });
+    expect(asked).toHaveProperty('needs_confirmation', true);
+    expect(asked).toHaveProperty('action', 'Ask Client');
+    expect(await ask.handler({ job_id: 1, text: 'Which colour palette?', confirmed: true }))
+      .not.toHaveProperty('needs_confirmation');
+
+    const answer = api.tools.get('xpr_answer_agent')!;
+    const answered = await answer.handler({ job_id: 1, text: 'Navy and white.' });
+    expect(answered).toHaveProperty('needs_confirmation', true);
+    expect(answered).toHaveProperty('action', 'Answer Agent');
+    expect(await answer.handler({ job_id: 1, text: 'Navy and white.', confirmed: true }))
+      .not.toHaveProperty('needs_confirmation');
+  });
+
+  it('gates the service input form tool and rejects an invalid schema', async () => {
+    const api = createMockApi();
+    const config = createConfig({ confirmHighRisk: true });
+    registerEscrowTools(api, config);
+
+    const tool = api.tools.get('xpr_set_service_input')!;
+
+    const bad: any = await tool.handler({
+      service_id: 1,
+      schema: { v: 1, fields: [{ key: 'Bad Key', label: 'x' }] },
+    });
+    expect(bad.error).toMatch(/Invalid input schema/);
+
+    const schema = { v: 1, fields: [{ key: 'account', label: 'Account', type: 'account', required: true }] };
+    const gated: any = await tool.handler({ service_id: 1, schema });
+    expect(gated).toHaveProperty('needs_confirmation', true);
+    expect(gated).toHaveProperty('action', 'Set Service Input Form');
+
+    const done: any = await tool.handler({ service_id: 1, schema, confirmed: true });
+    expect(done).not.toHaveProperty('needs_confirmation');
+    expect(done.fields).toBe(1);
+  });
+
+  it('xpr_get_service_input returns the parsed schema', async () => {
+    const api = createMockApi();
+    const config = createConfig({ session: undefined });
+    registerEscrowTools(api, config);
+
+    (config.rpc.get_table_rows as any).mockResolvedValueOnce({
+      rows: [{ service_id: '3', schema: '{"v":1,"fields":[{"key":"account","label":"Account","type":"account","required":true}]}', updated_at: '1' }],
+      more: false,
+    });
+
+    const result: any = await api.tools.get('xpr_get_service_input')!.handler({ service_id: 3 });
+    expect(result.has_schema).toBe(true);
+    expect(result.schema.fields[0].key).toBe('account');
+  });
+
+  it('xpr_buy_service validates input against the listing schema', async () => {
+    const api = createMockApi();
+    const config = createConfig({ confirmHighRisk: false });
+    registerEscrowTools(api, config);
+
+    const serviceRow = {
+      id: '3', agent: 'seller', title: 'Wallet report', description: 'A report',
+      deliverables: '["report.pdf"]', price: '250000', turnaround: '86400',
+      category: 'research', sample_uri: '', active: 1, sales: '0',
+      created_at: '1', updated_at: '1',
+    };
+    const schemaRow = {
+      service_id: '3',
+      schema: '{"v":1,"fields":[{"key":"account","label":"Account","type":"account","required":true}]}',
+      updated_at: '1',
+    };
+
+    (config.rpc.get_table_rows as any)
+      .mockResolvedValueOnce({ rows: [serviceRow], more: false })   // getService
+      .mockResolvedValueOnce({ rows: [schemaRow], more: false });   // getServiceInput
+
+    const rejected: any = await api.tools.get('xpr_buy_service')!.handler({
+      service_id: 3, price: 25, input: { account: 'NOT VALID' }, confirmed: true,
+    });
+    expect(rejected.error).toMatch(/does not match the listing's form/);
+
+    (config.rpc.get_table_rows as any)
+      .mockResolvedValueOnce({ rows: [serviceRow], more: false })
+      .mockResolvedValueOnce({ rows: [schemaRow], more: false });
+
+    await api.tools.get('xpr_buy_service')!.handler({
+      service_id: 3, price: 25, input: { account: 'paul' }, confirmed: true,
+    });
+
+    const actions = (config.session!.link.transact as any).mock.calls[0][0].actions;
+    expect(actions).toHaveLength(2);
+    expect(actions[0].data.memo).toBe('buy:3');
+    expect(actions[1].name).toBe('svcinput');
+    expect(actions[1].data.text).toBe('{"account":"paul"}');
+  });
+
+  it('xpr_get_job_messages reads the thread without a session', async () => {
+    const api = createMockApi();
+    const config = createConfig({ session: undefined });
+    registerEscrowTools(api, config);
+
+    (config.rpc.get_table_rows as any).mockResolvedValueOnce({
+      rows: [
+        { id: '2', job_id: '7', author: 'buyer', text: 'Navy and white.', created_at: '1704067300' },
+        { id: '1', job_id: '7', author: 'testagent', text: 'Which palette?', created_at: '1704067200' },
+      ],
+      more: false,
+    });
+
+    const result: any = await api.tools.get('xpr_get_job_messages')!.handler({ job_id: 7 });
+    expect(result.count).toBe(2);
+    expect(result.last_author).toBe('buyer');
+    expect(result.messages[0].text).toBe('Which palette?');
   });
 });
 

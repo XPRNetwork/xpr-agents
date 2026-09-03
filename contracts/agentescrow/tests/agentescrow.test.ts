@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { Blockchain, protonAssert, expectToThrow, mintTokens, nameToBigInt } from '@proton/vert';
-import { TimePointSec } from '@greymass/eosio';
+import { TimePointSec, Transaction, Serializer, Name as EosName, PermissionLevel } from '@greymass/eosio';
 
 /* ------------------------------------------------------------------ */
 /*  Bootstrap                                                          */
@@ -63,6 +63,45 @@ const getAllDisputes = () => {
 
 const getJobEvidence = (jobId: number) => {
   return agentescrow.tables.jobevidence(nameToBigInt('agentescrow')).getTableRow(BigInt(jobId));
+};
+
+const getJobMessage = (id: number) => {
+  return agentescrow.tables.jobmsgs(nameToBigInt('agentescrow')).getTableRow(BigInt(id));
+};
+
+const getAllJobMessages = () => {
+  return agentescrow.tables.jobmsgs(nameToBigInt('agentescrow')).getTableRows();
+};
+
+const getServiceInput = (serviceId: number) => {
+  return agentescrow.tables.svcinputs(nameToBigInt('agentescrow')).getTableRow(BigInt(serviceId));
+};
+
+const getLastBuy = (client: string) => {
+  return agentescrow.tables.lastbuys(nameToBigInt('agentescrow')).getTableRow(nameToBigInt(client));
+};
+
+/* Build one transaction out of several actions, so a buy transfer and the
+ * svcinput that answers its form are signed together (as the site does). */
+const encodeAction = (contract: any, name: string, data: any[], auth: string) => {
+  const resolved = contract.abi.resolveType(name);
+  const object: any = {};
+  data.forEach((arg, i) => { object[resolved.fields[i].name] = arg; });
+  return {
+    account: contract.name,
+    name: EosName.from(name),
+    data: Serializer.encode({ abi: contract.abi, type: name, object }).array,
+    authorization: [PermissionLevel.from(auth)],
+  };
+};
+
+const sendTransaction = async (actions: any[]) => {
+  await blockchain.applyTransaction(Transaction.from({
+    actions,
+    expiration: 0,
+    ref_block_num: 0,
+    ref_block_prefix: 0,
+  } as any));
 };
 
 const getService = (id: number) => {
@@ -1380,6 +1419,267 @@ describe('agentescrow', () => {
     });
   });
 
+  /* ==================== Job messages ==================== */
+
+  describe('job messages', () => {
+    const PAUSE_CONFIG = [200, 10000, 30, 604800, true, 'agentcore', 'agentfeed', 604800, 10000000, 604800];
+
+    beforeEach(async () => {
+      blockchain.setTime(TimePointSec.from(1700000000));
+      await initAll();
+      await registerArbitrator('arbitrator1');
+      await createAndFundJob(); // job 0, state 1 (FUNDED), client=client, agent=agent1
+    });
+
+    it('should let the assigned agent ask the client', async () => {
+      await agentescrow.actions.askclient([
+        'agent1', 0, 'Which file format do you want?'
+      ]).send('agent1@active');
+
+      const msg = getJobMessage(0);
+      expect(msg).to.not.be.undefined;
+      expect(msg.job_id).to.equal(0);
+      expect(msg.author).to.equal('agent1');
+      expect(msg.text).to.equal('Which file format do you want?');
+      expect(msg.created_at).to.equal(1700000000);
+    });
+
+    it('should let the client answer', async () => {
+      await agentescrow.actions.askclient(['agent1', 0, 'SVG or PNG?']).send('agent1@active');
+      await agentescrow.actions.answer(['client', 0, 'SVG please']).send('client@active');
+
+      expect(getAllJobMessages().length).to.equal(2);
+      const reply = getJobMessage(1);
+      expect(reply.job_id).to.equal(0);
+      expect(reply.author).to.equal('client');
+      expect(reply.text).to.equal('SVG please');
+    });
+
+    it('should allow messages in ACCEPTED and INPROGRESS', async () => {
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      expect(getJob(0).state).to.equal(2);
+      await agentescrow.actions.askclient(['agent1', 0, 'Question in accepted']).send('agent1@active');
+
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      expect(getJob(0).state).to.equal(3);
+      await agentescrow.actions.answer(['client', 0, 'Answer in progress']).send('client@active');
+
+      expect(getAllJobMessages().length).to.equal(2);
+    });
+
+    it('should reject a question from someone who is not the assigned agent', async () => {
+      await expectToThrow(
+        agentescrow.actions.askclient(['client', 0, 'Not my job']).send('client@active'),
+        protonAssert('Only the assigned agent can ask')
+      );
+    });
+
+    it('should reject an answer from someone who is not the client', async () => {
+      await expectToThrow(
+        agentescrow.actions.answer(['agent1', 0, 'Not my job']).send('agent1@active'),
+        protonAssert('Only the client can answer')
+      );
+    });
+
+    it('should require the caller authority', async () => {
+      await expectToThrow(
+        agentescrow.actions.askclient(['agent1', 0, 'Spoofed']).send('client@active'),
+        'missing required authority agent1'
+      );
+      await expectToThrow(
+        agentescrow.actions.answer(['client', 0, 'Spoofed']).send('agent1@active'),
+        'missing required authority client'
+      );
+    });
+
+    it('should reject an unknown job', async () => {
+      await expectToThrow(
+        agentescrow.actions.askclient(['agent1', 99, 'Hello?']).send('agent1@active'),
+        protonAssert('Job not found')
+      );
+    });
+
+    it('should reject messages on a delivered job', async () => {
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://QmDone']).send('agent1@active');
+      expect(getJob(0).state).to.equal(4);
+
+      await expectToThrow(
+        agentescrow.actions.askclient(['agent1', 0, 'One more thing']).send('agent1@active'),
+        protonAssert('Job must be funded, accepted or in progress')
+      );
+      await expectToThrow(
+        agentescrow.actions.answer(['client', 0, 'One more thing']).send('client@active'),
+        protonAssert('Job must be funded, accepted or in progress')
+      );
+    });
+
+    it('should reject messages on a completed job', async () => {
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://QmDone']).send('agent1@active');
+      await agentescrow.actions.approve(['client', 0]).send('client@active');
+      expect(getJob(0).state).to.equal(6);
+
+      await expectToThrow(
+        agentescrow.actions.askclient(['agent1', 0, 'Anything else?']).send('agent1@active'),
+        protonAssert('Job must be funded, accepted or in progress')
+      );
+      await expectToThrow(
+        agentescrow.actions.answer(['client', 0, 'Anything else?']).send('client@active'),
+        protonAssert('Job must be funded, accepted or in progress')
+      );
+    });
+
+    it('should reject messages on a job that was created but never funded (state 0)', async () => {
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Unfunded', 'Not funded yet', '["d1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'unfundedhash'
+      ]).send('client@active');
+      expect(getJob(1).state).to.equal(0);
+
+      await expectToThrow(
+        agentescrow.actions.askclient(['agent1', 1, 'Too early']).send('agent1@active'),
+        protonAssert('Job must be funded, accepted or in progress')
+      );
+    });
+
+    it('should reject messages when the contract is paused', async () => {
+      await agentescrow.actions.setconfig(PAUSE_CONFIG).send('owner@active');
+
+      await expectToThrow(
+        agentescrow.actions.askclient(['agent1', 0, 'Hello?']).send('agent1@active'),
+        protonAssert('Contract is paused')
+      );
+      await expectToThrow(
+        agentescrow.actions.answer(['client', 0, 'Hello?']).send('client@active'),
+        protonAssert('Contract is paused')
+      );
+    });
+
+    it('should reject empty text', async () => {
+      await expectToThrow(
+        agentescrow.actions.askclient(['agent1', 0, '']).send('agent1@active'),
+        protonAssert('Message must be 1-512 characters')
+      );
+      await expectToThrow(
+        agentescrow.actions.answer(['client', 0, '']).send('client@active'),
+        protonAssert('Message must be 1-512 characters')
+      );
+    });
+
+    it('should accept 512 characters and reject 513', async () => {
+      await agentescrow.actions.askclient(['agent1', 0, 'q'.repeat(512)]).send('agent1@active');
+      expect(getJobMessage(0).text.length).to.equal(512);
+
+      await expectToThrow(
+        agentescrow.actions.answer(['client', 0, 'a'.repeat(513)]).send('client@active'),
+        protonAssert('Message must be 1-512 characters')
+      );
+    });
+
+    it('should cap a job at 20 messages', async () => {
+      for (let i = 0; i < 10; i++) {
+        await agentescrow.actions.askclient(['agent1', 0, `q${i}`]).send('agent1@active');
+        await agentescrow.actions.answer(['client', 0, `a${i}`]).send('client@active');
+      }
+      expect(getAllJobMessages().length).to.equal(20);
+
+      await expectToThrow(
+        agentescrow.actions.askclient(['agent1', 0, 'one too many']).send('agent1@active'),
+        protonAssert('Job message limit reached')
+      );
+      await expectToThrow(
+        agentescrow.actions.answer(['client', 0, 'one too many']).send('client@active'),
+        protonAssert('Job message limit reached')
+      );
+      expect(getAllJobMessages().length).to.equal(20);
+    });
+
+    it('should count messages per job, not globally', async () => {
+      // A second funded job keeps its own quota
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Job two', 'Second job', '["d1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'jobhash2'
+      ]).send('client@active');
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '100.0000 XPR', 'fund:1'
+      ]).send('client@active');
+
+      await agentescrow.actions.askclient(['agent1', 0, 'about job 0']).send('agent1@active');
+      await agentescrow.actions.askclient(['agent1', 1, 'about job 1']).send('agent1@active');
+
+      const rows = getAllJobMessages();
+      expect(rows.length).to.equal(2);
+      expect(rows[0].job_id).to.equal(0);
+      expect(rows[1].job_id).to.equal(1);
+    });
+
+    it('should delete a job\'s messages on removejob', async () => {
+      await agentescrow.actions.askclient(['agent1', 0, 'Which format?']).send('agent1@active');
+      await agentescrow.actions.answer(['client', 0, 'SVG']).send('client@active');
+      expect(getAllJobMessages().length).to.equal(2);
+
+      await agentescrow.actions.removejob([0]).send('owner@active');
+
+      expect(getJob(0)).to.be.undefined;
+      expect(getAllJobMessages().length).to.equal(0);
+    });
+
+    it('should keep other jobs messages on removejob', async () => {
+      const deadline = 1700000000 + 86400 * 30;
+      await agentescrow.actions.createjob([
+        'client', 'agent1', 'Job two', 'Second job', '["d1"]',
+        1000000, '4,XPR', deadline, 'arbitrator1', 'jobhash2'
+      ]).send('client@active');
+      await eosioToken.actions.transfer([
+        'client', 'agentescrow', '100.0000 XPR', 'fund:1'
+      ]).send('client@active');
+
+      await agentescrow.actions.askclient(['agent1', 0, 'about job 0']).send('agent1@active');
+      await agentescrow.actions.askclient(['agent1', 1, 'about job 1']).send('agent1@active');
+
+      await agentescrow.actions.removejob([0]).send('owner@active');
+
+      const rows = getAllJobMessages();
+      expect(rows.length).to.equal(1);
+      expect(rows[0].job_id).to.equal(1);
+      expect(rows[0].text).to.equal('about job 1');
+    });
+
+    it('should leave messages in place on approve (history)', async () => {
+      await agentescrow.actions.askclient(['agent1', 0, 'Which format?']).send('agent1@active');
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://QmDone']).send('agent1@active');
+      await agentescrow.actions.approve(['client', 0]).send('client@active');
+
+      expect(getAllJobMessages().length).to.equal(1);
+    });
+
+    it('should delete a job\'s messages on cleanjobs', async () => {
+      await agentescrow.actions.askclient(['agent1', 0, 'Which format?']).send('agent1@active');
+      await agentescrow.actions.answer(['client', 0, 'SVG']).send('client@active');
+
+      await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.startjob(['agent1', 0]).send('agent1@active');
+      await agentescrow.actions.deliver(['agent1', 0, 'ipfs://QmDone']).send('agent1@active');
+      await agentescrow.actions.approve(['client', 0]).send('client@active');
+      expect(getJob(0).state).to.equal(6);
+      expect(getAllJobMessages().length).to.equal(2);
+
+      // Age the job past the 90-day minimum
+      blockchain.addTime(TimePointSec.from(7776000 + 3600));
+      await agentescrow.actions.cleanjobs([7776000, 10]).send('owner@active');
+
+      expect(getJob(0)).to.be.undefined;
+      expect(getAllJobMessages().length).to.equal(0);
+    });
+  });
+
   /* ==================== Services market ==================== */
 
   describe('services market', () => {
@@ -1800,6 +2100,102 @@ describe('agentescrow', () => {
         expect(getService(0).sales).to.equal(1);
       });
 
+      it('should append buyer notes to the job description', async () => {
+        await listSvc();
+
+        await eosioToken.actions.transfer([
+          'client', 'agentescrow', '100.0000 XPR', 'buy:0:Please use our brand blue'
+        ]).send('client@active');
+
+        const job = getJob(0);
+        expect(job.description).to.equal(
+          'A hand-crafted logo delivered as SVG and PNG\n\nBuyer notes: Please use our brand blue'
+        );
+
+        // Every other field is exactly what a plain purchase produces
+        expect(job.client).to.equal('client');
+        expect(job.agent).to.equal('agent1');
+        expect(job.title).to.equal('Logo design');
+        expect(job.deliverables).to.equal('["logo.svg","logo.png"]');
+        expect(job.amount).to.equal(1000000);
+        expect(job.symbol).to.equal('XPR');
+        expect(job.funded_amount).to.equal(1000000);
+        expect(job.released_amount).to.equal(0);
+        expect(job.state).to.equal(1);
+        expect(job.arbitrator).to.equal('');
+        expect(job.job_hash).to.equal('svc:0');
+        expect(job.deadline).to.equal(job.created_at + 86400);
+
+        // The listing itself is untouched
+        expect(getService(0).description).to.equal('A hand-crafted logo delivered as SVG and PNG');
+        expect(getService(0).sales).to.equal(1);
+      });
+
+      it('should keep colons inside the buyer notes', async () => {
+        await listSvc();
+
+        await eosioToken.actions.transfer([
+          'client', 'agentescrow', '100.0000 XPR', 'buy:0:ref: AB:12 — see https://x.test/a:b'
+        ]).send('client@active');
+
+        expect(getJob(0).description).to.equal(
+          'A hand-crafted logo delivered as SVG and PNG\n\nBuyer notes: ref: AB:12 — see https://x.test/a:b'
+        );
+      });
+
+      it('should leave the description unchanged for an empty note suffix', async () => {
+        await listSvc();
+
+        await eosioToken.actions.transfer([
+          'client', 'agentescrow', '100.0000 XPR', 'buy:0:'
+        ]).send('client@active');
+
+        expect(getJob(0).description).to.equal('A hand-crafted logo delivered as SVG and PNG');
+      });
+
+      it('should accept notes of exactly 200 characters', async () => {
+        await listSvc();
+        const notes = 'n'.repeat(200);
+
+        await eosioToken.actions.transfer([
+          'client', 'agentescrow', '100.0000 XPR', `buy:0:${notes}`
+        ]).send('client@active');
+
+        expect(getJob(0).description).to.equal(
+          `A hand-crafted logo delivered as SVG and PNG\n\nBuyer notes: ${notes}`
+        );
+      });
+
+      it('should reject notes over 200 characters', async () => {
+        await listSvc();
+        const notes = 'n'.repeat(201);
+
+        await expectToThrow(
+          eosioToken.actions.transfer([
+            'client', 'agentescrow', '100.0000 XPR', `buy:0:${notes}`
+          ]).send('client@active'),
+          protonAssert('Buyer notes must be <= 200 characters')
+        );
+        expect(getAllJobs().length).to.equal(0);
+      });
+
+      it('should still validate the service id when notes are present', async () => {
+        await listSvc();
+
+        await expectToThrow(
+          eosioToken.actions.transfer([
+            'client', 'agentescrow', '100.0000 XPR', 'buy::hello'
+          ]).send('client@active'),
+          protonAssert('Invalid service ID format')
+        );
+        await expectToThrow(
+          eosioToken.actions.transfer([
+            'client', 'agentescrow', '100.0000 XPR', 'buy:abc:hello'
+          ]).send('client@active'),
+          protonAssert('Service ID must be numeric')
+        );
+      });
+
       it('should use the next jobs primary key', async () => {
         await registerArbitrator('arbitrator1');
         await createAndFundJob(); // job 0
@@ -1936,6 +2332,301 @@ describe('agentescrow', () => {
     });
 
     /* ---------------- svcconfig ---------------- */
+
+    /* ---------------- setsvcinput / svcinput ---------------- */
+
+    describe('service input forms', () => {
+      const SCHEMA = '{"v":1,"fields":[{"key":"account","label":"XPR account","type":"account","required":true}]}';
+      const ANSWERS = '{"account":"paul","focus":"defi"}';
+      const PAUSE_CONFIG = [200, 10000, 30, 604800, true, 'agentcore', 'agentfeed', 604800, 10000000, 604800];
+
+      describe('setsvcinput', () => {
+        it('should store a schema for the listing', async () => {
+          await listSvc();
+
+          await agentescrow.actions.setsvcinput(['agent1', 0, SCHEMA]).send('agent1@active');
+
+          const row = getServiceInput(0);
+          expect(row).to.not.be.undefined;
+          expect(row.service_id).to.equal(0);
+          expect(row.schema).to.equal(SCHEMA);
+          expect(row.updated_at).to.equal(1700000000);
+        });
+
+        it('should replace an existing schema', async () => {
+          await listSvc();
+          await agentescrow.actions.setsvcinput(['agent1', 0, SCHEMA]).send('agent1@active');
+
+          blockchain.addTime(TimePointSec.from(60));
+          const next = '{"v":1,"fields":[{"key":"url","label":"Link","type":"url"}]}';
+          await agentescrow.actions.setsvcinput(['agent1', 0, next]).send('agent1@active');
+
+          const row = getServiceInput(0);
+          expect(row.schema).to.equal(next);
+          expect(row.updated_at).to.equal(1700000060);
+        });
+
+        it('should remove the row for an empty schema', async () => {
+          await listSvc();
+          await agentescrow.actions.setsvcinput(['agent1', 0, SCHEMA]).send('agent1@active');
+          expect(getServiceInput(0)).to.not.be.undefined;
+
+          await agentescrow.actions.setsvcinput(['agent1', 0, '']).send('agent1@active');
+          expect(getServiceInput(0)).to.be.undefined;
+        });
+
+        it('should accept an empty schema when there is no row', async () => {
+          await listSvc();
+          await agentescrow.actions.setsvcinput(['agent1', 0, '']).send('agent1@active');
+          expect(getServiceInput(0)).to.be.undefined;
+        });
+
+        it('should reject an agent that does not own the listing', async () => {
+          await listSvc();
+
+          await expectToThrow(
+            agentescrow.actions.setsvcinput(['client', 0, SCHEMA]).send('client@active'),
+            protonAssert('Only the listing agent can set inputs')
+          );
+          expect(getServiceInput(0)).to.be.undefined;
+        });
+
+        it('should require the agent authority', async () => {
+          await listSvc();
+
+          await expectToThrow(
+            agentescrow.actions.setsvcinput(['agent1', 0, SCHEMA]).send('client@active'),
+            'missing required authority agent1'
+          );
+        });
+
+        it('should reject an unknown listing', async () => {
+          await expectToThrow(
+            agentescrow.actions.setsvcinput(['agent1', 99, SCHEMA]).send('agent1@active'),
+            protonAssert('Service not found')
+          );
+        });
+
+        it('should accept 2048 characters and reject 2049', async () => {
+          await listSvc();
+
+          await agentescrow.actions.setsvcinput(['agent1', 0, 's'.repeat(2048)]).send('agent1@active');
+          expect(getServiceInput(0).schema.length).to.equal(2048);
+
+          await expectToThrow(
+            agentescrow.actions.setsvcinput(['agent1', 0, 's'.repeat(2049)]).send('agent1@active'),
+            protonAssert('Schema must be <= 2048 characters')
+          );
+          expect(getServiceInput(0).schema.length).to.equal(2048);
+        });
+
+        it('should reject when the contract is paused', async () => {
+          await listSvc();
+          await agentescrow.actions.setconfig(PAUSE_CONFIG).send('owner@active');
+
+          await expectToThrow(
+            agentescrow.actions.setsvcinput(['agent1', 0, SCHEMA]).send('agent1@active'),
+            protonAssert('Contract is paused')
+          );
+        });
+
+        it('should be removed with the listing on rmservice', async () => {
+          await listSvc();
+          await agentescrow.actions.setsvcinput(['agent1', 0, SCHEMA]).send('agent1@active');
+          expect(getServiceInput(0)).to.not.be.undefined;
+
+          await agentescrow.actions.rmservice([0]).send('owner@active');
+
+          expect(getService(0)).to.be.undefined;
+          expect(getServiceInput(0)).to.be.undefined;
+        });
+
+        it('should keep another listing schema on rmservice', async () => {
+          await listSvc();
+          await listSvc({ title: 'Second listing' });
+          await agentescrow.actions.setsvcinput(['agent1', 0, SCHEMA]).send('agent1@active');
+          await agentescrow.actions.setsvcinput(['agent1', 1, SCHEMA]).send('agent1@active');
+
+          await agentescrow.actions.rmservice([0]).send('owner@active');
+
+          expect(getServiceInput(0)).to.be.undefined;
+          expect(getServiceInput(1)).to.not.be.undefined;
+        });
+      });
+
+      describe('svcinput', () => {
+        /* transfer(buy:0) + svcinput in one transaction, the way the site sends it */
+        const buyWithInput = async (memo: string, answers: string) => {
+          await sendTransaction([
+            encodeAction(eosioToken, 'transfer', ['client', 'agentescrow', '100.0000 XPR', memo], 'client@active'),
+            encodeAction(agentescrow, 'svcinput', ['client', answers], 'client@active'),
+          ]);
+        };
+
+        beforeEach(async () => {
+          await listSvc();
+          await agentescrow.actions.setsvcinput(['agent1', 0, SCHEMA]).send('agent1@active');
+        });
+
+        it('should record the buy and the answers in one transaction', async () => {
+          await buyWithInput('buy:0', ANSWERS);
+
+          const job = getJob(0);
+          expect(job.state).to.equal(1);
+          expect(job.description).to.equal('A hand-crafted logo delivered as SVG and PNG');
+
+          const rows = getAllJobMessages();
+          expect(rows.length).to.equal(1);
+          expect(rows[0].job_id).to.equal(0);
+          expect(rows[0].author).to.equal('client');
+          expect(rows[0].text).to.equal(ANSWERS);
+          expect(rows[0].created_at).to.equal(1700000000);
+
+          // Single use: the pointer is consumed
+          expect(getLastBuy('client')).to.be.undefined;
+        });
+
+        it('should upsert lastbuys on every purchase', async () => {
+          await eosioToken.actions.transfer([
+            'client', 'agentescrow', '100.0000 XPR', 'buy:0'
+          ]).send('client@active');
+
+          let last = getLastBuy('client');
+          expect(last).to.not.be.undefined;
+          expect(last.job_id).to.equal(0);
+          expect(last.service_id).to.equal(0);
+          expect(last.created_at).to.equal(1700000000);
+
+          await listSvc({ title: 'Second listing' });
+          blockchain.addTime(TimePointSec.from(30));
+          await eosioToken.actions.transfer([
+            'client', 'agentescrow', '100.0000 XPR', 'buy:1'
+          ]).send('client@active');
+
+          last = getLastBuy('client');
+          expect(last.job_id).to.equal(1);
+          expect(last.service_id).to.equal(1);
+          expect(last.created_at).to.equal(1700000030);
+        });
+
+        it('should work as a separate action inside the window', async () => {
+          await eosioToken.actions.transfer([
+            'client', 'agentescrow', '100.0000 XPR', 'buy:0'
+          ]).send('client@active');
+          blockchain.addTime(TimePointSec.from(600));
+
+          await agentescrow.actions.svcinput(['client', ANSWERS]).send('client@active');
+
+          expect(getAllJobMessages().length).to.equal(1);
+          expect(getLastBuy('client')).to.be.undefined;
+        });
+
+        it('should reject after the 600 second window', async () => {
+          await eosioToken.actions.transfer([
+            'client', 'agentescrow', '100.0000 XPR', 'buy:0'
+          ]).send('client@active');
+          blockchain.addTime(TimePointSec.from(601));
+
+          await expectToThrow(
+            agentescrow.actions.svcinput(['client', ANSWERS]).send('client@active'),
+            protonAssert('Purchase input window closed')
+          );
+          expect(getAllJobMessages().length).to.equal(0);
+        });
+
+        it('should reject when there is no recent purchase', async () => {
+          await expectToThrow(
+            agentescrow.actions.svcinput(['client', ANSWERS]).send('client@active'),
+            protonAssert('No recent purchase')
+          );
+        });
+
+        it('should reject a second use of the same purchase', async () => {
+          await buyWithInput('buy:0', ANSWERS);
+
+          await expectToThrow(
+            agentescrow.actions.svcinput(['client', 'try again']).send('client@active'),
+            protonAssert('No recent purchase')
+          );
+          expect(getAllJobMessages().length).to.equal(1);
+        });
+
+        it('should reject once the job has moved past FUNDED', async () => {
+          await eosioToken.actions.transfer([
+            'client', 'agentescrow', '100.0000 XPR', 'buy:0'
+          ]).send('client@active');
+          await agentescrow.actions.acceptjob(['agent1', 0]).send('agent1@active');
+          expect(getJob(0).state).to.equal(2);
+
+          await expectToThrow(
+            agentescrow.actions.svcinput(['client', ANSWERS]).send('client@active'),
+            protonAssert('Purchase input window closed')
+          );
+          expect(getAllJobMessages().length).to.equal(0);
+        });
+
+        it('should require the client authority', async () => {
+          await eosioToken.actions.transfer([
+            'client', 'agentescrow', '100.0000 XPR', 'buy:0'
+          ]).send('client@active');
+
+          await expectToThrow(
+            agentescrow.actions.svcinput(['client', ANSWERS]).send('agent1@active'),
+            'missing required authority client'
+          );
+        });
+
+        it('should apply the same 1-512 text bounds as answer', async () => {
+          await eosioToken.actions.transfer([
+            'client', 'agentescrow', '100.0000 XPR', 'buy:0'
+          ]).send('client@active');
+
+          await expectToThrow(
+            agentescrow.actions.svcinput(['client', '']).send('client@active'),
+            protonAssert('Message must be 1-512 characters')
+          );
+          await expectToThrow(
+            agentescrow.actions.svcinput(['client', 'a'.repeat(513)]).send('client@active'),
+            protonAssert('Message must be 1-512 characters')
+          );
+
+          await agentescrow.actions.svcinput(['client', 'a'.repeat(512)]).send('client@active');
+          expect(getAllJobMessages().length).to.equal(1);
+        });
+
+        it('should count toward the 20 message cap', async () => {
+          await buyWithInput('buy:0', ANSWERS);
+          expect(getAllJobMessages().length).to.equal(1);
+
+          // 19 more fills the quota
+          for (let i = 0; i < 19; i++) {
+            if (i % 2 === 0) {
+              await agentescrow.actions.askclient(['agent1', 0, `q${i}`]).send('agent1@active');
+            } else {
+              await agentescrow.actions.answer(['client', 0, `a${i}`]).send('client@active');
+            }
+          }
+          expect(getAllJobMessages().length).to.equal(20);
+
+          await expectToThrow(
+            agentescrow.actions.askclient(['agent1', 0, 'one too many']).send('agent1@active'),
+            protonAssert('Job message limit reached')
+          );
+        });
+
+        it('should still accept a plain buy with notes and no input action', async () => {
+          await eosioToken.actions.transfer([
+            'client', 'agentescrow', '100.0000 XPR', 'buy:0:use our brand blue'
+          ]).send('client@active');
+
+          expect(getJob(0).description).to.equal(
+            'A hand-crafted logo delivered as SVG and PNG\n\nBuyer notes: use our brand blue'
+          );
+          expect(getAllJobMessages().length).to.equal(0);
+          expect(getLastBuy('client')).to.not.be.undefined;
+        });
+      });
+    });
 
     describe('setsvcconfig', () => {
       it('should seed the defaults on init', async () => {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { AccountLink } from '@/components/AccountLink';
 import { NftCard } from '@/components/NftCard';
@@ -15,8 +16,15 @@ import {
   formatTimeline,
   getJob,
   getBidsForJob,
+  getJobMessages,
+  canMessageJob,
+  JOB_MESSAGE_MAX_CHARS,
+  JOB_MESSAGE_LIMIT,
   getJobEvidence,
   getJobStateLabel,
+  serviceIdFromJobHash,
+  getServiceInput,
+  parseServiceInputAnswers,
   getDisputesForJob,
   getEscrowConfig,
   DISPUTE_RESOLUTION_LABELS,
@@ -27,6 +35,8 @@ import {
   isEmptyName,
   getNftAssets,
   type Job,
+  type JobMessage,
+  type ServiceInputSchema,
   type Bid,
   type Dispute,
   type NftAsset,
@@ -47,6 +57,14 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
   const [bids, setBids] = useState<Bid[]>([]);
   const [bidsLoading, setBidsLoading] = useState(false);
+
+  // Question-and-answer thread between the client and the assigned agent
+  const [messages, setMessages] = useState<JobMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messageText, setMessageText] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+  // The selling service's input schema, for labelling the buyer's answers.
+  const [inputSchema, setInputSchema] = useState<ServiceInputSchema | null>(null);
   const [showBidForm, setShowBidForm] = useState(false);
   const [processing, setProcessing] = useState(false);
   const submittingRef = useRef(false);
@@ -97,6 +115,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   // Load bids, escrow config, deliverable, dispute on mount
   useEffect(() => {
     loadBids();
+    loadMessages();
     getEscrowConfig().then(c => { if (c) setEscrowOwner(c.owner); }).catch(() => {});
     if (job.state >= 4 && job.agent && job.agent !== '.............') {
       fetchDeliverable(job.id);
@@ -105,6 +124,17 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
       loadDispute(job.id);
     }
   }, [job.id]);
+
+  // The schema of the service this job was bought from, if any
+  useEffect(() => {
+    const serviceId = serviceIdFromJobHash(job.job_hash);
+    if (serviceId === null) { setInputSchema(null); return; }
+    let cancelled = false;
+    getServiceInput(serviceId)
+      .then((schema) => { if (!cancelled) setInputSchema(schema); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [job.job_hash]);
 
   // Auto-refresh on chain events
   useEffect(() => {
@@ -128,12 +158,61 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     }
   }
 
+  async function loadMessages() {
+    setMessagesLoading(true);
+    try {
+      setMessages(await getJobMessages(job.id));
+    } catch {
+      /* thread stays as it was */
+    } finally {
+      setMessagesLoading(false);
+    }
+  }
+
   async function refreshJob() {
     try {
       const updated = await getJob(job.id);
       if (updated && onJobUpdated) onJobUpdated(updated);
       loadBids();
+      loadMessages();
     } catch {}
+  }
+
+  /**
+   * One thread, two actions: the agent asks (`askclient`), the client answers
+   * (`answer`). Both are only accepted while the job is FUNDED, ACCEPTED or
+   * INPROGRESS, which is exactly when the reply box is shown.
+   */
+  async function handleSendMessage(e: React.FormEvent) {
+    e.preventDefault();
+    if (!session || sendingMessage) return;
+    const text = messageText.trim();
+    if (!text) return;
+    setSendingMessage(true);
+    try {
+      const asAgent = session.auth.actor === assignedAgent;
+      const result = await transact([
+        asAgent
+          ? {
+              account: CONTRACTS.AGENT_ESCROW,
+              name: 'askclient',
+              data: { agent: session.auth.actor, job_id: job.id, text },
+            }
+          : {
+              account: CONTRACTS.AGENT_ESCROW,
+              name: 'answer',
+              data: { client: session.auth.actor, job_id: job.id, text },
+            },
+      ]);
+      addToast({ type: 'success', message: asAgent ? 'Question sent to the client' : 'Answer sent to the agent', txId: getTxId(result) });
+      setMessageText('');
+      await new Promise(r => setTimeout(r, 1500));
+      await loadMessages();
+    } catch (err: any) {
+      addToast({ type: 'error', message: err.message || 'Failed to send the message' });
+    } finally {
+      setSendingMessage(false);
+    }
   }
 
   // IPFS gateway fallback helpers
@@ -687,6 +766,24 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   }
 
   const assignedAgent = isEmptyName(job.agent) ? null : job.agent;
+  // A service purchase appends the buyer's note to the listing description; show it as its own block.
+  const buyerNotesMarker = '\n\nBuyer notes: ';
+  const buyerNotesAt = job.description.indexOf(buyerNotesMarker);
+  const jobDescription = buyerNotesAt >= 0 ? job.description.slice(0, buyerNotesAt) : job.description;
+  const buyerNotes = buyerNotesAt >= 0 ? job.description.slice(buyerNotesAt + buyerNotesMarker.length).trim() : '';
+  const fromServiceId = serviceIdFromJobHash(job.job_hash);
+  // A purchase form arrives as the first client message, packed as a JSON object.
+  const firstMessage = messages.length > 0 ? messages[0] : null;
+  const buyerInput = firstMessage && firstMessage.author === job.client
+    ? parseServiceInputAnswers(firstMessage.text)
+    : null;
+  // Shown as its own block above, so it does not repeat as raw JSON in the thread.
+  const threadMessages = buyerInput && firstMessage ? messages.filter(m => m.id !== firstMessage.id) : messages;
+  const inputLabel = (key: string) => inputSchema?.fields.find(f => f.key === key)?.label || key;
+  const isJobClient = !!session && job.client === session.auth.actor;
+  const isJobAgent = !!session && !!assignedAgent && session.auth.actor === assignedAgent;
+  const canMessage = (isJobClient || isJobAgent) && canMessageJob(job.state);
+  const showMessages = threadMessages.length > 0 || canMessage || (!!assignedAgent && canMessageJob(job.state));
   // Markdown brief an operator can paste into any agent: the job plus the exact on-chain steps.
   const agentBrief = [
     `# Job #${job.id}: ${job.title}`,
@@ -746,7 +843,30 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             </p>
           </header>
 
-          <section className="whitespace-pre-line text-[15px] leading-7 text-ink-2">{job.description}</section>
+          <section className="space-y-4">
+            <p className="whitespace-pre-line text-[15px] leading-7 text-ink-2">{jobDescription}</p>
+            {buyerNotes && (
+              <div className="rounded-xl border border-line bg-surface px-5 py-4">
+                <h3 className="label mb-1.5">Buyer notes</h3>
+                <p className="whitespace-pre-line text-[15px] leading-7 text-ink">{buyerNotes}</p>
+              </div>
+            )}
+            {buyerInput && (
+              <div className="rounded-xl border border-line bg-surface px-5 py-4">
+                <h3 className="label mb-2">Buyer input</h3>
+                <dl className="divide-y divide-line">
+                  {Object.entries(buyerInput).map(([key, value]) => (
+                    <div key={key} className="flex flex-wrap items-start justify-between gap-x-6 gap-y-1 py-2 first:pt-0 last:pb-0">
+                      <dt className="text-sm text-muted">{inputLabel(key)}</dt>
+                      <dd className="min-w-0 break-words text-right text-sm text-ink">
+                        {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+          </section>
 
           {job.deliverables.length > 0 && (
             <section className="rounded-xl border border-line bg-canvas p-5">
@@ -1171,6 +1291,77 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
           <DeliveryHistory jobId={job.id} agent={isEmptyName(job.agent) ? undefined : job.agent} refreshKey={job.state * 1000 + job.updated_at % 1000} onCounts={setHistoryCounts} />
         )}
 
+        {/* Question-and-answer thread (agentescrow jobmsgs) */}
+        {showMessages && (
+          <section className="rounded-xl border border-line bg-canvas p-5" id="messages">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="label">Messages</h3>
+              {threadMessages.length > 0 && (
+                <span className="font-mono text-xs tabular text-muted">
+                  {threadMessages.length}/{JOB_MESSAGE_LIMIT}
+                </span>
+              )}
+            </div>
+
+            {threadMessages.length === 0 ? (
+              <p className="text-sm text-muted">
+                {messagesLoading ? 'Loading the thread…' : 'No messages yet. The agent can ask for missing details here before starting.'}
+              </p>
+            ) : (
+              <ol className="space-y-4">
+                {threadMessages.map(m => (
+                  <li key={m.id}>
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <AccountLink account={m.author} isAgent={m.author === assignedAgent} className="font-mono text-xs" />
+                      <span className="font-mono text-[11px] text-muted">
+                        {m.author === job.client ? 'client' : m.author === assignedAgent ? 'agent' : ''}
+                      </span>
+                      <span className="font-mono text-[11px] tabular text-muted" title={formatDate(m.created_at)}>
+                        {formatRelativeTime(m.created_at)}
+                      </span>
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap break-words text-sm text-ink-2">{m.text}</p>
+                  </li>
+                ))}
+              </ol>
+            )}
+
+            {canMessage && (
+              <form onSubmit={handleSendMessage} className="mt-4 border-t border-line pt-4">
+                <label htmlFor="job-message" className="mb-1.5 block text-sm font-medium text-ink">
+                  {isJobAgent ? 'Ask the client a question' : 'Reply to the agent'}
+                </label>
+                <textarea
+                  id="job-message"
+                  value={messageText}
+                  onChange={e => setMessageText(e.target.value.slice(0, JOB_MESSAGE_MAX_CHARS))}
+                  maxLength={JOB_MESSAGE_MAX_CHARS}
+                  rows={3}
+                  placeholder={isJobAgent
+                    ? 'One specific question — what is missing from the brief?'
+                    : 'Answer the question so the agent can get on with it.'}
+                  className="w-full rounded-md border border-line-2 bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+                />
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <span className="font-mono text-xs tabular text-muted">
+                    {messageText.trim().length}/{JOB_MESSAGE_MAX_CHARS}
+                  </span>
+                  <button
+                    type="submit"
+                    disabled={sendingMessage || !messageText.trim() || messages.length >= JOB_MESSAGE_LIMIT}
+                    className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted"
+                  >
+                    {sendingMessage ? 'Sending…' : isJobAgent ? 'Send question' : 'Send answer'}
+                  </button>
+                </div>
+                {messages.length >= JOB_MESSAGE_LIMIT && (
+                  <p className="mt-2 text-xs text-muted">This job has reached the {JOB_MESSAGE_LIMIT}-message limit.</p>
+                )}
+              </form>
+            )}
+          </section>
+        )}
+
         {/* Bids Section */}
         {(canBid || bids.length > 0 || bidsLoading) && (
           <section className="rounded-xl border border-line bg-canvas p-5" id="bids">
@@ -1332,6 +1523,12 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                 {job.deadline > 0 && railRow('Deadline', <span title={formatDate(job.deadline)}>{formatRelativeTime(job.deadline)}</span>)}
                 {historyCounts.rating !== undefined && railRow('Rating', <span className={`font-mono tabular ${historyCounts.rating >= 4 ? 'text-good' : historyCounts.rating <= 2 ? 'text-crit' : ''}`}>{'★'.repeat(historyCounts.rating)}{'☆'.repeat(5 - historyCounts.rating)} {historyCounts.rating}/5</span>)}
                 {historyCounts.revisions > 0 && railRow('Revisions', <span className={`font-mono tabular ${historyCounts.revisions >= 3 ? 'text-warn' : ''}`}>{historyCounts.revisions} · {historyCounts.deliveries} deliveries</span>)}
+                {fromServiceId !== null && railRow('From service', (
+                  <Link href={`/services/${fromServiceId}`} className="font-mono text-accent hover:underline">#{fromServiceId}</Link>
+                ))}
+                {threadMessages.length > 0 && railRow('Messages', (
+                  <a href="#messages" className="font-mono tabular text-accent hover:underline">{threadMessages.length}</a>
+                ))}
                 {railRow('Client', <AccountLink account={job.client} className="font-mono" />)}
                 {assignedAgent && railRow('Agent', <AccountLink account={assignedAgent} isAgent className="font-mono" />)}
                 {!isEmptyName(job.arbitrator) && railRow('Arbitrator', <AccountLink account={job.arbitrator} className="font-mono" />)}
