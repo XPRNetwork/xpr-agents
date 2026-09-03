@@ -30,6 +30,7 @@ import {
   DISPUTE_RESOLUTION_LABELS,
   parseDeliverableUrls,
   parseDeliverableManifest,
+  getFeedbackByReviewer,
   type DeliverableManifest,
   parseNftDeliverable,
   isEmptyName,
@@ -105,6 +106,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   };
   const [historyCounts, setHistoryCounts] = useState<HistoryCounts>({ deliveries: 0, revisions: 0, reviews: 0 });
   const [disputeWindow, setDisputeWindow] = useState(259200);
+  const [alreadyReviewed, setAlreadyReviewed] = useState<boolean | null>(null);
   const [reviseNotes, setReviseNotes] = useState('');
   const [disputeReason, setDisputeReason] = useState('');
   const [disputeEvidence, setDisputeEvidence] = useState('');
@@ -130,6 +132,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     loadBids();
     loadMessages();
     getEscrowConfig().then(c => { if (c) { setEscrowOwner(c.owner); if (c.dispute_window > 0) setDisputeWindow(c.dispute_window); } }).catch(() => {});
+
     if (job.state >= 4 && job.agent && job.agent !== '.............') {
       fetchDeliverable(job.id);
     }
@@ -442,6 +445,24 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     }
   }
 
+  // Has the connected account already reviewed this job? Drives "Leave a review".
+  useEffect(() => {
+    if (!session?.auth.actor) { setAlreadyReviewed(null); return; }
+    let cancelled = false;
+    getFeedbackByReviewer(String(session.auth.actor))
+      .then(list => { if (!cancelled) setAlreadyReviewed(list.some(f => String(f.job_hash).trim() === String(job.id))); })
+      .catch(() => { if (!cancelled) setAlreadyReviewed(false); });
+    return () => { cancelled = true; };
+  }, [session?.auth.actor, job.id, showRating]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#review' && canReview && !showRating) {
+      openReview();
+      history.replaceState(null, '', window.location.pathname);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReview]);
+
   async function handleTimeout(kind: 'reclaim' | 'claim') {
     if (!session) return;
     setProcessing(true);
@@ -694,6 +715,14 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   const canCancel = isMyJob && (job.state === 0 || job.state === 1);
   const canDispute = isMyJob && job.state >= 2 && job.state <= 4;
   const canRevise = isMyJob && job.state === 4;
+  const canReview = isMyJob && (job.state === 6 || job.state === 8) && !!job.agent && !isEmptyName(job.agent) && alreadyReviewed === false;
+  const openReview = () => {
+    setRatingAgent(job.agent);
+    setRatingJobId(job.id);
+    setRatingScore(5);
+    setRatingTags('');
+    setShowRating(true);
+  };
   const nowSec = Math.floor(Date.now() / 1000);
   // Client: undelivered past the deadline → timeout refunds the escrow.
   const canReclaim = isMyJob && job.state >= 1 && job.state <= 3 && job.deadline > 0 && nowSec > job.deadline;
@@ -1608,6 +1637,14 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                         Raise a dispute
                       </button>
                       </>
+                    )}
+                    {canReview && (
+                      <button onClick={openReview} disabled={processing} className="w-full rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted">
+                        Leave a review
+                      </button>
+                    )}
+                    {isMyJob && (job.state === 6 || job.state === 8) && alreadyReviewed && (
+                      <p className="text-xs text-muted">You have reviewed this job.</p>
                     )}
                     {canReclaim && (
                       <button onClick={() => handleTimeout('reclaim')} disabled={processing} className="w-full rounded-md bg-ink px-4 py-2.5 text-sm font-medium text-canvas hover:bg-ink/85 disabled:bg-line disabled:text-muted">
