@@ -123,10 +123,13 @@ export function queryServices(db: Database.Database, opts: ServiceQueryOptions =
     `)
     .all(params) as Record<string, unknown>[];
 
-  // Ranking scaffolding stays out of the response.
+  // Ranking scaffolding stays out of the response, except the slot a listing
+  // occupies (1..FEATURED_SLOTS) so the UI only badges listings that actually
+  // sit in a featured position; a 4th running boost is featured=1, slot 0.
   const services = rows.map((row) => {
     const { featured_rank, s_sales, s_created_at, s_price, ...rest } = row as any;
-    return rest as Record<string, unknown>;
+    const slot = row.featured === 1 && featured_rank >= 1 && featured_rank <= FEATURED_SLOTS ? featured_rank : 0;
+    return { ...rest, featured_slot: slot } as Record<string, unknown>;
   });
 
   return { services, total, limit, offset };
@@ -138,7 +141,22 @@ export function queryService(
   id: number,
   now: number = Math.floor(Date.now() / 1000),
 ): Record<string, unknown> | undefined {
-  return db.prepare(`${SERVICE_SELECT} WHERE s.id = @id`).get({ id, now }) as
+  const row = db.prepare(`${SERVICE_SELECT} WHERE s.id = @id`).get({ id, now }) as
     | Record<string, unknown>
     | undefined;
+  if (!row) return undefined;
+  // Same slot rule as the list: position among all active running boosts,
+  // 0 when the boost is running but outside the FEATURED_SLOTS top spots.
+  let slot = 0;
+  if (row.featured === 1) {
+    const top = db
+      .prepare(
+        `SELECT id FROM services WHERE active = 1 AND COALESCE(featured_until, 0) > @now
+         ORDER BY boost_paid DESC, id ASC LIMIT ${FEATURED_SLOTS}`,
+      )
+      .all({ now }) as Array<{ id: number }>;
+    const idx = top.findIndex((t) => t.id === id);
+    slot = idx >= 0 ? idx + 1 : 0;
+  }
+  return { ...row, featured_slot: slot };
 }

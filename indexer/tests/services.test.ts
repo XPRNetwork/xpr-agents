@@ -711,6 +711,14 @@ describe('Services catalogue query', () => {
 
     expect(featured).toEqual([1, 2, 3, 4]);
     expect(rows.find((r) => r.id === 5).featured).toBe(0);
+
+    // Only the top three by boost_paid occupy a slot; the 4th running boost is
+    // featured but slot 0, so the UI does not badge it.
+    const slotOf = (id: number) => rows.find((r) => r.id === id).featured_slot;
+    expect([slotOf(4), slotOf(3), slotOf(2)]).toEqual([1, 2, 3]);
+    expect(slotOf(1)).toBe(0);
+    expect(slotOf(5)).toBe(0);
+    expect(rows.slice(0, 3).map((r) => r.id)).toEqual([4, 3, 2]);
   });
 
   it('drops an expired boost back into the organic order', () => {
@@ -762,12 +770,14 @@ describe('Services catalogue query', () => {
     const live = queryService(db, 1, T0) as any;
     expect(live.id).toBe(1);
     expect(live.featured).toBe(1);
+    expect(live.featured_slot).toBe(1);
     expect(live.boost_paid).toBe(20000);
     expect(live.trust_score).toBe(63);
 
     // Delisted / expired rows are still readable, just not featured
     const stale = queryService(db, 2, T0) as any;
     expect(stale.featured).toBe(0);
+    expect(stale.featured_slot).toBe(0);
 
     expect(queryService(db, 9999, T0)).toBeUndefined();
   });

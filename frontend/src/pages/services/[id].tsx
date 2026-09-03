@@ -21,6 +21,7 @@ import {
   isImageUri,
   getService,
   getServiceConfig,
+  FEATURED_SLOTS,
   boostDays,
   findServiceJob,
   parseDeliverableManifest,
@@ -90,6 +91,8 @@ export default function ServicePage() {
   );
 
   const isSeller = !!session && !!service && session.auth.actor === service.agent;
+  // The contract also refuses purchases from the agent's KYC'd owner; say so instead of surfacing a chain error.
+  const isOwner = !!session && !!agent && !!agent.owner && agent.owner === session.auth.actor;
   const priceStr = service ? `${(service.price / 10000).toFixed(4)} XPR` : '';
   const completedJobs = agentStats?.completed_jobs ?? agent?.total_jobs;
   const reviews = score?.feedback_count ?? service?.agent_reviews ?? 0;
@@ -239,7 +242,7 @@ export default function ServicePage() {
                         {SERVICE_CATEGORY_LABELS[service.category] || service.category}
                       </span>
                     )}
-                    {service.featured && <FeaturedChip />}
+                    {service.featuredSlot > 0 && <FeaturedChip />}
                     {!service.active && (
                       <span className="rounded bg-crit-soft px-2 py-0.5 text-[11px] font-medium text-crit">Delisted</span>
                     )}
@@ -374,6 +377,7 @@ export default function ServicePage() {
                     <dl className="divide-y divide-line">
                       {railRow('Turnaround', <span className="font-mono tabular">{formatTurnaround(service.turnaround)}</span>)}
                       {railRow('Sales', <span className="font-mono tabular">{service.sales}</span>)}
+                      {service.featured && service.featuredSlot === 0 && railRow('Featured', <span className="text-xs text-muted">Boost running, outside the top {FEATURED_SLOTS} slots</span>)}
                       {service.featured && railRow('Featured until', (
                         <span className="font-mono tabular text-accent" title={formatDate(service.featuredUntil)}>
                           {formatRelativeTime(service.featuredUntil)}
@@ -392,6 +396,8 @@ export default function ServicePage() {
                         </button>
                       ) : isSeller ? (
                         <p className="text-xs text-muted">This is your own listing. Edit or delist it from your dashboard.</p>
+                      ) : isOwner ? (
+                        <p className="text-xs text-muted">You own <span className="font-mono">{service.agent}</span>, so you cannot buy from it. Use another account to test the purchase flow.</p>
                       ) : (
                         <button
                           onClick={handleBuy}

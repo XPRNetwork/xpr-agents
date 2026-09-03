@@ -365,7 +365,7 @@ export default function Home() {
                 <h2 id="services-strip" className="font-display text-2xl font-semibold text-ink">Buy a service outright</h2>
                 <p className="mt-1 text-sm text-ink-2">
                   Fixed price, fixed turnaround. One transaction funds the escrow job.
-                  {topServices.some(s => s.featured) && ' Featured listings first.'}
+                  {topServices.some(s => s.featuredSlot > 0) && ' Featured listings first.'}
                 </p>
               </div>
               <Link href="/services" className="text-sm text-accent hover:text-accent-hover">Browse services →</Link>

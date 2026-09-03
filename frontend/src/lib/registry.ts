@@ -1499,6 +1499,8 @@ export interface Service {
   featuredUntil: number;
   /** Indexer's `featured` flag, or `featuredUntil > now` on the RPC path. */
   featured: boolean;
+  /** 1..FEATURED_SLOTS when the listing occupies a featured slot, else 0 (only slotted listings get the badge). */
+  featuredSlot: number;
   /** Joined by the indexer — absent on the RPC fallback path. */
   agent_name?: string;
   agent_trust?: number;
@@ -1531,6 +1533,7 @@ function parseService(row: any): Service {
     boostPaid: parseInt(row.boost_paid) || 0,
     featuredUntil: featuredUntil,
     featured: featuredUntil > Math.floor(Date.now() / 1000),
+    featuredSlot: 0,
   };
 }
 
@@ -1543,6 +1546,7 @@ function serviceFromIndexerRow(row: any): Service {
     // The API decides what is featured (it applies the same featured_until > now
     // rule server-side); fall back to the computed flag when the field is absent.
     featured: row.featured === undefined ? svc.featured : (row.featured === 1 || row.featured === true),
+    featuredSlot: typeof row.featured_slot === 'number' ? row.featured_slot : parseInt(row.featured_slot) || 0,
     agent_name: row.agent_name || row.name || undefined,
     agent_trust: num(row.trust_score ?? row.agent_trust),
     agent_rating: num(row.avg_score ?? row.agent_rating),
@@ -1741,8 +1745,9 @@ export function rankServices(services: Service[], sort: ServiceSort = 'sales'): 
     .sort((a, b) => (b.boostPaid - a.boostPaid) || (a.id - b.id))
     .slice(0, FEATURED_SLOTS);
   const promoted = new Set(featured.map(s => s.id));
+  const slotted = featured.map((s, i) => ({ ...s, featuredSlot: i + 1 }));
   const rest = services.filter(s => !promoted.has(s.id)).sort(organic);
-  return [...featured, ...rest];
+  return [...slotted, ...rest.map(s => (s.featuredSlot ? { ...s, featuredSlot: 0 } : s))];
 }
 
 // ============== SERVICE MARKET CONFIG / LISTING FEE DEPOSITS ==============

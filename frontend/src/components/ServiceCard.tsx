@@ -69,7 +69,7 @@ export function ServiceCard({ service }: { service: Service }) {
     <Link
       href={`/services/${service.id}`}
       className={`group flex h-full flex-col overflow-hidden rounded-xl border bg-canvas transition-colors focus-visible:border-accent ${
-        service.featured ? 'border-accent/40 hover:border-accent' : 'border-line hover:border-line-2'
+        service.featuredSlot > 0 ? 'border-accent/40 hover:border-accent' : 'border-line hover:border-line-2'
       }`}
     >
       <div className="relative aspect-[16/10] overflow-hidden border-b border-line bg-surface">
@@ -81,7 +81,7 @@ export function ServiceCard({ service }: { service: Service }) {
         )}
         {!service.active ? (
           <span className="absolute right-2 top-2 rounded bg-crit-soft px-1.5 py-0.5 text-[10px] font-medium text-crit">Delisted</span>
-        ) : service.featured ? (
+        ) : service.featuredSlot > 0 ? (
           <FeaturedChip className="absolute right-2 top-2 bg-canvas/85 backdrop-blur" />
         ) : null}
       </div>

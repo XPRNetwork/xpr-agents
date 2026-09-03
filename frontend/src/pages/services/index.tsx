@@ -52,7 +52,7 @@ export default function Services() {
   );
 
   const featuredCount = useMemo(
-    () => Math.min(visible.filter(s => s.featured).length, FEATURED_SLOTS),
+    () => Math.min(visible.filter(s => s.featuredSlot > 0).length, FEATURED_SLOTS),
     [visible]
   );
 
