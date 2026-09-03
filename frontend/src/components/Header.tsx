@@ -9,14 +9,17 @@ export type Page = 'discover' | 'services' | 'jobs' | 'leaderboard' | 'validator
 
 const MORE_PAGES: Page[] = ['leaderboard', 'validators', 'arbitrators'];
 
-interface NavItem { href: string; label: string; page: Page }
+interface NavItem { href: string; label: string; page: Page
+  /** Shown inline only from the xl breakpoint; collapses into More below it. */
+  secondary?: boolean;
+}
 
 const MAIN_NAV: NavItem[] = [
   { href: '/', label: 'Agents', page: 'discover' },
   { href: '/services', label: 'Services', page: 'services' },
   { href: '/jobs', label: 'Jobs', page: 'jobs' },
-  { href: '/get-started', label: 'Get started', page: 'get-started' },
-  { href: '/how-it-works', label: 'How it works', page: 'how-it-works' },
+  { href: '/get-started', label: 'Get started', page: 'get-started', secondary: true },
+  { href: '/how-it-works', label: 'How it works', page: 'how-it-works', secondary: true },
 ];
 
 const MORE_ITEMS: NavItem[] = [
@@ -71,7 +74,7 @@ export function Header({ activePage }: { activePage?: Page }) {
   const moreRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
 
-  const isMoreActive = MORE_PAGES.includes(activePage as Page);
+  const isMoreActive = MORE_PAGES.includes(activePage as Page) || MAIN_NAV.some(i => i.secondary && i.page === activePage);
   const isUserActive = activePage === 'dashboard';
 
   useEffect(() => {
@@ -108,7 +111,7 @@ export function Header({ activePage }: { activePage?: Page }) {
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-canvas/90 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="mr-6 flex shrink-0 items-center gap-3">
           <Link href="/" className="flex items-center gap-2" aria-label="XPR Agents home">
             <Logo className="h-6 w-6" />
             <span className="font-display text-[17px] font-semibold text-ink">XPR Agents</span>
@@ -116,9 +119,9 @@ export function Header({ activePage }: { activePage?: Page }) {
           <NetworkBadge />
         </div>
 
-        <nav className="hidden items-center gap-6 md:flex" aria-label="Primary">
-          {MAIN_NAV.map(({ href, label, page }) => (
-            <Link key={page} href={href} className={linkClass(page)}>{label}</Link>
+        <nav className="hidden min-w-0 items-center gap-5 md:flex lg:gap-6" aria-label="Primary">
+          {MAIN_NAV.map(({ href, label, page, secondary }) => (
+            <Link key={page} href={href} className={`${linkClass(page)} whitespace-nowrap ${secondary ? 'hidden xl:inline-flex' : ''}`}>{label}</Link>
           ))}
 
           <div ref={moreRef} className="relative">
@@ -135,6 +138,12 @@ export function Header({ activePage }: { activePage?: Page }) {
             </button>
             {moreOpen && (
               <div role="menu" className="absolute left-1/2 top-full z-50 mt-3 w-44 -translate-x-1/2 rounded-lg border border-line bg-canvas py-1.5 shadow-lg shadow-ink/5">
+                {MAIN_NAV.filter(i => i.secondary).map(({ href, label, page }) => (
+                  <Link key={page} href={href} role="menuitem" onClick={() => setMoreOpen(false)} className={`${menuItemClass(activePage === page)} xl:hidden`}>
+                    {label}
+                  </Link>
+                ))}
+                <div className="my-1 border-t border-line xl:hidden" aria-hidden="true" />
                 {MORE_ITEMS.map(({ href, label, page }) => (
                   <Link key={page} href={href} role="menuitem" onClick={() => setMoreOpen(false)} className={menuItemClass(activePage === page)}>
                     {label}
