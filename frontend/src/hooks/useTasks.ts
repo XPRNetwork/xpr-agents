@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getJobsForAccount,
+  getJob,
   getJobMessages,
   getBidsForJob,
   getFeedbackByReviewer,
@@ -49,13 +50,24 @@ export function useTasks(account: string | undefined): TasksState {
       inflight.current = true;
       setLoading(true);
       try {
-        const [{ asClient, asAgent }, myReviews, deposit, config, agentRow] = await Promise.all([
+        let [{ asClient, asAgent }, myReviews, deposit, config, agentRow] = await Promise.all([
           getJobsForAccount(account!),
           getFeedbackByReviewer(account!).catch(() => []),
           getServiceDeposit(account!).catch(() => null),
           getEscrowConfig().catch(() => null),
           getAgent(account!).catch(() => null),
         ]);
+        // Deadline-sensitive rows are re-read from chain: the indexer can lag
+        // (e.g. a revise extends the deadline on chain) and a wrong "missed
+        // deadline" task would send the user to a page with no such action.
+        const nowSec0 = Math.floor(Date.now() / 1000);
+        const verify = async (list: Job[]): Promise<Job[]> => Promise.all(list.map(async j => {
+          const sensitive = ([1, 2, 3].includes(j.state) && j.deadline > 0 && nowSec0 > j.deadline) || j.state === 4;
+          if (!sensitive) return j;
+          const fresh = await getJob(j.id).catch(() => null);
+          return fresh || j;
+        }));
+        [asClient, asAgent] = await Promise.all([verify(asClient), verify(asAgent)]);
         const live = [...asClient, ...asAgent].filter(j => [1, 2, 3].includes(j.state)).slice(0, MAX_THREAD_LOOKUPS);
         const messages: Record<number, JobMessage[]> = {};
         await Promise.all(live.map(async j => { messages[j.id] = await getJobMessages(j.id).catch(() => []); }));
