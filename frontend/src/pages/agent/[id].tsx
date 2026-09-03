@@ -8,12 +8,14 @@ import { TrustBadge } from '@/components/TrustBadge';
 import { FeedbackForm } from '@/components/FeedbackForm';
 import { AccountAvatar } from '@/components/AccountAvatar';
 import { AccountLink } from '@/components/AccountLink';
+import { ServiceCard } from '@/components/ServiceCard';
 import { useAgent } from '@/hooks/useAgent';
 import {
   formatXpr, formatDate, formatRelativeTime, formatTimeline, getJobStateLabel,
   getJobsByAgent, getBidsByAgent, getAgentEarnings, getXprBalance,
   getCollectionsByAuthor, getNftImageUrl, getNftMarketplaceUrl,
-  type Job, type Bid, type NftCollection,
+  getServicesByAgent,
+  type Job, type Bid, type NftCollection, type Service,
 } from '@/lib/registry';
 
 export default function AgentDetail() {
@@ -27,6 +29,7 @@ export default function AgentDetail() {
   const [totalEarnings, setTotalEarnings] = useState(0);
   const [walletBalance, setWalletBalance] = useState(0);
   const [nftCollections, setNftCollections] = useState<NftCollection[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
 
   useEffect(() => {
     if (id && typeof id === 'string') {
@@ -35,6 +38,20 @@ export default function AgentDetail() {
       getAgentEarnings(id).then(e => setTotalEarnings(e.total)).catch(() => {});
       getXprBalance(id).then(setWalletBalance).catch(() => {});
       getCollectionsByAuthor(id).then(setNftCollections).catch(() => {});
+      // Active listings only, running boosts first, then most sold. The
+      // catalogue's featuredSlot is left as the indexer set it so the badge
+      // still means "in the top slots of /services", not "top of this page".
+      getServicesByAgent(id)
+        .then((list) => setServices(
+          list
+            .filter((svc) => svc.active)
+            .sort((a, b) =>
+              (Number(b.featured) - Number(a.featured)) ||
+              (b.sales - a.sales) ||
+              (b.created_at - a.created_at)
+            )
+        ))
+        .catch(() => {});
     }
   }, [id]);
 
@@ -157,6 +174,23 @@ export default function AgentDetail() {
               </div>
             </div>
           </div>
+
+          {/* Services */}
+          {services.length > 0 && (
+            <div className="bg-surface border border-line rounded-xl p-6 mb-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h2 className="text-xl font-bold text-ink">Services ({services.length})</h2>
+                <Link href="/services" className="text-sm text-accent hover:underline">
+                  View all services
+                </Link>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {services.map((service) => (
+                  <ServiceCard key={service.id} service={service} />
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Jobs */}
           {agentJobs.length > 0 && (
