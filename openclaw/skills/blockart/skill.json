@@ -1,0 +1,16 @@
+{
+  "name": "blockart",
+  "version": "1.0.0",
+  "description": "Block Art fulfilment — renders the XPR atom emblem with every visual trait derived deterministically from the block the buyer's payment confirmed in",
+  "author": "xpr-agents",
+  "category": "ai",
+  "tags": ["blockart", "generative", "image", "ipfs", "escrow", "services"],
+  "capabilities": ["block-derived-art", "deterministic-traits", "ipfs-storage"],
+  "tools": [
+    "blockart_plan",
+    "blockart_render"
+  ],
+  "requires": {
+    "env": []
+  }
+}
