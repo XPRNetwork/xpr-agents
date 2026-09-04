@@ -411,7 +411,7 @@ As a client, answer the agent's question with xpr_answer_agent from the brief yo
 wrote; if you cannot answer, say so plainly so the agent can proceed.
 
 ## Delivering Jobs
-If a job you delivered goes back to INPROGRESS, the client requested changes (revise action, notes in the tx): fix the work and deliver again. You may also re-deliver while the job is still DELIVERED to correct a mistake. If the same note comes back twice, re-read the brief and llms.txt before re-delivering; do not re-send the same file. As a client, request changes at most twice, then approve or dispute.
+If a job you delivered goes back to INPROGRESS, the client requested changes; the runner briefs you with their note and your previous deliveries. Address the note, or ask one question if it is unclear, and deliver new work. You may also re-deliver while the job is still DELIVERED to correct a mistake. If the same note comes back twice, re-read the brief and llms.txt before re-delivering; do not re-send the same file. As a client, request changes at most twice, then approve or dispute.
 
 When delivering a job, ALWAYS:
 1. Do the actual work — write the text, generate the image, create the code, etc.
@@ -722,6 +722,26 @@ async function runAgent(eventType: string, data: any, message: string, options?:
         }
 
         console.log(`[agent] Tool call: ${toolUse.name}(${JSON.stringify(toolUse.input).slice(0, 100)})`);
+
+        // Re-sending evidence the client already rejected is refused here, before it
+        // reaches the chain, regardless of what the model concluded.
+        if (toolUse.name === 'xpr_deliver_job') {
+          const input: any = toolUse.input || {};
+          const jid = Number(input.job_id);
+          const evidence = typeof input.evidence_uri === 'string' ? input.evidence_uri.trim() : '';
+          const prior = deliveredEvidenceByJob.get(jid);
+          if (prior && evidence && prior.has(evidence)) {
+            console.warn(`[agent] Refused to re-deliver identical evidence on job #${jid}`);
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              content: JSON.stringify({ error: `This exact evidence was already delivered on job #${jid} and the client sent it back. Produce genuinely different work that addresses their note, or ask them one specific question with xpr_ask_client.` }),
+              is_error: true,
+            });
+            continue;
+          }
+          if (prior && evidence) prior.add(evidence);
+        }
 
         try {
           const result = await tool.handler(toolUse.input);
@@ -1559,6 +1579,69 @@ async function fetchJobMessages(jobId: number): Promise<JobMessageLike[]> {
   }
 }
 
+// ── Job history: what the client said when sending work back, and what we already sent ──
+// Revise notes live in action history, not in the jobmsgs table, so a job that was
+// sent back looks identical on chain to one that was never delivered. Without this
+// the agent re-delivers blind and gets the same objection again (job 71, 2026-09-03).
+interface JobHistory { revisionNotes: string[]; priorDeliveries: string[] }
+
+async function fetchJobHistory(jobId: number): Promise<JobHistory> {
+  const out: JobHistory = { revisionNotes: [], priorDeliveries: [] };
+  try {
+    const base = (process.env.INDEXER_URL || '').replace(/\/+$/, '');
+    if (!base) return out;
+    const res = await fetch(`${base}/api/events?contract=agentescrow&job_id=${jobId}&limit=100`);
+    if (!res.ok) return out;
+    const body: any = await res.json();
+    const events: any[] = Array.isArray(body) ? body : (body?.events || []);
+    for (const e of events) {
+      let data: any = e?.data;
+      if (typeof data === 'string') { try { data = JSON.parse(data); } catch { data = {}; } }
+      if (e?.action_name === 'revise' && typeof data?.notes === 'string' && data.notes.trim()) {
+        out.revisionNotes.push(scanInbound(data.notes, 'poller').text);
+      }
+      if (e?.action_name === 'deliver' && typeof data?.evidence_uri === 'string' && data.evidence_uri) {
+        out.priorDeliveries.push(data.evidence_uri);
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[poller/history] Could not read history for job #${jobId}: ${err.message}`);
+  }
+  return out;
+}
+
+/**
+ * For a service purchase (job_hash "svc:<id>"), the listing the buyer actually
+ * bought. The brief they typed is only meaningful against it: a request outside
+ * the listing's scope is a question to ask, not work to do.
+ */
+async function fetchListingScope(job: any): Promise<string> {
+  const hash: string = typeof job?.job_hash === 'string' ? job.job_hash : '';
+  if (!hash.startsWith('svc:')) return '';
+  const id = parseInt(hash.slice(4), 10);
+  if (!Number.isFinite(id)) return '';
+  try {
+    const base = (process.env.INDEXER_URL || '').replace(/\/+$/, '');
+    if (!base) return '';
+    const res = await fetch(`${base}/api/services/${id}`);
+    if (!res.ok) return '';
+    const body: any = await res.json();
+    const svc: any = body?.service || body;
+    if (!svc?.title) return '';
+    const title = scanInbound(String(svc.title), 'poller').text;
+    const desc = scanInbound(String(svc.description || ''), 'poller').text;
+    return ` This job is a purchase of your listing #${id} "${title}": ${desc} Everything the buyer asked for must fit inside that listing. If their request asks for something the listing does not offer, or you cannot tell what they want, call xpr_ask_client ONCE with a specific question and stop — do not start work on a guess.`;
+  } catch (err: any) {
+    console.warn(`[poller/scope] Could not read listing for job #${job?.id}: ${err.message}`);
+    return '';
+  }
+}
+
+// Evidence we have already delivered per job, for the hard guard in the tool loop.
+// Populated when a revision is briefed; a re-send of identical evidence is refused
+// before it reaches the chain, whatever the model decided.
+const deliveredEvidenceByJob = new Map<number, Set<string>>();
+
 /** Render the tail of a thread for a prompt, with each message security-scanned. */
 function formatThread(messages: JobMessageLike[], account: string): string {
   return messages.slice(-6).map(m => {
@@ -1770,11 +1853,12 @@ async function pollOnChainInner(): Promise<void> {
             for (const m of thread) seenJobMessageIds.add(m.id);
             const buyerInput = extractBuyerInput(thread, job.client);
             const inputNote = buyerInput ? ` The buyer answered your service input form: ${JSON.stringify(buyerInput)}.` : '';
+            const scopeNote = await fetchListingScope(job);
             runAgent('poll:job_assigned', {
               job_id: job.id, client: job.client, agent: job.agent,
               state: job.state, title: safeTitle, description: safeDescription,
               deliverables, budget_xpr: jobBudgetXpr, buyer_input: buyerInput,
-            }, `You have been assigned to job #${job.id} "${safeTitle}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing. Buyer notes, if any, are at the end of the description.${inputNote} If a required input is genuinely missing, call xpr_ask_client ONCE with a specific question and stop — do not deliver a placeholder.`)
+            }, `You have been assigned to job #${job.id} "${safeTitle}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing. Buyer notes, if any, are at the end of the description.${inputNote}${scopeNote} If a required input is genuinely missing, call xpr_ask_client ONCE with a specific question and stop — do not deliver a placeholder.`)
               .then(() => recordAskedIfPending(job.id, account))
               .catch(err => handleRunFailure(err, `newly assigned job #${job.id}`, {
                 jobId: job.id,
@@ -1802,6 +1886,7 @@ async function pollOnChainInner(): Promise<void> {
           for (const m of thread) seenJobMessageIds.add(m.id);
           const buyerInput = extractBuyerInput(thread, job.client);
           const inputNote = buyerInput ? ` The buyer answered your service input form: ${JSON.stringify(buyerInput)}.` : '';
+          const scopeNote = await fetchListingScope(job);
           console.log(`[poller] Re-evaluating FUNDED job #${job.id} (attempt ${attempts + 1}/${MAX_FUNDED_RETRIES})`);
           activeJobIds.add(job.id);
           recordEval();
@@ -1809,7 +1894,7 @@ async function pollOnChainInner(): Promise<void> {
             job_id: job.id, client: job.client, agent: job.agent,
             state: job.state, title: safeTitle, description: safeDescription,
             deliverables, budget_xpr: jobBudgetXpr, buyer_input: buyerInput,
-          }, `You have been assigned to job #${job.id} "${safeTitle}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing. Buyer notes, if any, are at the end of the description.${inputNote} If a required input is genuinely missing, call xpr_ask_client ONCE with a specific question and stop — do not deliver a placeholder.`)
+          }, `You have been assigned to job #${job.id} "${safeTitle}" (${jobBudgetXpr} XPR). It is FUNDED. Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Accept the job, start working on it, and deliver ALL requested deliverables. You MUST upload all files and call xpr_deliver_job before finishing. Buyer notes, if any, are at the end of the description.${inputNote}${scopeNote} If a required input is genuinely missing, call xpr_ask_client ONCE with a specific question and stop — do not deliver a placeholder.`)
             .then(() => recordAskedIfPending(job.id, account))
             .catch(err => handleRunFailure(err, `FUNDED job #${job.id}`, {
               jobId: job.id,
@@ -1826,6 +1911,47 @@ async function pollOnChainInner(): Promise<void> {
           const fromName = stateNames[prevState] || String(prevState);
           const toName = stateNames[job.state] || String(job.state);
           console.log(`[poller] Job #${job.id} state changed: ${fromName} → ${toName}`);
+
+          // DELIVERED → INPROGRESS is the client sending the work back (revise).
+          // It used to fall through as "informational", so revisions were never
+          // acted on. Brief the agent with what the client said and what we already
+          // sent, so the next delivery answers the note instead of repeating it.
+          if (prevState === 4 && job.state === 3) {
+            if (!canSpendCredits(`job #${job.id} sent back for revision`)) continue;
+            const jobBudgetXpr = (job.amount / 10000).toFixed(4);
+            const deliverables = scanInbound(job.deliverables || '', 'poller').text;
+            const safeTitle = scanInbound(job.title || '', 'poller').text;
+            const safeDescription = scanInbound(job.description || '', 'poller').text;
+            activeJobIds.add(job.id);
+            recordEval();
+            const history = await fetchJobHistory(job.id);
+            deliveredEvidenceByJob.set(job.id, new Set(history.priorDeliveries));
+            const scopeNote = await fetchListingScope(job);
+            const norm = (t: string) => t.replace(/\W+/g, ' ').trim().toLowerCase();
+            const latestNote = history.revisionNotes[history.revisionNotes.length - 1] || '';
+            const repeated = history.revisionNotes.length >= 2
+              && norm(history.revisionNotes[history.revisionNotes.length - 2]) === norm(latestNote);
+            const noteText = latestNote
+              ? `The client's note: "${latestNote}".${repeated ? ' They have now said this twice, so the last attempt did not address it.' : ''}`
+              : 'The client left no note.';
+            const priorText = history.priorDeliveries.length
+              ? ` You have already delivered ${history.priorDeliveries.length} time(s) on this job; re-sending any of that evidence is refused automatically.`
+              : '';
+            console.log(`[poller] Job #${job.id} sent back for revision (${history.revisionNotes.length} note(s), ${history.priorDeliveries.length} prior deliveries)`);
+            runAgent('poll:job_revised', {
+              job_id: job.id, client: job.client, agent: job.agent,
+              from_state: prevState, to_state: job.state,
+              title: safeTitle, description: safeDescription, deliverables, budget_xpr: jobBudgetXpr,
+              revision_notes: history.revisionNotes, prior_deliveries: history.priorDeliveries,
+            }, `The client sent job #${job.id} "${safeTitle}" (${jobBudgetXpr} XPR) back for changes. ${noteText}${priorText}${scopeNote} Description: ${safeDescription || 'N/A'}. Deliverables: ${deliverables || 'N/A'}. Read the note against the brief. If it is specific and within scope, make the change and deliver new work with xpr_deliver_job. If it is unclear, or asks for something outside what was sold, call xpr_ask_client ONCE with a specific question and stop — a second identical delivery will only be sent back again.`)
+              .then(() => recordAskedIfPending(job.id, account))
+              .catch(err => handleRunFailure(err, `job #${job.id} revision`, {
+                jobId: job.id,
+                rollback: () => knownJobStates.set(job.id, prevState),
+              }))
+              .finally(() => activeJobIds.delete(job.id));
+            continue;
+          }
 
           // Terminal/informational states — just log, no Claude call needed
           // COMPLETED(6), REFUNDED(7), ARBITRATED(8), ACCEPTED(2), INPROGRESS(3)
