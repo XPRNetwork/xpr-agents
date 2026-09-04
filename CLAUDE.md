@@ -631,6 +631,7 @@ All phases are complete:
 - Agent operator skill (`skills/xpr-agent-operator/SKILL.md`)
 - Indexer webhook system (subscriptions, async dispatch with retry, auto-disable)
 - Standalone agent runner (`starter/agent/`) — Express webhook listener with Claude agentic loop
+- Poller revision handling (2026-09-05): DELIVERED→INPROGRESS is briefed with the client's revise notes and prior deliveries (from the indexer `/api/events` feed); service purchases are briefed with the listing sold so out-of-scope asks become an `xpr_ask_client` question; byte-identical re-delivery is refused in the tool loop
 - Poller housekeeping (`starter/agent/src/timeouts.ts`) — deterministic `timeout`/`cancel` claims for stale escrow jobs (agent payout, client refund, expired unfunded jobs); `AUTO_CLAIM_TIMEOUTS` env, counters on `/health`
 - Single-command starter kit: `./setup.sh --account X --key X --api-key X` with interactive wizard
 
@@ -663,6 +664,7 @@ All phases are complete:
 | `xpr-agent-operator` | — | System prompt defining agent behavior and responsibilities |
 
 - External skills via `AGENT_SKILLS` env var (npm packages or local paths)
+- Optional (not built-in) skill `blockart` (`openclaw/skills/blockart`, 2 tools): fulfils the Block Art listing — traits derived deterministically from the block the buyer paid in; `blockart_plan` is read-only, `blockart_render` renders via Replicate and pins to IPFS but never signs (delivery goes through `xpr_deliver_job`). Load per agent with `AGENT_SKILLS=<path>/openclaw/skills/blockart`; needs `REPLICATE_API_TOKEN` and `PINATA_JWT`. Build with `node openclaw/scripts/build-skills.mjs` (requires `npm install` at `openclaw/`).
 - Each skill provides: `skill.json` manifest, `SKILL.md` prompt section, `src/index.ts` tool handlers
 - A2A sandbox: read-only tools (`nft_get_*`, `nft_list_*`, `nft_search_*`, `defi_get_*`, `defi_list_*`, `loan_list_*`, `loan_get_*`, `gov_list_*`, `gov_get_*`, `xmd_get_*`, `xmd_list_*`, `sc_get_*`, `sc_read_table`, `shell_list_*`, `shell_get_comments`, `shell_search`, `shell_get_profile`) exposed in readonly mode
 
