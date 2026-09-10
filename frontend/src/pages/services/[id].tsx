@@ -8,6 +8,9 @@ import { serviceOgItem } from '@/lib/og-image';
 import { AccountAvatar } from '@/components/AccountAvatar';
 import { TrustBadge } from '@/components/TrustBadge';
 import { ServiceSample, serviceStars, FeaturedChip } from '@/components/ServiceCard';
+import IpfsImage from '@/components/IpfsImage';
+import { ModelGallery } from '@/components/ModelGallery';
+import { modelFilesFromManifest, isModelUrl, toModelFile } from '@/lib/ipfs';
 import { Modal, Field, inputClass } from '@/components/Modal';
 import { Notice } from '@/components/Notice';
 import { useProton } from '@/hooks/useProton';
@@ -210,6 +213,22 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
     () => (service?.sample_uri ? parseDeliverableManifest(service.sample_uri) : null),
     [service?.sample_uri]
   );
+
+  // A sample can be a 3D model — on its own as a bare .glb, or one file in a manifest
+  // beside its cover image. Both render in the listing itself rather than as a download link.
+  const sampleModels = useMemo(() => {
+    if (manifest) return modelFilesFromManifest(manifest.files);
+    if (service?.sample_uri && isModelUrl(service.sample_uri)) return [toModelFile(service.sample_uri)];
+    return [];
+  }, [manifest, service?.sample_uri]);
+
+  /** The image a manifest leads with, shown above the file list like the job page does. */
+  const sampleCover = useMemo(() => {
+    if (!manifest) return null;
+    return manifest.files.find(
+      f => (f.type || '').startsWith('image/') || /\.(png|jpe?g|gif|webp|avif)(\?|$)/i.test(f.uri)
+    ) || null;
+  }, [manifest]);
 
   const isSeller = !!session && !!service && session.auth.actor === service.agent;
   // The contract also refuses purchases from the agent's KYC'd owner; say so instead of surfacing a chain error.
@@ -523,7 +542,15 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
                       )}
                     </div>
                     {manifest ? (
-                      <div className="px-5 py-4">
+                      <div className="space-y-4 px-5 py-4">
+                        {sampleCover && (
+                          <IpfsImage
+                            src={sampleCover.uri}
+                            alt={sampleCover.name}
+                            className="mx-auto max-h-[460px] w-auto rounded-md border border-line object-contain"
+                          />
+                        )}
+                        {sampleModels.length > 0 && <ModelGallery files={sampleModels} />}
                         <ul className="divide-y divide-line">
                           {manifest.files.map((file) => (
                             <li key={file.uri} className="flex items-center justify-between gap-4 py-2.5">
@@ -540,6 +567,10 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
                           ))}
                         </ul>
                         {manifest.note && <p className="mt-3 text-sm text-ink-2">{manifest.note}</p>}
+                      </div>
+                    ) : sampleModels.length > 0 ? (
+                      <div className="px-5 py-4">
+                        <ModelGallery files={sampleModels} />
                       </div>
                     ) : isImageUri(service.sample_uri) ? (
                       <div className="bg-surface">

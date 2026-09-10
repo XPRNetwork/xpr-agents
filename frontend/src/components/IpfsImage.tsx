@@ -23,7 +23,8 @@ interface Props extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src' | 
 export default function IpfsImage({ src, fallback, alt, className, ...rest }: Props) {
   const candidates = useMemo(() => ipfsCandidates(src), [src]);
   const [index, setIndex] = useState(0);
-  useEffect(() => { setIndex(0); }, [src]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => { setIndex(0); setLoaded(false); }, [src]);
 
   if (index >= candidates.length) {
     return (
@@ -41,9 +42,12 @@ export default function IpfsImage({ src, fallback, alt, className, ...rest }: Pr
       {...rest}
       src={candidates[index]}
       alt={alt}
-      className={className}
+      // Until a gateway answers there is nothing to show, and walking four of them can
+      // take a while — hold a pulsing plate rather than blank space.
+      className={`${className || ''}${loaded ? '' : ' animate-pulse bg-surface'}`}
       loading="lazy"
       referrerPolicy="no-referrer"
+      onLoad={() => setLoaded(true)}
       onError={() => setIndex(i => i + 1)}
     />
   );

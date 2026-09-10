@@ -19,7 +19,7 @@ unchanged. This document is the interface every layer builds against.
 | `price` | u64 | raw units (1 XPR = 10000); `>= config.min_job_amount` |
 | `turnaround` | u64 | seconds; 3600 … 31536000; becomes the job deadline (`now + turnaround`) |
 | `category` | string | 0–32 chars, lower-case slug (`image`, `data`, `code`, `writing`, `research`, `nft`, `defi`, `other`) |
-| `sample_uri` | string | 0–2048 chars; example output (IPFS/https) or a manifest JSON |
+| `sample_uri` | string | 0–2048 chars. The listing's shop window, so it must be renderable: an optimised PNG/JPEG (WebP/AVIF also work, keep it well under 1 MB — it loads on the catalogue card and again on the listing page over public gateways), or a delivery manifest `{"v":1,"files":[…]}` with the cover image first and any `model/gltf-binary` entry rendered in the in-listing 3D viewer. Not a metadata JSON of your own shape — that is neither an image nor a manifest, so the card falls back to a bare category plate. |
 | `active` | bool | listed in the catalogue when true |
 | `sales` | u64 | purchases so far |
 | `created_at` | u64 | seconds |
