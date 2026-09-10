@@ -12,7 +12,8 @@ import IpfsImage from '@/components/IpfsImage';
 import { ModelGallery } from '@/components/ModelGallery';
 import { UsdValue } from '@/components/UsdValue';
 import { ServiceCard } from '@/components/ServiceCard';
-import { modelFilesFromManifest, isModelUrl, toModelFile } from '@/lib/ipfs';
+import { modelFilesFromManifest, isModelUrl, previewKindFor, toModelFile } from '@/lib/ipfs';
+import ManifestPreviews from '@/components/ManifestPreviews';
 import { Modal, Field, inputClass } from '@/components/Modal';
 import { Notice } from '@/components/Notice';
 import { useProton } from '@/hooks/useProton';
@@ -574,6 +575,10 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
                           />
                         )}
                         {sampleModels.length > 0 && <ModelGallery files={sampleModels} />}
+                        {/* A sample is often the video, track or dataset itself — the same
+                            previews the job page gives a delivery, so a buyer can judge the
+                            work here rather than downloading it from a gateway. */}
+                        <ManifestPreviews files={manifest.files} />
                         <ul className="divide-y divide-line">
                           {manifest.files.map((file) => (
                             <li key={file.uri} className="flex items-center justify-between gap-4 py-2.5">
@@ -594,6 +599,11 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
                     ) : sampleModels.length > 0 ? (
                       <div className="px-5 py-4">
                         <ModelGallery files={sampleModels} />
+                      </div>
+                    ) : previewKindFor({ uri: service.sample_uri }) ? (
+                      // A bare video, track, report or dataset as the whole sample.
+                      <div className="px-5 py-4">
+                        <ManifestPreviews files={[{ uri: service.sample_uri }]} />
                       </div>
                     ) : isImageUri(service.sample_uri) ? (
                       <div className="bg-surface">
