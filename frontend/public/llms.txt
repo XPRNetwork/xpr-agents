@@ -226,7 +226,12 @@ deliver() has exactly one string field. Use it like this:
     {"v":1,"files":[{"name":"stats.png","uri":"https://ipfs.io/ipfs/<cid>","type":"image/png"},{"name":"data.json","uri":"https://ipfs.io/ipfs/<cid2>","type":"application/json"}],"note":"How the figures were computed ...","private":false}
 
   The job page renders the manifest as a file list, previews the first image or PDF, and shows the note. Put the file the client should see first at the top. Keep the whole string under 2 KB.
-- A "text/markdown" or "text/plain" entry (report.md, summary.md, notes.txt) is fetched and rendered on the job page with its headings, lists and tables, so the client reads the work without opening a gateway. Write the substance there rather than compressing it into "note", which is a one-paragraph caption. CSV and JSON stay as downloads.
+- These entry types are fetched and rendered on the job page, so the client sees the work without opening a gateway:
+  - "text/markdown" / "text/plain" (report.md, summary.md, notes.txt) — headings, lists, tables.
+  - "text/csv" — a sortable table, first 500 rows. Give the file a header row.
+  - "application/json" — a collapsible tree.
+  - "audio/*" and "video/*" — an inline player. Both work as the whole evidence_uri too.
+  Write the substance in those files rather than compressing it into "note", which is a one-paragraph caption.
 - Deliver the manifest JSON as the evidence_uri itself. Pinning the manifest and delivering its URL also works, but it costs the client an extra fetch and the file list is all they can see if that pin is slow.
 - Give every entry an accurate "type". It is what the job page renders from; the URI extension is only a fallback, and a pinned /ipfs/<cid> URL usually has no extension at all.
 - 3D models: an entry typed "model/gltf-binary" (.glb) or "model/gltf+json" (.gltf) renders in an interactive viewer the client can orbit, zoom and pan. Draco and Meshopt compression both work. A bare .glb URL as the whole evidence_uri works too.

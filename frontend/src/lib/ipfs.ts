@@ -178,24 +178,53 @@ export function modelFilesFromManifest(
 }
 
 /**
- * Text files worth rendering on the page rather than linking.
+ * File kinds that get an inline preview on a job page, and how they are detected.
  *
- * A `.md` report is the substance of most written deliverables, so it belongs in
- * the page. A `.csv` is a dataset — it is deliberately excluded, since dumping a
- * few thousand comma-separated rows into a scroll box helps nobody.
+ * Detection prefers the manifest's declared `type` — that is the whole reason the
+ * format exists — and falls back to the URI extension, which is all we have when a
+ * gateway serves a pin as a generic blob.
  */
-const TEXT_EXT_RE = /\.(md|markdown|txt)(?:$|[?#])/i;
+export type PreviewKind = 'text' | 'json' | 'csv' | 'audio' | 'video';
 
-const TEXT_CONTENT_TYPES = ['text/markdown', 'text/x-markdown', 'text/plain'];
+const PREVIEW_RULES: { kind: PreviewKind; types: string[]; ext: RegExp; prefix?: string }[] = [
+  { kind: 'text', types: ['text/markdown', 'text/x-markdown', 'text/plain'], ext: /\.(md|markdown|txt)$/i },
+  { kind: 'json', types: ['application/json', 'text/json'], ext: /\.json$/i },
+  { kind: 'csv', types: ['text/csv', 'application/csv'], ext: /\.csv$/i },
+  { kind: 'audio', types: [], ext: /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus)$/i, prefix: 'audio/' },
+  { kind: 'video', types: [], ext: /\.(mp4|webm|ogv|mov|m4v)$/i, prefix: 'video/' },
+];
 
-export function isReadableTextContentType(contentType: string | null | undefined): boolean {
-  if (!contentType) return false;
-  return TEXT_CONTENT_TYPES.includes(contentType.split(';')[0].trim().toLowerCase());
+/** The name a file is shown under, and the extension detection runs against. */
+function fileLabel(uri: string, name?: string): string {
+  return name || filenameFromUrl(uri) || 'file';
 }
 
-export function isReadableTextUrl(url: string | null | undefined): boolean {
-  if (!url) return false;
-  return TEXT_EXT_RE.test(url.split('?')[0]) || TEXT_EXT_RE.test(filenameHint(url));
+/**
+ * Which preview a manifest entry gets, or null for a plain download (images, models
+ * and PDFs are placed by the page itself; archives and binaries have no preview).
+ */
+export function previewKindForContentType(contentType: string | null | undefined): PreviewKind | null {
+  const declared = (contentType || '').split(';')[0].trim().toLowerCase();
+  if (!declared) return null;
+  for (const rule of PREVIEW_RULES) {
+    if (rule.types.includes(declared)) return rule.kind;
+    if (rule.prefix && declared.startsWith(rule.prefix)) return rule.kind;
+  }
+  return null;
+}
+
+export function previewKindFor(file: ManifestFile): PreviewKind | null {
+  const declared = (file.type || '').split(';')[0].trim().toLowerCase();
+  const byType = previewKindForContentType(declared);
+  if (byType) return byType;
+  // No usable type: fall back to the name, which is why manifests carry one.
+  if (declared && !isGenericBinaryContentType(declared)) return null;
+  const label = fileLabel(file.uri, file.name).split('?')[0];
+  const path = file.uri.split('?')[0];
+  for (const rule of PREVIEW_RULES) {
+    if (rule.ext.test(label) || rule.ext.test(path)) return rule.kind;
+  }
+  return null;
 }
 
 export interface ManifestFile {
@@ -204,25 +233,29 @@ export interface ManifestFile {
   type?: string;
 }
 
+export interface PreviewableFile {
+  uri: string;
+  name: string;
+  kind: PreviewKind;
+}
+
 /**
- * Manifest entries to render inline, in manifest order. Capped because each one is a
- * gateway fetch, and a delivery whose point is twenty separate notes is a file list.
+ * Manifest entries to preview inline, in manifest order.
+ *
+ * Capped because each one is a gateway fetch, and a delivery whose point is fifty
+ * separate files is a file list, not a page of embedded players.
  */
-export function readableTextFilesFromManifest(
+export function previewableFilesFromManifest(
   files: ManifestFile[] | null | undefined,
-  limit = 2
-): { uri: string; name: string }[] {
+  limit = 6
+): PreviewableFile[] {
   if (!files) return [];
-  const out: { uri: string; name: string }[] = [];
+  const out: PreviewableFile[] = [];
   for (const f of files) {
-    if (!f?.uri) continue;
-    // An explicit type wins: a manifest may name a file `notes` with no extension. The
-    // extension is the fallback for pins typed as a generic blob, which gateways do often.
-    const typedText = isReadableTextContentType(f.type);
-    const namedText = isReadableTextUrl(f.uri) && (!f.type || isGenericBinaryContentType(f.type));
-    if (!typedText && !namedText) continue;
-    if (out.some(t => t.uri === f.uri)) continue;
-    out.push({ uri: f.uri, name: f.name || filenameFromUrl(f.uri) || 'file' });
+    if (!f?.uri || out.some(p => p.uri === f.uri)) continue;
+    const kind = previewKindFor(f);
+    if (!kind) continue;
+    out.push({ uri: f.uri, name: fileLabel(f.uri, f.name), kind });
     if (out.length >= limit) break;
   }
   return out;

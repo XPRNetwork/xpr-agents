@@ -49,10 +49,13 @@ import { ModelGallery } from '@/components/ModelGallery';
 import { UsdValue } from '@/components/UsdValue';
 import {
   ipfsCandidates, isModelUrl, isModelContentType, isGenericBinaryContentType,
-  looksLikeGlb, isGltfJson, modelFilesFromManifest, readableTextFilesFromManifest,
-  toModelFile, type ModelFile,
+  looksLikeGlb, isGltfJson, modelFilesFromManifest, previewKindFor, previewKindForContentType,
+  filenameFromUrl, toModelFile, type ModelFile,
 } from '@/lib/ipfs';
-import ManifestTextPreview from '@/components/ManifestTextPreview';
+import ManifestPreviews from '@/components/ManifestPreviews';
+import CsvPreview from '@/components/CsvPreview';
+import TextPreview from '@/components/TextPreview';
+import JsonPreview from '@/components/JsonPreview';
 import { isMarkdown, renderMarkdown } from '@/lib/markdown';
 import DeliveryHistory, { type HistoryCounts } from '@/components/DeliveryHistory';
 
@@ -284,10 +287,16 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
         setDeliverableType('manifest');
         return true;
       }
-      const ct = data.content_type || 'text/markdown';
-      setDeliverableType(ct);
+      // The wrapper shape is {content, content_type, media_url}. Anything else is the
+      // agent's own data, and a tree reads better than a stringified blob.
+      if (typeof data?.content !== 'string') {
+        setDeliverableType('json');
+        setDeliverableMediaUrl(url);
+        return true;
+      }
+      setDeliverableType(data.content_type || 'text/markdown');
       if (data.media_url) setDeliverableMediaUrl(data.media_url);
-      setDeliverableContent(data.content || JSON.stringify(data, null, 2));
+      setDeliverableContent(data.content);
       return true;
     } catch {
       return false;
@@ -355,6 +364,15 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
         return;
       }
 
+      // A bare .csv or .json URL is unambiguous too, and the previews are the same ones
+      // a manifest gets — no reason a single-file delivery should read differently.
+      const bareKind = previewKindFor({ uri: evidenceUri });
+      if (bareKind === 'csv' || bareKind === 'json') {
+        setDeliverableType(bareKind);
+        setDeliverableMediaUrl(evidenceUri);
+        return;
+      }
+
       if (evidenceUri.includes('github.com/')) {
         setDeliverableType('github:repo');
         setDeliverableMediaUrl(evidenceUri);
@@ -369,6 +387,15 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
           if (resp.ok) {
             if (await handleBinaryResponse(resp, url)) { fetched = true; break; }
             if (await handleJsonResponse(resp, url)) { fetched = true; break; }
+            // Text and CSV served without a useful extension — paste sites and gateways
+            // both do this. The preview refetches the URL, which the gateway has cached.
+            const served = previewKindForContentType(resp.headers.get('content-type'));
+            if (served === 'text' || served === 'csv') {
+              setDeliverableType(served);
+              setDeliverableMediaUrl(url);
+              fetched = true;
+              break;
+            }
           }
         } catch { /* next gateway */ }
       }
@@ -932,11 +959,10 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                 {/* A 3D deliverable can ship on its own or alongside a preview image, so this
                     sits next to the image above rather than replacing it. */}
                 {modelFiles.length > 0 && <ModelGallery files={modelFiles} />}
-                {/* The written work — report.md, summary.md — is usually the deliverable
-                    itself, so read it here rather than sending the client to a gateway. */}
-                {readableTextFilesFromManifest(manifest.files).map(f => (
-                  <ManifestTextPreview key={f.uri} uri={f.uri} name={f.name} />
-                ))}
+                {/* Reports, datasets, JSON payloads and tracks — the deliverable itself is
+                    usually one of these, so render it here rather than sending the client
+                    to a gateway. */}
+                <ManifestPreviews files={manifest.files} />
                 <ul className="divide-y divide-line rounded-md border border-line">
                   {manifest.files.map((f, i) => (
                     <li key={i} className="flex items-center justify-between gap-3 px-3 py-2">
@@ -952,6 +978,15 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   <div className="rounded-md bg-surface p-3 text-sm text-ink-2 whitespace-pre-wrap">{manifest.note}</div>
                 )}
               </div>
+            )}
+
+            {/* A report, a dataset or a JSON payload delivered on its own */}
+            {(deliverableType === 'csv' || deliverableType === 'json' || deliverableType === 'text') && deliverableMediaUrl && (
+              deliverableType === 'csv'
+                ? <CsvPreview uri={deliverableMediaUrl} name={filenameFromUrl(deliverableMediaUrl) || 'data.csv'} />
+                : deliverableType === 'json'
+                  ? <JsonPreview uri={deliverableMediaUrl} name={filenameFromUrl(deliverableMediaUrl) || 'data.json'} />
+                  : <TextPreview uri={deliverableMediaUrl} name={filenameFromUrl(deliverableMediaUrl) || 'deliverable'} />
             )}
 
             {/* 3D model deliverable */}
