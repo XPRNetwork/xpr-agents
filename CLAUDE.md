@@ -625,7 +625,7 @@ All phases are complete:
 - Documentation (MODEL.md, analysis reports)
 
 ### Phase 6: OpenClaw Plugin ✓
-- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 88 MCP tools (40 read, 48 write) + 13 bundled skills (xpr-agent-operator + 12 domain; pre-built dist in tarball since v0.4.0)
+- `openclaw/` plugin package (`@xpr-agents/openclaw`) with 89 MCP tools (40 read, 49 write) + 13 bundled skills (xpr-agent-operator + 12 domain; pre-built dist in tarball since v0.4.0)
 - Session factory for server-side signing via `@proton/js`
 - Confirmation gate for high-risk write operations (11 tools require confirmation)
 - `maxTransferAmount` enforcement on all XPR transfer/stake/fee operations
@@ -759,14 +759,14 @@ xpr-agents/
 ├── openclaw/                    # OpenClaw plugin package
 │   ├── openclaw.plugin.json     # Plugin manifest
 │   ├── src/
-│   │   ├── index.ts             # Plugin entry, registers 88 tools
+│   │   ├── index.ts             # Plugin entry, registers 89 tools
 │   │   ├── session.ts           # ProtonSession factory from env vars
 │   │   ├── types.ts             # Plugin config/API interfaces
 │   │   ├── tools/
 │   │   │   ├── agent.ts         # 10 agentcore tools
 │   │   │   ├── feedback.ts      # 7 agentfeed tools
 │   │   │   ├── validation.ts    # 9 agentvalid tools
-│   │   │   ├── escrow.ts        # 37 agentescrow tools (incl. bidding, revise, timeout, cancel, services, messages)
+│   │   │   ├── escrow.ts        # 38 agentescrow tools (incl. bidding, revise, timeout, client + agent cancel, services, messages)
 │   │   │   ├── indexer.ts       # 4 indexer query tools
 │   │   │   └── a2a.ts           # 5 A2A protocol tools
 │   │   └── util/

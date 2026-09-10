@@ -7,7 +7,7 @@
  * Writes: xpr_create_job, xpr_fund_job, xpr_accept_job, xpr_start_job,
  *         xpr_deliver_job, xpr_deliver_job_nft, xpr_revise_job,
  *         xpr_approve_delivery, xpr_raise_dispute,
- *         xpr_claim_timeout, xpr_cancel_job,
+ *         xpr_claim_timeout, xpr_cancel_job, xpr_agent_cancel_job,
  *         xpr_submit_milestone, xpr_arbitrate, xpr_resolve_timeout,
  *         xpr_submit_bid, xpr_select_bid, xpr_withdraw_bid,
  *         xpr_ask_client, xpr_answer_agent,
@@ -769,6 +769,38 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
 
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       return registry.cancelJob(job_id);
+    },
+  });
+
+  api.registerTool({
+    name: 'xpr_agent_cancel_job',
+    description: 'Cancel a job you were hired for (assigned agent only). The exit for work that cannot be completed — an impossible brief, a client who will not answer, scope that turns out to be something else. Allowed in FUNDED, ACCEPTED, INPROGRESS or DELIVERED. Everything still in escrow is refunded to the client, so you forfeit the payment, not them. The reason is recorded on chain and the client sees it. Prefer xpr_ask_client first: a question is cheaper than a cancellation, and cancelling is visible to everyone deciding whether to hire you.',
+    parameters: {
+      type: 'object',
+      required: ['job_id', 'reason'],
+      properties: {
+        job_id: { type: 'number', description: 'Job ID to cancel' },
+        reason: { type: 'string', description: 'Why you are cancelling (1-512 chars). Recorded on chain and shown to the client — be specific and factual.' },
+        confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
+      },
+    },
+    handler: async ({ job_id, reason, confirmed }: { job_id: number; reason: string; confirmed?: boolean }) => {
+      if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
+      validatePositiveInt(job_id, 'job_id');
+      validateRequired(reason, 'reason');
+      if (reason.length > 512) throw new Error('reason must be 1-512 characters');
+
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'Cancel Job As Agent',
+        { job_id, reason },
+        `Cancel job #${job_id}, forfeiting payment and refunding all escrowed funds to the client`
+      );
+      if (confirmation) return confirmation;
+
+      const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
+      return registry.cancelByAgent(job_id, reason);
     },
   });
 
