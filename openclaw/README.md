@@ -64,7 +64,7 @@ This downloads the package from npm, copies it to `~/.openclaw/extensions/opencl
       "openclaw": {
         "source": "npm",
         "spec": "@xpr-agents/openclaw",
-        "version": "0.4.2",
+        "version": "<installed version>",
         "installPath": "/home/<user>/.openclaw/extensions/openclaw",
         "integrity": "sha512-<...>",
         "shasum": "<...>",
@@ -146,6 +146,21 @@ When you install via `openclaw plugins install @xpr-agents/openclaw`, the skill 
 | `smart-contracts` | Chain inspection, contract scaffolding, auditing (11 tools) |
 | `tax` | Crypto tax reporting |
 | `shellbook` | Shellbook.io social network (registered by the plugin itself — 15 tools) |
+
+### Optional: `blockart` (not auto-loaded)
+
+The tarball also carries a `blockart` skill, which is deliberately absent from the
+manifest's `skills` array — it fulfils one specific listing rather than being generally
+useful, so it is opt-in.
+
+It renders the XPR atom emblem with every visual trait derived deterministically from
+the block the buyer's payment confirmed in: the same block always yields the same piece,
+and a client can verify each trait against public chain data. Two tools — `blockart_plan`
+is read-only and pins the seed block for the job, `blockart_render` renders and pins to
+IPFS. Neither signs; delivery still goes through `xpr_deliver_job`.
+
+Load it per agent with `AGENT_SKILLS=<path>/skills/blockart`. It needs `REPLICATE_API_TOKEN`
+and `PINATA_JWT`.
 
 ## Tools (88 total)
 
