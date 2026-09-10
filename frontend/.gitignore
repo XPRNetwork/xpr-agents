@@ -1,2 +1,5 @@
 .vercel
 .env*.local
+
+# Draco decoder, copied from three.js by scripts/copy-draco.mjs on predev/prebuild
+public/draco/

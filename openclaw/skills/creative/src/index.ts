@@ -79,6 +79,55 @@ async function uploadBinaryToIpfs(buffer: Buffer, filename: string, mimeType: st
   return null;
 }
 
+const MODEL_CONTENT_TYPES = ['model/gltf-binary', 'model/gltf+json'];
+const MODEL_EXT_RE = /\.(glb|gltf)(?:$|[?#])/i;
+const GENERIC_BINARY_TYPES = ['', 'application/octet-stream', 'binary/octet-stream', 'application/binary'];
+
+/**
+ * Extension to pin a file under. `mimeType.split('/')[1]` is wrong for the model types —
+ * it yields "gltf-binary" — and the job board keys off the extension when a manifest
+ * omits `type`, so a GLB must land as `.glb`.
+ */
+const EXTENSION_BY_MIME: Record<string, string> = {
+  'model/gltf-binary': 'glb',
+  'model/gltf+json': 'gltf',
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'image/svg+xml': 'svg',
+  'audio/mpeg': 'mp3',
+  'audio/wav': 'wav',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+};
+
+function isGenericBinaryType(mimeType: string | undefined): boolean {
+  return GENERIC_BINARY_TYPES.includes((mimeType || '').split(';')[0].trim().toLowerCase());
+}
+
+/** A 3D deliverable, whether declared by content_type or implied by the source URL. */
+function isModelDeliverable(contentType: string, sourceUrl?: string): boolean {
+  if (MODEL_CONTENT_TYPES.includes(contentType)) return true;
+  return Boolean(sourceUrl && MODEL_EXT_RE.test(sourceUrl.split('?')[0]));
+}
+
+function modelMimeFor(contentType: string, sourceUrl?: string): string {
+  if (MODEL_CONTENT_TYPES.includes(contentType)) return contentType;
+  return /\.gltf(?:$|[?#])/i.test((sourceUrl || '').split('?')[0]) ? 'model/gltf+json' : 'model/gltf-binary';
+}
+
+function extensionFor(mimeType: string, sourceUrl?: string, filename?: string): string {
+  if (filename && filename.includes('.')) return filename.split('.').pop()!.toLowerCase();
+  const mapped = EXTENSION_BY_MIME[mimeType];
+  if (mapped) return mapped;
+  const path = (sourceUrl || '').split('?')[0].split('#')[0];
+  const fromUrl = path.includes('.') ? path.split('.').pop()! : '';
+  if (fromUrl && fromUrl.length <= 5 && !fromUrl.includes('/')) return fromUrl.toLowerCase();
+  return mimeType.split('/')[1]?.split('+')[0] || 'bin';
+}
+
 const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024;
 async function downloadFromUrl(url: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
   if (!/^https?:\/\//.test(url)) return null;
@@ -387,6 +436,9 @@ export default function creativeSkill(api: SkillApi): void {
       '    Images referenced as ![alt](url) in the Markdown are downloaded and embedded in the PDF.',
       '    Do NOT include <cite> or other HTML tags in the content — use clean Markdown only.',
       '  image/*, audio/*, video/* — downloads source_url and uploads binary to IPFS',
+      '  model/gltf-binary (.glb), model/gltf+json (.gltf) — downloads source_url and uploads the 3D',
+      '    model to IPFS. The job board renders it in an interactive three.js viewer.',
+      '    A source_url ending .glb/.gltf is treated as a model even with no content_type.',
       '  text/csv, text/plain, text/html, application/json — uploads the text as a file on IPFS (the URL serves the raw file)',
       'Do NOT store a delivery manifest with this tool: pass the manifest JSON string itself as evidence_uri to xpr_deliver_job.',
     ].join('\n'),
@@ -397,8 +449,8 @@ export default function creativeSkill(api: SkillApi): void {
         job_id: { type: 'number', description: 'Job ID' },
         content: { type: 'string', description: 'Full deliverable content (markdown, text, CSV, etc.). For media types, can be empty if source_url is provided.' },
         content_type: { type: 'string', description: 'MIME type: text/markdown (default), application/pdf, image/png, audio/mpeg, video/mp4, text/csv, etc.' },
-        source_url: { type: 'string', description: 'URL to download binary content from (for image/audio/video). The file is downloaded and uploaded to IPFS.' },
-        filename: { type: 'string', description: 'Optional filename for the deliverable (e.g. "report.pdf")' },
+        source_url: { type: 'string', description: 'URL to download binary content from (for image/audio/video/3D model). The file is downloaded and uploaded to IPFS.' },
+        filename: { type: 'string', description: 'Optional filename for the deliverable (e.g. "report.pdf", "scene.glb"). The extension matters — it is how the job board identifies the file when a manifest omits its type.' },
       },
     },
     handler: async ({ job_id, content, content_type, source_url, filename }: {
@@ -432,21 +484,31 @@ export default function creativeSkill(api: SkillApi): void {
         }
       }
 
-      if (ct.startsWith('image/') || ct.startsWith('audio/') || ct.startsWith('video/') || ct === 'application/octet-stream') {
+      const isModel = isModelDeliverable(ct, source_url);
+
+      if (isModel || ct.startsWith('image/') || ct.startsWith('audio/') || ct.startsWith('video/') || ct === 'application/octet-stream') {
         let buffer: Buffer | null = null;
         let mimeType = ct;
 
         if (source_url) {
           const downloaded = await downloadFromUrl(source_url);
-          if (downloaded) { buffer = downloaded.buffer; mimeType = downloaded.mimeType || ct; }
+          if (downloaded) {
+            buffer = downloaded.buffer;
+            // Model hosts routinely serve GLBs as application/octet-stream, so a generic
+            // response type must not overwrite the specific type we already worked out.
+            if (isModel) mimeType = modelMimeFor(ct, source_url);
+            else if (!isGenericBinaryType(downloaded.mimeType)) mimeType = downloaded.mimeType;
+            else mimeType = ct;
+          }
         } else if (content) {
           buffer = Buffer.from(content, 'base64');
+          if (isModel) mimeType = modelMimeFor(ct, source_url);
         }
 
         if (!buffer) return { stored: false, error: 'Failed to obtain binary content. Provide source_url for media types.' };
 
         setDeliverable(job_id, { content: source_url || '[binary]', content_type: mimeType, created_at: ts });
-        const ext = mimeType.split('/')[1]?.split('+')[0] || 'bin';
+        const ext = extensionFor(mimeType, source_url, filename);
         const url = await uploadBinaryToIpfs(buffer, filename || `job-${job_id}.${ext}`, mimeType);
         if (url) {
           console.log(`[deliverable] Job ${job_id} ${mimeType} → IPFS: ${url}`);

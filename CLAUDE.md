@@ -611,6 +611,7 @@ All phases are complete:
 - Registration and profile management
 - Feedback submission UI
 - ProtonWebSDK singleton integration
+- Deliverable rendering: manifest file lists, image/PDF/audio/video embeds, NFT cards, and an interactive three.js viewer for GLB/GLTF models (orbit/zoom/pan, animation playback, Draco + Meshopt). The viewer is dynamically imported (`ssr: false`) so three.js stays out of the page bundle, and the Draco decoder is copied to `public/draco/` by `scripts/copy-draco.mjs` on predev/prebuild. IPFS CID parsing, the gateway fallback list and file-type detection live in `frontend/src/lib/ipfs.ts` — one implementation shared by `IpfsImage` and the model viewer.
 
 ### Phase 4: Hyperion Indexer ✓
 - Real-time event streaming for all 4 contracts

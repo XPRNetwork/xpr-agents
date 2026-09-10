@@ -1,35 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ipfsCandidates, ipfsPath } from '@/lib/ipfs';
 
 /**
  * <img> that survives flaky IPFS gateways.
  *
  * Deliverables are usually pinned once and referenced through a single public
- * gateway (ipfs.io by default). When that gateway times out the picture simply
- * breaks. This component extracts the CID and, on error, retries the same
- * content through other gateways before giving up and showing a link.
+ * gateway. When that gateway times out the picture simply breaks. This component
+ * takes the CID and, on error, retries the same content through other gateways
+ * before giving up and showing a link.
+ *
+ * The CID parsing and gateway list live in `@/lib/ipfs` so the 3D model viewer
+ * falls back over exactly the same gateways. Re-exported here for existing callers.
  */
-
-const FALLBACK_GATEWAYS = [
-  'https://gateway.pinata.cloud/ipfs/',
-  'https://dweb.link/ipfs/',
-  'https://cloudflare-ipfs.com/ipfs/',
-  'https://ipfs.io/ipfs/',
-];
-
-/** Returns the CID plus any sub-path for an IPFS URL, or null for non-IPFS URLs. */
-export function ipfsPath(url: string): string | null {
-  const m = url.match(/^ipfs:\/\/(.+)$/i) || url.match(/\/ipfs\/([A-Za-z0-9]+(?:\/[^?#]*)?)/);
-  return m ? m[1] : null;
-}
-
-/** All candidate URLs for a deliverable, original first, de-duplicated. */
-export function ipfsCandidates(url: string): string[] {
-  const p = ipfsPath(url);
-  const original = url.startsWith('ipfs://') ? `https://ipfs.io/ipfs/${p}` : url;
-  if (!p) return [original];
-  const out = [original, ...FALLBACK_GATEWAYS.map(g => g + p)];
-  return out.filter((u, i) => out.indexOf(u) === i);
-}
+export { ipfsPath, ipfsCandidates };
 
 interface Props extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src' | 'onError'> {
   src: string;
