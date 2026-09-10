@@ -44,6 +44,11 @@ import {
 } from '@/lib/registry';
 import { STATE_COLORS, getTxId } from '@/lib/job-constants';
 import IpfsImage from '@/components/IpfsImage';
+import { ModelGallery } from '@/components/ModelGallery';
+import {
+  ipfsCandidates, isModelUrl, isModelContentType, isGenericBinaryContentType,
+  looksLikeGlb, isGltfJson, modelFilesFromManifest, toModelFile, type ModelFile,
+} from '@/lib/ipfs';
 import DeliveryHistory, { type HistoryCounts } from '@/components/DeliveryHistory';
 
 interface JobDetailProps {
@@ -79,6 +84,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   const [additionalUrls, setAdditionalUrls] = useState<string[]>([]);
   const [nftAssets, setNftAssets] = useState<NftAsset[]>([]);
   const [manifest, setManifest] = useState<DeliverableManifest | null>(null);
+  const [modelFiles, setModelFiles] = useState<ModelFile[]>([]);
 
   // Rating modal
   const [showRating, setShowRating] = useState(false);
@@ -233,27 +239,37 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     }
   }
 
-  // IPFS gateway fallback helpers
-  const IPFS_GATEWAYS = ['https://ipfs.io/ipfs/', 'https://w3s.link/ipfs/', 'https://4everland.io/ipfs/'];
-
-  function extractIpfsCid(url: string): string | null {
-    const match = url.match(/\/ipfs\/(Qm[a-zA-Z0-9]{44,}|bafy[a-zA-Z0-9]+)/);
-    return match ? match[1] : null;
-  }
-
-  function handleBinaryResponse(resp: Response, url: string): boolean {
+  async function handleBinaryResponse(resp: Response, url: string): Promise<boolean> {
     const ct = (resp.headers.get('content-type') || '').split(';')[0].trim();
+    if (isModelContentType(ct)) {
+      setDeliverableType('model');
+      setModelFiles([toModelFile(url)]);
+      return true;
+    }
     if (ct.includes('application/pdf') || ct.startsWith('image/') || ct.startsWith('audio/') || ct.startsWith('video/')) {
       setDeliverableType(ct);
       setDeliverableMediaUrl(url);
       return true;
     }
+    // Gateways serve extension-less pins as octet-stream, which leaves a GLB
+    // indistinguishable from any other blob — check the glTF magic bytes.
+    if (isGenericBinaryContentType(ct) && await looksLikeGlb(url)) {
+      setDeliverableType('model');
+      setModelFiles([toModelFile(url)]);
+      return true;
+    }
     return false;
   }
 
-  async function handleJsonResponse(resp: Response): Promise<boolean> {
+  async function handleJsonResponse(resp: Response, url: string): Promise<boolean> {
     try {
       const data = await resp.json();
+      // A raw .gltf document is JSON too, but it is the model rather than a wrapper around one.
+      if (isGltfJson(data)) {
+        setDeliverableType('model');
+        setModelFiles([toModelFile(url)]);
+        return true;
+      }
       const ct = data.content_type || 'text/markdown';
       setDeliverableType(ct);
       if (data.media_url) setDeliverableMediaUrl(data.media_url);
@@ -272,6 +288,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     setAdditionalUrls([]);
     setNftAssets([]);
     setManifest(null);
+    setModelFiles([]);
     try {
       const rawEvidenceUri = await getJobEvidence(jobId);
       if (!rawEvidenceUri) {
@@ -281,6 +298,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
       const manifestData = parseDeliverableManifest(rawEvidenceUri);
       if (manifestData) {
         setManifest(manifestData);
+        setModelFiles(modelFilesFromManifest(manifestData.files));
         setDeliverableType('manifest');
         setEvidenceUrl(null);
         return;
@@ -316,6 +334,13 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
         return;
       }
 
+      // A bare model URL is unambiguous from its extension — hand it straight to the viewer.
+      if (isModelUrl(evidenceUri)) {
+        setDeliverableType('model');
+        setModelFiles([toModelFile(evidenceUri)]);
+        return;
+      }
+
       if (evidenceUri.includes('github.com/')) {
         setDeliverableType('github:repo');
         setDeliverableMediaUrl(evidenceUri);
@@ -323,35 +348,15 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
         return;
       }
 
-      const cid = extractIpfsCid(evidenceUri);
       let fetched = false;
-
-      if (cid) {
-        const urls = [evidenceUri];
-        for (const gw of IPFS_GATEWAYS) {
-          const gwUrl = `${gw}${cid}`;
-          if (gwUrl !== evidenceUri) urls.push(gwUrl);
-        }
-        for (const url of urls) {
-          try {
-            const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
-            if (resp.ok) {
-              if (handleBinaryResponse(resp, url)) { fetched = true; break; }
-              if (await handleJsonResponse(resp)) { fetched = true; break; }
-            }
-          } catch { /* next gateway */ }
-        }
-      } else {
+      for (const url of ipfsCandidates(evidenceUri)) {
         try {
-          const resp = await fetch(evidenceUri, { signal: AbortSignal.timeout(10000) });
+          const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
           if (resp.ok) {
-            if (handleBinaryResponse(resp, evidenceUri)) {
-              fetched = true;
-            } else {
-              fetched = await handleJsonResponse(resp);
-            }
+            if (await handleBinaryResponse(resp, url)) { fetched = true; break; }
+            if (await handleJsonResponse(resp, url)) { fetched = true; break; }
           }
-        } catch {}
+        } catch { /* next gateway */ }
       }
 
       if (!fetched) {
@@ -996,6 +1001,9 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                     ? <iframe src={first.uri} title={first.name} className="h-96 w-full rounded-md border border-line bg-white" />
                     : <IpfsImage src={first.uri} alt={first.name} className="max-w-full rounded-md border border-line" />;
                 })()}
+                {/* A 3D deliverable can ship on its own or alongside a preview image, so this
+                    sits next to the image above rather than replacing it. */}
+                {modelFiles.length > 0 && <ModelGallery files={modelFiles} />}
                 <ul className="divide-y divide-line rounded-md border border-line">
                   {manifest.files.map((f, i) => (
                     <li key={i} className="flex items-center justify-between gap-3 px-3 py-2">
@@ -1011,6 +1019,11 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   <div className="rounded-md bg-surface p-3 text-sm text-ink-2 whitespace-pre-wrap">{manifest.note}</div>
                 )}
               </div>
+            )}
+
+            {/* 3D model deliverable */}
+            {deliverableType === 'model' && modelFiles.length > 0 && (
+              <ModelGallery files={modelFiles} />
             )}
 
             {/* NFT deliverable */}

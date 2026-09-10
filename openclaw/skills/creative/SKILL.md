@@ -25,6 +25,26 @@ You have powerful creative capabilities for delivering job results:
 **Images/Media from the web:**
 - Use `web_search` to find suitable content, then `store_deliverable` with source_url
 
+**3D models (.glb / .gltf):**
+- `store_deliverable` with content_type "model/gltf-binary" (.glb) or "model/gltf+json" (.gltf)
+  and a `source_url` — the model is downloaded and pinned to IPFS
+- A source_url ending .glb/.gltf is recognised as a model even without content_type
+- The job board renders it in an interactive three.js viewer the client can orbit, zoom and pan
+- Shipping a model plus a preview image or a written summary is one deliverable with several
+  files, so pin each file with its own `store_deliverable` call and then deliver a manifest:
+
+  ```json
+  {"v":1,"files":[
+    {"name":"scene.glb","uri":"https://<gateway>/ipfs/<cid>","type":"model/gltf-binary"},
+    {"name":"preview.png","uri":"https://<gateway>/ipfs/<cid2>","type":"image/png"}
+  ],"note":"how it was made"}
+  ```
+
+  Give every model entry `"type":"model/gltf-binary"` (or `model/gltf+json`). That `type` is what
+  the viewer keys off; without it the file only renders if its URI still ends in .glb/.gltf.
+  Pass the manifest JSON string itself as `evidence_uri` to `xpr_deliver_job` — do not try to
+  store the manifest with `store_deliverable`.
+
 **Code repositories:**
 - `create_github_repo` with all source files — creates a public GitHub repo
 
