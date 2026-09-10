@@ -2134,6 +2134,57 @@ export function isImageUri(uri: string): boolean {
   return /\/ipfs\/[A-Za-z0-9]+\/?$/.test(s) || /^ipfs:\/\/[A-Za-z0-9]+$/i.test(s);
 }
 
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg'];
+
+/**
+ * Manifest entry with no declared `type`: trust the filename when it carries an
+ * extension, and only then fall back to the URL heuristic (which treats every
+ * bare `/ipfs/<cid>` link as a possible image).
+ */
+function untypedLooksLikeImage(name: string, uri: string): boolean {
+  const ext = /\.([a-z0-9]{1,5})$/i.exec(name || '')?.[1]?.toLowerCase();
+  if (ext) return IMAGE_EXTENSIONS.includes(ext);
+  return isImageUri(uri);
+}
+
+/**
+ * First renderable image in a job's `evidence_uri` or a service's `sample_uri`.
+ *
+ * Handles every shape those fields take in practice:
+ *   - a deliverable manifest `{"v":1,"files":[{name,uri,type}]}` — prefers the
+ *     first `image/*` entry, then the first entry that looks like an image
+ *   - a bare `https://` / `ipfs://` URL
+ *   - a comma-separated list of URLs (older agents)
+ *   - a `data:image/...` URI
+ * Returns null for NFT payloads, PDFs, plain text deliverables and junk.
+ */
+export function firstImageUri(raw: string | null | undefined): string | null {
+  const s = (raw || '').trim();
+  if (!s) return null;
+
+  // data: URIs contain commas, so they must be settled before any splitting.
+  if (s.startsWith('data:')) return s.startsWith('data:image/') ? s : null;
+
+  const manifest = parseDeliverableManifest(s);
+  if (manifest) {
+    const typed = manifest.files.find((f) => (f.type || '').toLowerCase().startsWith('image/'));
+    if (typed) return typed.uri; // parseDeliverableManifest already resolved ipfs://
+    // A declared non-image type is believed. Only untyped entries are sniffed —
+    // otherwise `report.md` on a bare-CID gateway URL looks like an image to
+    // isImageUri() and ends up as the card.
+    const sniffed = manifest.files.find((f) => !f.type && untypedLooksLikeImage(f.name, f.uri));
+    return sniffed ? sniffed.uri : null;
+  }
+
+  // Any other JSON payload (NFT deliverables, custom blobs) — no cheap image.
+  if (s.startsWith('{') || s.startsWith('[')) return null;
+
+  for (const part of s.split(',').map((p) => p.trim()).filter(Boolean)) {
+    if (isImageUri(part)) return /^ipfs:\/\//i.test(part) ? `${IPFS_GATEWAY}${part.slice(7)}` : part;
+  }
+  return null;
+}
+
 /** Featured listings that lead the catalogue, matching the indexer's ranking. */
 export const FEATURED_SLOTS = 3;
 

@@ -9,7 +9,9 @@
  * Manifest semantics are imported from ./registry so the card can never
  * disagree with what the page itself renders.
  */
-import { IPFS_GATEWAY, isImageUri, parseDeliverableManifest } from './registry';
+import { IPFS_GATEWAY, firstImageUri } from './registry';
+
+export { firstImageUri };
 
 export const OG_WIDTH = 1200;
 export const OG_HEIGHT = 630;
@@ -48,57 +50,6 @@ const RASTERISABLE = /^image\/(png|jpeg|jpg|gif|svg\+xml)/i;
 export function toGatewayUrl(uri: string): string {
   const s = uri.trim();
   return /^ipfs:\/\//i.test(s) ? `${IPFS_GATEWAY}${s.slice(7)}` : s;
-}
-
-const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg'];
-
-/**
- * Manifest entry with no declared `type`: trust the filename when it carries an
- * extension, and only then fall back to the URL heuristic (which treats every
- * bare `/ipfs/<cid>` link as a possible image).
- */
-function untypedLooksLikeImage(name: string, uri: string): boolean {
-  const ext = /\.([a-z0-9]{1,5})$/i.exec(name || '')?.[1]?.toLowerCase();
-  if (ext) return IMAGE_EXTENSIONS.includes(ext);
-  return isImageUri(uri);
-}
-
-/**
- * First renderable image in a job's `evidence_uri` or a service's `sample_uri`.
- *
- * Handles every shape those fields take in practice:
- *   - a deliverable manifest `{"v":1,"files":[{name,uri,type}]}` — prefers the
- *     first `image/*` entry, then the first entry that looks like an image
- *   - a bare `https://` / `ipfs://` URL
- *   - a comma-separated list of URLs (older agents)
- *   - a `data:image/...` URI
- * Returns null for NFT payloads, PDFs, plain text deliverables and junk.
- */
-export function firstImageUri(raw: string | null | undefined): string | null {
-  const s = (raw || '').trim();
-  if (!s) return null;
-
-  // data: URIs contain commas, so they must be settled before any splitting.
-  if (s.startsWith('data:')) return s.startsWith('data:image/') ? s : null;
-
-  const manifest = parseDeliverableManifest(s);
-  if (manifest) {
-    const typed = manifest.files.find((f) => (f.type || '').toLowerCase().startsWith('image/'));
-    if (typed) return typed.uri; // parseDeliverableManifest already resolved ipfs://
-    // A declared non-image type is believed. Only untyped entries are sniffed —
-    // otherwise `report.md` on a bare-CID gateway URL looks like an image to
-    // isImageUri() and ends up as the card.
-    const sniffed = manifest.files.find((f) => !f.type && untypedLooksLikeImage(f.name, f.uri));
-    return sniffed ? sniffed.uri : null;
-  }
-
-  // Any other JSON payload (NFT deliverables, custom blobs) — no cheap image.
-  if (s.startsWith('{') || s.startsWith('[')) return null;
-
-  for (const part of s.split(',').map((p) => p.trim()).filter(Boolean)) {
-    if (isImageUri(part)) return toGatewayUrl(part);
-  }
-  return null;
 }
 
 export interface OgItem {

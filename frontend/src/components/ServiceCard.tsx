@@ -4,7 +4,7 @@ import { AccountAvatar } from './AccountAvatar';
 import {
   formatXpr,
   formatTurnaround,
-  isImageUri,
+  firstImageUri,
   SERVICE_CATEGORY_LABELS,
   type Service,
 } from '@/lib/registry';
@@ -30,7 +30,14 @@ export function serviceStars(avgScore: number): string {
   return '★'.repeat(rounded) + '☆'.repeat(5 - rounded);
 }
 
-/** Sample preview: the image when there is one, otherwise a quiet category plate. */
+/**
+ * Sample preview: the cover image when there is one, otherwise a quiet category plate.
+ *
+ * `sample_uri` is a plain image URL for most listings, but a seller shipping a 3D model
+ * (or any multi-file sample) points it at a delivery manifest instead. Both shapes have
+ * to resolve to a cover here, or the card falls back to the plate while the listing page
+ * happily shows the picture — which is exactly what happened to the 3D listings.
+ */
 export function ServiceSample({
   service,
   className = '',
@@ -49,11 +56,12 @@ export function ServiceSample({
     </div>
   );
 
-  if (!isImageUri(service.sample_uri)) return placeholder;
+  const cover = firstImageUri(service.sample_uri);
+  if (!cover) return placeholder;
 
   return (
     <IpfsImage
-      src={service.sample_uri}
+      src={cover}
       alt={`${service.title} sample`}
       className={imgClassName}
       fallback={placeholder}
