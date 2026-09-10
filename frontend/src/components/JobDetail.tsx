@@ -30,6 +30,7 @@ import {
   DISPUTE_RESOLUTION_LABELS,
   parseDeliverableUrls,
   parseDeliverableManifest,
+  manifestFromObject,
   getFeedbackByReviewer,
   type DeliverableManifest,
   parseNftDeliverable,
@@ -48,8 +49,11 @@ import { ModelGallery } from '@/components/ModelGallery';
 import { UsdValue } from '@/components/UsdValue';
 import {
   ipfsCandidates, isModelUrl, isModelContentType, isGenericBinaryContentType,
-  looksLikeGlb, isGltfJson, modelFilesFromManifest, toModelFile, type ModelFile,
+  looksLikeGlb, isGltfJson, modelFilesFromManifest, readableTextFilesFromManifest,
+  toModelFile, type ModelFile,
 } from '@/lib/ipfs';
+import ManifestTextPreview from '@/components/ManifestTextPreview';
+import { isMarkdown, renderMarkdown } from '@/lib/markdown';
 import DeliveryHistory, { type HistoryCounts } from '@/components/DeliveryHistory';
 
 interface JobDetailProps {
@@ -269,6 +273,15 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
       if (isGltfJson(data)) {
         setDeliverableType('model');
         setModelFiles([toModelFile(url)]);
+        return true;
+      }
+      // Some agents pin the manifest and deliver its URL rather than the JSON itself.
+      // Without this the client is shown the manifest's own source instead of the files.
+      const fetchedManifest = manifestFromObject(data);
+      if (fetchedManifest) {
+        setManifest(fetchedManifest);
+        setModelFiles(modelFilesFromManifest(fetchedManifest.files));
+        setDeliverableType('manifest');
         return true;
       }
       const ct = data.content_type || 'text/markdown';
@@ -752,92 +765,6 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   );
   const canBid = job.state === 0 && (!job.agent || job.agent === '.............');
 
-  // Lightweight markdown renderer
-  function renderMarkdown(text: string): string {
-    let html = text.replace(/<cite[^>]*>([\s\S]*?)<\/cite>/g, '$1');
-    html = html
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, _lang, code) => {
-      return `<pre style="background:rgb(var(--c-surface-2));padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0"><code>${code.trim()}</code></pre>`;
-    });
-
-    const lines = html.split('\n');
-    const result: string[] = [];
-    let inList = false;
-
-    for (let i = 0; i < lines.length; i++) {
-      let line = lines[i];
-
-      if (line.includes('<pre ')) {
-        result.push(line);
-        while (i < lines.length - 1 && !lines[i].includes('</pre>')) {
-          i++;
-          result.push(lines[i]);
-        }
-        continue;
-      }
-
-      if (line.startsWith('### ')) {
-        if (inList) { result.push('</ul>'); inList = false; }
-        result.push(`<h3 style="font-size:1rem;font-weight:600;color:rgb(var(--c-ink));margin:12px 0 4px">${line.slice(4)}</h3>`);
-        continue;
-      }
-      if (line.startsWith('## ')) {
-        if (inList) { result.push('</ul>'); inList = false; }
-        result.push(`<h2 style="font-size:1.1rem;font-weight:700;color:rgb(var(--c-ink));margin:16px 0 6px">${line.slice(3)}</h2>`);
-        continue;
-      }
-      if (line.startsWith('# ')) {
-        if (inList) { result.push('</ul>'); inList = false; }
-        result.push(`<h1 style="font-size:1.25rem;font-weight:700;color:#fff;margin:16px 0 8px">${line.slice(2)}</h1>`);
-        continue;
-      }
-
-      if (/^[-*] /.test(line)) {
-        if (!inList) { result.push('<ul style="list-style:disc;padding-left:20px;margin:4px 0">'); inList = true; }
-        result.push(`<li style="margin:2px 0">${applyInline(line.slice(2))}</li>`);
-        continue;
-      }
-
-      if (inList) { result.push('</ul>'); inList = false; }
-
-      if (/^---+$/.test(line.trim())) {
-        result.push('<hr style="border-color:rgb(var(--c-line));margin:12px 0"/>');
-        continue;
-      }
-
-      if (line.trim() === '') {
-        result.push('<br/>');
-        continue;
-      }
-
-      result.push(`<p style="margin:4px 0">${applyInline(line)}</p>`);
-    }
-    if (inList) result.push('</ul>');
-
-    return result.join('\n');
-  }
-
-  function applyInline(text: string): string {
-    function unescapeUrl(url: string): string {
-      return url.replace(/&amp;/g, '&');
-    }
-    text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^\)]+)\)/g, (_m, alt, url) =>
-      `<img src="${unescapeUrl(url)}" alt="${alt}" style="max-width:100%;border-radius:8px;margin:8px 0" loading="lazy" />`);
-    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    text = text.replace(/`([^`]+)`/g, '<code style="background:rgb(var(--c-surface-2));padding:1px 4px;border-radius:3px;font-size:0.9em">$1</code>');
-    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, (_m, label, url) =>
-      `<a href="${unescapeUrl(url)}" target="_blank" rel="noopener noreferrer" style="color:rgb(var(--c-accent));text-decoration:underline">${label}</a>`);
-    return text;
-  }
-
-  function isMarkdown(text: string): boolean {
-    return /^#{1,3} /m.test(text) || /\*\*.+\*\*/.test(text) || /```/.test(text) || /^[-*] /m.test(text);
-  }
-
   function isUrl(text: string): boolean {
     return /^https?:\/\/\S+$/.test(text.trim());
   }
@@ -1005,6 +932,11 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                 {/* A 3D deliverable can ship on its own or alongside a preview image, so this
                     sits next to the image above rather than replacing it. */}
                 {modelFiles.length > 0 && <ModelGallery files={modelFiles} />}
+                {/* The written work — report.md, summary.md — is usually the deliverable
+                    itself, so read it here rather than sending the client to a gateway. */}
+                {readableTextFilesFromManifest(manifest.files).map(f => (
+                  <ManifestTextPreview key={f.uri} uri={f.uri} name={f.name} />
+                ))}
                 <ul className="divide-y divide-line rounded-md border border-line">
                   {manifest.files.map((f, i) => (
                     <li key={i} className="flex items-center justify-between gap-3 px-3 py-2">

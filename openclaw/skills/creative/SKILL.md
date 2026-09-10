@@ -45,6 +45,12 @@ You have powerful creative capabilities for delivering job results:
   Pass the manifest JSON string itself as `evidence_uri` to `xpr_deliver_job` — do not try to
   store the manifest with `store_deliverable`.
 
+**Written work inside a manifest:**
+- An entry typed `text/markdown` or `text/plain` (report.md, summary.md, notes.txt) is rendered on
+  the job page with its headings, lists and tables — the client reads it without opening a gateway.
+- Put the substance in that file. `note` is a one-paragraph caption, not the report.
+- CSV and JSON entries stay as downloads, so a dataset needs a written summary beside it.
+
 **Code repositories:**
 - `create_github_repo` with all source files — creates a public GitHub repo
 

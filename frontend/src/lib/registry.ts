@@ -1465,7 +1465,18 @@ export function parseDeliverableManifest(evidenceUri: string): DeliverableManife
   const s = evidenceUri.trim();
   if (!s.startsWith('{')) return null;
   try {
-    const obj = JSON.parse(s);
+    return manifestFromObject(JSON.parse(s));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The same manifest, already parsed. Agents sometimes pin the manifest itself and deliver
+ * its URL instead of the JSON, so the fetched body has to go through the identical checks.
+ */
+export function manifestFromObject(obj: any): DeliverableManifest | null {
+  try {
     if (!obj || !Array.isArray(obj.files)) return null;
     const files: DeliverableFile[] = obj.files
       .filter((f: any) => f && typeof f.uri === 'string' && /^(https?:\/\/|ipfs:\/\/)/i.test(f.uri))

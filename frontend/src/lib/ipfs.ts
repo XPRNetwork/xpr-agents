@@ -177,6 +177,57 @@ export function modelFilesFromManifest(
   return out;
 }
 
+/**
+ * Text files worth rendering on the page rather than linking.
+ *
+ * A `.md` report is the substance of most written deliverables, so it belongs in
+ * the page. A `.csv` is a dataset — it is deliberately excluded, since dumping a
+ * few thousand comma-separated rows into a scroll box helps nobody.
+ */
+const TEXT_EXT_RE = /\.(md|markdown|txt)(?:$|[?#])/i;
+
+const TEXT_CONTENT_TYPES = ['text/markdown', 'text/x-markdown', 'text/plain'];
+
+export function isReadableTextContentType(contentType: string | null | undefined): boolean {
+  if (!contentType) return false;
+  return TEXT_CONTENT_TYPES.includes(contentType.split(';')[0].trim().toLowerCase());
+}
+
+export function isReadableTextUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return TEXT_EXT_RE.test(url.split('?')[0]) || TEXT_EXT_RE.test(filenameHint(url));
+}
+
+export interface ManifestFile {
+  name?: string;
+  uri: string;
+  type?: string;
+}
+
+/**
+ * Manifest entries to render inline, in manifest order. Capped because each one is a
+ * gateway fetch, and a delivery whose point is twenty separate notes is a file list.
+ */
+export function readableTextFilesFromManifest(
+  files: ManifestFile[] | null | undefined,
+  limit = 2
+): { uri: string; name: string }[] {
+  if (!files) return [];
+  const out: { uri: string; name: string }[] = [];
+  for (const f of files) {
+    if (!f?.uri) continue;
+    // An explicit type wins: a manifest may name a file `notes` with no extension. The
+    // extension is the fallback for pins typed as a generic blob, which gateways do often.
+    const typedText = isReadableTextContentType(f.type);
+    const namedText = isReadableTextUrl(f.uri) && (!f.type || isGenericBinaryContentType(f.type));
+    if (!typedText && !namedText) continue;
+    if (out.some(t => t.uri === f.uri)) continue;
+    out.push({ uri: f.uri, name: f.name || filenameFromUrl(f.uri) || 'file' });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 const MODEL_FIELD_RE = /(model|glb|gltf|mesh|3d)/i;
 
 /**
