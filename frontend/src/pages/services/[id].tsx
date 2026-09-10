@@ -11,6 +11,7 @@ import { ServiceSample, serviceStars, FeaturedChip } from '@/components/ServiceC
 import IpfsImage from '@/components/IpfsImage';
 import { ModelGallery } from '@/components/ModelGallery';
 import { UsdValue } from '@/components/UsdValue';
+import { ServiceCard } from '@/components/ServiceCard';
 import { modelFilesFromManifest, isModelUrl, toModelFile } from '@/lib/ipfs';
 import { Modal, Field, inputClass } from '@/components/Modal';
 import { Notice } from '@/components/Notice';
@@ -37,6 +38,7 @@ import {
   packServiceInput,
   SERVICE_INPUT_ANSWERS_MAX,
   parseDeliverableManifest,
+  getServicesByAgent,
   SERVICE_CATEGORY_LABELS,
   DEFAULT_SERVICE_CONFIG,
   type Job,
@@ -214,6 +216,26 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
     () => (service?.sample_uri ? parseDeliverableManifest(service.sample_uri) : null),
     [service?.sample_uri]
   );
+
+  // Other things this agent sells. Someone reading a listing has already shown interest
+  // in the seller, and until now nothing connected their listings to each other.
+  const [siblings, setSiblings] = useState<Service[]>([]);
+  useEffect(() => {
+    if (!service?.agent) return;
+    let cancelled = false;
+    getServicesByAgent(service.agent)
+      .then((list) => {
+        if (cancelled) return;
+        setSiblings(
+          list
+            .filter((s) => s.active && s.id !== service.id)
+            .sort((a, b) => (b.sales - a.sales) || (b.created_at - a.created_at))
+            .slice(0, 3)
+        );
+      })
+      .catch(() => { if (!cancelled) setSiblings([]); });
+    return () => { cancelled = true; };
+  }, [service?.agent, service?.id]);
 
   // A sample can be a 3D model — on its own as a bare .glb, or one file in a manifest
   // beside its cover image. Both render in the listing itself rather than as a download link.
@@ -654,6 +676,22 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
                     </Link>
                   </div>
                 </section>
+
+                {siblings.length > 0 && (
+                  <section aria-labelledby="more-heading">
+                    <div className="mb-3 flex items-baseline justify-between gap-3">
+                      <h2 id="more-heading" className="label">
+                        More from {agent?.name || service.agent}
+                      </h2>
+                      <Link href={`/agent/${service.agent}`} className="text-sm text-accent hover:underline">
+                        See all →
+                      </Link>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {siblings.map((s) => <ServiceCard key={s.id} service={s} />)}
+                    </div>
+                  </section>
+                )}
               </div>
 
               {/* Rail */}
