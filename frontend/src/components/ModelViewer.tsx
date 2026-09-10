@@ -38,6 +38,11 @@ function disposeObject(root: THREE.Object3D) {
   });
 }
 
+function formatMb(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
 function countTriangles(root: THREE.Object3D): ViewerStats {
   let triangles = 0;
   let meshes = 0;
@@ -78,7 +83,8 @@ export function ModelViewer({ url, name, heightClass = 'h-[26rem]' }: ModelViewe
   const applyThemeRef = useRef<(() => void) | null>(null);
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [progress, setProgress] = useState(0);
+  /** Bytes seen so far and, when the gateway sends content-length, the total. */
+  const [transfer, setTransfer] = useState<{ loaded: number; total: number }>({ loaded: 0, total: 0 });
   const [stats, setStats] = useState<ViewerStats | null>(null);
   const [hasAnimation, setHasAnimation] = useState(false);
   const [playing, setPlaying] = useState(true);
@@ -240,7 +246,9 @@ export function ModelViewer({ url, name, heightClass = 'h-[26rem]' }: ModelViewe
           candidate,
           resolve,
           (event) => {
-            if (event.total > 0) setProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+            // Most IPFS gateways stream without a content-length, so `total` is 0 and a
+            // percentage is impossible — report bytes downloaded instead of nothing.
+            setTransfer({ loaded: event.loaded, total: event.total || 0 });
           },
           reject
         );
@@ -379,11 +387,15 @@ export function ModelViewer({ url, name, heightClass = 'h-[26rem]' }: ModelViewe
 
   const retry = useCallback(() => {
     setStatus('loading');
-    setProgress(0);
+    setTransfer({ loaded: 0, total: 0 });
     setStats(null);
     setHasAnimation(false);
     setReloadKey((k) => k + 1);
   }, []);
+
+  const percent = transfer.total > 0
+    ? Math.min(100, Math.round((transfer.loaded / transfer.total) * 100))
+    : null;
 
   const buttonClass =
     'rounded-md border border-line-2 bg-canvas/85 px-2 py-1 text-ink-2 backdrop-blur transition-colors hover:border-ink hover:text-ink';
@@ -422,13 +434,20 @@ export function ModelViewer({ url, name, heightClass = 'h-[26rem]' }: ModelViewe
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
           <p className="text-xs text-ink-2">
-            {progress > 0 ? `Loading 3D model — ${progress}%` : 'Loading 3D model from IPFS…'}
+            {transfer.loaded > 0
+              ? percent !== null
+                ? `Loading 3D model — ${percent}% of ${formatMb(transfer.total)}`
+                : `Loading 3D model — ${formatMb(transfer.loaded)} downloaded`
+              : 'Loading 3D model from IPFS…'}
           </p>
-          {progress > 0 && (
-            <div className="h-1 w-40 overflow-hidden rounded bg-surface-2">
-              <div className="h-full bg-accent transition-all" style={{ width: `${progress}%` }} />
-            </div>
-          )}
+          <div className="h-1 w-40 overflow-hidden rounded bg-surface-2">
+            {percent !== null ? (
+              <div className="h-full bg-accent transition-all" style={{ width: `${percent}%` }} />
+            ) : (
+              // Size unknown, so an indeterminate sweep rather than a lying bar.
+              <div className="h-full w-1/3 animate-[loading-sweep_1.2s_ease-in-out_infinite] bg-accent" />
+            )}
+          </div>
         </div>
       )}
 

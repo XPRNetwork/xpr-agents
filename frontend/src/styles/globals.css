@@ -154,3 +154,9 @@ html {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Indeterminate progress sweep for downloads whose total size the gateway never sends. */
+@keyframes loading-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}

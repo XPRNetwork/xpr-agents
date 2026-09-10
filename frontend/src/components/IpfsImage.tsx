@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ipfsCandidates, ipfsPath } from '@/lib/ipfs';
 
 /**
@@ -26,6 +26,22 @@ export default function IpfsImage({ src, fallback, alt, className, ...rest }: Pr
   const [loaded, setLoaded] = useState(false);
   useEffect(() => { setIndex(0); setLoaded(false); }, [src]);
 
+  /**
+   * A cached image can finish loading before React attaches onLoad, so the event never
+   * fires and the placeholder would pulse forever over a picture that is already there.
+   * Check `complete` as soon as we have the element, and on every candidate change.
+   */
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const settleIfComplete = useCallback(() => {
+    const img = imgRef.current;
+    if (img?.complete && img.naturalWidth > 0) setLoaded(true);
+  }, []);
+  const attachRef = useCallback((node: HTMLImageElement | null) => {
+    imgRef.current = node;
+    settleIfComplete();
+  }, [settleIfComplete]);
+  useEffect(settleIfComplete, [settleIfComplete, index, candidates]);
+
   if (index >= candidates.length) {
     return (
       <>{fallback ?? (
@@ -40,6 +56,7 @@ export default function IpfsImage({ src, fallback, alt, className, ...rest }: Pr
   return (
     <img
       {...rest}
+      ref={attachRef}
       src={candidates[index]}
       alt={alt}
       // Until a gateway answers there is nothing to show, and walking four of them can
