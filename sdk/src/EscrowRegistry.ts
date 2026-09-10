@@ -1018,6 +1018,38 @@ export class EscrowRegistry {
   }
 
   /**
+   * Cancel a job (as the assigned agent).
+   *
+   * The seller's exit from a job that cannot be completed — an impossible brief, a
+   * client who will not answer, work that turns out to be out of scope. Allowed in
+   * FUNDED, ACCEPTED, INPROGRESS and DELIVERED; everything still in escrow is
+   * refunded to the client, so cancelling costs the agent the work, not the client
+   * the money. The reason is recorded on chain.
+   *
+   * @param jobId  Job to cancel
+   * @param reason Why, 1-512 characters. Required — the client sees it.
+   */
+  async cancelByAgent(jobId: number, reason: string): Promise<TransactionResult> {
+    this.requireSession();
+
+    return this.session!.link.transact({
+      actions: [{
+        account: this.contract,
+        name: 'agentcancel',
+        authorization: [{
+          actor: this.session!.auth.actor,
+          permission: this.session!.auth.permission,
+        }],
+        data: {
+          agent: this.session!.auth.actor,
+          job_id: jobId,
+          reason,
+        },
+      }],
+    });
+  }
+
+  /**
    * Claim timeout (refund or auto-approve)
    */
   async claimTimeout(jobId: number): Promise<TransactionResult> {
