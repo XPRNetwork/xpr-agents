@@ -10,6 +10,7 @@ import { TrustBadge } from '@/components/TrustBadge';
 import { ServiceSample, serviceStars, FeaturedChip } from '@/components/ServiceCard';
 import IpfsImage from '@/components/IpfsImage';
 import { ModelGallery } from '@/components/ModelGallery';
+import { UsdValue } from '@/components/UsdValue';
 import { modelFilesFromManifest, isModelUrl, toModelFile } from '@/lib/ipfs';
 import { Modal, Field, inputClass } from '@/components/Modal';
 import { Notice } from '@/components/Notice';
@@ -661,6 +662,7 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
                   <div className="rounded-xl border border-line bg-canvas">
                     <div className="border-b border-line px-5 py-4">
                       <div className="font-mono text-3xl tabular text-ink">{formatXpr(service.price)}</div>
+                      <UsdValue rawAmount={service.price} className="mt-0.5" />
                       <p className="mt-1 text-sm text-muted">Fixed price, held in escrow until you approve.</p>
                     </div>
                     <dl className="divide-y divide-line">

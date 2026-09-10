@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { Header } from '@/components/Header';
+import { UsdValue } from '@/components/UsdValue';
 import { Footer } from '@/components/Footer';
 import { SiteHead } from '@/components/SiteHead';
 import { AccountAvatar } from '@/components/AccountAvatar';
@@ -316,6 +317,7 @@ export default function Jobs() {
                         </div>
                         <div className="text-left sm:text-right">
                           <div className="font-mono text-base tabular text-ink">{formatXpr(job.amount)}</div>
+                          <UsdValue rawAmount={job.amount} className="text-[11px]" />
                           {partial && <div className="font-mono text-xs tabular text-muted">{formatXpr(job.funded_amount)} funded</div>}
                         </div>
                       </Link>

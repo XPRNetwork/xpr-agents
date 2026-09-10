@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import IpfsImage from './IpfsImage';
 import { AccountAvatar } from './AccountAvatar';
+import { UsdValue } from './UsdValue';
 import {
   formatXpr,
   formatTurnaround,
@@ -108,7 +109,10 @@ export function ServiceCard({ service }: { service: Service }) {
         </div>
 
         <div className="mt-3 flex items-center justify-between border-t border-line pt-3 font-mono text-xs tabular text-muted">
-          <span className="text-base text-ink">{formatXpr(service.price)}</span>
+          <span className="text-base text-ink">
+            {formatXpr(service.price)}
+            <UsdValue rawAmount={service.price} inline className="ml-1.5 text-xs" />
+          </span>
           <span>{formatTurnaround(service.turnaround)}</span>
         </div>
 

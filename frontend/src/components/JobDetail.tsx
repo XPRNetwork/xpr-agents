@@ -45,6 +45,7 @@ import {
 import { STATE_COLORS, getTxId } from '@/lib/job-constants';
 import IpfsImage from '@/components/IpfsImage';
 import { ModelGallery } from '@/components/ModelGallery';
+import { UsdValue } from '@/components/UsdValue';
 import {
   ipfsCandidates, isModelUrl, isModelContentType, isGenericBinaryContentType,
   looksLikeGlb, isGltfJson, modelFilesFromManifest, toModelFile, type ModelFile,
@@ -1600,7 +1601,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             <div className="rounded-xl border border-line bg-canvas">
               <div className="border-b border-line px-5 py-3.5"><span className="label">Escrow</span></div>
               <dl className="divide-y divide-line">
-                {railRow('Budget', <span className="font-mono tabular">{formatXpr(job.amount)}</span>)}
+                {railRow('Budget', <span className="font-mono tabular">{formatXpr(job.amount)}<UsdValue rawAmount={job.amount} inline className="ml-1.5 text-xs" /></span>)}
                 {railRow('Funded', (
                   <span className={`font-mono tabular ${job.funded_amount >= job.amount && job.amount > 0 ? 'text-good' : ''}`}>{formatXpr(job.funded_amount)}</span>
                 ))}
