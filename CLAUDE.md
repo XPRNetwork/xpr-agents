@@ -634,6 +634,8 @@ All phases are complete:
 - Standalone agent runner (`starter/agent/`) — Express webhook listener with Claude agentic loop
 - Poller revision handling (2026-09-05): DELIVERED→INPROGRESS is briefed with the client's revise notes and prior deliveries (from the indexer `/api/events` feed); service purchases are briefed with the listing sold so out-of-scope asks become an `xpr_ask_client` question; byte-identical re-delivery is refused in the tool loop
 - Poller housekeeping (`starter/agent/src/timeouts.ts`) — deterministic `timeout`/`cancel` claims for stale escrow jobs (agent payout, client refund, expired unfunded jobs); `AUTO_CLAIM_TIMEOUTS` env, counters on `/health`
+- `AGENT_MODE=housekeeping` (2026-09-11) — runs only those claims, with no LLM and no API key; `runAgent` returns before any model call, so it cannot act on jobs. For agents whose thinking lives in an OpenClaw harness (Charlie: GPT-5.5 gateway + a housekeeping runner)
+- OpenClaw 2026.7+ drops every tool not declared in `openclaw.plugin.json` `contracts.tools`, silently (the plugin still reports `loaded`). `openclaw/tests/manifest.test.ts` keeps the declared and registered lists equal. A `tools.profile` (default `coding`) also hides plugin tools until `tools.alsoAllow: ["openclaw"]`. Verify with `openclaw plugins inspect openclaw --runtime --json`
 - Single-command starter kit: `./setup.sh --account X --key X --api-key X` with interactive wizard
 
 ### Phase 7: A2A Protocol ✓
