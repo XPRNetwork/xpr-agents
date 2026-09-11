@@ -12,7 +12,7 @@
  */
 
 import express from 'express';
-import { createLlmClientFromEnv, LlmMessage, LlmTextBlock, LlmTool, LlmToolResultBlock, LlmToolUseBlock } from './llm';
+import { createLlmClientFromEnv, LlmClient, LlmMessage, LlmTextBlock, LlmTool, LlmToolResultBlock, LlmToolUseBlock } from './llm';
 import fs from 'fs';
 import path from 'path';
 import { verifyA2ARequest, A2AAuthError } from './a2a-auth';
@@ -135,11 +135,15 @@ process.on('unhandledRejection', (reason) => {
   process.exit(1);
 });
 
-// Agent mode — controls system prompt and poller behavior
-type AgentMode = 'worker' | 'delegator' | 'hybrid' | 'validator' | 'social';
+// Agent mode — controls system prompt and poller behavior.
+// 'housekeeping' runs no LLM at all: it only makes the deterministic escrow claims
+// (payment on unreviewed deliveries, refunds, expired-job cancels). It exists for an
+// agent whose thinking happens elsewhere — an OpenClaw harness — but which still wants
+// those claims made on a timer. No API key is needed or read in this mode.
+type AgentMode = 'worker' | 'delegator' | 'hybrid' | 'validator' | 'social' | 'housekeeping';
 const AGENT_MODE: AgentMode = (() => {
   const mode = (process.env.AGENT_MODE || 'worker').toLowerCase();
-  const valid: AgentMode[] = ['worker', 'delegator', 'hybrid', 'validator', 'social'];
+  const valid: AgentMode[] = ['worker', 'delegator', 'hybrid', 'validator', 'social', 'housekeeping'];
   if (!valid.includes(mode as AgentMode)) {
     console.warn(`[agent] Invalid AGENT_MODE "${mode}", defaulting to worker`);
     return 'worker';
@@ -574,7 +578,20 @@ function buildLlmTools(toolList: typeof tools): LlmTool[] {
 
 // LLM client — resolves provider, model, and API key from env / flags.
 // See src/llm/factory.ts for the resolution order.
-const llmClient = createLlmClientFromEnv();
+//
+// Housekeeping mode never calls a model, so it must not require a key: the factory throws
+// without one. The stub below fails loudly if anything reaches it — runAgent returns before
+// that, so a throw here would mean a new code path bypassed the guard.
+const HOUSEKEEPING_ONLY = AGENT_MODE === 'housekeeping';
+const llmClient: LlmClient = HOUSEKEEPING_ONLY
+  ? {
+      provider: 'anthropic',
+      model: 'none',
+      complete: async () => {
+        throw new Error('[llm] Called in housekeeping mode, which runs no LLM. This is a bug — runAgent should have returned first.');
+      },
+    }
+  : createLlmClientFromEnv();
 const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '20');
 const MODEL = llmClient.model;
 
@@ -647,6 +664,11 @@ interface RunAgentOptions {
 }
 
 async function runAgent(eventType: string, data: any, message: string, options?: RunAgentOptions): Promise<string> {
+  // The single door to the model. Every caller — webhook, A2A, manual, every poll step —
+  // comes through here, so this one check is what guarantees housekeeping mode spends nothing.
+  if (HOUSEKEEPING_ONLY) {
+    return 'This agent runs in housekeeping mode: escrow claims only, no LLM. Its work is handled by its OpenClaw harness.';
+  }
   const runKey = `${eventType}:${JSON.stringify(data).slice(0, 100)}`;
   if (activeRuns.has(runKey)) {
     return 'Already processing this event';
@@ -2070,7 +2092,7 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
     // 3. Check for new feedback about this agent
     // NOTE: Feedback is logged only — no Claude call needed (saves credits).
     // Feedback doesn't require any on-chain action from the agent.
-    if (listFeedback) {
+    if (listFeedback && !HOUSEKEEPING_ONLY) {
       const res: any = await listFeedback.handler({ agent: account, limit: 20 });
       const items: any[] = res?.feedback || res?.items || res || [];
       for (const fb of items) {
@@ -2085,7 +2107,7 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
     }
 
     // 4. Check for new validation challenges against this agent
-    if (listValidations) {
+    if (listValidations && !HOUSEKEEPING_ONLY) {
       const res: any = await listValidations.handler({ agent: account, limit: 20 });
       const validations: any[] = res?.validations || res?.items || res || [];
       for (const v of validations) {
@@ -2370,7 +2392,7 @@ const server = app.listen(port, () => {
   console.log(`[agent-runner] ${tools.length} tools loaded (A2A mode: ${a2aToolMode}, ${a2aToolMode === 'readonly' ? readonlyTools.length : tools.length} tools for A2A)`);
   console.log(`[agent-runner] Account: ${process.env.XPR_ACCOUNT}`);
   console.log(`[agent-runner] Mode: ${AGENT_MODE}`);
-  console.log(`[agent-runner] LLM: ${llmClient.provider} (${MODEL})`);
+  console.log(`[agent-runner] LLM: ${HOUSEKEEPING_ONLY ? 'none (housekeeping mode — escrow claims only)' : `${llmClient.provider} (${MODEL})`}`);
   console.log(`[agent-runner] Network: ${process.env.XPR_NETWORK || 'mainnet'}`);
   console.log(`[agent-runner] A2A auth: ${a2aAuthConfig.authRequired ? 'required' : 'optional'}, rate limit: ${a2aAuthConfig.rateLimit}/min`);
   if (a2aAuthConfig.minTrustScore > 0) console.log(`[agent-runner] A2A min trust score: ${a2aAuthConfig.minTrustScore}`);
