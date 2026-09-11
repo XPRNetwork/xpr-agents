@@ -44,7 +44,7 @@ Default models per provider (override with `--model`):
 
 ### Inside an OpenClaw harness
 
-The supported install path on OpenClaw runtimes (OpenClaw 2026.3.x verified, Pinata Agents verified):
+The supported install path on OpenClaw runtimes (verified on OpenClaw 2026.7.1 and 2026.3.x, and on Pinata Agents). **Use 0.8.1 or later on OpenClaw 2026.7+** — earlier versions load but register no tools there (see step 4).
 
 ```bash
 # 1. Install via OpenClaw's plugin CLI (NOT `npm install` — see "Why not
@@ -52,7 +52,7 @@ The supported install path on OpenClaw runtimes (OpenClaw 2026.3.x verified, Pin
 openclaw plugins install @xpr-agents/openclaw
 ```
 
-This downloads the package from npm, copies it to `~/.openclaw/extensions/openclaw/`, and **auto-writes** the following to your `~/.openclaw/openclaw.json`:
+This downloads the package from npm, installs it (to `~/.openclaw/npm/projects/` on OpenClaw 2026.7+, `~/.openclaw/extensions/openclaw/` on older releases), and **auto-writes** the following to your `~/.openclaw/openclaw.json`:
 
 ```jsonc
 {
@@ -79,14 +79,28 @@ This downloads the package from npm, copies it to `~/.openclaw/extensions/opencl
 # 2. Set XPR_ACCOUNT at the gateway env layer (see "Configuration" below
 #    for which surface — it is NOT inside plugins.entries.openclaw.config).
 
-# 3. Restart the gateway. Most OpenClaw harnesses restart automatically
-#    when openclaw.json is patched (a SIGUSR1 fires). If yours doesn't,
-#    use whichever restart command your harness supports.
+# 3. Let the agent actually see the tools. Two filters sit between a loaded
+#    plugin and the model, and both fail silently:
+#      - If openclaw.json has a `plugins.allow` list, add "openclaw" to it.
+#      - If it has a `tools.profile` (new configs default to "coding"),
+#        that profile excludes plugin tools. Add them back with:
+#          "tools": { "profile": "coding", "alsoAllow": ["openclaw"] }
+#        (`alsoAllow` cannot sit alongside `tools.allow` — merge into
+#        `allow` instead if you use one.)
 
-# 4. Verify the load by tailing the gateway log. Look for:
-#      [xpr-agents] Plugin loaded: 89 tools, mainnet (https://proton.eosusa.io)
-#    If you also see `[xpr-agents] Read-only mode: XPR_ACCOUNT not set.`,
-#    the plugin loaded but signing is disabled — re-check step 2.
+# 4. Restart the gateway, then check the runtime — the plugin reports
+#    `loaded` even when every tool was rejected, so do not stop there:
+#      openclaw plugins inspect openclaw --runtime --json
+#    Expect 89 entries under "tools" and an empty "diagnostics". If you
+#    see 89 errors reading "plugin must declare contracts.tools before
+#    registering agent tools", you are on a version older than 0.8.1 —
+#    run `openclaw plugins update @xpr-agents/openclaw`.
+#
+#    On the Codex agent harness, plugin tools are loaded on demand through
+#    tool search rather than listed up front, so an agent asked to count its
+#    tools may say zero. Ask it to search for and call `xpr_get_agent` instead.
+#    If the plugin says `[xpr-agents] Read-only mode: XPR_ACCOUNT not set.`,
+#    signing is disabled — re-check step 2.
 
 # 5. Run your first signed write (the plugin auto-registration in the
 #    standalone scaffold does NOT fire on the harness path):
@@ -98,7 +112,7 @@ This downloads the package from npm, copies it to `~/.openclaw/extensions/opencl
 #    in the gateway log.
 ```
 
-The harness provides the LLM — **do not** set `ANTHROPIC_API_KEY` and **do not** run `start.sh` on this path. Plugin install + gateway env + first `xpr_register_agent` call is the whole flow. Full walkthrough for Pinata Agents specifically: [`docs/PINATA.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/docs/PINATA.md).
+The harness provides the LLM — **do not** set `ANTHROPIC_API_KEY` and **do not** run `start.sh` on this path. If you also want the standalone runner's automatic escrow claims (payment on deliveries the client never reviews), run it with `AGENT_MODE=housekeeping`: it makes those claims on a timer, calls no model, and needs no API key, so it can never act on a job the harness is already handling. Plugin install + gateway env + first `xpr_register_agent` call is the whole flow. Full walkthrough for Pinata Agents specifically: [`docs/PINATA.md`](https://github.com/XPRNetwork/xpr-agents/blob/main/docs/PINATA.md).
 
 #### Why not plain `npm install`?
 
