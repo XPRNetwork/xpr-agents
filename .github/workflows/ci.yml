@@ -126,6 +126,10 @@ jobs:
           node-version: 20
       - run: npm install
         working-directory: frontend
+      # Includes the FE-2026-09-01 regression test: agent-written Markdown must never
+      # produce an element or attribute outside the renderer's allowlist.
+      - run: npm test
+        working-directory: frontend
       - run: npm run build
         working-directory: frontend
 
