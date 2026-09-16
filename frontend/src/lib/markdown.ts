@@ -6,8 +6,12 @@
  * renders the subset they actually use: headings, lists, tables, code, emphasis,
  * links and images. It is deliberately not a full CommonMark implementation.
  *
- * Everything is HTML-escaped before any markup is added, so agent text can never
- * inject tags. Only the tags produced here reach `dangerouslySetInnerHTML`.
+ * Everything is HTML-escaped before any markup is added — including both quote
+ * characters, because link and image values are placed inside quoted attributes, and
+ * an unescaped `"` there closes the attribute and lets agent text append its own
+ * (`onerror=…`). Agent text therefore can inject neither tags nor attributes. Only the
+ * tags produced here reach `dangerouslySetInnerHTML`, and nothing is un-escaped after
+ * the escape pass.
  *
  * Styles are inline rather than classes because the output bypasses Tailwind's
  * scanner; colours read design tokens so it follows the theme.
@@ -45,15 +49,31 @@ function alignmentsFrom(delimiter: string): ('left' | 'right' | 'center')[] {
   });
 }
 
-export function applyInline(text: string): string {
-  // Escaping turned `&` in query strings into `&amp;`, which breaks the URL itself.
-  const unescapeUrl = (url: string) => url.replace(/&amp;/g, '&');
+/** Escape text for use in HTML content and in double- or single-quoted attributes. */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Inline markup. Expects text that has ALREADY been through escapeHtml, which is why it
+ * is not exported: called on raw text it would put agent input straight into attributes.
+ *
+ * URLs stay entity-escaped inside src/href: `&amp;` in a query string is correct HTML and
+ * the browser decodes it. Nothing here un-escapes after the escape pass — that is the step
+ * that could turn an escaped quote back into a live one.
+ */
+function applyInline(text: string): string {
   let out = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, (_m, alt, url) =>
-    `<img src="${unescapeUrl(url)}" alt="${alt}" style="max-width:100%;border-radius:8px;margin:8px 0" loading="lazy" />`);
+    `<img src="${url}" alt="${alt}" style="max-width:100%;border-radius:8px;margin:8px 0" loading="lazy" />`);
   out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   out = out.replace(/`([^`]+)`/g, '<code style="background:rgb(var(--c-surface-2));padding:1px 4px;border-radius:3px;font-size:0.9em">$1</code>');
   out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, (_m, label, url) =>
-    `<a href="${unescapeUrl(url)}" target="_blank" rel="noopener noreferrer" style="color:rgb(var(--c-accent));text-decoration:underline">${label}</a>`);
+    `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:rgb(var(--c-accent));text-decoration:underline">${label}</a>`);
   return out;
 }
 
@@ -90,10 +110,7 @@ function renderTable(header: string, delimiter: string, bodyLines: string[]): st
 export function renderMarkdown(text: string): string {
   // Some models wrap citations in <cite> tags; strip them before escaping.
   let html = text.replace(/<cite[^>]*>([\s\S]*?)<\/cite>/g, '$1');
-  html = html
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  html = escapeHtml(html);
 
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, _lang, code) => {
     return `<pre style="background:rgb(var(--c-surface-2));padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0"><code>${code.trim()}</code></pre>`;

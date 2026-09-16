@@ -232,11 +232,21 @@ The codebase demonstrates strong fundamentals: parameterized SQL queries, proper
 
 ### Positive Findings
 
-- Zero `dangerouslySetInnerHTML` usage
+> **Corrected 2026-09-17.** Two items below were true on 2026-02-08 and went stale as the
+> site grew; they are updated here rather than left standing. The first stale item hid a
+> real vulnerability — see [Addendum: FE-2026-09-01](#addendum-fe-2026-09-01).
+
+- ~~Zero `dangerouslySetInnerHTML` usage~~ — **no longer true.** There were four uses at
+  `de2c97f` and three after the FE-2026-09-01 fix, which moved the theme initialiser out of
+  an inline script. Two render agent-written Markdown (`JobDetail.tsx`, `TextPreview.tsx`,
+  both via `frontend/src/lib/markdown.ts`) — the ones that matter, covered by
+  `frontend/src/lib/markdown.test.ts`. The third emits constant homepage JSON-LD, which is
+  non-executable `application/ld+json`.
 - No private key handling in frontend code
 - No `localStorage`/`sessionStorage` for sensitive data
 - No `eval` or `Function` constructors
-- No API routes (all data from RPC)
+- ~~No API routes (all data from RPC)~~ — **no longer true.** `/api/og/jobs/[id]` and
+  `/api/og/services/[id]` render Open Graph images server-side from chain data.
 - CSRF inherently mitigated by wallet signing
 - Self-review prevention in FeedbackForm
 - Environment variables use `NEXT_PUBLIC_` prefix correctly
@@ -429,6 +439,56 @@ All CRITICAL and HIGH test gaps from the original audit have been resolved:
 | 40 | Fix `xpr_dispute_feedback` description (reviewer can also dispute) | MEDIUM | **Done** |
 | 41 | Fix validator stake memo matching (`stake` or `stake:*` prefix) | MEDIUM | **Done** |
 | 42 | Update OpenClaw test counts (43→44 tools, 13→14 escrow) | TEST | **Done** |
+
+---
+
+## Addendum: FE-2026-09-01
+
+**Stored XSS through attribute injection in the deliverable Markdown renderer.**
+Reported through responsible disclosure on 2026-09-17 against commit `de2c97f`.
+
+| | |
+|---|---|
+| Severity | High — stored, no user interaction, on a wallet-connected origin |
+| Component | `frontend/src/lib/markdown.ts`, rendered via `dangerouslySetInnerHTML` in `JobDetail.tsx` and `TextPreview.tsx` |
+| Attacker | Any agent assigned to a job (deliverable text is agent-controlled), or any listing author |
+| Exploited in the wild | No. Every job's title, description, deliverables and evidence (including fetched manifest files) and every service listing were scanned on 2026-09-17; no payload found |
+
+**Cause.** The renderer escaped `&`, `<` and `>` but not quotes, then placed image alt text,
+image URLs and link URLs inside double-quoted attributes. A `"` in any of the three closed
+the attribute and let the text append its own, such as an event handler. The URL pattern
+accepted quotes, so the URL positions were injectable as well as the alt text the report
+described.
+
+**What an attacker could not do.** Read wallet keys, or sign on the user's behalf: signing
+happens in the wallet, which still prompts. **What they could do:** run script in the page
+to rewrite it, phish, or alter the transaction a user believes they are approving.
+
+**Fix.**
+1. The escape pass now escapes `"` and `'` as well, so every value is safe in any quoted
+   attribute. A step that un-escaped `&amp;` in URLs was also removed. It did not itself
+   produce a live quote, but it was unnecessary (browsers decode entities in attribute
+   values), and un-escaping after the escape pass is how this class of bug comes back.
+   `applyInline`, which assumes escaped input, is no longer exported.
+2. A `Content-Security-Policy` is now served (`frontend/next.config.js`) with
+   `script-src 'self' 'wasm-unsafe-eval'` — no `'unsafe-inline'`, no `'unsafe-eval'`. It
+   blocks inline scripts, inline event handlers and `javascript:` URLs, so a future escaping
+   bug in this path does not become running code. The one inline script (theme initialiser)
+   moved to `/theme-init.js` to allow this. Verified in Chrome: an injected `onerror`
+   handler and a `javascript:` link both refused to run.
+3. `frontend/src/lib/markdown.test.ts` parses the renderer's output into a DOM and asserts
+   no element or attribute outside an allowlist appears. The injection cases fail against
+   `de2c97f` and pass on the fix.
+
+**Related, checked, not exploitable.** Chain-controlled URLs (`evidence_uri`, `sample_uri`,
+dispute evidence, deliverable `media_url`) reach `href` and `src` — including `<iframe src>` —
+with no scheme validation on chain. React 19.2 replaces `javascript:` URLs in `href` and `src`
+on both server and client render (verified against the installed `react-dom`), and the new CSP
+refuses them independently. A scheme allowlist at those sinks would be a third layer.
+
+**Longer term.** Replace the hand-rolled renderer with a maintained Markdown parser and a
+vetted sanitizer (for example `marked` plus `DOMPurify`), which removes this class of bug
+rather than patching instances of it.
 
 ---
 
