@@ -1,16 +1,13 @@
 import { Html, Head, Main, NextScript } from 'next/document';
 
-/**
- * Applies the saved theme before first paint so there is no flash.
- * Stored value: "light" | "dark". Nothing stored = light (the site default).
- */
-const themeInit = `(function(){try{if(localStorage.getItem('theme')==='dark')document.documentElement.classList.add('dark');}catch(e){}})();`;
-
 export default function Document() {
   return (
     <Html lang="en">
       <Head>
-        <script dangerouslySetInnerHTML={{ __html: themeInit }} />
+        {/* Theme before first paint. Deliberately a same-origin file, not inline: the CSP has
+            no 'unsafe-inline' for scripts. Synchronous on purpose, so the page never flashes. */}
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+        <script src="/theme-init.js" />
         {/* The XPR atom on a solid indigo tile. A transparent black glyph disappears on a
             dark browser tab bar, and its thin orbits blur away at 16px — the tile fixes the
             first, and the small sizes are drawn with a heavier stroke to fix the second. */}
