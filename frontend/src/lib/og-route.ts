@@ -43,7 +43,8 @@ export async function serveOgCard(req: NextApiRequest, res: NextApiResponse, kin
 
   // ?debug=1 returns the failing stage as JSON instead of the static-card
   // redirect, so a broken render can be diagnosed on the deployed site.
-  const debug = req.query.debug === '1';
+  // Stack traces can name internal hosts; only expose them off production.
+  const debug = req.query.debug === '1' && process.env.NODE_ENV !== 'production';
   let item: OgItem | null = null;
   try {
     item = kind === 'jobs' ? await jobOgItem(id) : await serviceOgItem(id);

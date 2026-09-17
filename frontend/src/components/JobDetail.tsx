@@ -953,7 +953,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   if (!first) return null;
                   const isPdf = first.type === 'application/pdf' || /\.pdf(\?|$)/i.test(first.uri);
                   return isPdf
-                    ? <iframe src={first.uri} title={first.name} className="h-96 w-full rounded-md border border-line bg-white" />
+                    ? <iframe src={first.uri} title={first.name} sandbox="allow-scripts allow-same-origin" referrerPolicy="no-referrer" className="h-96 w-full rounded-md border border-line bg-white" />
                     : <IpfsImage src={first.uri} alt={first.name} className="max-w-full rounded-md border border-line" />;
                 })()}
                 {/* A 3D deliverable can ship on its own or alongside a preview image, so this
@@ -1011,7 +1011,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* PDF embed */}
             {deliverableType === 'application/pdf' && deliverableMediaUrl && (
               <div>
-                <iframe src={deliverableMediaUrl} className="w-full h-96 rounded border border-line bg-white" />
+                <iframe src={deliverableMediaUrl} sandbox="allow-scripts allow-same-origin" referrerPolicy="no-referrer" className="w-full h-96 rounded border border-line bg-white" />
                 <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
                   className="text-xs text-accent hover:text-accent mt-2 inline-block">
                   Download PDF &#8599;
