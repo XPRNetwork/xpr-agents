@@ -297,23 +297,34 @@ describe('agentvalid', () => {
       expect(validation.challenged).to.equal(true);
     });
 
-    it('should increment pending_challenges on creation (C4 audit fix)', async () => {
+    it('does NOT increment pending_challenges on creation; funding does (griefing fix)', async () => {
+      // An unfunded challenge is free and permissionless. It must not touch the
+      // counter that gates unstaking, or anyone could lock a validator for free.
       await agentvalid.actions.challenge([
         'challenger1', 0, 'Invalid', 'ipfs://evidence'
       ]).send('challenger1@active');
-
-      // C4 FIX: pending_challenges incremented at creation (not just funding)
       let val = getValidator('validator1');
-      expect(val.pending_challenges).to.equal(1);
+      expect(val.pending_challenges).to.equal(0);
 
-      // Fund — should NOT increment again
+      // With only unfunded challenges outstanding, the validator can still unstake.
+      // unstake succeeds (would throw if the counter blocked it); 10000 of 100000 moves out
+      await agentvalid.actions.unstake(['validator1', 10000]).send('validator1@active');
+      expect(getValidator('validator1').stake).to.equal(90000);
+    });
+
+    it('funding a challenge increments pending_challenges exactly once and blocks unstake', async () => {
+      await agentvalid.actions.challenge([
+        'challenger1', 0, 'Invalid', 'ipfs://evidence'
+      ]).send('challenger1@active');
       await eosioToken.actions.transfer([
         'challenger1', 'agentvalid', '5.0000 XPR', 'challenge:0'
       ]).send('challenger1@active');
-
-      // After funding — still 1 (not 2)
-      val = getValidator('validator1');
+      const val = getValidator('validator1');
       expect(val.pending_challenges).to.equal(1);
+      await expectToThrow(
+        agentvalid.actions.unstake(['validator1', 10000]).send('validator1@active'),
+        protonAssert('Cannot unstake while you have pending challenges. Wait for challenge resolution.')
+      );
     });
   });
 

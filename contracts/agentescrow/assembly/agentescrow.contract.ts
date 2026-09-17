@@ -1548,6 +1548,11 @@ export class AgentEscrowContract extends Contract {
 
     // Update job state BEFORE token transfer
     job.state = 7; // REFUNDED
+    // Mark the escrow as fully released, exactly like every other refund path
+    // (agentcancel/timeout/arbitrate). Without this a later removejob() would
+    // compute funded_amount - 0 and refund the same escrow a second time from
+    // the pool.
+    job.released_amount = job.funded_amount;
     job.updated_at = currentTimeSec();
     this.jobsTable.update(job, this.receiver);
 
