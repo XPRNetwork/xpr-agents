@@ -2183,8 +2183,14 @@ export class AgentEscrowContract extends Contract {
 
     const job = this.jobsTable.requireGet(job_id, "Job not found");
 
-    // Refund any remaining funds to client (CEI: calculate before state changes)
-    const refundAmount = job.funded_amount - job.released_amount;
+    // Refund any remaining funds to client (CEI: calculate before state changes).
+    // Terminal states (COMPLETED/REFUNDED/ARBITRATED) have already settled, so force
+    // the remaining refund to zero regardless of the stored released_amount. This is a
+    // belt-and-braces guard: a handful of jobs cancelled before the cancel() fix carry
+    // released_amount = 0 while already fully refunded, and without this removejob()
+    // would pay their escrow out a second time from the pool.
+    const settled = job.state == 6 || job.state == 7 || job.state == 8;
+    const refundAmount = settled ? 0 : (job.funded_amount - job.released_amount);
 
     // Delete associated milestones
     let ms = this.milestonesTable.getBySecondaryU64(job_id, 0);
