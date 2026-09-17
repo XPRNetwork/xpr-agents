@@ -54,8 +54,10 @@ const app = express();
 // Trust the reverse proxy (Railway/Docker) so the rate limiter keys on the real
 // client IP from X-Forwarded-For, not the single proxy hop. Set to the exact
 // number of proxies in front of us — never `true`, which would let a client
-// spoof X-Forwarded-For and dodge or poison the per-IP limit. Default 1 (Railway).
-app.set('trust proxy', parseInt(process.env.TRUST_PROXY || '1'));
+// spoof X-Forwarded-For and dodge or poison the per-IP limit. Default 1 (this
+// service runs behind Railway's proxy); a directly-exposed deployment should set
+// TRUST_PROXY=0. An unparseable value falls back to 1, not NaN.
+app.set('trust proxy', Number.isInteger(Number(process.env.TRUST_PROXY)) ? Number(process.env.TRUST_PROXY) : 1);
 
 // CORS: use allowlist from env, default to localhost origins for development
 const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001')

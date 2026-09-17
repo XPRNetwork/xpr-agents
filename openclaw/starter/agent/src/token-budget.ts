@@ -7,8 +7,16 @@
  * per UTC day. Provider pricing differs, so we count tokens (input+output), the
  * common denominator across providers. Set either env to 0 to disable that cap.
  */
-export const MAX_TOKENS_PER_RUN = parseInt(process.env.AGENT_MAX_TOKENS_PER_RUN || '300000');
-export const MAX_TOKENS_PER_DAY = parseInt(process.env.AGENT_MAX_TOKENS_PER_DAY || '10000000');
+/** Parse a non-negative integer env var, falling back to `def` for empty/invalid
+ *  input so a typo can never silently disable the cap (NaN). Negative -> 0. */
+function envCap(raw: string | undefined, def: number): number {
+  if (raw === undefined || raw.trim() === '') return def;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) return def;
+  return n;
+}
+export const MAX_TOKENS_PER_RUN = envCap(process.env.AGENT_MAX_TOKENS_PER_RUN, 300000);
+export const MAX_TOKENS_PER_DAY = envCap(process.env.AGENT_MAX_TOKENS_PER_DAY, 10000000);
 
 let tokenDay = '';
 let tokensToday = 0;
