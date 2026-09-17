@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { isPublicHttpUrl } from '../net-guard';
 
 interface WebhookSubscription {
   id: number;
@@ -105,6 +106,18 @@ export class WebhookDispatcher {
   private async deliver(sub: WebhookSubscription, payload: WebhookPayload): Promise<void> {
     let lastStatusCode = 0;
 
+    // SSRF guard at DISPATCH time, not just registration: the hostname is resolved
+    // now and refused if any of its addresses is private/loopback/link-local. A
+    // string check at registration cannot catch DNS rebinding (a name that resolved
+    // public then, internal now), and delivery carries the subscriber's Bearer token
+    // — we must never send it to an internal host.
+    if (!(await isPublicHttpUrl(sub.url))) {
+      console.error(`[webhook] Refusing delivery for sub ${sub.id}: URL does not resolve to a public address`);
+      this.logDelivery(sub.id, payload.event_type, JSON.stringify(payload), 0);
+      this.incrementFailure(sub);
+      return;
+    }
+
     for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
       try {
         const response = await fetch(sub.url, {
@@ -116,9 +129,19 @@ export class WebhookDispatcher {
           },
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(10000),
+          // A public host that 3xx-redirects to an internal one would escape the
+          // check above, so refuse to follow redirects and treat them as failures.
+          redirect: 'manual',
         });
 
         lastStatusCode = response.status;
+
+        // A redirect (opaqueredirect / 3xx) is not a valid delivery — count it as a failure.
+        if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+          this.logDelivery(sub.id, payload.event_type, JSON.stringify(payload), response.status || 0);
+          this.incrementFailure(sub);
+          return;
+        }
 
         // Log delivery
         this.logDelivery(sub.id, payload.event_type, JSON.stringify(payload), response.status);
