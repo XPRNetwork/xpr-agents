@@ -374,6 +374,29 @@ export class Deposit extends Table {
   }
 }
 
+// Records how a feedback row affects reputation, so resolve() reverses exactly what
+// the feedback added — no more. A row exists only for feedback that touched a
+// reputation aggregate; a plain submit() has none. Absent => reverse nothing, which
+// also correctly covers feedback stored before this table existed.
+//   kind 1 = context feedback (submitctx): affected a ctxscore AND directional trust
+//   kind 2 = paid feedback (submitwpay): affected directional trust only
+// This is a separate companion table, not a new field on `feedback`, because adding a
+// field to a table that already holds rows breaks positional deserialization.
+@table("fbkinds")
+export class FeedbackKind extends Table {
+  constructor(
+    public feedback_id: u64 = 0,
+    public kind: u8 = 0
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.feedback_id;
+  }
+}
+
 // External table reference for agent verification
 // Note: Schema must match agentcore::agents table exactly
 @table("agents", "agentcore")
@@ -468,6 +491,7 @@ export class AgentFeedContract extends Contract {
   private disputesTable: TableStore<Dispute> = new TableStore<Dispute>(this.receiver);
   private recalcStateTable: TableStore<RecalcState> = new TableStore<RecalcState>(this.receiver);
   private feedbackRateLimitTable: TableStore<FeedbackRateLimit> = new TableStore<FeedbackRateLimit>(this.receiver);
+  private feedbackKindsTable: TableStore<FeedbackKind> = new TableStore<FeedbackKind>(this.receiver);
   private configSingleton: Singleton<Config> = new Singleton<Config>(this.receiver);
   private depositsTable: TableStore<Deposit> = new TableStore<Deposit>(this.receiver);
   private readonly TOKEN_CONTRACT: Name = Name.fromString("eosio.token");
@@ -816,24 +840,37 @@ export class AgentFeedContract extends Contract {
     if (upheld) {
       this.updateAgentScore(feedback.agent, feedback.score, feedback.reviewer_kyc_level, false);
 
-      // FINDING 4 FIX: Also rollback context score if feedback was context-specific
-      // Context feedback has tags in format "context:actual_tags"
-      if (feedback.tags.includes(":")) {
+      // Reverse exactly the reputation this feedback added, read from its kind record
+      // rather than guessed from the tags. Previously any feedback whose tags merely
+      // contained ":" was treated as context feedback, so a disputed plain review with
+      // tags like "ai:slow" wrongly deducted an agent's `ai` context score, and every
+      // upheld dispute reversed directional trust even for plain reviews that never
+      // created any. See the fbkinds table.
+      //   kind 1 = context feedback: reverse the context score AND directional trust
+      //   kind 2 = paid feedback: reverse directional trust only
+      //   absent = plain feedback (and all pre-fbkinds feedback): reverse neither
+      const kindRow = this.feedbackKindsTable.get(feedback.id);
+      const kind: u8 = kindRow != null ? kindRow.kind : 0;
+
+      if (kind == 1) {
+        // Context feedback stores tags as "context:actual_tags"; the prefix is a valid
+        // context because submitctx validated it, so this parse is now reliable.
         const colonIndex = feedback.tags.indexOf(":");
-        const context = feedback.tags.substring(0, colonIndex);
-        // Only rollback if it's a valid context
-        const validContexts = ["ai", "compute", "storage", "oracle", "payment", "messaging", "data", "automation", "analytics", "security"];
-        for (let i = 0; i < validContexts.length; i++) {
-          if (validContexts[i] == context) {
-            this.updateContextScore(feedback.agent, context, feedback.score, feedback.reviewer_kyc_level, false);
-            break;
-          }
+        if (colonIndex > 0) {
+          const context = feedback.tags.substring(0, colonIndex);
+          this.updateContextScore(feedback.agent, context, feedback.score, feedback.reviewer_kyc_level, false);
         }
       }
 
-      // FINDING 4 FIX: Also rollback directional trust
-      // Directional trust adds (score - 3) as delta, so we reverse by subtracting the same
-      this.reverseDirectionalTrust(feedback.reviewer, feedback.agent, feedback.score);
+      if (kind == 1 || kind == 2) {
+        // Directional trust adds (score - 3); reverse by subtracting the same.
+        this.reverseDirectionalTrust(feedback.reviewer, feedback.agent, feedback.score);
+      }
+
+      // Clear the kind record now that its reputation effects are reversed.
+      if (kindRow != null) {
+        this.feedbackKindsTable.remove(kindRow);
+      }
     }
     // Note: If dispute rejected (upheld=false), scores are already included since they were
     // added at submission time. The feedback will be included in recalculate() as well.
@@ -1156,6 +1193,12 @@ export class AgentFeedContract extends Contract {
     // Delete the feedback
     this.feedbackTable.remove(fb);
 
+    // Delete its kind record so no orphan is left behind
+    const kindRow = this.feedbackKindsTable.get(feedback_id);
+    if (kindRow != null) {
+      this.feedbackKindsTable.remove(kindRow);
+    }
+
     // Remove agent score (will need recalc if other feedback exists)
     const agentScore = this.agentScoresTable.get(fb.agent.N);
     if (agentScore != null) {
@@ -1201,6 +1244,10 @@ export class AgentFeedContract extends Contract {
         while (proof != null && proof.feedback_id == current.id) {
           this.paymentProofsTable.remove(proof);
           proof = this.paymentProofsTable.getBySecondaryU64(current.id, 0);
+        }
+        const kindRow = this.feedbackKindsTable.get(current.id);
+        if (kindRow != null) {
+          this.feedbackKindsTable.remove(kindRow);
         }
         this.feedbackTable.remove(current);
         deleted++;
@@ -1312,8 +1359,9 @@ export class AgentFeedContract extends Contract {
     const kycLevel = this.getKycLevel(reviewer);
 
     // Create feedback record (using tags to store context as well)
+    const feedbackId = this.feedbackTable.availablePrimaryKey;
     const feedback = new Feedback(
-      this.feedbackTable.availablePrimaryKey,
+      feedbackId,
       agent,
       reviewer,
       kycLevel,
@@ -1331,6 +1379,10 @@ export class AgentFeedContract extends Contract {
 
     // Update global agent score
     this.updateAgentScore(agent, score, kycLevel, true);
+
+    // Record that this feedback affected a context score and directional trust, so a
+    // later dispute reverses exactly those (see resolve()).
+    this.feedbackKindsTable.store(new FeedbackKind(feedbackId, 1), this.receiver);
 
     // Update context-specific score
     this.updateContextScore(agent, context, score, kycLevel, true);
@@ -1569,6 +1621,10 @@ export class AgentFeedContract extends Contract {
     );
 
     this.paymentProofsTable.store(paymentProof, this.receiver);
+
+    // Paid feedback affects directional trust (below) but not a context score, so a
+    // later dispute reverses only the trust — see resolve().
+    this.feedbackKindsTable.store(new FeedbackKind(feedbackId, 2), this.receiver);
 
     // Update agent score
     this.updateAgentScore(agent, score, kycLevel, true);
