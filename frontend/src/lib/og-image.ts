@@ -9,9 +9,59 @@
  * Manifest semantics are imported from ./registry so the card can never
  * disagree with what the page itself renders.
  */
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { IPFS_GATEWAY, firstImageUri } from './registry';
 
 export { firstImageUri };
+
+/** True for loopback, private, link-local, unique-local and other non-public ranges. */
+function isPrivateAddress(ip: string): boolean {
+  const v = isIP(ip);
+  if (v === 4) {
+    const p = ip.split('.').map(Number);
+    if (p.length !== 4 || p.some(n => Number.isNaN(n))) return true;
+    const [a, b] = p;
+    return (
+      a === 0 || a === 10 || a === 127 ||
+      (a === 169 && b === 254) ||               // link-local + AWS/GCP metadata
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127) ||     // CGNAT
+      a >= 224                                   // multicast / reserved
+    );
+  }
+  if (v === 6) {
+    const s = ip.toLowerCase();
+    return (
+      s === '::1' || s === '::' ||
+      s.startsWith('fe80') ||                    // link-local
+      s.startsWith('fc') || s.startsWith('fd') ||// unique-local
+      s.startsWith('::ffff:')                    // IPv4-mapped (would need re-check; reject)
+    );
+  }
+  return true; // unparseable → refuse
+}
+
+/** Resolve the URL's host and confirm every address it maps to is public. */
+async function isPublicHttpsHost(url: string): Promise<boolean> {
+  let host: string;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return false;
+    host = u.hostname;
+  } catch {
+    return false;
+  }
+  // A literal IP in the URL is checked directly; a name is resolved to all its IPs.
+  if (isIP(host)) return !isPrivateAddress(host);
+  try {
+    const addrs = await lookup(host, { all: true });
+    return addrs.length > 0 && addrs.every(a => !isPrivateAddress(a.address));
+  } catch {
+    return false;
+  }
+}
 
 export const OG_WIDTH = 1200;
 export const OG_HEIGHT = 630;
@@ -168,10 +218,18 @@ export async function fetchImageAsDataUri(url: string): Promise<string | null> {
   if (url.startsWith('data:image/')) return url;
   if (!/^https:\/\//i.test(url)) return null; // crawlers refuse mixed content anyway
 
+  // SSRF guard: the URL comes from an agent-controlled evidence_uri/sample_uri and
+  // this runs server-side, so an attacker could otherwise point it at an internal
+  // host or cloud metadata. Resolve the hostname and refuse any private/loopback/
+  // link-local address, and do not follow redirects (a public host could 302 to one).
+  if (!(await isPublicHttpsHost(url))) return null;
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: controller.signal, headers: { accept: 'image/*' } });
+    const res = await fetch(url, { signal: controller.signal, headers: { accept: 'image/*' }, redirect: 'manual' });
+    // A redirect would escape the address check above — treat it as unavailable.
+    if (res.status >= 300 && res.status < 400) return null;
     if (!res.ok) return null;
 
     const mime = (res.headers.get('content-type') || '').split(';')[0].trim();
