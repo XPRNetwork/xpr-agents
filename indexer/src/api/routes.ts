@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { WebhookDispatcher } from '../webhooks/dispatcher';
 import { enrichAgents } from '../enrich';
@@ -10,6 +11,20 @@ import { pruneStaleTempRows } from '../handlers/id-correction';
 export interface RouteOptions {
   /** nodeos RPC endpoint used by on-demand enrichment (POST /admin/sync-kyc). */
   rpcEndpoint?: string;
+}
+
+/**
+ * Compare a bearer header against the expected token in constant time. A plain
+ * `header !== \`Bearer ${token}\`` returns as soon as the first byte differs,
+ * which leaks the token's length and prefix to a timing attacker. We hash both
+ * sides to a fixed 32 bytes so the comparison is always over equal-length,
+ * attacker-independent buffers.
+ */
+function bearerMatches(header: string | undefined, token: string): boolean {
+  if (!header) return false;
+  const a = createHash('sha256').update(header).digest();
+  const b = createHash('sha256').update(`Bearer ${token}`).digest();
+  return timingSafeEqual(a, b);
 }
 
 export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatcher, opts: RouteOptions = {}): Router {
@@ -546,8 +561,7 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
       res.status(503).json({ error: 'Admin API not configured (ADMIN_API_TOKEN not set)' });
       return false;
     }
-    const auth = req.headers.authorization;
-    if (!auth || auth !== `Bearer ${adminToken}`) {
+    if (!bearerMatches(req.headers.authorization, adminToken)) {
       res.status(401).json({ error: 'Unauthorized' });
       return false;
     }
@@ -567,7 +581,9 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
       updateStats(db);
       return res.json({ status: 'ok', ...result });
     } catch (err) {
-      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      // Log the detail (may include the RPC URL) server-side; return a generic message.
+      console.error('[admin/sync-kyc] enrichment failed:', err);
+      return res.status(500).json({ error: 'Enrichment failed' });
     }
   });
 
@@ -589,7 +605,8 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
       const sweep = pruneStaleTempRows(db, maxAgeSec);
       return res.json({ status: 'ok', max_age_sec: maxAgeSec, total: sweep.total, deleted: sweep.deleted });
     } catch (err) {
-      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      console.error('[admin/prune-temp-rows] sweep failed:', err);
+      return res.status(500).json({ error: 'Prune failed' });
     }
   });
 
@@ -602,8 +619,7 @@ export function createRoutes(db: Database.Database, dispatcher?: WebhookDispatch
       res.status(503).json({ error: 'Webhooks not configured (WEBHOOK_ADMIN_TOKEN not set)' });
       return false;
     }
-    const auth = req.headers.authorization;
-    if (!auth || auth !== `Bearer ${webhookAdminToken}`) {
+    if (!bearerMatches(req.headers.authorization, webhookAdminToken)) {
       res.status(401).json({ error: 'Unauthorized' });
       return false;
     }

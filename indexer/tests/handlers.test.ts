@@ -8,6 +8,17 @@ import { handleEscrowAction } from '../src/handlers/escrow';
 import { StreamAction } from '../src/stream';
 import { WebhookDispatcher } from '../src/webhooks/dispatcher';
 
+// The WebhookDispatcher unit tests below exercise event matching, retry and
+// failure logic against a stubbed fetch, using placeholder hosts that do not
+// resolve. The dispatch-time SSRF guard (net-guard.isPublicHttpUrl) would
+// otherwise do a real DNS lookup and refuse them, so stub it to allow-all here.
+// The guard itself is covered by net-guard.test.ts, and its integration with the
+// dispatcher by webhook-ssrf.test.ts (which does not mock it).
+vi.mock('../src/net-guard', () => ({
+  isPublicHttpUrl: vi.fn().mockResolvedValue(true),
+  isPrivateAddress: vi.fn().mockReturnValue(false),
+}));
+
 /* ------------------------------------------------------------------ */
 /*  Test Helpers                                                        */
 /* ------------------------------------------------------------------ */
