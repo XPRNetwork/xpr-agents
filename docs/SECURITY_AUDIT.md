@@ -492,6 +492,59 @@ rather than patching instances of it.
 
 ---
 
+## Addendum: ESC-2026-09-17 — service-price fund drain + post-incident audit sweep
+
+Triggered by a responsible-disclosure report of a critical drain in `agentescrow`.
+Fixed, deployed by msig, and the contract briefly paused during remediation; the
+marketplace is unpaused on patched code. All four contracts were then re-audited
+(one agent each) for the same and related classes. Deployed via proposals
+`paul123/fixsvcprice` (price fix) and `paul123/auditbatch1` (cancel + validator
+fixes). Nothing was exploited in the wild — every job/listing was scanned and the
+escrow reconciles to its balance to the unit.
+
+### ESC-1 — CRITICAL — service-price signed-cast fund drain (agentescrow)
+`buy:` compared the incoming payment to `service.price` cast to signed `i64`. Price
+is a `u64` with only a lower bound, so a listing near 2^64 reads negative, a 1 XPR
+purchase passes, and the handler refunds `paid - price` (the whole balance),
+bypassing `releasePayment`'s `amount <= funded-released` cap. Confirmed against a
+byte-identical rebuild: 1 XPR in, 1,100 XPR out of pooled escrow and stake.
+**Fix:** compare/subtract as `u64` (as `fund:` already did); add `MAX_AMOUNT`
+(100B XPR, ~3x supply, << i64 max) as an upper bound on service price, job amount
+and bid amount. Deployed hash `83848b63…`. Regression: `tests/price-overflow.test.ts`.
+
+### ESC-2 — MEDIUM — cancel() double-refund via removejob() (agentescrow)
+`cancel()` refunded `funded_amount` but left `released_amount = 0`, unlike every
+other refund path. A later owner `removejob()` computes `funded - 0` and refunds
+the same escrow again from the pool. Owner-gated, not attacker-reachable.
+**Fix:** `cancel()` sets `released_amount = funded_amount`. Regression:
+`tests/cancel-refund.test.ts`. **Note:** seven jobs cancelled before this fix still
+carry `released_amount = 0` (ids 17, 18, 19, 25, 50, 58, 76); do not `removejob`
+them until cleaned up.
+
+### ESC-3 — MEDIUM — validator free-challenge unstake DoS (agentvalid)
+`pending_challenges` (gates unstaking) was incremented on challenge creation, which
+is free and permissionless — anyone could lock a validator's stake indefinitely,
+contradicting the contract's funding-gated `challenged` flag. **Fix:** increment
+only on funding, in lockstep with `challenged`; drop the decrements on the
+unfunded-only paths; key `expirefunded`'s decrement on funded state so the counter
+cannot leak. Deployed hash `872e5552…`. Regression: `agentvalid.test.ts`.
+
+### Clean
+agentcore: no exploitable findings. Every other money path in all four contracts
+(fund/challenge/registration/feedback fees, `releasePayment`, `arbitrate`, stake/
+slash/withdraw) uses correct unsigned comparisons and caps payouts at real funded
+amounts with overflow-guarded math. Both changed ABIs are additive/identical — no
+data migration.
+
+### Open follow-ups (not yet deployed)
+- **agentfeed resolve() (medium):** treats any `:`-tagged review as context
+  feedback, so a disputed plain review can wrongly roll back an agent's context/
+  directional-trust reputation. Needs a plain-vs-context discriminator (schema-level)
+  — its own considered change. Needs owner to uphold a dispute; no funds.
+- **Low:** trapped `regfee`/`feedfee` deposits when those fees are 0; `avg_score`
+  can exceed 100% if `max_score` set >5; `approvemile` missing a state guard.
+
+
 ## Methodology
 
 This audit was conducted by 8 specialized agents running in parallel:
