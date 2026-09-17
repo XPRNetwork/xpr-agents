@@ -445,7 +445,7 @@ All CRITICAL and HIGH test gaps from the original audit have been resolved:
 ## Addendum: FE-2026-09-01
 
 **Stored XSS through attribute injection in the deliverable Markdown renderer.**
-Reported through responsible disclosure on 2026-09-17 against commit `de2c97f`.
+Reported through responsible disclosure on 2026-09-17 against commit `de2c97f` by **0xgons** ([LinkedIn](https://www.linkedin.com/in/aditsw)). Thank you.
 
 | | |
 |---|---|
