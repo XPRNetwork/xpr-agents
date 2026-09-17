@@ -25,6 +25,7 @@ import {
   MAX_TOKENS_PER_RUN, MAX_TOKENS_PER_DAY,
   dailyTokenBudgetExhausted, recordTokenUsage, tokenBudgetStats,
 } from './token-budget';
+import { isReadonlyToolName } from './a2a-tools';
 import { findHousekeepingActions, describeHousekeeping, DEFAULT_DISPUTE_WINDOW_SEC, DEFAULT_MAX_TIMEOUT_ATTEMPTS } from './timeouts';
 import type { EscrowJobLike, HousekeepingAction } from './timeouts';
 import { isLlmUnavailableError, describeLlmError } from './llm-errors';
@@ -620,7 +621,9 @@ const a2aAuthConfig: A2AAuthConfig = {
 // delegation is now opt-in: an operator must set A2A_TOOL_MODE=full to expose
 // mutating tools to A2A peers. Anything else (unset/invalid) is read-only.
 const a2aToolMode: 'full' | 'readonly' = process.env.A2A_TOOL_MODE === 'full' ? 'full' : 'readonly';
-const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_get_') || t.name.startsWith('defi_list_') || t.name.startsWith('nft_get_') || t.name.startsWith('nft_list_') || t.name.startsWith('nft_search_') || t.name.startsWith('tax_') || t.name.startsWith('loan_list_') || t.name.startsWith('loan_get_') || t.name.startsWith('gov_list_') || t.name.startsWith('gov_get_') || t.name.startsWith('xmd_get_') || t.name.startsWith('xmd_list_') || t.name.startsWith('sc_get_') || t.name === 'sc_read_table' || t.name.startsWith('shell_list_') || t.name === 'shell_get_comments' || t.name === 'shell_search' || t.name === 'shell_get_profile');
+// The read-only allowlist (with mutating-tool exclusions) lives in ./a2a-tools so
+// it is unit-tested — see isReadonlyToolName.
+const readonlyTools = tools.filter(t => isReadonlyToolName(t.name));
 // readonly LLM tools — same shape, smaller list
 function buildReadonlyLlmTools(): LlmTool[] {
   return buildLlmTools(readonlyTools);
@@ -848,10 +851,14 @@ async function runAgent(eventType: string, data: any, message: string, options?:
 // Express server
 const app = express();
 
-// Trust the reverse proxy (Railway/Docker) so req.ip is the real client IP from
-// X-Forwarded-For, not the proxy hop. Set to the exact number of proxies in front
-// — never `true`, which lets a client spoof X-Forwarded-For. Default 1.
-app.set('trust proxy', parseInt(process.env.TRUST_PROXY || '1'));
+// Trust the reverse proxy so req.ip is the real client IP from X-Forwarded-For.
+// SECURITY: default to 0 (trust NObody). The starter compose and Charlie's Mac mini
+// publish this port directly, with no proxy in front — trusting a hop that does not
+// exist would let any client spoof X-Forwarded-For and evade/poison the rate
+// limiter. Deployments that DO sit behind a proxy (e.g. Railway) set TRUST_PROXY to
+// the exact hop count. An unparseable value falls back to 0, not NaN.
+const TRUST_PROXY_HOPS = Number.isInteger(Number(process.env.TRUST_PROXY)) ? Number(process.env.TRUST_PROXY) : 0;
+app.set('trust proxy', TRUST_PROXY_HOPS);
 
 // SECURITY: pre-auth per-IP rate limiter. Sliding 60s window, in-process (no extra
 // dependency; mirrors the per-account limiter in a2a-auth). It runs before body
@@ -1775,7 +1782,9 @@ async function recordAskedIfPending(jobId: number, account: string): Promise<voi
 function extractBuyerInput(messages: JobMessageLike[], client: string): Record<string, unknown> | null {
   for (const m of messages) {
     if (m.author !== client) continue;
-    const text = scanInbound(m.text || '', 'poller').text.trim();
+    // Drop the message entirely if it was hard-blocked (scanClean -> ''); never
+    // parse blocked content into structured buyer input handed to the LLM.
+    const text = scanClean(m.text || '').trim();
     if (!text.startsWith('{')) continue;
     try {
       const parsed = JSON.parse(text);
@@ -2202,7 +2211,7 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
         if (!canSpendCredits(`challenge on validation #${v.id}`)) continue;
         recordEval();
         runAgent('poll:validation_challenged', {
-          validation_id: v.id, validator: v.validator, job_hash: v.job_hash,
+          validation_id: v.id, validator: v.validator, job_hash: scanClean(v.job_hash || ''),
         }, `Validation #${v.id} has been challenged. Review the challenge and respond.`).catch(err => {
           console.error(`[poller] Failed to process validation challenge:`, err.message);
         });
@@ -2238,12 +2247,14 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
 
           // DELIVERED — evaluate the delivery
           if (job.state === 4) {
+            const scanned = scanJob(job);
+            if (!scanned) continue; // inbound content blocked — skip the LLM run
             activeJobIds.add(job.id);
             recordEval();
-            const safeTitle = scanInbound(job.title || '', 'poller').text;
+            const safeTitle = scanned.title;
             runAgent('poll:delegator_delivery', {
               job_id: job.id, agent: job.agent, title: safeTitle,
-              state: job.state, deliverables: job.deliverables,
+              state: job.state, deliverables: scanned.deliverables,
             }, `Job #${job.id} "${safeTitle}" has been DELIVERED by agent ${job.agent}. Review the deliverables and either approve with xpr_approve_delivery or raise a dispute.`)
               .catch(err => handleRunFailure(err, `delegator delivery review for job #${job.id}`, {
                 jobId: job.id,
@@ -2266,10 +2277,10 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
               for (const b of bids) if (b && b.id != null) knownDelegatorBidIds.add(b.id);
               activeJobIds.add(job.id);
               recordEval();
-              const safeTitle = scanInbound(job.title || '', 'poller').text;
+              const safeTitle = scanClean(job.title || '');
               runAgent('poll:delegator_bids', {
                 job_id: job.id, title: safeTitle, new_bid_count: newBids.length, bids: bids.map((b: any) => ({
-                  bid_id: b.id, agent: b.agent, amount: b.amount, proposal: b.proposal,
+                  bid_id: b.id, agent: b.agent, amount: b.amount, proposal: scanClean(b.proposal || ''),
                 })),
               }, `Job #${job.id} "${safeTitle}" has ${bids.length} bid(s) total, ${newBids.length} new since last poll. Evaluate the bids and select the best one using xpr_select_bid if any are suitable.`)
                 .catch(err => handleRunFailure(err, `delegator bid review for job #${job.id}`, {
@@ -2315,14 +2326,16 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
         console.log(`[poller/validator] Job #${job.id} is DELIVERED — evaluating for validation`);
         if (!canSpendCredits(`validator job #${job.id}`)) continue;
 
+        const scanned = scanJob(job);
+        if (!scanned) continue; // inbound content blocked — skip the LLM run
         activeJobIds.add(job.id);
         recordEval();
-        const safeTitle = scanInbound(job.title || '', 'poller').text;
-        const safeDescription = scanInbound(job.description || '', 'poller').text;
+        const safeTitle = scanned.title;
+        const safeDescription = scanned.description;
         runAgent('poll:validator_review', {
           job_id: job.id, agent: job.agent, client: job.client,
           title: safeTitle, description: safeDescription,
-          deliverables: job.deliverables,
+          deliverables: scanned.deliverables,
         }, `Job #${job.id} "${safeTitle}" has been DELIVERED by ${job.agent}. Validate the work quality: review deliverables against the description, then submit a validation using xpr_submit_validation.`)
           .catch(err => handleRunFailure(err, `validator review for job #${job.id}`, {
             jobId: job.id,
@@ -2349,7 +2362,7 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
               runAgent('poll:social_timeline', {
                 new_post_count: newPosts.length,
                 posts: newPosts.slice(0, 5).map((p: any) => ({
-                  id: p.id, author: p.author, content: (p.content || '').slice(0, 200),
+                  id: p.id, author: p.author, content: scanClean((p.content || '').slice(0, 200)),
                 })),
               }, `Here are ${newPosts.length} new Shellbook post(s) since last poll. Engage with the most interesting ones — vote, comment, or create your own post if inspired. Be genuine and add value.`)
                 .catch(err => handleRunFailure(err, 'social timeline engagement', {

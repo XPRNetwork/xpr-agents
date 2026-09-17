@@ -25,55 +25,71 @@ const MAX_TIMEOUT = 30000;
 const MAX_OUTPUT_SIZE = 10 * 1024 * 1024; // 10MB
 
 // ── Sandbox helpers ─────────────────────────────
+//
+// SECURITY: the context is given ONLY primitive strings — never a host function or
+// object. That is the whole game with node:vm. `codeGeneration.strings:false` only
+// disables eval/Function *for this context's own realm*; a host closure handed in
+// (a console mock, atob/btoa via Buffer, anything) exposes `fn.constructor` — the
+// HOST realm's Function, where code generation is still allowed — so
+// `console.log.constructor("return process.env")()` would read the runner's secrets
+// and `Object.getPrototypeOf(hostFn).constructor.prototype` would pollute the host.
+// So: console, atob/btoa, INPUT parsing and the *result serialization* all run as
+// sandbox-realm code (below). Serializing inside the sandbox also keeps it under the
+// execution timeout — a malicious getter can no longer stall the host via a
+// host-side JSON.stringify. The only value read back out is a JSON string (a
+// primitive), which the host then parses safely.
 
-function createSandboxGlobals(inputJson: string | undefined, logs: string[]): Record<string, unknown> {
-  // Capture console methods
-  const consoleMock = {
-    log: (...args: unknown[]) => {
-      logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
-    },
-    warn: (...args: unknown[]) => {
-      logs.push('[warn] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
-    },
-    error: (...args: unknown[]) => {
-      logs.push('[error] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
-    },
-  };
+/** Sandbox-realm preamble: pure-JS console/atob/btoa/INPUT, no host references. */
+const SANDBOX_PREAMBLE = `
+var __logs = [];
+var console = {
+  log: function(){ __logs.push(Array.prototype.map.call(arguments, function(a){ return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')); },
+  warn: function(){ __logs.push('[warn] ' + Array.prototype.map.call(arguments, function(a){ return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')); },
+  error: function(){ __logs.push('[error] ' + Array.prototype.map.call(arguments, function(a){ return typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ')); }
+};
+var __B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function btoa(s){ s = String(s); var o = ''; for (var i = 0; i < s.length; ) {
+  var c1 = s.charCodeAt(i++), c2 = s.charCodeAt(i++), c3 = s.charCodeAt(i++);
+  var e1 = c1 >> 2, e2 = ((c1 & 3) << 4) | (c2 >> 4), e3 = ((c2 & 15) << 2) | (c3 >> 6), e4 = c3 & 63;
+  if (isNaN(c2)) { e3 = e4 = 64; } else if (isNaN(c3)) { e4 = 64; }
+  o += __B64.charAt(e1) + __B64.charAt(e2) + (e3 === 64 ? '=' : __B64.charAt(e3)) + (e4 === 64 ? '=' : __B64.charAt(e4));
+} return o; }
+function atob(s){ s = String(s).replace(/[^A-Za-z0-9+/=]/g, ''); var o = ''; for (var i = 0; i < s.length; ) {
+  var d1 = __B64.indexOf(s.charAt(i++)), d2 = __B64.indexOf(s.charAt(i++)), d3 = __B64.indexOf(s.charAt(i++)), d4 = __B64.indexOf(s.charAt(i++));
+  var c1 = (d1 << 2) | (d2 >> 4), c2 = ((d2 & 15) << 4) | (d3 >> 2), c3 = ((d3 & 3) << 6) | d4;
+  o += String.fromCharCode(c1); if (d3 !== 64 && d3 >= 0) o += String.fromCharCode(c2); if (d4 !== 64 && d4 >= 0) o += String.fromCharCode(c3);
+} return o; }
+`.trim();
 
-  return {
-    // INPUT is injected as a JSON string and parsed with the sandbox's OWN JSON
-    // inside the wrapper (see below), so the resulting object belongs to the vm
-    // realm — never a host object.
-    __INPUT_JSON: inputJson,
-    console: consoleMock,
-    // atob/btoa need host Buffer; exposed as closures (not intrinsics).
-    atob: (s: string) => Buffer.from(s, 'base64').toString('binary'),
-    btoa: (s: string) => Buffer.from(s, 'binary').toString('base64'),
-    // Explicitly undefined — defense in depth (also absent from a bare vm realm).
-    require: undefined,
-    process: undefined,
-    module: undefined,
-    // SECURITY: Object/Array/Math/JSON/Date/RegExp/Map/Set/parseInt/... are
-    // deliberately NOT injected. A vm context is its own realm with its own
-    // intrinsics, so leaving them out means prototype mutations inside the sandbox
-    // (e.g. Object.prototype.x = 1) stay in the sandbox and cannot pollute the
-    // host process's built-ins. node:vm is not a hard security boundary — with
-    // codeGeneration.strings/wasm disabled the usual `constructor.constructor`
-    // escape is blocked, but do not run fully untrusted code with secrets in env.
-  };
-}
-
-function serializeResult(value: unknown): string {
-  if (value === undefined) return 'undefined';
-  try {
-    const str = JSON.stringify(value, null, 2);
-    if (str.length > MAX_OUTPUT_SIZE) {
-      return str.slice(0, MAX_OUTPUT_SIZE) + '\n... [truncated at 10MB]';
-    }
-    return str;
-  } catch {
-    return String(value);
-  }
+/**
+ * Run a self-contained expression/body in a fresh vm realm and return the parsed
+ * outcome. `body` must be a statement list whose LAST expression is the user value
+ * to capture. Everything is serialized to a JSON string inside the sandbox.
+ */
+function runInSandbox(
+  body: string,
+  timeoutMs: number,
+  inputJson: string | undefined,
+): { ok: boolean; result?: unknown; logs: string[]; error?: string; oversized?: boolean } {
+  // Only a primitive string crosses into the realm.
+  const context = vm.createContext(
+    { __INPUT_JSON: inputJson },
+    { codeGeneration: { strings: false, wasm: false } },
+  );
+  const wrapped = `${SANDBOX_PREAMBLE}
+var INPUT = (typeof __INPUT_JSON === 'string') ? JSON.parse(__INPUT_JSON) : undefined;
+var __result, __error = null;
+try { __result = (function(){ ${body} \n})(); } catch (e) { __error = (e && e.message) ? String(e.message) : String(e); }
+(function(){
+  try { return JSON.stringify({ ok: __error === null, result: __result === undefined ? null : __result, logs: __logs, error: __error }); }
+  catch (e) { return JSON.stringify({ ok: __error === null, result: String(__result), logs: __logs, error: __error }); }
+})();`;
+  const script = new vm.Script(wrapped, { filename: 'sandbox.js' });
+  const out = script.runInContext(context, { timeout: timeoutMs }) as string;
+  if (typeof out !== 'string') return { ok: false, logs: [], error: 'sandbox produced no serializable output' };
+  if (out.length > MAX_OUTPUT_SIZE) return { ok: false, logs: [], error: 'Output exceeded 10MB limit', oversized: true };
+  const parsed = JSON.parse(out) as { ok: boolean; result?: unknown; logs: string[]; error?: string };
+  return parsed;
 }
 
 // ── Skill entry point ───────────────────────────
@@ -107,7 +123,6 @@ export default function codeSandboxSkill(api: SkillApi): void {
       }
 
       const timeoutMs = Math.min(Math.max(timeout || DEFAULT_TIMEOUT, 100), MAX_TIMEOUT);
-      const logs: string[] = [];
       const startTime = Date.now();
 
       let inputJson: string | undefined;
@@ -118,50 +133,31 @@ export default function codeSandboxSkill(api: SkillApi): void {
       }
 
       try {
-        const globals = createSandboxGlobals(inputJson, logs);
-        const context = vm.createContext(globals, {
-          codeGeneration: { strings: false, wasm: false },
-        });
-
-        // Parse INPUT with the sandbox's own JSON so it is a realm-native object,
-        // then wrap code so the last expression is returned.
-        const wrapped = `(function() {\nconst INPUT = (typeof __INPUT_JSON === 'string') ? JSON.parse(__INPUT_JSON) : undefined;\n${code}\n})()`;
-        const script = new vm.Script(wrapped, { filename: 'sandbox.js' });
-        const result = script.runInContext(context, { timeout: timeoutMs });
+        const out = runInSandbox(code, timeoutMs, inputJson);
         const durationMs = Date.now() - startTime;
-
-        const serialized = serializeResult(result);
-        if (serialized.length > MAX_OUTPUT_SIZE) {
-          return {
-            result: serialized.slice(0, 1000) + '... [truncated]',
-            logs,
-            duration_ms: durationMs,
-            warning: 'Output exceeded 10MB limit and was truncated',
-          };
+        if (out.oversized) {
+          return { error: 'Output exceeded 10MB limit', logs: out.logs, duration_ms: durationMs, warning: 'Output exceeded 10MB limit and was truncated' };
         }
-
-        // Parse back to preserve types (arrays, objects)
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(serialized);
-        } catch {
-          parsed = serialized === 'undefined' ? undefined : serialized;
+        if (!out.ok) {
+          const message = out.error || 'unknown error';
+          if (message.includes('Code generation from strings disallowed')) {
+            return { error: 'eval() and Function() constructor are blocked in the sandbox. Use direct code instead.', logs: out.logs, duration_ms: durationMs };
+          }
+          return { error: message, logs: out.logs, duration_ms: durationMs };
         }
-
-        return { result: parsed, logs, duration_ms: durationMs };
+        return { result: out.result, logs: out.logs, duration_ms: durationMs };
       } catch (err: any) {
         const durationMs = Date.now() - startTime;
         const message = err.message || String(err);
 
-        // Provide helpful error context
-        if (message.includes('Script execution timed out')) {
-          return { error: `Execution timed out after ${timeoutMs}ms. Keep code efficient or increase timeout (max ${MAX_TIMEOUT}ms).`, logs, duration_ms: durationMs };
+        // Timeout is a hard interrupt thrown to the host, so it lands here.
+        if (message.includes('Script execution timed out') || message.includes('timed out')) {
+          return { error: `Execution timed out after ${timeoutMs}ms. Keep code efficient or increase timeout (max ${MAX_TIMEOUT}ms).`, logs: [], duration_ms: durationMs };
         }
         if (message.includes('Code generation from strings disallowed')) {
-          return { error: 'eval() and Function() constructor are blocked in the sandbox. Use direct code instead.', logs, duration_ms: durationMs };
+          return { error: 'eval() and Function() constructor are blocked in the sandbox. Use direct code instead.', logs: [], duration_ms: durationMs };
         }
-
-        return { error: message, logs, duration_ms: durationMs };
+        return { error: message, logs: [], duration_ms: durationMs };
       }
     },
   });
@@ -187,27 +183,17 @@ export default function codeSandboxSkill(api: SkillApi): void {
       }
 
       try {
-        const globals = createSandboxGlobals(undefined, []);
-        const context = vm.createContext(globals, {
-          codeGeneration: { strings: false, wasm: false },
-        });
-
-        const script = new vm.Script(`(${expression})`, { filename: 'expr.js' });
-        const result = script.runInContext(context, { timeout: DEFAULT_TIMEOUT });
-
-        let serialized: unknown;
-        try {
-          serialized = JSON.parse(JSON.stringify(result));
-        } catch {
-          serialized = String(result);
-        }
-
-        return {
-          result: serialized,
-          type: result === null ? 'null' : Array.isArray(result) ? 'array' : typeof result,
-        };
+        // Evaluate as the returned value of the sandbox body (same isolated realm,
+        // in-sandbox serialization). The value comes back as parsed JSON.
+        const out = runInSandbox(`return (${expression});`, DEFAULT_TIMEOUT, undefined);
+        if (!out.ok) return { error: out.error || 'evaluation failed' };
+        const r = out.result;
+        const type = r === null ? 'null' : Array.isArray(r) ? 'array' : typeof r;
+        return { result: r, type };
       } catch (err: any) {
-        return { error: err.message || String(err) };
+        const message = err.message || String(err);
+        if (message.includes('timed out')) return { error: `Execution timed out after ${DEFAULT_TIMEOUT}ms.` };
+        return { error: message };
       }
     },
   });

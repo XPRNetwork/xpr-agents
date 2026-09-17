@@ -89,28 +89,29 @@ function checkRateLimit(account: string, limit: number): void {
 }
 
 // ── Replay Protection ──────────────────────────────────────────
-// The signed payload is (account, timestamp, bodyDigest), so the SAME signed
-// request can be replayed repeatedly within the ±timestampWindow. Remember each
-// signature we have already accepted until it falls outside the acceptance window,
-// and reject a second use. Keyed on the signature itself (unique per signed
-// request); TTL is 2×window to cover both the past and future edges of the window.
+// The SAME signed request can be replayed repeatedly within the ±timestampWindow.
+// Remember each accepted request until it falls outside the acceptance window, and
+// reject a second use. The key is the SIGNED tuple (account, timestamp, bodyDigest),
+// NOT the signature string — ECDSA signatures are malleable, so keying on the
+// signature would let a mutated copy through once. TTL is 2×window to cover both the
+// past and future edges of the window.
 
-const usedSignatures = new Map<string, number>(); // signature -> expiry (epoch ms)
+const usedRequests = new Map<string, number>(); // signed-tuple key -> expiry (epoch ms)
 
 setInterval(() => {
   const now = Date.now();
-  for (const [sig, exp] of usedSignatures) {
-    if (exp <= now) usedSignatures.delete(sig);
+  for (const [key, exp] of usedRequests) {
+    if (exp <= now) usedRequests.delete(key);
   }
 }, 60_000).unref();
 
-export function checkReplay(signature: string, windowSec: number): void {
+export function checkReplay(key: string, windowSec: number): void {
   const now = Date.now();
-  const seen = usedSignatures.get(signature);
+  const seen = usedRequests.get(key);
   if (seen && seen > now) {
     throw new A2AAuthError('Replay detected: this signed request has already been used', -32000);
   }
-  usedSignatures.set(signature, now + windowSec * 2 * 1000);
+  usedRequests.set(key, now + windowSec * 2 * 1000);
 }
 
 // ── Key Fetching ───────────────────────────────────────────────
@@ -330,11 +331,14 @@ export async function verifyA2ARequest(
     );
   }
 
-  // Replay protection: reject a signature already used within the acceptance window.
-  checkReplay(signature, config.timestampWindow);
-
-  // Rate limiting
+  // Rate limiting (before replay bookkeeping so a flood cannot grow the store).
   checkRateLimit(account, config.rateLimit);
+
+  // Replay protection: key on what was actually SIGNED — (account, timestamp,
+  // bodyDigest) — not the signature string. ECDSA signatures are malleable
+  // (s -> n-s yields a different SIG_K1_ that recovers the same key), so keying on
+  // the signature would let a mutated copy replay once. The signed tuple is stable.
+  checkReplay(`${account}:${timestamp}:${bodyDigest}`, config.timestampWindow);
 
   // Trust gating (only if thresholds are configured)
   let trustScore: number | undefined;
@@ -370,5 +374,5 @@ export function clearAuthCaches(): void {
   keyCache.clear();
   trustCache.clear();
   rateLimitMap.clear();
-  usedSignatures.clear();
+  usedRequests.clear();
 }
