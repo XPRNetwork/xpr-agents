@@ -88,6 +88,31 @@ function checkRateLimit(account: string, limit: number): void {
   rateLimitMap.set(account, recent);
 }
 
+// ── Replay Protection ──────────────────────────────────────────
+// The signed payload is (account, timestamp, bodyDigest), so the SAME signed
+// request can be replayed repeatedly within the ±timestampWindow. Remember each
+// signature we have already accepted until it falls outside the acceptance window,
+// and reject a second use. Keyed on the signature itself (unique per signed
+// request); TTL is 2×window to cover both the past and future edges of the window.
+
+const usedSignatures = new Map<string, number>(); // signature -> expiry (epoch ms)
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [sig, exp] of usedSignatures) {
+    if (exp <= now) usedSignatures.delete(sig);
+  }
+}, 60_000).unref();
+
+export function checkReplay(signature: string, windowSec: number): void {
+  const now = Date.now();
+  const seen = usedSignatures.get(signature);
+  if (seen && seen > now) {
+    throw new A2AAuthError('Replay detected: this signed request has already been used', -32000);
+  }
+  usedSignatures.set(signature, now + windowSec * 2 * 1000);
+}
+
 // ── Key Fetching ───────────────────────────────────────────────
 
 async function getAccountKeys(rpc: JsonRpc, account: string): Promise<string[]> {
@@ -305,6 +330,9 @@ export async function verifyA2ARequest(
     );
   }
 
+  // Replay protection: reject a signature already used within the acceptance window.
+  checkReplay(signature, config.timestampWindow);
+
   // Rate limiting
   checkRateLimit(account, config.rateLimit);
 
@@ -342,4 +370,5 @@ export function clearAuthCaches(): void {
   keyCache.clear();
   trustCache.clear();
   rateLimitMap.clear();
+  usedSignatures.clear();
 }

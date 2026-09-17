@@ -152,7 +152,7 @@ jobs:
           npm install ../sdk
           npm run build
         working-directory: openclaw
-      - run: npm install && npm run build
+      - run: npm install && npm run build && npm test
         working-directory: openclaw/starter/agent
 
   # ── Scaffold sanity ────────────────────────
