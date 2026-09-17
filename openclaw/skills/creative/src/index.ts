@@ -5,6 +5,8 @@
  * Extracted from the main agent runner to validate the skill module format.
  */
 
+import { guardedFetch } from './ssrf';
+
 interface ToolDef {
   name: string;
   description: string;
@@ -132,7 +134,9 @@ const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024;
 async function downloadFromUrl(url: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
   if (!/^https?:\/\//.test(url)) return null;
   try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(30000), redirect: 'follow' });
+    // SSRF: the URL is agent/job-controlled and this runs inside a private network.
+    // guardedFetch refuses private/internal targets and re-validates each redirect.
+    const resp = await guardedFetch(url, { signal: AbortSignal.timeout(30000) });
     if (!resp.ok) return null;
     const contentType = resp.headers.get('content-type') || 'application/octet-stream';
     const contentLength = parseInt(resp.headers.get('content-length') || '0');
@@ -161,7 +165,8 @@ function extractImages(text: string): { alt: string; url: string }[] {
 
 async function downloadImage(url: string): Promise<{ buffer: Buffer; type: string } | null> {
   try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    // SSRF: image URLs come from agent-authored markdown — guard + re-validate redirects.
+    const resp = await guardedFetch(url, { signal: AbortSignal.timeout(15000) });
     if (!resp.ok) return null;
     const ct = (resp.headers.get('content-type') || '').split(';')[0].trim();
     if (!ct.startsWith('image/')) return null;

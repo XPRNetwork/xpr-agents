@@ -4,6 +4,8 @@
  * Zero external dependencies — uses Node.js built-in fetch and regex-based HTML parsing.
  */
 
+import { guardedFetch } from './ssrf';
+
 interface ToolDef {
   name: string;
   description: string;
@@ -33,9 +35,10 @@ async function fetchPage(
   const timer = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const resp = await fetch(url, {
+    // guardedFetch resolves the host and refuses private/internal targets, and
+    // re-validates every redirect hop (SSRF: the URL is agent/job-controlled).
+    const resp = await guardedFetch(url, {
       signal: controller.signal,
-      redirect: 'follow',
       headers: {
         'User-Agent': USER_AGENT,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',

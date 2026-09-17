@@ -26,7 +26,7 @@ const MAX_OUTPUT_SIZE = 10 * 1024 * 1024; // 10MB
 
 // ── Sandbox helpers ─────────────────────────────
 
-function createSandboxGlobals(input: unknown, logs: string[]): Record<string, unknown> {
+function createSandboxGlobals(inputJson: string | undefined, logs: string[]): Record<string, unknown> {
   // Capture console methods
   const consoleMock = {
     log: (...args: unknown[]) => {
@@ -41,31 +41,25 @@ function createSandboxGlobals(input: unknown, logs: string[]): Record<string, un
   };
 
   return {
-    INPUT: input,
+    // INPUT is injected as a JSON string and parsed with the sandbox's OWN JSON
+    // inside the wrapper (see below), so the resulting object belongs to the vm
+    // realm — never a host object.
+    __INPUT_JSON: inputJson,
     console: consoleMock,
-    JSON,
-    Math,
-    Date,
-    Array,
-    Object,
-    String,
-    Number,
-    RegExp,
-    Map,
-    Set,
-    parseInt,
-    parseFloat,
-    isNaN,
-    isFinite,
-    encodeURIComponent,
-    decodeURIComponent,
+    // atob/btoa need host Buffer; exposed as closures (not intrinsics).
     atob: (s: string) => Buffer.from(s, 'base64').toString('binary'),
     btoa: (s: string) => Buffer.from(s, 'binary').toString('base64'),
-    // Explicitly undefined — blocked
+    // Explicitly undefined — defense in depth (also absent from a bare vm realm).
     require: undefined,
     process: undefined,
-    globalThis: undefined,
-    global: undefined,
+    module: undefined,
+    // SECURITY: Object/Array/Math/JSON/Date/RegExp/Map/Set/parseInt/... are
+    // deliberately NOT injected. A vm context is its own realm with its own
+    // intrinsics, so leaving them out means prototype mutations inside the sandbox
+    // (e.g. Object.prototype.x = 1) stay in the sandbox and cannot pollute the
+    // host process's built-ins. node:vm is not a hard security boundary — with
+    // codeGeneration.strings/wasm disabled the usual `constructor.constructor`
+    // escape is blocked, but do not run fully untrusted code with secrets in env.
   };
 }
 
@@ -116,14 +110,22 @@ export default function codeSandboxSkill(api: SkillApi): void {
       const logs: string[] = [];
       const startTime = Date.now();
 
+      let inputJson: string | undefined;
       try {
-        const globals = createSandboxGlobals(input, logs);
+        inputJson = input === undefined ? undefined : JSON.stringify(input);
+      } catch {
+        return { error: 'input could not be serialized to JSON' };
+      }
+
+      try {
+        const globals = createSandboxGlobals(inputJson, logs);
         const context = vm.createContext(globals, {
           codeGeneration: { strings: false, wasm: false },
         });
 
-        // Wrap code so the last expression is returned
-        const wrapped = `(function() {\n${code}\n})()`;
+        // Parse INPUT with the sandbox's own JSON so it is a realm-native object,
+        // then wrap code so the last expression is returned.
+        const wrapped = `(function() {\nconst INPUT = (typeof __INPUT_JSON === 'string') ? JSON.parse(__INPUT_JSON) : undefined;\n${code}\n})()`;
         const script = new vm.Script(wrapped, { filename: 'sandbox.js' });
         const result = script.runInContext(context, { timeout: timeoutMs });
         const durationMs = Date.now() - startTime;

@@ -20,6 +20,11 @@ import type { A2AAuthConfig } from './a2a-auth';
 import { loadSkills, loadBuiltinSkill } from './skill-loader';
 import type { SkillLoadResult } from './skill-loader';
 import { loadSecurityConfig, scanInbound, scanOutput, getSecurityStats } from './security';
+import { scanClean, scanJob } from './scan-guard';
+import {
+  MAX_TOKENS_PER_RUN, MAX_TOKENS_PER_DAY,
+  dailyTokenBudgetExhausted, recordTokenUsage, tokenBudgetStats,
+} from './token-budget';
 import { findHousekeepingActions, describeHousekeeping, DEFAULT_DISPUTE_WINDOW_SEC, DEFAULT_MAX_TIMEOUT_ATTEMPTS } from './timeouts';
 import type { EscrowJobLike, HousekeepingAction } from './timeouts';
 import { isLlmUnavailableError, describeLlmError } from './llm-errors';
@@ -595,6 +600,8 @@ const llmClient: LlmClient = HOUSEKEEPING_ONLY
 const MAX_TURNS = parseInt(process.env.AGENT_MAX_TURNS || '20');
 const MODEL = llmClient.model;
 
+// LLM spend budget lives in ./token-budget (imported at top) so it is unit-testable.
+
 // A2A authentication config
 const a2aAuthConfig: A2AAuthConfig = {
   rpcEndpoint: process.env.XPR_RPC_ENDPOINT!,
@@ -606,8 +613,13 @@ const a2aAuthConfig: A2AAuthConfig = {
   agentcoreContract: 'agentcore',
 };
 
-// A2A tool sandboxing
-const a2aToolMode = (process.env.A2A_TOOL_MODE || 'full') as 'full' | 'readonly';
+// A2A tool sandboxing.
+// SECURITY: default to read-only. Inbound A2A callers reach this agent over the
+// network and, once past signature/trust checks, would otherwise be handed the
+// full mutating tool set (on-chain transfers, job actions, etc.). Write
+// delegation is now opt-in: an operator must set A2A_TOOL_MODE=full to expose
+// mutating tools to A2A peers. Anything else (unset/invalid) is read-only.
+const a2aToolMode: 'full' | 'readonly' = process.env.A2A_TOOL_MODE === 'full' ? 'full' : 'readonly';
 const readonlyTools = tools.filter(t => t.name.startsWith('xpr_get_') || t.name.startsWith('xpr_list_') || t.name.startsWith('xpr_search_') || t.name === 'xpr_indexer_health' || t.name.startsWith('defi_get_') || t.name.startsWith('defi_list_') || t.name.startsWith('nft_get_') || t.name.startsWith('nft_list_') || t.name.startsWith('nft_search_') || t.name.startsWith('tax_') || t.name.startsWith('loan_list_') || t.name.startsWith('loan_get_') || t.name.startsWith('gov_list_') || t.name.startsWith('gov_get_') || t.name.startsWith('xmd_get_') || t.name.startsWith('xmd_list_') || t.name.startsWith('sc_get_') || t.name === 'sc_read_table' || t.name.startsWith('shell_list_') || t.name === 'shell_get_comments' || t.name === 'shell_search' || t.name === 'shell_get_profile');
 // readonly LLM tools — same shape, smaller list
 function buildReadonlyLlmTools(): LlmTool[] {
@@ -706,6 +718,13 @@ async function runAgent(eventType: string, data: any, message: string, options?:
 
     const messages: LlmMessage[] = [{ role: 'user', content: fullUserMessage }];
 
+    // Refuse to start a run once the daily token budget is spent.
+    if (dailyTokenBudgetExhausted()) {
+      console.warn(`[agent] Daily token budget (${MAX_TOKENS_PER_DAY}) exhausted — skipping run for ${eventType}`);
+      return 'Daily LLM token budget exhausted; skipping this run.';
+    }
+
+    let runTokens = 0;
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       const response = await llmClient.complete({
         model: MODEL,
@@ -714,6 +733,9 @@ async function runAgent(eventType: string, data: any, message: string, options?:
         tools: activeLlmTools,
         messages,
       });
+
+      // Account for spend before deciding whether to continue.
+      runTokens += recordTokenUsage(response.usage);
 
       // If done, return the text response
       if (response.stop_reason === 'end_turn') {
@@ -803,6 +825,18 @@ async function runAgent(eventType: string, data: any, message: string, options?:
       if (toolResults.length > 0) {
         messages.push({ role: 'user', content: toolResults });
       }
+
+      // Stop before the next (billable) completion if this run or the day has hit
+      // its token cap. The tool results just produced are kept, but we do not spend
+      // more on further reasoning turns.
+      if (MAX_TOKENS_PER_RUN > 0 && runTokens >= MAX_TOKENS_PER_RUN) {
+        console.warn(`[agent] Per-run token cap (${MAX_TOKENS_PER_RUN}) reached after ${turn + 1} turn(s) — stopping run for ${eventType}`);
+        return `Stopped: per-run token budget (${MAX_TOKENS_PER_RUN}) reached.`;
+      }
+      if (dailyTokenBudgetExhausted()) {
+        console.warn(`[agent] Daily token budget (${MAX_TOKENS_PER_DAY}) reached mid-run — stopping run for ${eventType}`);
+        return `Stopped: daily token budget (${MAX_TOKENS_PER_DAY}) reached.`;
+      }
     }
 
     return 'Max turns reached without completion';
@@ -813,6 +847,40 @@ async function runAgent(eventType: string, data: any, message: string, options?:
 
 // Express server
 const app = express();
+
+// Trust the reverse proxy (Railway/Docker) so req.ip is the real client IP from
+// X-Forwarded-For, not the proxy hop. Set to the exact number of proxies in front
+// — never `true`, which lets a client spoof X-Forwarded-For. Default 1.
+app.set('trust proxy', parseInt(process.env.TRUST_PROXY || '1'));
+
+// SECURITY: pre-auth per-IP rate limiter. Sliding 60s window, in-process (no extra
+// dependency; mirrors the per-account limiter in a2a-auth). It runs before body
+// parsing, signature verification and any RPC lookup, so an unauthenticated flood
+// on /a2a (which does an on-chain get_account during auth) or the hook endpoints
+// is shed cheaply. /health is exempt so platform probes are never throttled.
+// Set HTTP_RATE_LIMIT=0 to disable.
+const HTTP_RATE_LIMIT = parseInt(process.env.HTTP_RATE_LIMIT || '120'); // requests / minute / IP
+const httpHits = new Map<string, number[]>();
+setInterval(() => {
+  const cut = Date.now() - 60_000;
+  for (const [ip, ts] of httpHits) {
+    const keep = ts.filter(t => t > cut);
+    if (keep.length) httpHits.set(ip, keep); else httpHits.delete(ip);
+  }
+}, 60_000).unref();
+app.use((req, res, next) => {
+  if (HTTP_RATE_LIMIT <= 0 || req.path === '/health') return next();
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const hits = (httpHits.get(ip) || []).filter(t => t > now - 60_000);
+  hits.push(now);
+  httpHits.set(ip, hits);
+  if (hits.length > HTTP_RATE_LIMIT) {
+    return res.status(429).json({ error: 'Too many requests' });
+  }
+  return next();
+});
+
 // Preserve raw body for A2A signature verification (verify callback runs before parsing)
 // M5 AUDIT FIX: Enforce request body size limit to prevent OOM attacks
 app.use(express.json({
@@ -1115,6 +1183,13 @@ app.post('/a2a', async (req, res) => {
 
 // Serve deliverables (from creative skill's in-memory store)
 app.get('/deliverables/:jobId', (req, res) => {
+  // SECURITY: deliverables can contain client-commissioned, not-yet-public work.
+  // Require the same Bearer token as the hook/run endpoints so a caller who merely
+  // guesses a job id cannot read stored deliverables.
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token || token !== process.env.OPENCLAW_HOOK_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized: Bearer token required' });
+  }
   const jobId = parseInt(req.params.jobId);
   // Import getDeliverable from the creative skill
   let entry: { content: string; content_type: string; media_url?: string; created_at: string } | undefined;
@@ -1142,6 +1217,7 @@ app.get('/health', (_req, res) => {
     model: MODEL,
     active_runs: activeRuns.size,
     security: getSecurityStats(),
+    token_budget: tokenBudgetStats(),
     poller: POLL_ENABLED ? { enabled: true, interval_sec: POLL_INTERVAL / 1000, tracked_jobs: knownJobStates.size, housekeeping: AUTO_HOUSEKEEPING ? housekeepingStats : 'disabled' } : { enabled: false },
   });
 });
@@ -1620,7 +1696,8 @@ async function fetchJobHistory(jobId: number): Promise<JobHistory> {
       let data: any = e?.data;
       if (typeof data === 'string') { try { data = JSON.parse(data); } catch { data = {}; } }
       if (e?.action_name === 'revise' && typeof data?.notes === 'string' && data.notes.trim()) {
-        out.revisionNotes.push(scanInbound(data.notes, 'poller').text);
+        const note = scanClean(data.notes);
+        if (note) out.revisionNotes.push(note);
       }
       if (e?.action_name === 'deliver' && typeof data?.evidence_uri === 'string' && data.evidence_uri) {
         out.priorDeliveries.push(data.evidence_uri);
@@ -1650,8 +1727,8 @@ async function fetchListingScope(job: any): Promise<string> {
     const body: any = await res.json();
     const svc: any = body?.service || body;
     if (!svc?.title) return '';
-    const title = scanInbound(String(svc.title), 'poller').text;
-    const desc = scanInbound(String(svc.description || ''), 'poller').text;
+    const title = scanClean(String(svc.title));
+    const desc = scanClean(String(svc.description || ''));
     return ` This job is a purchase of your listing #${id} "${title}": ${desc} Everything the buyer asked for must fit inside that listing. If their request asks for something the listing does not offer, or you cannot tell what they want, call xpr_ask_client ONCE with a specific question and stop — do not start work on a guess.`;
   } catch (err: any) {
     console.warn(`[poller/scope] Could not read listing for job #${job?.id}: ${err.message}`);
@@ -1668,7 +1745,7 @@ const deliveredEvidenceByJob = new Map<number, Set<string>>();
 function formatThread(messages: JobMessageLike[], account: string): string {
   return messages.slice(-6).map(m => {
     const who = m.author === account ? `${m.author} (you)` : m.author;
-    return `- ${who}: ${scanInbound(m.text || '', 'poller').text}`;
+    return `- ${who}: ${scanClean(m.text || '')}`;
   }).join('\n');
 }
 
@@ -1754,7 +1831,7 @@ async function pollJobThreads(jobs: any[], role: 'agent' | 'client', account: st
     for (const m of fresh) seenJobMessageIds.add(m.id);
     askedJobs.delete(job.id);
 
-    const safeTitle = scanInbound(job.title || '', 'poller').text;
+    const safeTitle = scanClean(job.title || '');
     const transcript = formatThread(messages, account);
     console.log(`[poller/messages] Job #${job.id}: ${incoming.length} new message(s) from the ${role === 'agent' ? 'client' : 'agent'}`);
 
@@ -1768,7 +1845,7 @@ async function pollJobThreads(jobs: any[], role: 'agent' | 'client', account: st
     runAgent(role === 'agent' ? 'poll:client_answer' : 'poll:agent_question', {
       job_id: job.id, client: job.client, agent: job.agent, title: safeTitle,
       state: job.state,
-      messages: messages.slice(-6).map(m => ({ id: m.id, author: m.author, text: scanInbound(m.text || '', 'poller').text })),
+      messages: messages.slice(-6).map(m => ({ id: m.id, author: m.author, text: scanClean(m.text || '') })),
     }, prompt)
       .catch(err => handleRunFailure(err, `job #${job.id} message thread`, {
         jobId: job.id,
@@ -1861,14 +1938,14 @@ async function pollOnChainInner(): Promise<void> {
             const attempts = fundedJobAttempts.get(job.id) || 0;
             if (attempts >= MAX_FUNDED_RETRIES) continue; // already tried enough
             if (!canSpendCredits(`assigned job #${job.id}`)) continue;
+            const scanned = scanJob(job);
+            if (!scanned) continue; // inbound content blocked — skip before spending anything
+            const { title: safeTitle, description: safeDescription, deliverables } = scanned;
             fundedJobAttempts.set(job.id, attempts + 1);
             const jobBudgetXpr = (job.amount / 10000).toFixed(4);
             console.log(`[poller] Newly assigned job #${job.id} in FUNDED state (attempt ${attempts + 1}/${MAX_FUNDED_RETRIES})`);
             activeJobIds.add(job.id);
             recordEval();
-            const deliverables = scanInbound(job.deliverables || '', 'poller').text;
-            const safeTitle = scanInbound(job.title || '', 'poller').text;
-            const safeDescription = scanInbound(job.description || '', 'poller').text;
             // A service purchase can carry the buyer's answers to the listing's
             // input form as the first client message — hand them to the run.
             const thread = await fetchJobMessages(job.id);
@@ -1899,11 +1976,11 @@ async function pollOnChainInner(): Promise<void> {
             continue;
           }
           if (!canSpendCredits(`re-eval FUNDED job #${job.id}`)) continue;
+          const scanned = scanJob(job);
+          if (!scanned) continue; // inbound content blocked — skip before spending anything
+          const { title: safeTitle, description: safeDescription, deliverables } = scanned;
           const jobBudgetXpr = (job.amount / 10000).toFixed(4);
           fundedJobAttempts.set(job.id, attempts + 1);
-          const deliverables = scanInbound(job.deliverables || '', 'poller').text;
-          const safeTitle = scanInbound(job.title || '', 'poller').text;
-          const safeDescription = scanInbound(job.description || '', 'poller').text;
           const thread = await fetchJobMessages(job.id);
           for (const m of thread) seenJobMessageIds.add(m.id);
           const buyerInput = extractBuyerInput(thread, job.client);
@@ -1940,10 +2017,10 @@ async function pollOnChainInner(): Promise<void> {
           // sent, so the next delivery answers the note instead of repeating it.
           if (prevState === 4 && job.state === 3) {
             if (!canSpendCredits(`job #${job.id} sent back for revision`)) continue;
+            const scanned = scanJob(job);
+            if (!scanned) continue; // inbound content blocked — skip before spending anything
+            const { title: safeTitle, description: safeDescription, deliverables } = scanned;
             const jobBudgetXpr = (job.amount / 10000).toFixed(4);
-            const deliverables = scanInbound(job.deliverables || '', 'poller').text;
-            const safeTitle = scanInbound(job.title || '', 'poller').text;
-            const safeDescription = scanInbound(job.description || '', 'poller').text;
             activeJobIds.add(job.id);
             recordEval();
             const history = await fetchJobHistory(job.id);
@@ -1985,10 +2062,10 @@ async function pollOnChainInner(): Promise<void> {
 
           if (!canSpendCredits(`job #${job.id} state change ${fromName}→${toName}`)) continue;
 
+          const scanned = scanJob(job);
+          if (!scanned) continue; // inbound content blocked — skip before spending anything
+          const { title: safeTitle, description: safeDescription, deliverables } = scanned;
           const jobBudgetXpr = (job.amount / 10000).toFixed(4);
-          const deliverables = scanInbound(job.deliverables || '', 'poller').text;
-          const safeTitle = scanInbound(job.title || '', 'poller').text;
-          const safeDescription = scanInbound(job.description || '', 'poller').text;
           activeJobIds.add(job.id);
           recordEval();
           runAgent('poll:job_state_change', {
@@ -2054,12 +2131,14 @@ async function pollOnChainInner(): Promise<void> {
 
         console.log(`[poller] ${firstPoll ? 'Existing' : 'New'} open job #${job.id}: "${job.title}" (${budgetXpr} XPR)`);
 
-        // Sanitize on-chain job data before prompt construction
-        const safeTitle = scanInbound(job.title || '', 'poller').text;
-        const safeDescription = scanInbound(job.description || '', 'poller').text;
+        // Sanitize on-chain job data before prompt construction, and skip the
+        // whole evaluation if any field is a hard-blocked injection attempt.
+        const scanned = scanJob(job);
+        if (!scanned) continue;
+        const { title: safeTitle, description: safeDescription, deliverables: safeDeliverables } = scanned;
 
         // Estimate costs before triggering Claude (local computation, zero credits)
-        const cost = await estimateJobCost(safeTitle, safeDescription, job.deliverables || '');
+        const cost = await estimateJobCost(safeTitle, safeDescription, safeDeliverables);
         const budgetUsd = (budgetXpr * cost.xpr_price_usd).toFixed(2);
 
         const prompt = `${firstPoll ? 'Existing' : 'New'} open job #${job.id} "${safeTitle}" with budget ${budgetXpr} XPR.
@@ -2390,6 +2469,9 @@ const port = parseInt(process.env.PORT || '8080');
 const server = app.listen(port, () => {
   console.log(`[agent-runner] Listening on port ${port}`);
   console.log(`[agent-runner] ${tools.length} tools loaded (A2A mode: ${a2aToolMode}, ${a2aToolMode === 'readonly' ? readonlyTools.length : tools.length} tools for A2A)`);
+  if (a2aToolMode === 'full') {
+    console.warn('[agent-runner] SECURITY: A2A_TOOL_MODE=full — inbound A2A peers can invoke MUTATING tools (on-chain writes). Unset it to fall back to read-only.');
+  }
   console.log(`[agent-runner] Account: ${process.env.XPR_ACCOUNT}`);
   console.log(`[agent-runner] Mode: ${AGENT_MODE}`);
   console.log(`[agent-runner] LLM: ${HOUSEKEEPING_ONLY ? 'none (housekeeping mode — escrow claims only)' : `${llmClient.provider} (${MODEL})`}`);
