@@ -662,6 +662,7 @@ export class AgentEscrowContract extends Contract {
     check(deliverables.length > 0 && deliverables.length <= 2048, "Deliverables must be 1-2048 characters");
     check(job_hash.length <= 128, "Job hash must be <= 128 characters");
     check(amount >= config.min_job_amount, "Amount below minimum");
+    check(amount <= this.MAX_AMOUNT, "Amount exceeds maximum");
 
     // Open job (agent=EMPTY_NAME) allows any agent to bid
     // Direct-hire (agent specified) requires agent to exist and be active
@@ -788,6 +789,7 @@ export class AgentEscrowContract extends Contract {
 
     // Validate bid
     check(amount >= config.min_job_amount, "Bid amount below minimum job amount");
+    check(amount <= this.MAX_AMOUNT, "Bid amount exceeds maximum");
     check(timeline >= 3600, "Timeline must be at least 1 hour");
     check(timeline <= 31536000, "Timeline must be at most 1 year");
     check(proposal.length > 0 && proposal.length <= 2048, "Proposal must be 1-2048 characters");
@@ -1058,6 +1060,11 @@ export class AgentEscrowContract extends Contract {
 
   private readonly MAX_JOB_MESSAGES: u64 = 20;
   private readonly SVC_INPUT_WINDOW: u64 = 600; // seconds a purchase accepts its input form
+  // Upper bound on any stored XPR amount (job amount, bid amount, service price):
+  // 100 billion XPR, ~3x the total supply, so no legitimate value is rejected, yet
+  // far below i64 max. This is the guard that stops a stored u64 from ever reading
+  // as negative when cast to i64 (the FE/contract signed-cast drain class).
+  private readonly MAX_AMOUNT: u64 = 1000000000000000; // 100,000,000,000.0000 XPR
 
   // Count a job's messages via the byJob secondary index.
   // The backwards walk is a no-op on chain (find() is a lower_bound, so the row
@@ -1541,6 +1548,11 @@ export class AgentEscrowContract extends Contract {
 
     // Update job state BEFORE token transfer
     job.state = 7; // REFUNDED
+    // Mark the escrow as fully released, exactly like every other refund path
+    // (agentcancel/timeout/arbitrate). Without this a later removejob() would
+    // compute funded_amount - 0 and refund the same escrow a second time from
+    // the pool.
+    job.released_amount = job.funded_amount;
     job.updated_at = currentTimeSec();
     this.jobsTable.update(job, this.receiver);
 
@@ -1900,6 +1912,7 @@ export class AgentEscrowContract extends Contract {
     check(description.length > 0 && description.length <= 2048, "Description must be 1-2048 characters");
     check(deliverables.length > 0 && deliverables.length <= 2048, "Deliverables must be 1-2048 characters");
     check(price >= min_job_amount, "Price below minimum job amount");
+    check(price <= this.MAX_AMOUNT, "Price exceeds maximum");
     check(turnaround >= 3600, "Turnaround must be at least 1 hour");
     check(turnaround <= 31536000, "Turnaround must be at most 1 year");
     check(category.length <= 32, "Category must be <= 32 characters");
@@ -2363,10 +2376,13 @@ export class AgentEscrowContract extends Contract {
       check(agentRef.active, "Agent is not active");
       check(from != agentRef.owner, "Client cannot hire an agent they own");
 
-      const price = <i64>service.price;
-      check(quantity.amount >= price, "Insufficient payment");
+      // Compare and subtract as u64. quantity.amount is i64; a stored price near
+      // 2^64 would read as negative if cast to i64, passing this check on a tiny
+      // payment and turning the refund below into a full drain of the contract.
+      const paid: u64 = <u64>quantity.amount;
+      check(paid >= service.price, "Insufficient payment");
 
-      const excess = quantity.amount - price;
+      const excess: u64 = paid - service.price;
       const now = currentTimeSec();
       const jobId = this.nextJobId();
 
@@ -2412,7 +2428,7 @@ export class AgentEscrowContract extends Contract {
 
       // CEI: refund the excess only after all state is written
       if (excess > 0) {
-        this.sendTokens(from, new Asset(excess, this.XPR_SYMBOL), `Overpayment refund for service ${serviceId}`);
+        this.sendTokens(from, new Asset(<i64>excess, this.XPR_SYMBOL), `Overpayment refund for service ${serviceId}`);
       }
 
       print(`Service ${serviceId} bought: job ${jobId}`);

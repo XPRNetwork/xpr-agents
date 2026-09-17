@@ -598,14 +598,11 @@ export class AgentValidContract extends Contract {
 
     this.challengesTable.store(challengeRecord, this.receiver);
 
-    // C4 AUDIT FIX: Increment pending_challenges on creation (not just funding)
-    // to prevent validator from unstaking during the 24h funding window.
-    // Decremented in: expireunfund (unfunded expired), cancelchal (cancelled), resolve (resolved).
-    const validator = this.validatorsTable.get(validation.validator.N);
-    if (validator != null) {
-      validator.pending_challenges += 1;
-      this.validatorsTable.update(validator, this.receiver);
-    }
+    // pending_challenges is incremented only when a challenge is FUNDED (see the
+    // challenge: branch in onTransfer), never on creation. Creation is free and
+    // permissionless, so counting unfunded challenges here let anyone lock a
+    // validator's unstaking for free — the griefing this contract's own design
+    // (the challenged-flag comment in onTransfer) set out to prevent.
 
     print(`Challenge created (ID: ${challengeRecord.id}). Fund within 24 hours with memo 'challenge:${challengeRecord.id}' to activate.`);
   }
@@ -626,21 +623,9 @@ export class AgentValidContract extends Contract {
       "Cannot cancel: past grace period but before funding deadline"
     );
 
-    // Reset validation.challenged flag if it was set (only for funded challenges)
-    const validation = this.validationsTable.get(challengeRecord.validation_id);
-    if (validation != null && validation.challenged) {
-      validation.challenged = false;
-      this.validationsTable.update(validation, this.receiver);
-    }
-
-    // C4 AUDIT FIX: Always decrement pending_challenges (incremented at creation for both funded and unfunded)
-    if (validation != null) {
-      const validator = this.validatorsTable.get(validation.validator.N);
-      if (validator != null && validator.pending_challenges > 0) {
-        validator.pending_challenges -= 1;
-        this.validatorsTable.update(validator, this.receiver);
-      }
-    }
+    // cancelchal only handles unfunded challenges (stake == 0 checked above), which
+    // never incremented pending_challenges and never set validation.challenged, so
+    // there is nothing to reverse here.
 
     // Mark challenge as cancelled
     challengeRecord.status = 3; // cancelled
@@ -658,20 +643,13 @@ export class AgentValidContract extends Contract {
     check(challengeRecord.stake == 0, "Challenge is funded");
     check(currentTimeSec() > challengeRecord.funding_deadline, "Funding deadline not reached");
 
-    // Reset validation.challenged flag if it was set (safety check for edge cases)
+    // expireunfund only handles unfunded challenges (stake == 0 checked above), which
+    // never incremented pending_challenges and never set validation.challenged. The
+    // flag reset below is a defensive no-op for edge cases; the counter is untouched.
     const validation = this.validationsTable.get(challengeRecord.validation_id);
     if (validation != null && validation.challenged) {
       validation.challenged = false;
       this.validationsTable.update(validation, this.receiver);
-    }
-
-    // C4 AUDIT FIX: Decrement pending_challenges (was incremented at creation)
-    if (validation != null) {
-      const validator = this.validatorsTable.get(validation.validator.N);
-      if (validator != null && validator.pending_challenges > 0) {
-        validator.pending_challenges -= 1;
-        this.validatorsTable.update(validator, this.receiver);
-      }
     }
 
     // Mark challenge as cancelled (expired)
@@ -696,13 +674,16 @@ export class AgentValidContract extends Contract {
       "Funded challenge timeout not reached"
     );
 
-    // Reset validation.challenged flag
+    // This challenge is funded (stake > 0 checked above), so it incremented
+    // pending_challenges when funded. Reverse that here, keyed on the funded state
+    // rather than the challenged flag, so the counter can never leak if the flag was
+    // already cleared by some other path.
     const validation = this.validationsTable.get(challengeRecord.validation_id);
-    if (validation != null && validation.challenged) {
-      validation.challenged = false;
-      this.validationsTable.update(validation, this.receiver);
-
-      // Decrement pending_challenges counter on the validator
+    if (validation != null) {
+      if (validation.challenged) {
+        validation.challenged = false;
+        this.validationsTable.update(validation, this.receiver);
+      }
       const validator = this.validatorsTable.get(validation.validator.N);
       if (validator != null && validator.pending_challenges > 0) {
         validator.pending_challenges -= 1;
@@ -992,9 +973,16 @@ export class AgentValidContract extends Contract {
       validation!.challenged = true;
       this.validationsTable.update(validation!, this.receiver);
 
-      // C4 AUDIT FIX: pending_challenges was already incremented at challenge creation.
-      // No need to increment again on funding — the counter tracks all pending challenges
-      // (both funded and unfunded) to prevent unstaking during the funding window.
+      // Increment pending_challenges here, on funding — in lockstep with the
+      // challenged flag above. It gates unstaking, so a funded challenge (which can
+      // actually slash) blocks the validator from escaping, while free unfunded
+      // challenges do not. Decremented in resolve and expirefunded.
+      const challengedValidator = this.validatorsTable.get(validation!.validator.N);
+      if (challengedValidator != null) {
+        check(challengedValidator.pending_challenges < U64.MAX_VALUE, "pending_challenges overflow");
+        challengedValidator.pending_challenges += 1;
+        this.validatorsTable.update(challengedValidator, this.receiver);
+      }
 
       print(`Challenge ${challengeId} funded. Validation ${challengeRecord.validation_id} is now challenged.`);
     } else {
