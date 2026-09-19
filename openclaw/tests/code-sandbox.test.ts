@@ -15,9 +15,18 @@ beforeAll(() => {
 
 describe('code-sandbox isolation', () => {
   it('cannot read host process.env via a constructor walk', async () => {
-    const r = await tools.execute_js.handler({ code: 'return console.log.constructor("return process.env.HOME")()' });
-    expect(r.result).toBeUndefined();
-    expect(String(r.error)).toMatch(/blocked|Code generation|not a function|undefined/i);
+    // Two distinct escape paths: a host closure's constructor, and the global
+    // object's own constructor (`this`). Both must resolve to the sandbox realm's
+    // Function, which codeGeneration:false blocks.
+    for (const code of [
+      'return console.log.constructor("return process.env.HOME")()',
+      'return this.constructor.constructor("return process.env.HOME")()',
+      'return (function(){return this})().constructor.constructor("return process.env.HOME")()',
+    ]) {
+      const r = await tools.execute_js.handler({ code });
+      expect(r.result, code).toBeUndefined();
+      expect(String(r.error), code).toMatch(/blocked|Code generation|not a function|undefined/i);
+    }
   });
 
   it('cannot pollute the host Object.prototype', async () => {
