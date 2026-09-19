@@ -71,11 +71,19 @@ function runInSandbox(
   timeoutMs: number,
   inputJson: string | undefined,
 ): { ok: boolean; result?: unknown; logs: string[]; error?: string; oversized?: boolean } {
-  // Only a primitive string crosses into the realm.
-  const context = vm.createContext(
-    { __INPUT_JSON: inputJson },
-    { codeGeneration: { strings: false, wasm: false } },
-  );
+  // Only a primitive string crosses into the realm — AND the context global is
+  // given a NULL prototype. If we hand vm.createContext an ordinary host object,
+  // the sandbox global inherits the HOST realm's Object.prototype, so
+  // `this.constructor.constructor("return process.env")()` walks to the host
+  // Function (where codeGeneration is allowed) and reads the runner's secrets —
+  // codeGeneration:false only covers THIS context's realm. A null-proto global
+  // makes `this.constructor` resolve to the sandbox realm's own Function, which
+  // the flag then blocks. (Confirmed escape via the global-object path, 2026-09-19.)
+  const sandboxGlobal: Record<string, unknown> = Object.create(null);
+  sandboxGlobal.__INPUT_JSON = inputJson;
+  const context = vm.createContext(sandboxGlobal, {
+    codeGeneration: { strings: false, wasm: false },
+  });
   const wrapped = `${SANDBOX_PREAMBLE}
 var INPUT = (typeof __INPUT_JSON === 'string') ? JSON.parse(__INPUT_JSON) : undefined;
 var __result, __error = null;
