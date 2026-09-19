@@ -490,6 +490,19 @@ describe('EscrowRegistry read operations', () => {
       expect(result.items).toHaveLength(1);
       expect(result.items[0].state).toBe('completed');
     });
+
+    it('fetches newest-first and returns the newest jobs in ascending order', async () => {
+      const rpc = mockRpc();
+      const mk = (id: number) => ({ id: String(id), client: 'alice', agent: 'bot', title: '', description: '', deliverables: '[]', amount: '0', symbol: 'XPR', funded_amount: '0', released_amount: '0', state: 1, deadline: '0', arbitrator: '', job_hash: '', created_at: '0', updated_at: '0' });
+      // With reverse:true the RPC returns newest-first; limit+1 rows signal hasMore.
+      (rpc.get_table_rows as jest.Mock).mockResolvedValue({ rows: [mk(5), mk(4), mk(3)], more: false });
+      const registry = new EscrowRegistry(rpc);
+
+      const result = await registry.listJobsByClient('alice', { limit: 2 });
+      expect(rpc.get_table_rows).toHaveBeenCalledWith(expect.objectContaining({ reverse: true }));
+      expect(result.items.map(j => j.id)).toEqual([4, 5]); // newest 2 (5,4), re-sorted ascending
+      expect(result.hasMore).toBe(true);
+    });
   });
 
   describe('getJobMilestones()', () => {

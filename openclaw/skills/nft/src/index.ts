@@ -248,6 +248,22 @@ function parsePrice(price: string): { amount: string; symbol: string; precision:
   return { amount, symbol, precision, contract };
 }
 
+// ── Transfer cap ─────────────────────────────────
+// SECURITY: the runner enforces maxTransferAmount on the CORE escrow/agent tools,
+// but skills sign their own transactions, so a prompt-injected NFT purchase/bid
+// could spend far more than the operator's cap. Enforce the same ceiling here on
+// any XPR the agent SENDS. Cap is XPR-denominated via MAX_TRANSFER_XPR (default
+// 1000, matching the core default); set it higher to allow larger trades.
+function assertXprWithinCap(parsed: { amount: string; symbol: string }, label: string): void {
+  if (parsed.symbol !== 'XPR') return; // cap is XPR-denominated
+  const capXpr = Number(process.env.MAX_TRANSFER_XPR || '1000');
+  if (!Number.isFinite(capXpr) || capXpr <= 0) return; // disabled/invalid -> no cap
+  const amt = Number(parsed.amount);
+  if (Number.isFinite(amt) && amt > capXpr) {
+    throw new Error(`${label}: ${parsed.amount} XPR exceeds the transfer cap of ${capXpr} XPR (set MAX_TRANSFER_XPR to raise it).`);
+  }
+}
+
 // ── Validation Helpers ───────────────────────────
 
 function isValidEosioName(name: string): boolean {
@@ -1313,6 +1329,7 @@ export default function nftSkill(api: SkillApi): void {
 
       try {
         const parsed = parsePrice(price);
+        assertXprWithinCap(parsed, 'nft_purchase');
         const session = await getNftSession();
         await ensureRam(session);
 
@@ -1443,6 +1460,7 @@ export default function nftSkill(api: SkillApi): void {
 
       try {
         const parsed = parsePrice(bid_amount);
+        assertXprWithinCap(parsed, 'nft_bid');
         const session = await getNftSession();
         await ensureRam(session);
 

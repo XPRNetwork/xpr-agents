@@ -168,6 +168,20 @@ function parseAssetString(s: string): { amount: number; symbol: string; precisio
   return { amount, symbol: parts[1], precision };
 }
 
+// ── Transfer cap ─────────────────────────────────
+// SECURITY: skills sign their own transactions, bypassing the runner's core
+// maxTransferAmount. Enforce the same XPR ceiling on any XPR the agent SENDS
+// (swaps/deposits/liquidity). MAX_TRANSFER_XPR (default 1000, matching the core
+// default); raise it to allow larger trades.
+function assertXprWithinCap(amount: number, symbol: string, label: string): void {
+  if ((symbol || '').toUpperCase() !== 'XPR') return; // cap is XPR-denominated
+  const capXpr = Number(process.env.MAX_TRANSFER_XPR || '1000');
+  if (!Number.isFinite(capXpr) || capXpr <= 0) return; // disabled/invalid -> no cap
+  if (Number.isFinite(amount) && amount > capXpr) {
+    throw new Error(`${label}: ${amount} XPR exceeds the transfer cap of ${capXpr} XPR (set MAX_TRANSFER_XPR to raise it).`);
+  }
+}
+
 // ── Session Factory ──────────────────────────────
 // Backed by the proton CLI. The agent process never holds a private key —
 // the CLI signs every transaction internally via its encrypted keychain.
@@ -790,6 +804,11 @@ export default function defiSkill(api: SkillApi): void {
           depositContract = bidToken.contract;
         }
 
+        assertXprWithinCap(
+          orderSide === 1 ? params.amount * params.price : params.amount,
+          orderSide === 1 ? askToken.code : bidToken.code,
+          'defi_place_order',
+        );
         const { api: eosApi, account, permission } = await getSession();
 
         const actions: any[] = [
@@ -933,6 +952,7 @@ export default function defiSkill(api: SkillApi): void {
       if (!params.min_output || params.min_output <= 0) return { error: 'min_output must be positive' };
 
       try {
+        assertXprWithinCap(params.amount, fromSpec.symbol, 'defi_swap');
         const { api: eosApi, account, permission } = await getSession();
 
         const fromQty = formatAsset(params.amount, fromSpec.precision, fromSpec.symbol);
@@ -1020,6 +1040,8 @@ export default function defiSkill(api: SkillApi): void {
       if (!params.token2_contract) return { error: 'token2_contract is required' };
 
       try {
+        assertXprWithinCap(t1.amount, t1.symbol, 'defi_add_liquidity');
+        assertXprWithinCap(t2.amount, t2.symbol, 'defi_add_liquidity');
         const { api: eosApi, account, permission } = await getSession();
         const slip = (params.slippage_pct || 1.0) / 100;
         const min1 = formatAsset(t1.amount * (1 - slip), t1.precision, t1.symbol);

@@ -1668,6 +1668,26 @@ async function estimateJobCost(title: string, description: string, deliverables:
 interface JobMessageLike { id: number; job_id?: number; author: string; text: string; created_at?: number }
 
 const THREAD_OPEN_STATES = [1, 2, 3];                // FUNDED, ACCEPTED, INPROGRESS
+
+// Job state arrives as a NUMBER from the indexer but as a lowercase NAME from the
+// SDK via the escrow tool (jobToXpr passes EscrowRegistry's string through). The
+// poller compares numerically (prevState === 4, THREAD_OPEN_STATES, etc.), so
+// normalize every job's state to its numeric code on entry or those comparisons
+// silently never fire (revisions/deliveries/threads get missed).
+const JOB_STATE_NUM: Record<string, number> = {
+  created: 0, funded: 1, accepted: 2, inprogress: 3, delivered: 4,
+  disputed: 5, completed: 6, refunded: 7, arbitrated: 8,
+};
+function toStateNum(s: unknown): number {
+  if (typeof s === 'number') return s;
+  if (typeof s === 'string') {
+    const n = JOB_STATE_NUM[s.toLowerCase()];
+    if (n !== undefined) return n;
+    const p = parseInt(s, 10);
+    return Number.isNaN(p) ? -1 : p;
+  }
+  return -1;
+}
 const MAX_THREAD_CHECKS_PER_POLL = 10;               // bound RPC reads per cycle
 
 /** Read a job's message thread. Returns [] when the tool or table is unavailable. */
@@ -1933,6 +1953,7 @@ async function pollOnChainInner(): Promise<void> {
       for (const job of jobs) {
         if (!job || job.id == null) continue;
         const prevState = knownJobStates.get(job.id);
+        job.state = toStateNum(job.state);
         knownJobStates.set(job.id, job.state);
 
         // Per-job lock: skip if this job is already being processed
@@ -2228,6 +2249,7 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
       for (const job of clientJobs) {
         if (!job || job.id == null) continue;
         const prevState = knownJobStates.get(job.id);
+        job.state = toStateNum(job.state);
         knownJobStates.set(job.id, job.state);
 
         if (activeJobIds.has(job.id)) continue;
@@ -2315,6 +2337,7 @@ If the job is outside your capabilities or wildly unprofitable (budget < 25% of 
         if (job.state !== 4) continue;
 
         const prevState = knownJobStates.get(job.id);
+        job.state = toStateNum(job.state);
         knownJobStates.set(job.id, job.state);
 
         if (activeJobIds.has(job.id)) continue;

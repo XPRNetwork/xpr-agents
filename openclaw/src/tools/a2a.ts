@@ -13,6 +13,7 @@ import type { A2AMessage } from '@xpr-agents/sdk';
 import type { PluginApi, PluginConfig } from '../types';
 import { validateAccountName } from '../util/validate';
 import { needsConfirmation } from '../util/confirm';
+import { assertPublicHttpUrl } from '../util/ssrf';
 
 /** Look up an agent's endpoint from the on-chain registry */
 async function resolveEndpoint(
@@ -41,6 +42,12 @@ async function resolveEndpoint(
   if (!agent.endpoint) {
     throw new Error(`Agent '${account}' has no endpoint configured`);
   }
+
+  // SSRF: the endpoint is attacker-controlled (on-chain check is scheme/length
+  // only). Refuse private/internal targets before any outbound fetch. Note: the
+  // A2AClient still follows redirects, so a public host that 3xx-redirects to an
+  // internal one is a residual (tracked) — this blocks the direct-registration case.
+  await assertPublicHttpUrl(agent.endpoint);
 
   return agent.endpoint;
 }
