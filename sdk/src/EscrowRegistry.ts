@@ -505,10 +505,17 @@ export class EscrowRegistry {
       lower_bound: client,
       upper_bound: client,
       limit: limit + 1,
+      // Fetch NEWEST-first so `limit` returns the most recent jobs, not the
+      // oldest. The ascending scan otherwise permanently hides an account's
+      // newest jobs once it has more than `limit` of them. Rows are re-sorted
+      // ascending below for callers that expect chronological order.
+      reverse: true,
     });
 
     const hasMore = result.rows.length > limit;
-    const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
+    // reverse:true returned newest-first — keep the newest `limit`, then restore
+    // ascending (chronological) order for callers.
+    const rows = (hasMore ? result.rows.slice(0, limit) : result.rows).slice().reverse();
     let jobs = rows.map(row => this.parseJob(row));
 
     if (options.state) {
@@ -518,7 +525,8 @@ export class EscrowRegistry {
     return {
       items: jobs,
       hasMore,
-      nextCursor: hasMore && rows.length > 0 ? rows[rows.length - 1].id : undefined,
+      // rows are ascending; the oldest returned id is the boundary for an older page.
+      nextCursor: hasMore && rows.length > 0 ? rows[0].id : undefined,
     };
   }
 
@@ -540,10 +548,16 @@ export class EscrowRegistry {
       lower_bound: agent,
       upper_bound: agent,
       limit: limit + 1,
+      // Newest-first (see listJobsByClient): return the most recent `limit` jobs,
+      // re-sorted ascending below. Without this an agent with >limit jobs never
+      // sees its newest job through this query (breaks the runner's poller).
+      reverse: true,
     });
 
     const hasMore = result.rows.length > limit;
-    const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
+    // reverse:true returned newest-first — keep the newest `limit`, then restore
+    // ascending (chronological) order for callers.
+    const rows = (hasMore ? result.rows.slice(0, limit) : result.rows).slice().reverse();
     let jobs = rows.map(row => this.parseJob(row));
 
     if (options.state) {
@@ -553,7 +567,8 @@ export class EscrowRegistry {
     return {
       items: jobs,
       hasMore,
-      nextCursor: hasMore && rows.length > 0 ? rows[rows.length - 1].id : undefined,
+      // rows are ascending; the oldest returned id is the boundary for an older page.
+      nextCursor: hasMore && rows.length > 0 ? rows[0].id : undefined,
     };
   }
 
