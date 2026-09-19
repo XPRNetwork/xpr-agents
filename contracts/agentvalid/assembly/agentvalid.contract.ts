@@ -643,14 +643,15 @@ export class AgentValidContract extends Contract {
     check(challengeRecord.stake == 0, "Challenge is funded");
     check(currentTimeSec() > challengeRecord.funding_deadline, "Funding deadline not reached");
 
-    // expireunfund only handles unfunded challenges (stake == 0 checked above), which
-    // never incremented pending_challenges and never set validation.challenged. The
-    // flag reset below is a defensive no-op for edge cases; the counter is untouched.
-    const validation = this.validationsTable.get(challengeRecord.validation_id);
-    if (validation != null && validation.challenged) {
-      validation.challenged = false;
-      this.validationsTable.update(validation, this.receiver);
-    }
+    // expireunfund only handles UNFUNDED challenges (stake == 0 checked above), which
+    // never incremented pending_challenges and never set validation.challenged.
+    // SECURITY (audit round 2): we must NOT touch validation.challenged here. Two
+    // unfunded challenges can exist for one validation; if challenge A is funded
+    // (setting challenged = true) and unfunded sibling B then expires, clearing the
+    // flag here would unlock the validation while A is still funded and pending —
+    // letting a second challenge be funded and the validator be slashed twice for a
+    // single validation. The flag is owned solely by funding (set) and
+    // resolve/expirefunded (clear). Leave it alone.
 
     // Mark challenge as cancelled (expired)
     challengeRecord.status = 3; // cancelled/expired

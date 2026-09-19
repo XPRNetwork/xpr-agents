@@ -962,6 +962,13 @@ export class AgentEscrowContract extends Contract {
     check(job.client == client, "Only client can approve");
     check(milestone.state == 1, "Milestone must be submitted");
 
+    // SECURITY (audit round 2): guard the job state. Without this, a client could
+    // approve (and release funds for) a milestone while the job is DISPUTED — paying
+    // out the disputed slice and shrinking what the arbitrator can split — or after
+    // the job is already terminal. Allow only INPROGRESS(3) or DELIVERED(4); mirrors
+    // submitmile's state==3 requirement.
+    check(job.state == 3 || job.state == 4, "Job must be in progress or delivered to approve a milestone");
+
     // H9 AUDIT FIX: Require evidence before approval
     check(milestone.evidence_uri.length > 0, "Cannot approve milestone without evidence submission");
 
@@ -1655,8 +1662,15 @@ export class AgentEscrowContract extends Contract {
       job.updated_at = currentTimeSec();
       this.jobsTable.update(job, this.receiver);
 
-      // Now safe to send refund after state is finalized
-      this.sendTokens(job.client, new Asset(remainingAmount, this.XPR_SYMBOL), "Timeout refund");
+      // Now safe to send refund after state is finalized.
+      // SECURITY (audit round 2): guard the zero transfer. If approved milestones
+      // already paid the full balance (funded == released), remainingAmount is 0 and
+      // the token contract would reject the transfer, reverting the whole tx — so the
+      // client could never close the job via timeout. Mark it REFUNDED (done above)
+      // and only transfer when there is something to refund.
+      if (remainingAmount > 0) {
+        this.sendTokens(job.client, new Asset(remainingAmount, this.XPR_SYMBOL), "Timeout refund");
+      }
     }
 
     print(`Job ${job_id} timeout claimed`);
