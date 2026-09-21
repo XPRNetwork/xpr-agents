@@ -29,6 +29,11 @@ export class HyperionPoller extends EventEmitter {
   // lets us drain a block that holds more than one page of actions (audit round 2
   // codex #16 — otherwise a >100-action block stalls the poller forever).
   private contractSeq: Map<string, number>;
+  // Per-contract skip offset that persists across polls while we are still draining
+  // one boundary block that holds more than MAX_PAGES_PER_POLL*100 actions. Without
+  // it the drain restarts at skip 0 every poll and can never reach past the page cap
+  // (audit round 2 codex follow-up: a >5000-action block stalled the poller forever).
+  private contractSkip: Map<string, number>;
   private running = false;
   private readonly pollInterval: number;
   private allEndpoints: string[];
@@ -48,11 +53,13 @@ export class HyperionPoller extends EventEmitter {
     // Initialize per-contract block cursors, preferring saved per-contract values
     this.contractBlocks = new Map();
     this.contractSeq = new Map();
+    this.contractSkip = new Map();
     const defaultStart = config.startBlock || 0;
     for (const contract of config.contracts) {
       const saved = config.contractStartBlocks?.get(contract);
       this.contractBlocks.set(contract, saved ?? defaultStart);
       this.contractSeq.set(contract, 0);
+      this.contractSkip.set(contract, 0);
     }
   }
 
@@ -92,8 +99,11 @@ export class HyperionPoller extends EventEmitter {
   private async pollContract(contract: string): Promise<void> {
     const lastBlock = this.contractBlocks.get(contract) || 0;
     const seenSeq = this.contractSeq.get(contract) || 0;
+    const startSkip = this.contractSkip.get(contract) || 0;
     let maxBlock = lastBlock;
     let maxSeq = seenSeq;
+    let pagesDrained = 0;
+    let reachedTip = false;
 
     // Drain with skip-paging. `after=<block>` is inclusive, so page 0 refetches the
     // boundary block; global_sequence dedup makes that a no-op, and paging with skip
@@ -105,20 +115,23 @@ export class HyperionPoller extends EventEmitter {
         account: contract,
         limit: '100',
         sort: 'asc',
-        skip: String(page * 100),
+        skip: String(startSkip + page * 100),
       });
       if (lastBlock > 0) {
         params.set('after', String(lastBlock));
       }
 
       const actions = await this.fetchActions(params);
-      if (actions.length === 0) break;
+      if (actions.length === 0) { reachedTip = true; break; }
 
       for (const action of actions) {
         const seq: number = action.global_sequence || 0;
-        // Skip anything already emitted (the inclusive-boundary refetch, or overlap
-        // with the WebSocket stream). Actions with no seq (seq 0) are always emitted.
-        if (seq !== 0 && seq <= seenSeq) continue;
+        // Skip anything already emitted. Compare against the RUNNING max, not the
+        // poll-start snapshot, so an action that reappears within the same drain
+        // (endpoint failover mid-drain, or new tip rows shifting the skip window
+        // between page fetches) is never emitted twice. Also covers the inclusive-
+        // boundary refetch and WebSocket-stream overlap. seq 0 is always emitted.
+        if (seq !== 0 && seq <= maxSeq) continue;
 
         const streamAction: StreamAction = {
           block_num: action.block_num,
@@ -136,12 +149,25 @@ export class HyperionPoller extends EventEmitter {
       }
 
       // Persist progress after every page so a crash mid-drain doesn't rewind.
+      pagesDrained = page + 1;
       this.contractSeq.set(contract, maxSeq);
       this.contractBlocks.set(contract, maxBlock);
 
       // A short page means we've reached the tip; a full page means there may be
       // more (later blocks, or >100 in the boundary block) — page on.
-      if (actions.length < 100) break;
+      if (actions.length < 100) { reachedTip = true; break; }
+    }
+
+    // Skip-cursor bookkeeping. If we reached the tip, or advanced into a later block,
+    // the next poll restarts at skip 0 from the (advanced) boundary block. But if we
+    // exhausted the page cap while still inside the same boundary block — a block with
+    // more than MAX_PAGES_PER_POLL*100 actions — persist the skip so the next poll
+    // resumes deeper instead of refetching the same pages forever (which would stall
+    // the poller and silently drop every action past the cap).
+    if (reachedTip || maxBlock > lastBlock) {
+      this.contractSkip.set(contract, 0);
+    } else {
+      this.contractSkip.set(contract, startSkip + pagesDrained * 100);
     }
   }
 

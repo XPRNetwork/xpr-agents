@@ -85,4 +85,44 @@ describe('HyperionPoller skip-paging + global_sequence dedup (#16)', () => {
     await (poller as any).pollContract('agentescrow');
     expect(emitted.map(a => a.global_sequence)).to.deep.equal([11, 12, 13, 14]);
   });
+
+  it('drains a block bigger than the per-poll page cap over successive polls (no permanent stall)', async () => {
+    // 5050 actions in ONE block — more than MAX_PAGES_PER_POLL(50) * 100 = 5000, so a
+    // single poll cannot drain it. Pre-fix, every poll refetched skip 0..4900 forever
+    // and actions 5001..5050 were never emitted. The persisted skip cursor must let
+    // the next poll resume past the cap.
+    const big = new HyperionPoller({ endpoint: 'http://hyp.test', contracts: ['agentescrow'], startBlock: 1000 });
+    const got: number[] = [];
+    big.on('action', (a) => got.push(a.global_sequence));
+    vi.stubGlobal('fetch', mockHyperion(makeActions([{ block: 1000, count: 5050, startSeq: 1 }])));
+
+    await (big as any).pollContract('agentescrow'); // drains first 5000
+    expect(got.length).to.equal(5000);
+    await (big as any).pollContract('agentescrow'); // resumes past the cap, drains the rest
+
+    const seqs = got.slice().sort((x, y) => x - y);
+    expect(seqs.length).to.equal(5050);
+    expect(new Set(seqs).size).to.equal(5050); // no duplicates
+    expect(seqs[0]).to.equal(1);
+    expect(seqs[5049]).to.equal(5050);
+  });
+
+  it('does not double-emit when the action window overlaps across pages (failover / tip shift)', async () => {
+    // A mid-drain window shift (endpoint failover, or new tip rows inserted between
+    // page fetches) can make consecutive skip pages overlap. Dedup is against the
+    // RUNNING max seq, so an already-emitted action in the overlap is never re-emitted.
+    const page0 = makeActions([{ block: 1000, count: 100, startSeq: 1 }]);   // seq 1..100
+    const page1 = makeActions([{ block: 1000, count: 100, startSeq: 100 }]); // seq 100..199 (overlaps at 100)
+    let call = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      const page = call++ === 0 ? page0 : page1;
+      return { ok: true, json: async () => ({ actions: page }) } as any;
+    }));
+
+    await (poller as any).pollContract('agentescrow');
+
+    const seqs = emitted.map(a => a.global_sequence);
+    expect(seqs.filter(s => s === 100).length).to.equal(1); // emitted once, not twice
+    expect(new Set(seqs).size).to.equal(seqs.length);       // no duplicates anywhere
+  });
 });
