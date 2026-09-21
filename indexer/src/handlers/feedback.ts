@@ -173,11 +173,16 @@ function handleDispute(db: Database.Database, data: any, timestamp: string): voi
   `);
   stmt.run(data.feedback_id);
 
-  // Create dispute record for mapping
+  // Create dispute record for mapping.
+  // SECURITY (audit round 2, codex #14): the id MUST mirror the contract's
+  // `availablePrimaryKey`, which is 0 for an empty table and max+1 otherwise. The
+  // old `(max_id || 0) + 1` made the FIRST dispute id 1, so it was off by one
+  // against the chain forever — `resolve` for chain dispute 0 found nothing, and
+  // resolve for chain dispute 1 marked the FIRST dispute's feedback resolved (wrong).
   const createdAt = Math.floor(new Date(timestamp).getTime() / 1000);
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM feedback_disputes');
   const result = countStmt.get() as { max_id: number | null };
-  const id = (result.max_id || 0) + 1;
+  const id = result.max_id === null ? 0 : result.max_id + 1;
 
   const disputeStmt = db.prepare(`
     INSERT INTO feedback_disputes (id, feedback_id, disputer, reason, evidence_uri, status, created_at)

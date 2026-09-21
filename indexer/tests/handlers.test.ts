@@ -349,15 +349,16 @@ describe('Feedback Handlers', () => {
       disputer: 'alice', feedback_id: 1, reason: 'Inaccurate', evidence_uri: '',
     }));
 
-    // Resolve - upheld
+    // Resolve - upheld. The first dispute's id is 0 (mirrors the contract's
+    // availablePrimaryKey; audit round 2 codex #14), not 1.
     handleFeedbackAction(db, createAction('agentfeed', 'resolve', {
-      resolver: 'owner', dispute_id: 1, upheld: true, resolution_notes: 'Verified',
+      resolver: 'owner', dispute_id: 0, upheld: true, resolution_notes: 'Verified',
     }));
 
     const feedback = db.prepare('SELECT * FROM feedback WHERE id = 1').get() as any;
     expect(feedback.resolved).toBe(1);
 
-    const dispute = db.prepare('SELECT * FROM feedback_disputes WHERE id = 1').get() as any;
+    const dispute = db.prepare('SELECT * FROM feedback_disputes WHERE id = 0').get() as any;
     expect(dispute.status).toBe(1); // upheld
 
     // Score should exclude upheld dispute
