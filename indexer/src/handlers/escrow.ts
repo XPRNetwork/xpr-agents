@@ -317,10 +317,18 @@ function handleCreateJob(db: Database.Database, data: any, timestamp: string): v
 
   const createdAt = Math.floor(new Date(timestamp).getTime() / 1000);
 
-  // Check if this job was already seeded by syncFromChain (match by client + title + job_hash)
+  // Skip only if syncFromChain already seeded THIS job. The dedup key must be tight
+  // enough not to conflate two genuinely distinct jobs.
+  // SECURITY (audit round 2, codex #15): client + title + job_hash alone collided —
+  // two custom jobs from one client with the same title and empty job_hash made the
+  // second createjob vanish from the mirror. Add the creation timestamp: it is
+  // immutable (unlike agent/amount/deadline, which selectbid changes on open jobs, so
+  // those would falsely duplicate a bid-then-synced open job), and the chain's
+  // created_at equals this action's block time — so the SAME job (seed vs stream)
+  // still dedups while two jobs created in different blocks are kept.
   const existing = db.prepare(
-    'SELECT id FROM jobs WHERE client = ? AND title = ? AND job_hash = ?'
-  ).get(data.client, data.title || '', data.job_hash || '') as { id: number } | undefined;
+    'SELECT id FROM jobs WHERE client = ? AND title = ? AND job_hash = ? AND created_at = ?'
+  ).get(data.client, data.title || '', data.job_hash || '', createdAt) as { id: number } | undefined;
 
   if (existing) {
     console.log(`Job already exists (ID ${existing.id}) — skipping duplicate createjob for "${data.title}"`);
@@ -1150,11 +1158,14 @@ function handleListService(db: Database.Database, data: any, timestamp: string):
   const agent = data.agent;
   const title = data.title || '';
 
-  // Skip if this listing was already seeded by syncFromChain (same agent,
-  // same title, still active) — mirrors the createjob dedup check.
+  // Skip if this listing was already seeded by syncFromChain — mirrors the createjob
+  // dedup. SECURITY (audit round 2, codex #15): agent + title alone conflated two
+  // distinct listings from the same agent with the same title (the second vanished);
+  // add the immutable created_at (== this action's block time) so the same listing
+  // (seed vs stream) still dedups while genuinely separate listings are kept.
   const existing = db.prepare(
-    'SELECT id FROM services WHERE agent = ? AND title = ? AND active = 1'
-  ).get(agent, title) as { id: number } | undefined;
+    'SELECT id FROM services WHERE agent = ? AND title = ? AND active = 1 AND created_at = ?'
+  ).get(agent, title, createdAt) as { id: number } | undefined;
   if (existing) {
     console.log(`Service already exists (ID ${existing.id}) — skipping duplicate listsvc for "${title}"`);
     return;
