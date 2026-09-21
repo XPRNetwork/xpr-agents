@@ -306,8 +306,12 @@ describe('agentvalid', () => {
       let val = getValidator('validator1');
       expect(val.pending_challenges).to.equal(0);
 
-      // With only unfunded challenges outstanding, the validator can still unstake.
-      // unstake succeeds (would throw if the counter blocked it); 10000 of 100000 moves out
+      // Past the validation's at-risk window (challenge_window 3600 + funding 86400),
+      // the post-validation unstake time-lock (XPRA-VALID-SLASH-2026-01) no longer
+      // applies. With only an UNFUNDED challenge outstanding, unstaking must still
+      // succeed — proving the pending_challenges gate does not block on unfunded
+      // challenges (the griefing fix). It would throw if the counter blocked it.
+      blockchain.addTime(TimePointSec.from(3600 + 86400 + 1));
       await agentvalid.actions.unstake(['validator1', 10000]).send('validator1@active');
       expect(getValidator('validator1').stake).to.equal(90000);
     });
