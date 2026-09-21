@@ -225,6 +225,25 @@ export class Deposit extends Table {
   }
 }
 
+// SECURITY (audit round 2, XPRA-VALID-SLASH-2026-01): tracks the timestamp of each
+// validator's most recent validation so unstake() can keep the stake at risk through
+// the full window in which that validation could still be challenged and the
+// challenge funded. Additive companion table — no existing table/action changes.
+@table("valactivity")
+export class ValActivity extends Table {
+  constructor(
+    public account: Name = EMPTY_NAME,
+    public last_validation_at: u64 = 0
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.account.N;
+  }
+}
+
 // ============== CONTRACT ==============
 
 @contract
@@ -234,6 +253,7 @@ export class AgentValidContract extends Contract {
   private challengesTable: TableStore<Challenge> = new TableStore<Challenge>(this.receiver);
   private unstakesTable: TableStore<Unstake> = new TableStore<Unstake>(this.receiver);
   private depositsTable: TableStore<Deposit> = new TableStore<Deposit>(this.receiver);
+  private valActivityTable: TableStore<ValActivity> = new TableStore<ValActivity>(this.receiver);
   private configSingleton: Singleton<Config> = new Singleton<Config>(this.receiver);
 
   // Helper to get agent from configured core contract
@@ -248,6 +268,10 @@ export class AgentValidContract extends Contract {
     check(agentRef != null, "Agent not registered in agentcore");
     return agentRef!;
   }
+
+  // Max time a challenge may be funded after creation (mirrors the funding_deadline
+  // set in challenge(): created_at + 86400). Used by the unstake time-lock.
+  private readonly FUNDING_WINDOW: u64 = 86400;
 
   private readonly XPR_SYMBOL: Symbol = new Symbol("XPR", 4);
   private readonly TOKEN_CONTRACT: Name = Name.fromString("eosio.token");
@@ -409,12 +433,32 @@ export class AgentValidContract extends Contract {
     check(amount > 0, "Amount must be positive");
     check(validator.stake >= amount, "Insufficient stake");
 
-    // FINDING 3 FIX: Check for pending challenges against this validator
-    // Validators cannot unstake while they have funded pending challenges
+    // Check for pending FUNDED challenges against this validator.
+    // NOTE: this is reactive — it only fires once a challenge has been funded. On its
+    // own it does NOT stop a validator from posting a dishonest validation and
+    // unstaking to zero in the same window before any challenge exists (see the
+    // time-lock below), which is why slashing could be evaded (XPRA-VALID-SLASH-2026-01).
     check(
       !this.hasPendingChallenges(account),
       "Cannot unstake while you have pending challenges. Wait for challenge resolution."
     );
+
+    // SECURITY (XPRA-VALID-SLASH-2026-01): keep the stake at risk through the window
+    // in which the validator's most recent validation could still be challenged AND
+    // that challenge funded. A challenge is creatable within `challenge_window` of the
+    // validation and fundable within FUNDING_WINDOW (24h) of its creation; once funded
+    // the pending-challenge guard above takes over. So block ALL unstaking until
+    // challenge_window + FUNDING_WINDOW has elapsed since the last validation. Without
+    // this, an atomic validate()+unstake() moved the whole stake to the (non-slashable)
+    // unstakes table before any challenge, so an upheld challenge slashed 0.
+    const activity = this.valActivityTable.get(account.N);
+    if (activity != null) {
+      const riskEnd = activity.last_validation_at + config.challenge_window + this.FUNDING_WINDOW;
+      check(
+        currentTimeSec() > riskEnd,
+        "Cannot unstake yet: stake stays at risk until the challenge window of your most recent validation has passed."
+      );
+    }
 
     // Also check that remaining stake meets minimum if validator stays active
     const remainingStake = validator.stake - amount;
@@ -470,6 +514,14 @@ export class AgentValidContract extends Contract {
 
     check(unstakeRequest.validator == account, "Not your unstake request");
     check(currentTimeSec() >= unstakeRequest.available_at, "Unstake period not complete");
+
+    // SECURITY (XPRA-VALID-SLASH-2026-01): defense in depth. The unstake time-lock
+    // already prevents queuing stake while it is at risk, but never release queued
+    // stake while a funded challenge against this validator is still pending.
+    check(
+      !this.hasPendingChallenges(account),
+      "Cannot withdraw while you have a funded pending challenge. Wait for resolution."
+    );
 
     // Transfer tokens back
     const quantity = new Asset(unstakeRequest.amount, this.XPR_SYMBOL);
@@ -539,6 +591,18 @@ export class AgentValidContract extends Contract {
     // Update validator stats
     validatorRecord.total_validations += 1;
     this.validatorsTable.update(validatorRecord, this.receiver);
+
+    // SECURITY (XPRA-VALID-SLASH-2026-01): record the time of this validation so
+    // unstake() keeps the stake slashable until this validation can no longer be
+    // challenged and funded.
+    const nowValidation = currentTimeSec();
+    const existingActivity = this.valActivityTable.get(validator.N);
+    if (existingActivity == null) {
+      this.valActivityTable.store(new ValActivity(validator, nowValidation), this.receiver);
+    } else {
+      existingActivity.last_validation_at = nowValidation;
+      this.valActivityTable.update(existingActivity, this.receiver);
+    }
 
     print(
       `Validation submitted for ${agent.toString()} by ${validator.toString()}: result=${result}, confidence=${confidence}`
@@ -643,14 +707,15 @@ export class AgentValidContract extends Contract {
     check(challengeRecord.stake == 0, "Challenge is funded");
     check(currentTimeSec() > challengeRecord.funding_deadline, "Funding deadline not reached");
 
-    // expireunfund only handles unfunded challenges (stake == 0 checked above), which
-    // never incremented pending_challenges and never set validation.challenged. The
-    // flag reset below is a defensive no-op for edge cases; the counter is untouched.
-    const validation = this.validationsTable.get(challengeRecord.validation_id);
-    if (validation != null && validation.challenged) {
-      validation.challenged = false;
-      this.validationsTable.update(validation, this.receiver);
-    }
+    // expireunfund only handles UNFUNDED challenges (stake == 0 checked above), which
+    // never incremented pending_challenges and never set validation.challenged.
+    // SECURITY (audit round 2): we must NOT touch validation.challenged here. Two
+    // unfunded challenges can exist for one validation; if challenge A is funded
+    // (setting challenged = true) and unfunded sibling B then expires, clearing the
+    // flag here would unlock the validation while A is still funded and pending —
+    // letting a second challenge be funded and the validator be slashed twice for a
+    // single validation. The flag is owned solely by funding (set) and
+    // resolve/expirefunded (clear). Leave it alone.
 
     // Mark challenge as cancelled (expired)
     challengeRecord.status = 3; // cancelled/expired
