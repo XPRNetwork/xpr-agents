@@ -387,6 +387,12 @@ export interface TransactAction {
 
 export interface JsonRpc {
   get_table_rows<T>(params: GetTableRowsParams): Promise<GetTableRowsResult<T>>;
+  /**
+   * Raw call to /v1/chain/get_info — used for the network chain id (A2A audience
+   * binding). Optional: not every JsonRpc consumer needs it (the @proton/js client
+   * always provides it), so callers that require it must guard for its presence.
+   */
+  get_info?(): Promise<{ chain_id: string; [key: string]: unknown }>;
 }
 
 export interface GetTableRowsParams {

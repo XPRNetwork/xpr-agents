@@ -230,6 +230,8 @@ describe('A2AClient', () => {
       const client = new A2AClient('https://agent.example.com', {
         callerAccount: 'alice',
         signingKey: '5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3',
+        targetAccount: 'bob',
+        chainId: '384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0',
       });
       await client.sendMessage(message);
 
@@ -237,6 +239,14 @@ describe('A2AClient', () => {
       expect(headers['X-XPR-Account']).toBe('alice');
       expect(headers['X-XPR-Timestamp']).toMatch(/^\d+$/);
       expect(headers['X-XPR-Signature']).toMatch(/^SIG_K1_/);
+    });
+
+    it('throws on a signed request without targetAccount/chainId (replay binding required)', async () => {
+      const client = new A2AClient('https://agent.example.com', {
+        callerAccount: 'alice',
+        signingKey: '5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3',
+      });
+      await expect(client.sendMessage(message)).rejects.toThrow(/targetAccount and chainId/);
     });
 
     it('does not include auth headers without signingKey', async () => {

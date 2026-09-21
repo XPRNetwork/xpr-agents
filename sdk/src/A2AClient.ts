@@ -33,6 +33,17 @@ export interface A2AClientOptions {
   callerAccount?: string;
   /** WIF private key for signing A2A requests (e.g. "5K...") */
   signingKey?: string;
+  /**
+   * XPR account of the recipient agent (the endpoint's owner). Bound into the
+   * signed digest as the audience so the signature cannot be replayed to another
+   * server (codex #8). Required for signed requests.
+   */
+  targetAccount?: string;
+  /**
+   * Network chain id, bound into the signed digest so a signature cannot be
+   * replayed across networks (codex #8). Required for signed requests.
+   */
+  chainId?: string;
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
 }
@@ -54,12 +65,16 @@ export class A2AClient {
   private endpoint: string;
   private callerAccount?: string;
   private signingKey?: string;
+  private targetAccount?: string;
+  private chainId?: string;
   private timeout: number;
 
   constructor(endpoint: string, options: A2AClientOptions = {}) {
     this.endpoint = endpoint.replace(/\/$/, '');
     this.callerAccount = options.callerAccount;
     this.signingKey = options.signingKey;
+    this.targetAccount = options.targetAccount;
+    this.chainId = options.chainId;
     this.timeout = options.timeout ?? 30000;
   }
 
@@ -117,9 +132,17 @@ export class A2AClient {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
     if (this.signingKey && this.callerAccount) {
+      if (!this.targetAccount || !this.chainId) {
+        throw new A2AError(
+          'Signed A2A requests require targetAccount and chainId (bound into the digest to prevent cross-recipient/cross-network replay)',
+          -32000,
+        );
+      }
       const timestamp = Math.floor(Date.now() / 1000);
       const bodyDigest = hashBody(bodyStr);
-      const signature = signA2ARequest(this.signingKey, this.callerAccount, timestamp, bodyDigest);
+      const signature = signA2ARequest(
+        this.signingKey, this.callerAccount, timestamp, bodyDigest, this.targetAccount, this.chainId,
+      );
       headers['X-XPR-Account'] = this.callerAccount;
       headers['X-XPR-Timestamp'] = String(timestamp);
       headers['X-XPR-Signature'] = signature;

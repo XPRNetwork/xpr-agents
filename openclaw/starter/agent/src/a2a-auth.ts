@@ -18,6 +18,7 @@ export interface A2AAuthConfig {
   rateLimit: number;           // requests per minute, default 20
   timestampWindow: number;     // seconds, default 300 (5 min)
   agentcoreContract: string;   // default 'agentcore'
+  selfAccount: string;         // this server's own XPR account — the signed audience (codex #8)
 }
 
 export interface A2AAuthResult {
@@ -125,6 +126,22 @@ export function checkReplay(key: string, windowSec: number): void {
     throw new A2AAuthError('Replay detected: this signed request has already been used', -32000);
   }
   usedRequests.set(key, now + windowSec * 2 * 1000);
+}
+
+// ── Chain ID ───────────────────────────────────────────────────
+// The network chain id is bound into the signed digest (codex #8) so a signature
+// cannot be replayed across networks. Fetched once via get_info and cached — it
+// never changes for a running server.
+
+let cachedChainId: string | null = null;
+
+export async function getChainId(rpc: JsonRpc): Promise<string> {
+  if (cachedChainId) return cachedChainId;
+  const info = await rpc.get_info();
+  const id = (info as any).chain_id;
+  if (!id) throw new A2AAuthError('Could not determine chain id from RPC get_info', -32000);
+  cachedChainId = id;
+  return id;
 }
 
 // ── Key Fetching ───────────────────────────────────────────────
@@ -353,11 +370,15 @@ export async function verifyA2ARequest(
     );
   }
 
-  // Recover public key from signature
+  // Recover public key from signature. The digest binds this server's own account
+  // (audience) and chain id, so a signature made for another server or network
+  // recovers a different key and fails the match below (codex #8).
+  const rpc = new JsonRpc(config.rpcEndpoint);
+  const chainId = await getChainId(rpc);
   const bodyDigest = hashBody(body);
   let recoveredKey: string;
   try {
-    recoveredKey = recoverA2APublicKey(signature, account, timestamp, bodyDigest);
+    recoveredKey = recoverA2APublicKey(signature, account, timestamp, bodyDigest, config.selfAccount, chainId);
   } catch {
     throw new A2AAuthError('Invalid signature: could not recover public key', -32000);
   }
@@ -366,7 +387,6 @@ export async function verifyA2ARequest(
   // satisfy the threshold of the active OR a2a permission on its own — a lone key
   // of a multisig account (weight below threshold) is rejected, and the documented
   // isolated `a2a` permission is honored.
-  const rpc = new JsonRpc(config.rpcEndpoint);
   const perms = await getAuthPermissions(rpc, account);
 
   if (!isKeyAuthorized(perms, recoveredKey)) {
@@ -420,4 +440,5 @@ export function clearAuthCaches(): void {
   trustCache.clear();
   rateLimitMap.clear();
   usedRequests.clear();
+  cachedChainId = null;
 }

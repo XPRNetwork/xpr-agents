@@ -242,9 +242,16 @@ The caller signs each request by constructing a digest from their account name, 
 
 ```
 bodyHash  = SHA256(requestBody)
-digest    = SHA256(account + "\n" + timestamp + "\n" + bodyHash)
+digest    = SHA256(account + "\n" + timestamp + "\n" + audience + "\n" + chainId + "\n" + bodyHash)
 signature = PrivateKey.sign(digest)
 ```
+
+`audience` is the **recipient agent's account** and `chainId` is the **network chain id**.
+Both are bound into the digest so a signature made for one server on one network cannot be
+replayed by a malicious recipient to a different server, or across networks. The caller derives
+`audience` from the agent it is calling (the on-chain `endpoint` owner / agent-card `xpr:account`)
+and `chainId` from `get_info`; the server independently uses its own account and chain id, so the
+values never travel in a header — a mismatch simply fails verification.
 
 Three headers are added to the request:
 
@@ -257,13 +264,14 @@ Three headers are added to the request:
 ### Request Verification (Server Side)
 
 1. Check `X-XPR-Timestamp` is within 5 minutes of server time (anti-replay)
-2. Reconstruct digest from account + timestamp + SHA256(body)
+2. Reconstruct digest from account + timestamp + **this server's own account** + **this network's chain id** + SHA256(body)
 3. Recover the public key from the signature
-4. Fetch the account's `active` permission keys via `get_account()` RPC
-5. Compare recovered key against account's active keys
-6. If match, the request is authenticated as that account
+4. Fetch the account's `active` and `a2a` permissions via `get_account()` RPC
+5. Accept only if the recovered key satisfies a permission's **threshold on its own** (respecting per-key weights) — a lone key of a multisig account is rejected, and the isolated `a2a` permission is honored
+6. Reject if the same signed tuple has already been used (per-process replay cache)
+7. If authenticated, the request is that account
 
-Account keys are cached for 5 minutes to avoid excessive RPC calls.
+Account keys and chain id are cached to avoid excessive RPC calls (keys 5 min; chain id for the process lifetime).
 
 ### SDK Usage
 
@@ -278,7 +286,11 @@ import { A2AClient } from '@xpr-agents/sdk';
 const client = new A2AClient('https://agent.example.com', {
   callerAccount: 'alice',
   signingKey: process.env.A2A_SIGNING_KEY, // WIF private key for @a2a permission
+  targetAccount: 'bob',   // recipient agent account (from discovery / agent card) — bound as audience
+  chainId: '384da888...', // network chain id (from get_info) — signed requests require both
 });
+// The bundled OpenClaw A2A tools set targetAccount/chainId for you from the
+// resolved endpoint and the connected network.
 
 // Unsigned requests (may be rejected by servers requiring auth)
 const client = new A2AClient('https://agent.example.com', {
@@ -319,7 +331,8 @@ The agent runner can restrict which tools are available to A2A callers:
 
 ## Security Considerations
 
-- **Replay protection:** Timestamps must be within 5 minutes of server time. Combined with body hashing, this prevents replay attacks.
+- **Replay protection:** Timestamps must be within 5 minutes of server time, and each signed tuple is remembered until it leaves that window (same-recipient replay). The signed digest also binds the recipient account (audience) and network chain id, so a signature cannot be forwarded by a malicious recipient to a different server or replayed across networks.
+- **Authority thresholds:** A single A2A signature authenticates an account only if the recovered key meets the threshold of the account's `active` or `a2a` permission on its own; a lone key of a multisig account cannot impersonate the whole account.
 - **Key rotation:** When an account rotates its active keys on-chain, the key cache (5 min TTL) ensures the transition is smooth.
 - **Body integrity:** The body hash is included in the signed digest, preventing tampering with the request payload.
 - **Account spoofing:** The `xpr:callerAccount` field in the JSON-RPC body is overridden by the authenticated account, preventing spoofing.
