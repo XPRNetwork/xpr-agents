@@ -545,6 +545,80 @@ data migration.
   can exceed 100% if `max_score` set >5; `approvemile` missing a state guard.
 
 
+## Addendum: AUDIT-2026-09 — external-model review round (grok + codex) + two external reports
+
+**Reviewers:** grok-4.6-build and codex/gpt-6-astra (headless, read-only, via CLI),
+an earlier Fable adversarial pass, and two responsibly-disclosed reports from 0xgons
+(XPRA-ESCROW-DBLREFUND-2026-01, XPRA-VALID-SLASH-2026-01). Findings were verified
+against source (and several reproduced) before fixing. Shipped across PRs #59–#66.
+
+### Contracts — fixed and DEPLOYED to mainnet 2026-09-22 (msig paul123 / protonnz@active)
+On-chain `get_code_hash` verified == audited build; deploy was testnet-first, then msig.
+- **agentvalid** → `57adeb5e…`
+  - **Validator slash-evasion (HIGH, XPRA-VALID-SLASH-2026-01 / codex#3 / grok#2):** a
+    validator could post a dishonest validation and, in one atomic tx before any
+    challenge, `unstake` its whole balance to the non-slashable `unstakes` table, so an
+    upheld challenge slashed 0. Fix: new `valactivity` table records each validator's
+    last validation; `unstake` is time-locked for `challenge_window + 24h` after it, and
+    `withdraw` refuses while a funded challenge is pending.
+  - **`expireunfund` double-slash (codex#9 / grok#1):** expiring an unfunded sibling
+    challenge cleared `validation.challenged`, unlocking a still-funded challenge →
+    validator slashable twice. Fix: `expireunfund` no longer touches the flag.
+- **agentescrow** → `872622dd…`
+  - **`approvemile` missing state guard (grok#6):** milestone funds could be released
+    while the job was DISPUTED. Fix: require state INPROGRESS(3)/DELIVERED(4).
+  - **`timeout` zero-refund revert (codex#17):** a fully-milestone-paid undelivered job
+    sent a 0 XPR refund → token contract reverts → job could never close. Fix: only
+    transfer when `remainingAmount > 0`.
+- **agentfeed** → `082d0c50…`
+  - **recalc-vs-dispute restore (codex#10):** a dispute resolved mid paginated recalc
+    was restored on commit. Fix: `resolve` invalidates any in-flight recalcstate.
+  - **decay truncation (codex#11):** a KYC-0 review truncated to weight 0 and vanished.
+    Fix: floor the decayed weight at 1.
+  - **`avg_score` overwrite (grok#5, old SC-H04):** `calcaggtrust` clobbered the native
+    average. Fix: combined trust now lives in a new `aggtrust` table.
+- **XPRA-ESCROW-DBLREFUND-2026-01** (`cancel`→`removejob` double refund) was already
+  remediated in the ESC-2026-09-17 batch; the report cited a pre-fix commit.
+
+All contract changes are additive (new tables `valactivity`, `aggtrust`; no existing
+table field or action parameter changed). Suites: agentvalid 48, agentescrow 267,
+agentfeed 58.
+
+### Off-chain code — fixed and merged
+- **Frontend (#59):** OG-route SSRF guard, deliverable-iframe sandbox, debug gated.
+- **Indexer (#60):** trust-proxy, dispatch-time webhook SSRF + `redirect: manual`,
+  constant-time admin auth, generic error responses.
+- **Runner/openclaw (#61):** A2A tool mode defaults read-only, poller honors scanInbound
+  block decisions, LLM token budget, skill SSRF guard, A2A replay protection,
+  `/deliverables` auth, code-sandbox realm isolation.
+- **CRITICAL sandbox escape (#63):** `vm` context global's HOST prototype let
+  `this.constructor.constructor("return process.env")()` read runner secrets — the path
+  #61's fix missed. Fixed with a null-prototype context global; verified closed.
+- **Round-2 code (#64):** nft/defi skills enforce `MAX_TRANSFER_XPR`; A2A discovery
+  SSRF guard; poller string/numeric job-state normalization; newest-first job
+  pagination; tightened deliverable-iframe sandbox.
+- **Indexer identity (#66):** feedback dispute-id off-by-one vs `availablePrimaryKey`;
+  job/listing dedup tightened with the immutable `created_at`.
+- **Indexer poller (#16, this round):** Hyperion `after=<block>` is inclusive, so a
+  block with >100 actions stalled the poller. Fixed with skip-paging + `global_sequence`
+  dedup (bounded drain per poll).
+
+### Accepted residuals (documented, low-severity / environment-gated)
+- **DNS-rebinding TOCTOU** in the skill SSRF guard (web-scraping/creative): the host is
+  resolved then `fetch` resolves again. Redirect hops are re-validated and the private-IP
+  matcher is hardened, but closing the check/use gap needs an undici custom-lookup
+  dispatcher, not importable in the skills' zero-dep context.
+- **Indexer async id-correction matchers** stay loose (client+title+hash / agent+title).
+  Tightening with `created_at` risks breaking ALL correction (action timestamp vs
+  chain-RPC `created_at`), worse than the narrow repeat-same-title mis-assignment.
+- Cross-recipient A2A replay and A2A authority-threshold handling (codex#7/#8) — noted
+  for a future A2A-protocol revision.
+
+### Bounty
+0xgons paid 15,000 XPR (protonnz → artfak) for the validator slash-evasion report;
+20,000 XPR was paid earlier for the FE-2026-09-01 stored XSS.
+
+
 ## Methodology
 
 This audit was conducted by 8 specialized agents running in parallel:
