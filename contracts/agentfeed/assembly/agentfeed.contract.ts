@@ -214,6 +214,26 @@ export class ExternalScore extends Table {
   }
 }
 
+// SECURITY (audit round 2, grok #5 / SC-H04): aggregate (native + external) trust
+// lives in its own table so calcaggtrust no longer overwrites agentscores.avg_score
+// — which submit/resolve/recalc recompute from native totals and would immediately
+// clobber, making the aggregate value oscillate. Additive companion table.
+@table("aggtrust")
+export class AggTrust extends Table {
+  constructor(
+    public agent: Name = EMPTY_NAME,
+    public combined_score: u64 = 0,
+    public last_updated: u64 = 0
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.agent.N;
+  }
+}
+
 // Payment proofs - links feedback to verifiable on-chain payments
 // Addresses ERC-8004 discussion about payment proof correlation
 @table("payproofs")
@@ -487,6 +507,7 @@ export class AgentFeedContract extends Contract {
   private directionalTrustTable: TableStore<DirectionalTrust> = new TableStore<DirectionalTrust>(this.receiver);
   private reputationProvidersTable: TableStore<ReputationProvider> = new TableStore<ReputationProvider>(this.receiver);
   private externalScoresTable: TableStore<ExternalScore> = new TableStore<ExternalScore>(this.receiver);
+  private aggTrustTable: TableStore<AggTrust> = new TableStore<AggTrust>(this.receiver);
   private paymentProofsTable: TableStore<PaymentProof> = new TableStore<PaymentProof>(this.receiver);
   private disputesTable: TableStore<Dispute> = new TableStore<Dispute>(this.receiver);
   private recalcStateTable: TableStore<RecalcState> = new TableStore<RecalcState>(this.receiver);
@@ -840,6 +861,15 @@ export class AgentFeedContract extends Contract {
     if (upheld) {
       this.updateAgentScore(feedback.agent, feedback.score, feedback.reviewer_kyc_level, false);
 
+      // SECURITY (audit round 2, codex #10): abandon any in-flight paginated recalc
+      // for this agent. An early batch may have already counted this now-upheld
+      // feedback; letting the recalc finish would recommit its partial total and
+      // RESTORE the feedback we just removed. A fresh recalc skips it (status == 1).
+      const inflightRecalc = this.recalcStateTable.get(feedback.agent.N);
+      if (inflightRecalc != null) {
+        this.recalcStateTable.remove(inflightRecalc);
+      }
+
       // Reverse exactly the reputation this feedback added, read from its kind record
       // rather than guessed from the tags. Previously any feedback whose tags merely
       // contained ":" was treated as context feedback, so a disputed plain review with
@@ -1055,7 +1085,15 @@ export class AgentFeedContract extends Contract {
       }
 
       const baseWeight: u64 = <u64>(1 + currentFb.reviewer_kyc_level);
-      const decayedWeight: u64 = (baseWeight * decayFactor) / 100;
+      // SECURITY (audit round 2, codex #11): floor the decayed weight at 1. Integer
+      // division truncated a KYC-0 review (baseWeight 1) to weight 0 on the first
+      // decay step — even with decay_floor set — silently dropping the review from the
+      // score and leaving the live (undecayed) path to later subtract a weight that
+      // recalc had zeroed, corrupting totals. A review that still counts keeps >= 1.
+      let decayedWeight: u64 = (baseWeight * decayFactor) / 100;
+      if (baseWeight > 0 && decayedWeight == 0) {
+        decayedWeight = 1;
+      }
       batchScore += <u64>currentFb.score * decayedWeight;
       batchWeight += decayedWeight * 5;
       batchCount++;
@@ -1716,15 +1754,18 @@ export class AgentFeedContract extends Contract {
       combinedScore = nativeAvg;
     }
 
-    // Update or create agent score with combined value
-    let agentScore = this.agentScoresTable.get(agent.N);
-    if (agentScore == null) {
-      agentScore = new AgentScore(agent, 0, 0, 0, combinedScore, currentTimeSec());
-      this.agentScoresTable.store(agentScore, this.receiver);
+    // SECURITY (grok #5 / SC-H04): store the combined value in its own table, NOT in
+    // agentscores.avg_score. avg_score is the NATIVE weighted average, recomputed from
+    // native totals by submit/resolve/recalc; writing the combined value there made it
+    // oscillate (any later native update overwrote it). Native avg_score is left intact.
+    const now = currentTimeSec();
+    const existingAgg = this.aggTrustTable.get(agent.N);
+    if (existingAgg == null) {
+      this.aggTrustTable.store(new AggTrust(agent, combinedScore, now), this.receiver);
     } else {
-      agentScore.avg_score = combinedScore;
-      agentScore.last_updated = currentTimeSec();
-      this.agentScoresTable.update(agentScore, this.receiver);
+      existingAgg.combined_score = combinedScore;
+      existingAgg.last_updated = now;
+      this.aggTrustTable.update(existingAgg, this.receiver);
     }
 
     print(`Aggregate trust calculated for ${agent.toString()}: ${combinedScore}`);
