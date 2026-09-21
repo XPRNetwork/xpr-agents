@@ -612,6 +612,7 @@ const a2aAuthConfig: A2AAuthConfig = {
   rateLimit: parseInt(process.env.A2A_RATE_LIMIT || '20'),
   timestampWindow: 300,
   agentcoreContract: 'agentcore',
+  selfAccount: process.env.XPR_ACCOUNT || '',
 };
 
 // A2A tool sandboxing.

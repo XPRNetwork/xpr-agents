@@ -52,6 +52,19 @@ async function resolveEndpoint(
   return agent.endpoint;
 }
 
+// Network chain id, bound into the A2A signed digest (codex #8) so a signature
+// cannot be replayed across networks. Fetched once via get_info and cached.
+let cachedChainId: string | null = null;
+async function getChainId(rpc: PluginConfig['rpc']): Promise<string> {
+  if (cachedChainId) return cachedChainId;
+  if (!rpc.get_info) throw new Error('RPC client does not support get_info (needed for A2A chain-id binding)');
+  const info = await rpc.get_info();
+  const id = (info as any).chain_id;
+  if (!id) throw new Error('Could not determine chain id from RPC get_info');
+  cachedChainId = id;
+  return id;
+}
+
 // Signing key for A2A request authentication.
 //
 // Reads `A2A_SIGNING_KEY` (NOT `XPR_PRIVATE_KEY`) — A2A uses a separate
@@ -97,6 +110,8 @@ export function registerA2ATools(api: PluginApi, config: PluginConfig): void {
       const client = new A2AClient(endpoint, {
         callerAccount: config.session?.auth.actor,
         signingKey,
+        targetAccount: account,
+        chainId: await getChainId(config.rpc),
       });
       return client.getAgentCard();
     },
@@ -133,6 +148,8 @@ export function registerA2ATools(api: PluginApi, config: PluginConfig): void {
       const client = new A2AClient(endpoint, {
         callerAccount: config.session?.auth.actor,
         signingKey,
+        targetAccount: account,
+        chainId: await getChainId(config.rpc),
       });
 
       const message: A2AMessage = {
@@ -168,6 +185,8 @@ export function registerA2ATools(api: PluginApi, config: PluginConfig): void {
       const client = new A2AClient(endpoint, {
         callerAccount: config.session?.auth.actor,
         signingKey,
+        targetAccount: account,
+        chainId: await getChainId(config.rpc),
       });
       return client.getTask(task_id);
     },
@@ -193,6 +212,8 @@ export function registerA2ATools(api: PluginApi, config: PluginConfig): void {
       const client = new A2AClient(endpoint, {
         callerAccount: config.session?.auth.actor,
         signingKey,
+        targetAccount: account,
+        chainId: await getChainId(config.rpc),
       });
       return client.cancelTask(task_id);
     },
@@ -259,6 +280,8 @@ export function registerA2ATools(api: PluginApi, config: PluginConfig): void {
       const client = new A2AClient(endpoint, {
         callerAccount: config.session?.auth.actor,
         signingKey,
+        targetAccount: account,
+        chainId: await getChainId(config.rpc),
       });
 
       const text = [
