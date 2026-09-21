@@ -37,8 +37,21 @@ export class A2AAuthError extends Error {
 
 // ── Caches ─────────────────────────────────────────────────────
 
+/** A public key and its weight within one permission's authority. */
+export interface PermKey {
+  key: string;   // normalized PUB_K1_ form
+  weight: number;
+}
+
+/** A candidate permission an A2A signer may authenticate under. */
+export interface CandidatePerm {
+  perm: string;      // 'active' or 'a2a'
+  threshold: number;
+  keys: PermKey[];
+}
+
 interface KeyCacheEntry {
-  keys: string[];
+  perms: CandidatePerm[];
   expiresAt: number;
 }
 
@@ -116,36 +129,66 @@ export function checkReplay(key: string, windowSec: number): void {
 
 // ── Key Fetching ───────────────────────────────────────────────
 
-async function getAccountKeys(rpc: JsonRpc, account: string): Promise<string[]> {
+// Permissions an A2A signer may authenticate under. `active` is the account's
+// top-level authority; `a2a` is the documented isolated signing permission (a
+// dedicated key so the A2A process need not hold the active key — see
+// openclaw/src/tools/a2a.ts). A signature is accepted only if it satisfies ONE of
+// these permissions' thresholds on its own.
+const A2A_AUTH_PERMISSIONS = ['active', 'a2a'];
+
+/**
+ * Parse an account's on-chain permissions into the candidate authorities an A2A
+ * single-signature request may use. Pure (no I/O) so it is unit-testable. Keeps
+ * each permission's weights and threshold so a lone key of a multisig account is
+ * NOT accepted, and includes the `a2a` isolated-signing permission when present.
+ */
+export function parseAuthPermissions(permissions: any[]): CandidatePerm[] {
+  const out: CandidatePerm[] = [];
+  for (const name of A2A_AUTH_PERMISSIONS) {
+    const p = (permissions || []).find((pp: any) => pp.perm_name === name);
+    if (!p || !p.required_auth) continue;
+    const ra = p.required_auth;
+    const keys: PermKey[] = (ra.keys || []).map((k: any) => {
+      const raw: string = k.key;
+      // Normalize to PUB_K1_ format — chain may return legacy EOS... prefix
+      const key = raw.startsWith('EOS') ? Key.PublicKey.fromString(raw).toString() : raw;
+      return { key, weight: Number(k.weight) || 0 };
+    });
+    out.push({ perm: name, threshold: Number(ra.threshold) || 1, keys });
+  }
+  return out;
+}
+
+/**
+ * True if `recoveredKey` alone satisfies at least one candidate permission —
+ * i.e. it appears in that permission with a weight >= the permission threshold.
+ * A single key of a genuine multisig account (weight below threshold) is rejected.
+ */
+export function isKeyAuthorized(perms: CandidatePerm[], recoveredKey: string): boolean {
+  return perms.some(p => {
+    const match = p.keys.find(k => k.key === recoveredKey);
+    return match !== undefined && match.weight >= p.threshold;
+  });
+}
+
+async function getAuthPermissions(rpc: JsonRpc, account: string): Promise<CandidatePerm[]> {
   const cached = keyCache.get(account);
   if (cached && Date.now() < cached.expiresAt) {
-    return cached.keys;
+    return cached.perms;
   }
 
   const accountInfo = await rpc.get_account(account);
-  const activePermission = accountInfo.permissions?.find(
-    (p: any) => p.perm_name === 'active',
-  );
+  const perms = parseAuthPermissions(accountInfo.permissions || []);
 
-  if (!activePermission) {
-    throw new A2AAuthError(`Account '${account}' has no active permission`, -32000);
+  if (perms.length === 0) {
+    throw new A2AAuthError(`Account '${account}' has no active or a2a permission`, -32000);
+  }
+  if (perms.every(p => p.keys.length === 0)) {
+    throw new A2AAuthError(`Account '${account}' has no usable active/a2a keys`, -32000);
   }
 
-  // Normalize to PUB_K1_ format — chain may return legacy EOS... prefix
-  const keys = activePermission.required_auth.keys.map((k: any) => {
-    const raw: string = k.key;
-    if (raw.startsWith('EOS')) {
-      return Key.PublicKey.fromString(raw).toString(); // converts to PUB_K1_
-    }
-    return raw;
-  });
-
-  if (keys.length === 0) {
-    throw new A2AAuthError(`Account '${account}' has no active keys`, -32000);
-  }
-
-  keyCache.set(account, { keys, expiresAt: Date.now() + KEY_CACHE_TTL });
-  return keys;
+  keyCache.set(account, { perms, expiresAt: Date.now() + KEY_CACHE_TTL });
+  return perms;
 }
 
 // ── Trust Fetching ─────────────────────────────────────────────
@@ -319,14 +362,16 @@ export async function verifyA2ARequest(
     throw new A2AAuthError('Invalid signature: could not recover public key', -32000);
   }
 
-  // Verify recovered key against on-chain account keys
+  // Verify recovered key against on-chain account authorities. The key must
+  // satisfy the threshold of the active OR a2a permission on its own — a lone key
+  // of a multisig account (weight below threshold) is rejected, and the documented
+  // isolated `a2a` permission is honored.
   const rpc = new JsonRpc(config.rpcEndpoint);
-  const accountKeys = await getAccountKeys(rpc, account);
+  const perms = await getAuthPermissions(rpc, account);
 
-  const keyMatch = accountKeys.some(k => k === recoveredKey);
-  if (!keyMatch) {
+  if (!isKeyAuthorized(perms, recoveredKey)) {
     throw new A2AAuthError(
-      `Signature verification failed: recovered key does not match any active key for account '${account}'`,
+      `Signature verification failed: recovered key does not satisfy the threshold of the active or a2a permission for account '${account}'`,
       -32000,
     );
   }
