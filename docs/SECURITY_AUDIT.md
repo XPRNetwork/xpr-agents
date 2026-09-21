@@ -602,12 +602,29 @@ agentfeed 58.
 - **Indexer poller (#16, this round):** Hyperion `after=<block>` is inclusive, so a
   block with >100 actions stalled the poller. Fixed with skip-paging + `global_sequence`
   dedup (bounded drain per poll).
+- **Indexer poller follow-up (#68, codex/astra review of #67):** a block with >5000
+  actions (over the per-poll page cap) still stalled — the drain restarted `skip` at 0
+  every poll and never reached past the cap. Fixed with a persisted per-contract skip
+  cursor. Also: intra-poll dedup now compares against the running max seq (was the
+  poll-start snapshot), so a mid-drain window shift (failover / tip insert) can't
+  double-emit an action.
 
 ### Accepted residuals (documented, low-severity / environment-gated)
-- **DNS-rebinding TOCTOU** in the skill SSRF guard (web-scraping/creative): the host is
-  resolved then `fetch` resolves again. Redirect hops are re-validated and the private-IP
-  matcher is hardened, but closing the check/use gap needs an undici custom-lookup
-  dispatcher, not importable in the skills' zero-dep context.
+- **DNS-rebinding TOCTOU** in the skill SSRF guard (web-scraping/creative). *Remaining
+  vector:* the guard resolves the host and validates the IP, then `fetch` resolves it a
+  second time — an attacker controlling authoritative DNS with a sub-second TTL could
+  return a public IP to the guard and a private one to `fetch`, winning the race between
+  the two lookups. *Compensating controls already in place:* http(s) scheme allow-list;
+  every redirect hop is re-validated (public→internal 302 is closed); the private-IP
+  matcher covers loopback, link-local incl. the `169.254.169.254` metadata IP, ULA,
+  CGNAT, and IPv4-mapped IPv6. *Why accepted:* both airtight fixes cost more than the gap
+  — an undici custom-lookup dispatcher breaks the skills' deliberate zero-dependency
+  bundling, and a `node:https` rewrite reimplements `fetch`'s Response/gzip/abort across
+  three call sites (new bug surface on a security-critical path). Blast radius is limited:
+  Charlie runs bare-metal (no metadata endpoint); only cloud-hosted runners (Railway) are
+  exposed at all. *Revisit trigger:* if runners are ever hosted on a cloud with a
+  sensitive instance-metadata endpoint, apply the undici `connect.lookup` fix (pins the
+  validated IP at connect time while preserving SNI).
 - **Indexer async id-correction matchers** stay loose (client+title+hash / agent+title).
   Tightening with `created_at` risks breaking ALL correction (action timestamp vs
   chain-RPC `created_at`), worse than the narrow repeat-same-title mis-assignment.
