@@ -92,7 +92,7 @@ if (!process.env.XPR_ACCOUNT) {
 if (!process.env.XPR_RPC_ENDPOINT) {
   // Default to public indexer-paired RPC by network.
   const network = process.env.XPR_NETWORK || 'mainnet';
-  const defaultRpc = network === 'mainnet' ? 'https://proton.eosusa.io' : 'https://tn1.protonnz.com';
+  const defaultRpc = network === 'mainnet' ? 'https://api-xprnetwork-main.saltant.io' : 'https://tn1.protonnz.com';
   process.env.XPR_RPC_ENDPOINT = defaultRpc;
   console.warn(`[agent] XPR_RPC_ENDPOINT not set — defaulting to ${defaultRpc}`);
 }
@@ -1558,7 +1558,7 @@ let xprPriceFetchedAt = 0;
 const XPR_PRICE_CACHE_MS = 5 * 60 * 1000;
 
 async function getXprUsdPrice(): Promise<number> {
-  const MAINNET_RPC = 'https://proton.eosusa.io';
+  const MAINNET_RPC = 'https://api-xprnetwork-main.saltant.io';
   const resp = await fetch(`${MAINNET_RPC}/v1/chain/get_table_rows`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

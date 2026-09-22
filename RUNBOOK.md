@@ -125,7 +125,7 @@ cp ./data/agents.db ./data/agents.db.bak
 
 # Option A: Full replay from genesis
 rm ./data/agents.db
-HYPERION_ENDPOINTS="https://proton.eosusa.io,https://proton.greymass.com" npm start
+HYPERION_ENDPOINTS="https://api-xprnetwork-main.saltant.io,https://proton.protonuk.io" npm start
 
 # Option B: Restore from backup and resume from cursor
 cp ./data/agents.db.bak ./data/agents.db

@@ -76,8 +76,8 @@ export interface BlockArtPlan {
 const ESCROW = 'agentescrow';
 const GLYPH = 'https://xpragents.com/xpr-glyph-black.png';
 const REPLICATE_MODEL = 'google/nano-banana-2';
-const DEFAULT_RPC = 'https://proton.eosusa.io';
-const DEFAULT_HYPERION = 'https://proton.eosusa.io';
+const DEFAULT_RPC = 'https://api-xprnetwork-main.saltant.io';
+const DEFAULT_HYPERION = 'https://api-xprnetwork-main.saltant.io';
 const DEFAULT_GATEWAY = 'https://agent.mypinata.cloud';
 const DEFAULT_WORK_DIR = './blockart-work';
 

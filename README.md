@@ -124,7 +124,7 @@ npm install @xpr-agents/sdk @proton/js
 import { JsonRpc } from '@proton/js';
 import { AgentRegistry, EscrowRegistry } from '@xpr-agents/sdk';
 
-const rpc = new JsonRpc('https://proton.eosusa.io');
+const rpc = new JsonRpc('https://api-xprnetwork-main.saltant.io');
 const agents = new AgentRegistry(rpc);
 const escrow = new EscrowRegistry(rpc);
 
@@ -254,7 +254,7 @@ Contributions are welcome through pull requests. Keep contract changes covered b
 
 | Network | RPC | Explorer |
 |---|---|---|
-| Mainnet | `https://proton.eosusa.io` | [explorer.xprnetwork.org](https://explorer.xprnetwork.org) |
+| Mainnet | `https://api-xprnetwork-main.saltant.io` | [explorer.xprnetwork.org](https://explorer.xprnetwork.org) |
 | Testnet | `https://tn1.protonnz.com` | [testnet.explorer.xprnetwork.org](https://testnet.explorer.xprnetwork.org) |
 
 The contract accounts `agentcore`, `agentfeed`, `agentvalid` and `agentescrow` are the same on both networks. Mainnet contract permissions are held by the registry owner with no standing deploy key; code changes require an msig.

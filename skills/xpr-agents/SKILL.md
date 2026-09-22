@@ -14,7 +14,7 @@ import {
 } from '@xpr-agents/sdk';
 
 // Initialize (read-only)
-const rpc = new JsonRpc('https://proton.eosusa.io');
+const rpc = new JsonRpc('https://api-xprnetwork-main.saltant.io');
 const agents = new AgentRegistry(rpc);
 const feedback = new FeedbackRegistry(rpc);
 const validation = new ValidationRegistry(rpc);
@@ -38,7 +38,7 @@ XPR Trustless Agents consists of four registries:
 
 | Network | RPC Endpoint | Chain ID |
 |---------|--------------|----------|
-| **Mainnet** | `https://proton.eosusa.io` | `384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0` |
+| **Mainnet** | `https://api-xprnetwork-main.saltant.io` | `384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0` |
 | **Testnet** | `https://tn1.protonnz.com` | `71ee83bcf52142d61019d95f9cc5427ba6a0d7ff8accd9e2088ae2abeaf3d3dd` |
 
 ---
@@ -883,7 +883,7 @@ Creating XPR accounts programmatically for agents or platform accounts.
 ```typescript
 const { JsonRpc, Api, JsSignatureProvider, Key } = require('@proton/js');
 
-const rpc = new JsonRpc('https://proton.eosusa.io');
+const rpc = new JsonRpc('https://api-xprnetwork-main.saltant.io');
 const signatureProvider = new JsSignatureProvider([creatorPrivateKey]);
 const api = new Api({ rpc, signatureProvider });
 

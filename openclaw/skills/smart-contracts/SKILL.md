@@ -113,12 +113,12 @@ These tools replace `@proton/cli` commands for environments where the CLI isn't 
 ### Resources
 
 **RPC Endpoints:**
-- Mainnet: `https://proton.eosusa.io`
-- Testnet: `https://proton-testnet.eosusa.io`
+- Mainnet: `https://api-xprnetwork-main.saltant.io` (alt: `https://proton.protonuk.io`)
+- Testnet: `https://api-xprnetwork-test.saltant.io`
 
 **Chain IDs:**
 - Mainnet: `384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0`
-- Testnet: `71ee83bcf52142d61019d95f9cc5427ba6a0d7ff8accd9e2088ae2abebd3e7df`
+- Testnet: `71ee83bcf52142d61019d95f9cc5427ba6a0d7ff8accd9e2088ae2abeaf3d3dd`
 
 **Key Packages:**
 - `proton-tsc` — AssemblyScript contract SDK (types, decorators, utilities)

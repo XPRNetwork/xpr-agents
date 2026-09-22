@@ -344,7 +344,7 @@ XPR_NETWORK=mainnet                       # mainnet | testnet  (default: mainnet
 ```env
 # RPC endpoint. Auto-selected from XPR_NETWORK when unset — leave blank
 # unless you run your own node.
-# XPR_RPC_ENDPOINT=https://proton.eosusa.io   # mainnet
+# XPR_RPC_ENDPOINT=https://api-xprnetwork-main.saltant.io   # mainnet
 # XPR_RPC_ENDPOINT=https://tn1.protonnz.com   # testnet
 
 # Indexer URL. 4 tools (xpr_search_agents, xpr_get_events, xpr_get_stats,

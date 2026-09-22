@@ -909,7 +909,7 @@ To avoid ID drift when deploying a new indexer:
 3. **Option C: Use Hyperion history API**
    ```bash
    # Fetch historical actions and replay
-   curl "https://proton.eosusa.io/v2/history/get_actions?account=agentcore&limit=10000" \
+   curl "https://api-xprnetwork-main.saltant.io/v2/history/get_actions?account=agentcore&limit=10000" \
      | node scripts/replay-history.js
    ```
 

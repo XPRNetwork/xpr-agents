@@ -238,7 +238,7 @@ fall back on.
 
 | Network | Chain ID | Endpoints |
 |---------|----------|-----------|
-| Mainnet | `384da888...` | `https://proton.eosusa.io` |
+| Mainnet | `384da888...` | `https://api-xprnetwork-main.saltant.io` |
 | Testnet | `71ee83bc...` | `https://tn1.protonnz.com` |
 
 ## Types

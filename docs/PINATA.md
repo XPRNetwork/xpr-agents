@@ -168,7 +168,7 @@ grep "xpr-agents" /tmp/openclaw/openclaw-*.log | tail -10
 The success signature:
 
 ```
-[xpr-agents] Plugin loaded: 88 tools, mainnet (https://proton.eosusa.io)
+[xpr-agents] Plugin loaded: 88 tools, mainnet (https://api-xprnetwork-main.saltant.io)
 ```
 
 A2A receive-only mode (expected unless you set `A2A_SIGNING_KEY`):

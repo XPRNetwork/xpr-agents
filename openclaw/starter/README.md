@@ -316,7 +316,7 @@ curl -X POST http://localhost:8080/run \
 Edit `.env`:
 ```env
 XPR_NETWORK=mainnet
-XPR_RPC_ENDPOINT=https://proton.eosusa.io
+XPR_RPC_ENDPOINT=https://api-xprnetwork-main.saltant.io
 INDEXER_URL=https://indexer.xpragents.com
 ```
 

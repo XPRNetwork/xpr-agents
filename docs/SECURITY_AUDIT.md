@@ -628,12 +628,67 @@ agentfeed 58.
 - **Indexer async id-correction matchers** stay loose (client+title+hash / agent+title).
   Tightening with `created_at` risks breaking ALL correction (action timestamp vs
   chain-RPC `created_at`), worse than the narrow repeat-same-title mis-assignment.
-- Cross-recipient A2A replay and A2A authority-threshold handling (codex#7/#8) — noted
-  for a future A2A-protocol revision.
+- ~~Cross-recipient A2A replay and A2A authority-threshold handling (codex#7/#8)~~ —
+  **FIXED** after this round: threshold-aware auth + `a2a` permission (#70) and audience +
+  chain id bound into the signed digest (#71, SDK 0.5.0, openclaw 0.8.2).
 
 ### Bounty
 0xgons paid 15,000 XPR (protonnz → artfak) for the validator slash-evasion report;
 20,000 XPR was paid earlier for the FE-2026-09-01 stored XSS.
+
+
+## Addendum: 0xgons batch 2 — reports of 2026-09-21/22
+
+Four reports from **0xgons**, all reviewed against the 11 September commit `de2c97f`. Each was
+checked against current `main` and, for contracts, the mainnet code hash.
+
+### AGENTRUN-RUN-AUTHBYPASS — HIGH — VALID, fixed in #77
+The Telegram bridge (`openclaw/starter/telegram/`) holds the agent runner's hook token, but it added
+every sender to its owner list and forwarded their message to `/run`. Anyone who found the bot could
+drive the agent's tool loop (the runner runs with `confirmHighRisk: false`). Only operators who enabled
+the bridge were affected.
+
+**Fix:** the bridge now requires `TELEGRAM_OWNER_IDS` (Telegram user ids), answers only those users in
+a private chat, never adds senders on its own, drops previously saved non-owner chats, and refuses to
+start without the allowlist.
+
+### A2A-DEFAULT-AUTHZ — MEDIUM — VALID, fixed in #77
+#64 (19 September) changed the runner's code default to `A2A_TOOL_MODE=readonly`, but every installer
+(`start.sh`, `bootstrap.sh`, `.env.example`, both compose files) still wrote `A2A_TOOL_MODE=full`, so
+real installs gave any signed caller the write tools. The report was valid in practice.
+
+**Fix:** every shipped configuration now defaults to `readonly`, and A2A callers must be registered,
+active agents by default (`A2A_REQUIRE_REGISTERED=true`), which `docs/A2A.md` already claimed.
+Charlie's runner `.env` also had the installer's `full` and was set to `readonly`.
+**Lesson:** when a report cites a default, check the installers and `.env` templates, not only the
+code default.
+
+### A2A-AGENTCARD-SSRF — duplicate of #64
+`resolveEndpoint` has validated every on-chain endpoint with `assertPublicHttpUrl` since #64
+(19 September, before the report). While re-checking it we found that `A2AClient` followed redirects,
+so a public endpoint could bounce to an internal address. `A2AClient` now fetches with
+`redirect: 'error'` (#77, SDK 0.5.1).
+
+### AGENTVALID-CHALLENGE-DESYNC — duplicate, already deployed
+At `de2c97f`, both `cancelchal` and `expireunfund` reset `validation.challenged` while a sibling
+challenge was funded, allowing a second funded challenge and a double slash. Both fixes were live on
+mainnet before the report: `cancelchal` on 17 September (setcode tx `55123154…`) and `expireunfund`
+on 21 September (setcode tx `8ab4944d…`). #78 adds a regression test for the cancel path, run
+against the wasm whose hash equals mainnet `agentvalid` (`57adeb5e…`).
+
+### Related cleanup
+- **Docker path retired (#80).** `bootstrap.sh`, `setup.sh` and `openclaw/starter/docker/` pulled GHCR
+  images that had not been rebuilt since April 2026, so they shipped a runner and bridge missing
+  every fix since. All three GHCR images were deleted.
+- **Public RPC defaults.** Replaced `proton.eosusa.io` in shipped defaults and docs with producer
+  endpoints that serve both chain RPC and Hyperion history (Saltant, with ProtonUK as the
+  alternative). The frontend and deploy-service frontend also had the wrong testnet chain id, which is
+  now corrected.
+
+### Bounty
+10,000 XPR paid to 0xgons (5,000 each for AGENTRUN-RUN-AUTHBYPASS and A2A-DEFAULT-AUTHZ), msig
+`paul123/bountysep23`, executed 2026-09-23. The two duplicates were not paid. `SECURITY.md` now
+publishes bounty tiers and asks reporters to test against current `main` and the deployed code hash.
 
 
 ## Methodology
