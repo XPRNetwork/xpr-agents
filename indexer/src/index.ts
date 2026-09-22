@@ -18,7 +18,7 @@ import { enrichAgents } from './enrich';
 const config = {
   port: parseInt(process.env.PORT || '3001'),
   dbPath: process.env.DB_PATH || './data/agents.db',
-  hyperionEndpoints: (process.env.HYPERION_ENDPOINTS || process.env.HYPERION_ENDPOINT || 'https://proton.eosusa.io')
+  hyperionEndpoints: (process.env.HYPERION_ENDPOINTS || process.env.HYPERION_ENDPOINT || 'https://hyperion-xpr-mainnet.protonnz.com')
     .split(',')
     .map(e => e.trim())
     .filter(e => e.length > 0),
@@ -30,7 +30,7 @@ const config = {
     token: 'eosio.token',
   },
   // nodeos RPC used for agent enrichment (KYC / stake / trust score)
-  rpcEndpoint: (process.env.RPC_ENDPOINT || 'https://proton.eosusa.io').replace(/\/$/, ''),
+  rpcEndpoint: (process.env.RPC_ENDPOINT || 'https://api.protonnz.com').replace(/\/$/, ''),
   enrichIntervalMs: parseInt(process.env.ENRICH_INTERVAL_MS || String(10 * 60 * 1000)),
 };
 

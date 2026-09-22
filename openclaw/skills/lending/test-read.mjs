@@ -5,7 +5,7 @@
  * Usage: node test-read.mjs
  */
 
-const RPC = 'https://proton.eosusa.io';
+const RPC = 'https://api.protonnz.com';
 
 async function getTableRows(opts) {
   const resp = await fetch(`${RPC}/v1/chain/get_table_rows`, {

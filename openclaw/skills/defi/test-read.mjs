@@ -20,7 +20,7 @@ const mockApi = {
   getConfig() {
     return {
       network: 'mainnet',
-      rpcEndpoint: 'https://proton.eosusa.io',
+      rpcEndpoint: 'https://api.protonnz.com',
     };
   },
 };
