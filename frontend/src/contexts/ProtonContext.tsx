@@ -28,7 +28,9 @@ const REQUEST_ACCOUNT = process.env.NEXT_PUBLIC_REQUEST_ACCOUNT || 'agentcore';
 // Network config — reads from localStorage, defaults to mainnet
 const networkConfig = getNetworkConfig();
 const CHAIN_ID = networkConfig.chainId;
-const ENDPOINTS = [networkConfig.rpc];
+// Full failover list — ProtonWebSDK tries these in order, so a down/blocking RPC
+// no longer breaks wallet signing. First endpoint must serve get_info (TAPOS).
+const ENDPOINTS = networkConfig.rpcs;
 
 // Module-level flags survive React StrictMode remounts (refs don't)
 let sessionRestoreStarted = false;
