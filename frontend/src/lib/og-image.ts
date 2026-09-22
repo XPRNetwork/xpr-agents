@@ -81,7 +81,7 @@ const INDEXER_URLS: Record<string, string> = {
   testnet: 'https://testnet-indexer.xpragents.com',
 };
 const RPC_URLS: Record<string, string> = {
-  mainnet: 'https://proton.eosusa.io',
+  mainnet: 'https://api.protonnz.com',
   testnet: 'https://tn1.protonnz.com',
 };
 
