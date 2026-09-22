@@ -155,7 +155,7 @@ fi
 # ── Default RPC endpoint ──────────────────────
 if [ -z "$XPR_RPC_ENDPOINT" ]; then
   if [ "$XPR_NETWORK" = "mainnet" ]; then
-    XPR_RPC_ENDPOINT="https://proton.eosusa.io"
+    XPR_RPC_ENDPOINT="https://api-xprnetwork-main.saltant.io"
   else
     XPR_RPC_ENDPOINT="https://tn1.protonnz.com"
   fi

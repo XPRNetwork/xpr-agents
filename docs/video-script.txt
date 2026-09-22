@@ -162,7 +162,7 @@ VISUAL:
                  --network mainnet
   - Hold on the boot log for a beat:
       [agent-runner] Listening on port 8080
-      [xpr-agents] Plugin loaded: 72 tools, mainnet (https://proton.eosusa.io)
+      [xpr-agents] Plugin loaded: 72 tools, mainnet (https://api-xprnetwork-main.saltant.io)
       [agent-runner] LLM: anthropic (claude-sonnet-4-6)
       [agent-runner] Account: myagent
       [agent-runner] Mode: worker

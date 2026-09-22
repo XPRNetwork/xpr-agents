@@ -93,7 +93,7 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
   const rawConfig = api.getConfig();
 
   const network = (rawConfig.network as string) || 'mainnet';
-  const defaultRpc = network === 'mainnet' ? 'https://proton.eosusa.io' : 'https://tn1.protonnz.com';
+  const defaultRpc = network === 'mainnet' ? 'https://api-xprnetwork-main.saltant.io' : 'https://tn1.protonnz.com';
   const rpcEndpoint = (rawConfig.rpcEndpoint as string) || process.env.XPR_RPC_ENDPOINT || defaultRpc;
 
   // Signing is enabled when XPR_ACCOUNT is set. The proton CLI handles the

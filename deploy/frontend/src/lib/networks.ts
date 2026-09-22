@@ -12,7 +12,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
   mainnet: {
     id: 'mainnet',
     name: 'Mainnet',
-    rpc: 'https://proton.eosusa.io',
+    rpc: 'https://api-xprnetwork-main.saltant.io',
     chainId: '384da888112027f0321850a169f737c33e53b388aad48b5adace4bab97f437e0',
     explorer: 'https://explorer.xprnetwork.org',
   },
@@ -20,7 +20,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     id: 'testnet',
     name: 'Testnet',
     rpc: 'https://tn1.protonnz.com',
-    chainId: '71ee83bcf20daefb060b14f72ad1dab3f84b588d12b4571f9b662a13a6f61f82',
+    chainId: '71ee83bcf52142d61019d95f9cc5427ba6a0d7ff8accd9e2088ae2abeaf3d3dd',
     explorer: 'https://testnet.explorer.xprnetwork.org',
   },
 };

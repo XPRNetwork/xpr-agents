@@ -18,7 +18,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: https:",
-              "connect-src 'self' https://*.xpragents.com https://*.xprnetwork.org https://*.eosusa.io https://*.greymass.com https://xpr-deploy-service-production.up.railway.app wss://*.xpragents.com",
+              "connect-src 'self' https://*.xpragents.com https://*.xprnetwork.org https://*.saltant.io https://*.protonuk.io https://*.greymass.com https://xpr-deploy-service-production.up.railway.app wss://*.xpragents.com",
               "frame-src 'none'",
             ].join('; '),
           },

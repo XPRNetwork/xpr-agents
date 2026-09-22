@@ -144,7 +144,7 @@ DB_PATH=./data/agents.db
 # Testnet:
 # HYPERION_ENDPOINTS=https://api-xprnetwork-test.saltant.io
 # Mainnet:
-HYPERION_ENDPOINTS=https://proton.eosusa.io
+HYPERION_ENDPOINTS=https://api-xprnetwork-main.saltant.io
 
 AGENT_CORE_CONTRACT=agentcore
 AGENT_FEED_CONTRACT=agentfeed
@@ -228,7 +228,7 @@ NEXT_PUBLIC_NETWORK=mainnet
 # NEXT_PUBLIC_NETWORK=testnet
 
 # Override individual settings (optional — auto-configured from NEXT_PUBLIC_NETWORK)
-# NEXT_PUBLIC_RPC_URL=https://proton.eosusa.io
+# NEXT_PUBLIC_RPC_URL=https://api-xprnetwork-main.saltant.io
 # NEXT_PUBLIC_INDEXER_URL=http://localhost:3001
 ```
 
@@ -274,14 +274,15 @@ npm start
 
 | Provider | URL |
 |----------|-----|
-| EOS USA | `https://proton.eosusa.io` |
-| ProtNZ | `https://proton.protonnz.com` |
+| Saltant | `https://api-xprnetwork-main.saltant.io` |
+| ProtonUK | `https://proton.protonuk.io` |
 
 **Mainnet Hyperion Endpoints:**
 
 | Provider | URL |
 |----------|-----|
-| EOS USA | `https://proton.eosusa.io` |
+| Saltant | `https://api-xprnetwork-main.saltant.io` |
+| ProtonUK | `https://proton.protonuk.io` |
 
 ---
 

@@ -37,7 +37,7 @@ export const NETWORKS: Record<NetworkId, NetworkConfig> = {
     name: 'Testnet',
     rpc: TESTNET_RPCS[0],
     rpcs: TESTNET_RPCS,
-    chainId: '71ee83bcf20daefb060b14f72ad1dab3f84b588d12b4571f9b662a13a6f61f82',
+    chainId: '71ee83bcf52142d61019d95f9cc5427ba6a0d7ff8accd9e2088ae2abeaf3d3dd',
     explorer: 'https://testnet.explorer.xprnetwork.org',
   },
 };

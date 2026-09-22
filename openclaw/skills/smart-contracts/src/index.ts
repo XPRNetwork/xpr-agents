@@ -65,11 +65,12 @@ async function rpcGet(endpoint: string, path: string): Promise<any> {
 
 function getHyperionEndpoint(rpcEndpoint: string): string {
   // Map known RPC endpoints to their Hyperion equivalents
-  if (rpcEndpoint.includes('proton-testnet') || rpcEndpoint.includes('proton-test')) {
-    return 'https://proton-testnet.eosusa.io';
+  if (rpcEndpoint.includes('proton-testnet') || rpcEndpoint.includes('proton-test') || rpcEndpoint.includes('tn1.protonnz.com') || rpcEndpoint.includes('xprnetwork-test')) {
+    return 'https://api-xprnetwork-test.saltant.io';
   }
-  if (rpcEndpoint.includes('proton.eosusa.io') || rpcEndpoint.includes('proton.greymass.com')) {
-    return 'https://proton.eosusa.io';
+  // nodeos-only public RPCs (no /v2 history) map to a Hyperion-serving producer endpoint
+  if (/proton\.eosusa\.io|proton\.greymass\.com|api\.protonnz\.com|proton\.cryptolions\.io/.test(rpcEndpoint)) {
+    return 'https://api-xprnetwork-main.saltant.io';
   }
   // Default: assume the RPC endpoint also serves Hyperion
   return rpcEndpoint;
