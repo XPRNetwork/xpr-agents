@@ -27,7 +27,7 @@ services:
       - A2A_MIN_TRUST_SCORE=${A2A_MIN_TRUST_SCORE:-0}
       - A2A_MIN_KYC_LEVEL=${A2A_MIN_KYC_LEVEL:-0}
       - A2A_RATE_LIMIT=${A2A_RATE_LIMIT:-20}
-      - A2A_TOOL_MODE=${A2A_TOOL_MODE:-full}
+      - A2A_TOOL_MODE=${A2A_TOOL_MODE:-readonly}
       - PINATA_JWT=${PINATA_JWT:-}
     ports:
       - "8080:8080"

@@ -176,6 +176,7 @@ EXISTING_SETUP=false
 OPENCLAW_HOOK_TOKEN=""
 WEBHOOK_ADMIN_TOKEN=""
 TELEGRAM_BOT_TOKEN=""
+TELEGRAM_OWNER_IDS="${TELEGRAM_OWNER_IDS:-}"
 
 if [ -f .env ]; then
   EXISTING_SETUP=true
@@ -203,6 +204,7 @@ if [ -f .env ]; then
       OPENCLAW_HOOK_TOKEN) OPENCLAW_HOOK_TOKEN="$value" ;;
       WEBHOOK_ADMIN_TOKEN) WEBHOOK_ADMIN_TOKEN="$value" ;;
       TELEGRAM_BOT_TOKEN) TELEGRAM_BOT_TOKEN="$value" ;;
+      TELEGRAM_OWNER_IDS) [ -z "$TELEGRAM_OWNER_IDS" ] && TELEGRAM_OWNER_IDS="$value" ;;
     esac
   done < .env
 
@@ -379,6 +381,18 @@ if [ -z "$TELEGRAM_BOT_TOKEN" ] && [ "$NON_INTERACTIVE" = false ]; then
   fi
 fi
 
+# The bridge only answers allowlisted Telegram user ids (it holds the agent's
+# hook token, so an open bot would let anyone drive the agent).
+if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -z "$TELEGRAM_OWNER_IDS" ] && [ "$NON_INTERACTIVE" = false ]; then
+  echo ""
+  echo "  Your Telegram user id (message @userinfobot to get it; comma-separate several):"
+  echo -n "  Telegram owner id(s): "
+  read -r TELEGRAM_OWNER_IDS
+fi
+if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -z "$TELEGRAM_OWNER_IDS" ]; then
+  echo "Warning: TELEGRAM_OWNER_IDS is empty — the Telegram bridge will refuse to start until you set it in .env." >&2
+fi
+
 # ── Phase 4: Validate Account On-Chain ──────
 #
 # We deliberately do NOT cross-check the key here. Key validation would
@@ -432,8 +446,9 @@ A2A_AUTH_REQUIRED=true
 A2A_MIN_TRUST_SCORE=0
 A2A_MIN_KYC_LEVEL=0
 A2A_RATE_LIMIT=20
-A2A_TOOL_MODE=full
+A2A_TOOL_MODE=readonly
 TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+TELEGRAM_OWNER_IDS=${TELEGRAM_OWNER_IDS}
 ENVEOF
 success ".env written"
 
@@ -478,7 +493,7 @@ services:
       - A2A_MIN_TRUST_SCORE=${A2A_MIN_TRUST_SCORE:-0}
       - A2A_MIN_KYC_LEVEL=${A2A_MIN_KYC_LEVEL:-0}
       - A2A_RATE_LIMIT=${A2A_RATE_LIMIT:-20}
-      - A2A_TOOL_MODE=${A2A_TOOL_MODE:-full}
+      - A2A_TOOL_MODE=${A2A_TOOL_MODE:-readonly}
     ports:
       - "8080:8080"
     healthcheck:
@@ -497,6 +512,7 @@ services:
     profiles: ["telegram"]
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_OWNER_IDS=${TELEGRAM_OWNER_IDS}
       - AGENT_URL=http://agent:8080
       - OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN}
       - WEBHOOK_PORT=3002

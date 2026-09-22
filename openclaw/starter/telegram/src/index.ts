@@ -21,8 +21,26 @@ const DATA_DIR = process.env.DATA_DIR || '/data';
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const MAX_MESSAGE_LENGTH = 4096;
 
+// SECURITY (AGENTRUN-RUN-AUTHBYPASS): the bridge holds the runner's hook token, so
+// whoever can talk to it can drive /run (the agent's full tool loop, including
+// signing). Only these Telegram USER ids may use it — never inferred from whoever
+// messages the bot. Get yours by messaging @userinfobot, or message this bot once:
+// it replies with your id.
+const OWNER_IDS = new Set(
+  (process.env.TELEGRAM_OWNER_IDS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(s => /^\d+$/.test(s))
+    .map(Number),
+);
+
 if (!BOT_TOKEN) {
   console.error('[telegram] TELEGRAM_BOT_TOKEN is required');
+  process.exit(1);
+}
+if (OWNER_IDS.size === 0) {
+  console.error('[telegram] TELEGRAM_OWNER_IDS is required: a comma-separated list of the Telegram user ids allowed to control this agent.');
+  console.error('[telegram] Refusing to start: without it, anyone who finds the bot could drive the agent. Message @userinfobot on Telegram to get your id.');
   process.exit(1);
 }
 
@@ -53,6 +71,10 @@ function saveState(state: BotState): void {
 }
 
 const state = loadState();
+// Drop any chat registered before the allowlist existed (older bridges added every
+// sender). Private-chat ids equal the user id, so keep only allowlisted owners.
+state.ownerChatIds = state.ownerChatIds.filter(id => OWNER_IDS.has(id));
+saveState(state);
 
 // ── Telegram API helpers ────────────────────────────────────────
 
@@ -108,8 +130,20 @@ async function sendTyping(chatId: number): Promise<void> {
 
 // ── Message handling ────────────────────────────────────────────
 
-async function handleMessage(chatId: number, text: string, firstName: string): Promise<void> {
-  // /start — register as owner
+async function handleMessage(chatId: number, fromId: number, text: string, firstName: string): Promise<void> {
+  // Authorization first: only allowlisted Telegram users, and only in a private chat
+  // with the bot (in a group, an owner's message would otherwise open the agent to the
+  // group and route event notifications there).
+  if (!OWNER_IDS.has(fromId) || chatId !== fromId) {
+    console.warn(`[telegram] Rejected message from unauthorized user ${fromId} (chat ${chatId})`);
+    await sendMessage(chatId,
+      `This bot is private. Your Telegram user id is ${fromId}; ` +
+      `if you operate this agent, add it to TELEGRAM_OWNER_IDS and restart the bridge.`
+    ).catch(() => {});
+    return;
+  }
+
+  // /start — register this owner's chat for event notifications
   if (text === '/start') {
     if (!state.ownerChatIds.includes(chatId)) {
       state.ownerChatIds.push(chatId);
@@ -181,7 +215,7 @@ async function handleMessage(chatId: number, text: string, firstName: string): P
     text = 'What is my current trust score? Break it down by component.';
   }
 
-  // Forward to agent runner
+  // Forward to agent runner (sender is an allowlisted owner, checked above)
   if (!state.ownerChatIds.includes(chatId)) {
     state.ownerChatIds.push(chatId);
     saveState(state);
@@ -235,8 +269,8 @@ async function poll(): Promise<void> {
         for (const update of data.result) {
           updateOffset = update.update_id + 1;
           const msg = update.message;
-          if (msg?.text) {
-            handleMessage(msg.chat.id, msg.text.trim(), msg.from?.first_name || 'there')
+          if (msg?.text && msg.from?.id) {
+            handleMessage(msg.chat.id, msg.from.id, msg.text.trim(), msg.from.first_name || 'there')
               .catch(err => console.error('[telegram] Message handler error:', err));
           }
         }
@@ -331,7 +365,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(WEBHOOK_PORT, () => {
   console.log(`[telegram] Webhook receiver listening on port ${WEBHOOK_PORT}`);
   console.log(`[telegram] Agent URL: ${AGENT_URL}`);
-  console.log(`[telegram] Registered chats: ${state.ownerChatIds.length}`);
+  console.log(`[telegram] Allowed owners: ${OWNER_IDS.size}, registered chats: ${state.ownerChatIds.length}`);
   console.log('[telegram] Starting long poll...');
   poll();
 });

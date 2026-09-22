@@ -390,7 +390,7 @@ POLL_INTERVAL=${POLL_INTERVAL}
 AGENT_PUBLIC_URL=${AGENT_PUBLIC_URL}
 OPENCLAW_HOOK_TOKEN=${OPENCLAW_HOOK_TOKEN}
 A2A_AUTH_REQUIRED=true
-A2A_TOOL_MODE=full
+A2A_TOOL_MODE=readonly
 # A2A_SIGNING_KEY: separate key for outbound A2A (proton CLI can't sign
 # arbitrary HTTP digests). Without it, outbound A2A is disabled —
 # receive-only mode. See docs/A2A.md for the custom-permission setup.
@@ -420,7 +420,7 @@ export AGENT_MAX_TURNS="${AGENT_MAX_TURNS:-20}"
 export MAX_TRANSFER_AMOUNT="${MAX_TRANSFER_AMOUNT}"
 export AGENT_PUBLIC_URL="${AGENT_PUBLIC_URL:-}"
 export A2A_AUTH_REQUIRED="${A2A_AUTH_REQUIRED:-true}"
-export A2A_TOOL_MODE="${A2A_TOOL_MODE:-full}"
+export A2A_TOOL_MODE="${A2A_TOOL_MODE:-readonly}"
 export A2A_SIGNING_KEY="${A2A_SIGNING_KEY:-}"
 export COST_MARGIN="${COST_MARGIN:-2.0}"
 export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"

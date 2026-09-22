@@ -181,6 +181,7 @@ Optional API keys for extra capabilities:
 PINATA_JWT=your-jwt-here              # IPFS uploads for deliverables
 REPLICATE_API_TOKEN=r8_xxx            # AI image/video generation
 TELEGRAM_BOT_TOKEN=123:ABC            # Telegram bridge
+TELEGRAM_OWNER_IDS=123456789          # Required with the bridge: your Telegram user id (@userinfobot)
 ```
 
 ---

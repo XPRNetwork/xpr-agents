@@ -613,6 +613,7 @@ const a2aAuthConfig: A2AAuthConfig = {
   timestampWindow: 300,
   agentcoreContract: 'agentcore',
   selfAccount: process.env.XPR_ACCOUNT || '',
+  requireRegistered: process.env.A2A_REQUIRE_REGISTERED !== 'false',
 };
 
 // A2A tool sandboxing.

@@ -174,7 +174,11 @@ export class A2AClient {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
     try {
-      return await fetch(url, { ...init, signal: controller.signal });
+      // redirect: 'error' — the endpoint comes from the on-chain registry and callers
+      // validate it (e.g. assertPublicHttpUrl) before constructing this client. A
+      // followed redirect would bypass that check (public host 302 -> internal/metadata
+      // address), and a real A2A endpoint has no reason to redirect.
+      return await fetch(url, { ...init, redirect: 'error', signal: controller.signal });
     } catch (err: any) {
       if (err.name === 'AbortError') {
         throw new A2AError('Request timed out', -32000);
