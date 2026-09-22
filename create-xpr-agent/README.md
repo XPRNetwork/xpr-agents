@@ -65,7 +65,7 @@ Override the auto-detection with `--provider <anthropic|openai|xai|gemini>`. Ove
 - `QUICKSTART.md` — step-by-step setup walkthrough
 - `.env.example` — config template (no `XPR_PRIVATE_KEY` — keys live in the proton CLI keychain)
 
-Docker compose configs are kept in the main repo under [`openclaw/starter/docker/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter/docker) for legacy / advanced use; the scaffold itself no longer ships them.
+The old Docker compose path and GHCR images have been retired; run the agent with `start.sh` (Node + proton CLI keychain).
 
 ## Prerequisites
 

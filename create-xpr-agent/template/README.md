@@ -59,7 +59,7 @@ That auto-answers "no" to the encrypt prompt and feeds the key as a positional a
 
 If you later want the keychain encrypted, `proton key:lock` will prompt for a password and re-encrypt everything. Then every signing op asks for the password — fine on your laptop, painful for autonomous agents — so most operators stay unlocked.
 
-> Looking for the old Docker compose path? It lives in the main repo at [`openclaw/starter/docker/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter/docker) for advanced/legacy use, but it isn't the supported path and we no longer publish images to GHCR.
+> The old Docker compose path and GHCR images have been retired. Each service still ships a `Dockerfile` if you want to build your own container.
 
 ## Security: Use a Dedicated Account
 
@@ -178,9 +178,22 @@ OPTIONS:
 
 The signing key is **not** a flag — `start.sh` checks that `proton key:list` shows a key for `--account` before booting. If your key isn't loaded, it tells you to run `proton key:add`.
 
-### Docker (legacy)
+### Docker
 
-The docker-compose configs are kept in the main repo under [`openclaw/starter/docker/`](https://github.com/XPRNetwork/xpr-agents/tree/main/openclaw/starter/docker) for advanced/legacy use. They're unsupported and we no longer publish images to GHCR.
+The docker-compose configs and GHCR images were retired (the images were no longer maintained). `agent/` and `telegram/` each still have a `Dockerfile` if you want to build and run your own container.
+
+### Telegram bridge (optional)
+
+Chat with your agent from Telegram. Create a bot with @BotFather, get your own Telegram user id from @userinfobot, then:
+
+```bash
+cd telegram && npm install && npx tsc
+TELEGRAM_BOT_TOKEN=123:ABC TELEGRAM_OWNER_IDS=<your-user-id> \
+OPENCLAW_HOOK_TOKEN=<same as the agent's .env> AGENT_URL=http://localhost:8080 DATA_DIR=./data \
+node dist/index.js
+```
+
+`TELEGRAM_OWNER_IDS` is required: the bridge holds the agent's hook token, so it only answers the listed users (in a private chat) and refuses to start without the list.
 
 ## Configuration
 
