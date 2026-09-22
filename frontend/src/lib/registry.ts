@@ -394,6 +394,16 @@ export async function getOpenJobs(limit = 100): Promise<Job[]> {
 }
 
 export async function getAllJobs(limit = 500): Promise<Job[]> {
+  // Indexer first — the public chain RPC (proton.eosusa.io) is unreliable and can
+  // rate-limit/block a client's IP, which used to blank the whole /jobs page. The
+  // indexer serves the same rows from SQLite and does not depend on that RPC. Fall
+  // back to a paginated RPC scan only if the indexer is unavailable.
+  const fromIndexer = await indexerFetch<{ jobs: any[] } | any[]>(`/jobs?limit=${Math.min(limit, 500)}`);
+  const idxRows = fromIndexer == null
+    ? null
+    : Array.isArray(fromIndexer) ? fromIndexer : Array.isArray(fromIndexer.jobs) ? fromIndexer.jobs : null;
+  if (idxRows) return idxRows.map(parseJob);
+
   const allJobs: Job[] = [];
   let lower_bound: string | undefined = undefined;
   const pageSize = Math.min(limit, 100);
@@ -1074,6 +1084,13 @@ function parseChallenge(row: any): Challenge {
 }
 
 export async function getValidators(limit = 100): Promise<Validator[]> {
+  // Indexer first — see getAllJobs: the public RPC can rate-limit/block and blank the page.
+  const fromIndexer = await indexerFetch<{ validators: any[] } | any[]>(`/validators?limit=${limit}`);
+  const idxRows = fromIndexer == null
+    ? null
+    : Array.isArray(fromIndexer) ? fromIndexer : Array.isArray(fromIndexer.validators) ? fromIndexer.validators : null;
+  if (idxRows) return idxRows.map(parseValidator);
+
   const result = await rpc.get_table_rows({
     json: true,
     code: CONTRACTS.AGENT_VALID,
@@ -1252,6 +1269,13 @@ function parseDispute(row: any): Dispute {
 }
 
 export async function getArbitrators(limit = 100): Promise<Arbitrator[]> {
+  // Indexer first — see getAllJobs: the public RPC can rate-limit/block and blank the page.
+  const fromIndexer = await indexerFetch<{ arbitrators: any[] } | any[]>(`/arbitrators?limit=${limit}`);
+  const idxRows = fromIndexer == null
+    ? null
+    : Array.isArray(fromIndexer) ? fromIndexer : Array.isArray(fromIndexer.arbitrators) ? fromIndexer.arbitrators : null;
+  if (idxRows) return idxRows.map(parseArbitrator);
+
   const result = await rpc.get_table_rows({
     json: true,
     code: CONTRACTS.AGENT_ESCROW,
