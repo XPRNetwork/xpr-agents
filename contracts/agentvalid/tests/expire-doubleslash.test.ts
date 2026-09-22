@@ -69,3 +69,32 @@ describe('expireunfund vs a funded sibling challenge', () => {
     );
   });
 });
+
+describe('cancelchal vs a funded sibling challenge (AGENTVALID-CHALLENGE-DESYNC)', () => {
+  it('cancelling an unfunded sibling cannot clear the flag or let a second challenge be funded', async () => {
+    // A third unfunded challenge exists before anything is funded (id 2).
+    await agentvalid.actions.challenge(['challenger2', 0, 'Bad D', 'ipfs://d']).send('challenger2@active');
+
+    // Fund challenge 0.
+    await eosioToken.actions.transfer(['challenger1', 'agentvalid', '5.0000 XPR', 'challenge:0']).send('challenger1@active');
+    expect(getValidation(0).challenged).to.equal(true);
+
+    // Cancel unfunded challenge 1 inside its 1-hour grace period (the reported path).
+    await agentvalid.actions.cancelchal(['challenger2', 1]).send('challenger2@active');
+
+    // FIX: the funded challenge still owns the flag and the pending count.
+    expect(getValidation(0).challenged).to.equal(true);
+    expect(Number(getValidator('validator1').pending_challenges)).to.equal(1);
+
+    // So neither a pre-existing unfunded sibling nor a new challenge can become a
+    // second funded challenge on the same validation (which would allow a double slash).
+    await expectToThrow(
+      eosioToken.actions.transfer(['challenger2', 'agentvalid', '5.0000 XPR', 'challenge:2']).send('challenger2@active'),
+      protonAssert('Validation already has a funded challenge'),
+    );
+    await expectToThrow(
+      agentvalid.actions.challenge(['challenger2', 0, 'Bad C', 'ipfs://c']).send('challenger2@active'),
+      protonAssert('Validation already challenged'),
+    );
+  });
+});
