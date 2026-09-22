@@ -5,7 +5,7 @@
  * Usage: node test-read.mjs
  */
 
-const RPC = 'https://proton.eosusa.io';
+const RPC = 'https://api.protonnz.com';
 const GOV_API = 'https://gov.api.xprnetwork.org/api/v1/proposals';
 const GOV = 'gov';
 

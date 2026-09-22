@@ -8,7 +8,7 @@
  * Usage:
  *   node scripts/build-msig-setcode.mjs \
  *     --proposer agentsetup --name deploypr39 --requested protonnz@active \
- *     --expire-days 30 --rpc https://proton.eosusa.io \
+ *     --expire-days 30 --rpc https://api.protonnz.com \
  *     agentescrow=contracts/agentescrow/assembly/target \
  *     agentfeed=contracts/agentfeed/assembly/target > propose.json
  *
@@ -32,7 +32,7 @@ const requested = opt('requested', 'protonnz@active').split(',').map((s) => {
   return { actor, permission };
 });
 const expireDays = Number(opt('expire-days', '30'));
-const rpcUrl = opt('rpc', 'https://proton.eosusa.io');
+const rpcUrl = opt('rpc', 'https://api.protonnz.com');
 const contracts = args.filter((a) => a.includes('=') && !a.startsWith('--')).map((a) => {
   const [account, dir] = a.split('=');
   return { account, dir };

@@ -10,7 +10,7 @@ services:
     environment:
       - PORT=3001
       - DB_PATH=/data/agents.db
-      - HYPERION_ENDPOINT=https://proton.eosusa.io
+      - HYPERION_ENDPOINT=https://hyperion-xpr-mainnet.protonnz.com
       - AGENT_CORE_CONTRACT=agentcore
       - AGENT_FEED_CONTRACT=agentfeed
       - AGENT_VALID_CONTRACT=agentvalid

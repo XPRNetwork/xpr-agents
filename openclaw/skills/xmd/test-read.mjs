@@ -5,7 +5,7 @@
  * Usage: node test-read.mjs
  */
 
-const RPC = 'https://proton.eosusa.io';
+const RPC = 'https://api.protonnz.com';
 const XMD_TOKEN = 'xmd.token';
 const XMD_TREASURY = 'xmd.treasury';
 const ORACLE = 'oracles';

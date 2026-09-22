@@ -26,7 +26,7 @@ const requested = opt('requested', 'protonnz@active').split(',').map((s) => {
   const [actor, permission = 'active'] = s.split('@'); return { actor, permission };
 });
 const expireDays = Number(opt('expire-days', '7'));
-const rpcUrl = opt('rpc', 'https://proton.eosusa.io');
+const rpcUrl = opt('rpc', 'https://api.protonnz.com');
 const file = args.find((a) => a.endsWith('.json') && !a.startsWith('--'));
 if (!proposalName || !file) {
   console.error('usage: --name <proposal> [--proposer a] [--requested a@p,...] [--expire-days n] [--rpc url] actions.json');
