@@ -174,8 +174,8 @@ jobs:
       - name: Template ↔ source scripts in sync
         run: |
           set -e
-          # The standalone scaffold ships start.sh only. setup.sh (Docker) was
-          # removed when Docker was demoted to legacy under openclaw/starter/docker/.
+          # The standalone scaffold ships start.sh only. The Docker installers
+          # (setup.sh, bootstrap.sh, starter/docker/) and GHCR images were retired.
           diff create-xpr-agent/template/start.sh openclaw/starter/start.sh \
             || { echo "::error::create-xpr-agent/template/start.sh has drifted from openclaw/starter/start.sh. Run: cp openclaw/starter/start.sh create-xpr-agent/template/start.sh"; exit 1; }
           diff create-xpr-agent/template/.env.example openclaw/starter/.env.example \
@@ -185,7 +185,7 @@ jobs:
           diff openclaw/scripts/setup-security.sh openclaw/starter/setup-security.sh \
             || { echo "::error::openclaw/scripts/setup-security.sh has drifted from openclaw/starter/setup-security.sh. Run: cp openclaw/starter/setup-security.sh openclaw/scripts/setup-security.sh"; exit 1; }
           if [ -f create-xpr-agent/template/setup.sh ]; then
-            echo "::error::create-xpr-agent/template/setup.sh has been re-introduced. Docker is legacy under openclaw/starter/docker/ — remove the template copy."
+            echo "::error::create-xpr-agent/template/setup.sh has been re-introduced. The Docker installer path was retired — remove the template copy."
             exit 1
           fi
       - name: No legacy XPR_PRIVATE_KEY in shipped scripts
@@ -195,7 +195,7 @@ jobs:
           # under the v0.3.0+ keychain pattern. (Allow it to appear as a
           # rejection / migration message — those tell the user what to do.)
           FILES=()
-          for f in create-xpr-agent/template/start.sh openclaw/starter/start.sh openclaw/starter/bootstrap.sh; do
+          for f in create-xpr-agent/template/start.sh openclaw/starter/start.sh; do
             [ -f "$f" ] && FILES+=("$f")
           done
           BAD=$(grep -nE '^[[:space:]]*(export[[:space:]]+)?XPR_PRIVATE_KEY=' "${FILES[@]}" 2>/dev/null || true)
