@@ -304,7 +304,7 @@ After authentication, servers can enforce minimum trust requirements:
 
 | Check | Env Var | Default | Description |
 |-------|---------|---------|-------------|
-| Agent registration | — | Always | Account must be a registered, active agent |
+| Agent registration | `A2A_REQUIRE_REGISTERED` | `true` | Account must be a registered, active agent (a valid signature alone only proves key custody) |
 | KYC level | `A2A_MIN_KYC_LEVEL` | `0` (disabled) | Minimum KYC level (0-3) |
 | Trust score | `A2A_MIN_TRUST_SCORE` | `0` (disabled) | Minimum trust score (0-100) |
 
@@ -326,8 +326,8 @@ The agent runner can restrict which tools are available to A2A callers:
 
 | Mode | Env Var `A2A_TOOL_MODE` | Description |
 |------|------------------------|-------------|
-| `full` | default | All tools available |
-| `readonly` | — | Only read tools (get, list, search, health) |
+| `readonly` | default | Only read tools (get, list, search, health) |
+| `full` | opt-in | All tools, including on-chain writes. Only set this if every A2A caller you accept is trusted (combine with `A2A_MIN_TRUST_SCORE` / `A2A_MIN_KYC_LEVEL`). |
 
 ## Security Considerations
 

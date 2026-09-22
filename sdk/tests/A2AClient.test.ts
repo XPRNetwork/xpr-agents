@@ -274,6 +274,16 @@ describe('A2AClient', () => {
       expect(headers['X-XPR-Account']).toBeUndefined();
     });
 
+    it('refuses redirects on every A2A fetch (SSRF: public host 302 -> internal)', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(agentCard));
+      mockFetch.mockResolvedValueOnce(rpcResponse(task));
+      const client = new A2AClient('https://agent.example.com');
+      await client.getAgentCard();
+      await client.sendMessage(message);
+      expect(mockFetch.mock.calls[0][1].redirect).toBe('error');
+      expect(mockFetch.mock.calls[1][1].redirect).toBe('error');
+    });
+
     it('agent card GET is unsigned even with signingKey', async () => {
       mockFetch.mockResolvedValueOnce(jsonResponse(agentCard));
 

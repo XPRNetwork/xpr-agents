@@ -19,6 +19,7 @@ export interface A2AAuthConfig {
   timestampWindow: number;     // seconds, default 300 (5 min)
   agentcoreContract: string;   // default 'agentcore'
   selfAccount: string;         // this server's own XPR account — the signed audience (codex #8)
+  requireRegistered: boolean;  // default true: caller must be a registered, active agent (A2A-DEFAULT-AUTHZ)
 }
 
 export interface A2AAuthResult {
@@ -405,9 +406,11 @@ export async function verifyA2ARequest(
   // the signature would let a mutated copy replay once. The signed tuple is stable.
   checkReplay(`${account}:${timestamp}:${bodyDigest}`, config.timestampWindow);
 
-  // Trust gating (only if thresholds are configured)
+  // Trust gating. A valid signature only proves key custody of SOME account, which any
+  // attacker has for their own, so by default the caller must also be a registered,
+  // active agent in agentcore (A2A-DEFAULT-AUTHZ). KYC / trust thresholds add to that.
   let trustScore: number | undefined;
-  if (config.minTrustScore > 0 || config.minKycLevel > 0) {
+  if (config.requireRegistered || config.minTrustScore > 0 || config.minKycLevel > 0) {
     const trust = await getAccountTrust(rpc, account, config.agentcoreContract);
 
     if (!trust.active) {
