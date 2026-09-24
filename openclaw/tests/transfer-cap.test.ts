@@ -80,3 +80,17 @@ describe('central XPR transfer cap', () => {
     expect(execTransactionPush).not.toHaveBeenCalled();
   });
 });
+
+describe('msig_approve is opt-in (blind approval bypasses the transfer cap)', () => {
+  it('refuses unless ENABLE_MSIG_APPROVE=true, before signing anything', async () => {
+    delete process.env.ENABLE_MSIG_APPROVE;
+    process.env.XPR_ACCOUNT = 'victimagent';
+    execTransactionPush.mockClear();
+    const skill = (await import('../skills/defi/src/index')).default;
+    const tools: any[] = [];
+    skill({ registerTool: (t: any) => tools.push(t), getConfig: () => ({}) } as any);
+    const r = await tools.find((t) => t.name === 'msig_approve').handler({ proposer: 'attacker', proposal_name: 'drain', confirmed: true });
+    expect(r.error).toMatch(/disabled/);
+    expect(execTransactionPush).not.toHaveBeenCalled();
+  });
+});
