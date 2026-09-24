@@ -105,8 +105,15 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
   let rpc;
   let session;
 
+  // One transfer cap for everything this plugin signs. A plugin-config value also
+  // becomes the process default so skills (which sign via createCliApi) inherit it.
+  const configuredCap = rawConfig.maxTransferAmount as number | undefined;
+  if (configuredCap !== undefined && !process.env.MAX_TRANSFER_AMOUNT) {
+    process.env.MAX_TRANSFER_AMOUNT = String(configuredCap);
+  }
+
   if (hasCredentials) {
-    const result = createSession({ rpcEndpoint });
+    const result = createSession({ rpcEndpoint, maxTransferAmount: configuredCap });
     rpc = result.rpc;
     session = result.session;
   } else {
