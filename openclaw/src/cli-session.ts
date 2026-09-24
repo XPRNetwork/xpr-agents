@@ -21,6 +21,7 @@
 import { JsonRpc } from '@proton/js';
 import type { ProtonSession, TransactArgs, TransactionResult } from '@xpr-agents/sdk';
 import { execTransactionPush, type CliAction } from './proton-cli';
+import { assertTransferCap } from './util/transfer-cap';
 
 const DEFAULT_PERMISSION = 'active';
 
@@ -28,6 +29,8 @@ export interface CliSessionOptions {
   account: string;
   permission?: string;
   rpcEndpoint?: string;
+  /** XPR transfer cap in smallest units; defaults to MAX_TRANSFER_AMOUNT env (see util/transfer-cap). */
+  maxTransferAmount?: number;
 }
 
 /**
@@ -67,7 +70,7 @@ export function createCliSession(opts: CliSessionOptions): {
 } {
   const account = opts.account;
   const permission = opts.permission ?? DEFAULT_PERMISSION;
-  const rpcEndpoint = opts.rpcEndpoint ?? 'https://proton.greymass.com';
+  const rpcEndpoint = opts.rpcEndpoint ?? 'https://api-xprnetwork-main.saltant.io';
 
   const rpc = new JsonRpc(rpcEndpoint);
 
@@ -75,6 +78,7 @@ export function createCliSession(opts: CliSessionOptions): {
     auth: { actor: account, permission },
     link: {
       transact: async (args: TransactArgs): Promise<TransactionResult> => {
+        assertTransferCap(args.actions, account, opts.maxTransferAmount);
         const result = await execTransactionPush({ actions: toCliActions(args.actions) });
         return normaliseResult(result);
       },
@@ -113,6 +117,8 @@ export function createCliApi(opts: CliSessionOptions): {
 
   const api: CliApi = {
     transact: async (tx, _options) => {
+      // Central cap: every skill signs through here, so none can bypass it.
+      assertTransferCap(tx.actions, account, opts.maxTransferAmount);
       const result = await execTransactionPush({ actions: toCliActions(tx.actions) });
       return normaliseResult(result);
     },

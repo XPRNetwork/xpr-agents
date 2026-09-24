@@ -175,10 +175,12 @@ function parseAssetString(s: string): { amount: number; symbol: string; precisio
 // default); raise it to allow larger trades.
 function assertXprWithinCap(amount: number, symbol: string, label: string): void {
   if ((symbol || '').toUpperCase() !== 'XPR') return; // cap is XPR-denominated
-  const capXpr = Number(process.env.MAX_TRANSFER_XPR || '1000');
+  const capXpr = process.env.MAX_TRANSFER_AMOUNT
+    ? Number(process.env.MAX_TRANSFER_AMOUNT) / 10000
+    : Number(process.env.MAX_TRANSFER_XPR || '1000'); // legacy name
   if (!Number.isFinite(capXpr) || capXpr <= 0) return; // disabled/invalid -> no cap
   if (Number.isFinite(amount) && amount > capXpr) {
-    throw new Error(`${label}: ${amount} XPR exceeds the transfer cap of ${capXpr} XPR (set MAX_TRANSFER_XPR to raise it).`);
+    throw new Error(`${label}: ${amount} XPR exceeds the transfer cap of ${capXpr} XPR (set MAX_TRANSFER_AMOUNT to raise it).`);
   }
 }
 

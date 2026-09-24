@@ -23,6 +23,8 @@ export interface SessionConfig {
   rpcEndpoint: string;
   account?: string;
   permission?: string;
+  /** XPR transfer cap in smallest units (enforced on every signed transaction). */
+  maxTransferAmount?: number;
 }
 
 /**
@@ -37,7 +39,7 @@ export function createSession(config: SessionConfig): { rpc: JsonRpc; session: P
     throw new Error('XPR_ACCOUNT environment variable is required');
   }
 
-  return createCliSession({ account, permission, rpcEndpoint: config.rpcEndpoint });
+  return createCliSession({ account, permission, rpcEndpoint: config.rpcEndpoint, maxTransferAmount: config.maxTransferAmount });
 }
 
 /**

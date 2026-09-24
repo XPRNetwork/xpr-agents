@@ -256,11 +256,13 @@ function parsePrice(price: string): { amount: string; symbol: string; precision:
 // 1000, matching the core default); set it higher to allow larger trades.
 function assertXprWithinCap(parsed: { amount: string; symbol: string }, label: string): void {
   if (parsed.symbol !== 'XPR') return; // cap is XPR-denominated
-  const capXpr = Number(process.env.MAX_TRANSFER_XPR || '1000');
+  const capXpr = process.env.MAX_TRANSFER_AMOUNT
+    ? Number(process.env.MAX_TRANSFER_AMOUNT) / 10000
+    : Number(process.env.MAX_TRANSFER_XPR || '1000'); // legacy name
   if (!Number.isFinite(capXpr) || capXpr <= 0) return; // disabled/invalid -> no cap
   const amt = Number(parsed.amount);
   if (Number.isFinite(amt) && amt > capXpr) {
-    throw new Error(`${label}: ${parsed.amount} XPR exceeds the transfer cap of ${capXpr} XPR (set MAX_TRANSFER_XPR to raise it).`);
+    throw new Error(`${label}: ${parsed.amount} XPR exceeds the transfer cap of ${capXpr} XPR (set MAX_TRANSFER_AMOUNT to raise it).`);
   }
 }
 
