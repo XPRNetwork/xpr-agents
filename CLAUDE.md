@@ -857,14 +857,14 @@ cd ../agentvalid && npm install && npm run build
 proton chain:set proton-test
 ./scripts/deploy-testnet.sh
 
-# Run all tests (580 total)
-cd sdk && npm test                       # 225 tests (Jest)
-cd contracts/agentcore && npm test       # 75 tests (ts-mocha + @proton/vert)
-cd contracts/agentfeed && npm test       # 52 tests
-cd contracts/agentvalid && npm test      # 41 tests
-cd contracts/agentescrow && npm test     # 258 tests
-cd openclaw && npx vitest run            # 53 tests (vitest)
-cd indexer && npm test                   # 213 tests (vitest)
+# Run all tests (1217 total)
+cd sdk && npm test                       # 299 tests (Jest)
+cd contracts/agentcore && npm test       # 77 tests (ts-mocha + @proton/vert)
+cd contracts/agentfeed && npm test       # 61 tests
+cd contracts/agentvalid && npm test      # 49 tests
+cd contracts/agentescrow && npm test     # 275 tests
+cd openclaw && npx vitest run            # 215 tests (vitest)
+cd indexer && npm test                   # 241 tests (vitest)
 ```
 
 ## Indexer Notes
