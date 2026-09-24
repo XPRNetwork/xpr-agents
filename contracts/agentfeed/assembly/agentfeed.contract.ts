@@ -859,8 +859,6 @@ export class AgentFeedContract extends Contract {
 
     // If dispute upheld, remove feedback from score calculation
     if (upheld) {
-      this.updateAgentScore(feedback.agent, feedback.score, feedback.reviewer_kyc_level, false);
-
       // SECURITY (audit round 2, codex #10): abandon any in-flight paginated recalc
       // for this agent. An early batch may have already counted this now-upheld
       // feedback; letting the recalc finish would recommit its partial total and
@@ -869,6 +867,12 @@ export class AgentFeedContract extends Contract {
       if (inflightRecalc != null) {
         this.recalcStateTable.remove(inflightRecalc);
       }
+
+      // Recompute the aggregate from the remaining feedback instead of subtracting this
+      // review's raw weight. After a recalc the stored totals use DECAYED weights, so
+      // subtracting the undecayed weight removed too much and could push avg_score above
+      // 100% or to 0 (reported 2026-09-25; found internally 2026-09-22).
+      this.recomputeAgentScore(feedback.agent);
 
       // Reverse exactly the reputation this feedback added, read from its kind record
       // rather than guessed from the tags. Previously any feedback whose tags merely
@@ -1057,43 +1061,17 @@ export class AgentFeedContract extends Contract {
 
     while (fb != null && processed < limit) {
       const currentFb = fb!;
-      // Pending (unresolved) disputes still count: updateAgentScore only removes a
-      // feedback's weight once a dispute is upheld, so recalc must mirror that or
-      // the recomputed score drifts from the live one.
-      // Skip upheld disputes (removed from scoring)
-      if (currentFb.disputed && currentFb.resolved) {
-        const dispute = this.disputesTable.getBySecondaryU64(currentFb.id, 0);
-        if (dispute != null && dispute.status == 1) {
-          fb = this.feedbackTable.nextBySecondaryU64(currentFb, 0);
-          if (fb != null && fb!.agent != agent) { fb = null; }
-          processed++;
-          continue;
-        }
+      // Skip feedback removed from scoring (upheld dispute, or a payment proof that
+      // failed verification). Pending disputes still count. Same rule as the inline
+      // recompute used by resolve()/verifypay(), so every writer agrees.
+      if (this.isExcludedFromScore(currentFb)) {
+        fb = this.feedbackTable.nextBySecondaryU64(currentFb, 0);
+        if (fb != null && fb!.agent != agent) { fb = null; }
+        processed++;
+        continue;
       }
 
-      // Calculate time-based decay factor
-      const ageSeconds = now > currentFb.timestamp ? now - currentFb.timestamp : 0;
-      const decayPeriods = ageSeconds / config.decay_period;
-      let decayFactor: u64 = 100;
-      if (decayPeriods > 0) {
-        const reduction = decayPeriods * 5;
-        if (reduction >= (100 - config.decay_floor)) {
-          decayFactor = config.decay_floor;
-        } else {
-          decayFactor = 100 - reduction;
-        }
-      }
-
-      const baseWeight: u64 = <u64>(1 + currentFb.reviewer_kyc_level);
-      // SECURITY (audit round 2, codex #11): floor the decayed weight at 1. Integer
-      // division truncated a KYC-0 review (baseWeight 1) to weight 0 on the first
-      // decay step — even with decay_floor set — silently dropping the review from the
-      // score and leaving the live (undecayed) path to later subtract a weight that
-      // recalc had zeroed, corrupting totals. A review that still counts keeps >= 1.
-      let decayedWeight: u64 = (baseWeight * decayFactor) / 100;
-      if (baseWeight > 0 && decayedWeight == 0) {
-        decayedWeight = 1;
-      }
+      const decayedWeight = this.decayedWeightOf(currentFb, now, config);
       batchScore += <u64>currentFb.score * decayedWeight;
       batchWeight += decayedWeight * 5;
       batchCount++;
@@ -1688,6 +1666,9 @@ export class AgentFeedContract extends Contract {
 
     const proof = this.paymentProofsTable.requireGet(proof_id, "Payment proof not found");
     check(!proof.verified, "Already verified");
+    // A proof is decided once. Without this a failed proof could be processed again,
+    // reversing its feedback's trust a second time.
+    check(proof.verified_at == 0, "Payment proof already processed");
 
     proof.block_num = block_num;
     proof.verified = verified;
@@ -1695,12 +1676,36 @@ export class AgentFeedContract extends Contract {
 
     this.paymentProofsTable.update(proof, this.receiver);
 
-    // If verification failed, mark associated feedback
+    // If verification failed, the review was credited on an unverified payment when it
+    // was submitted. Remove its effect: flag it, reverse the directional trust it added
+    // (once — its kind record is then dropped so a later upheld dispute can't reverse it
+    // again), and recompute the agent's score, which now excludes it (external report
+    // AGENTFEED-PAYPROOF-NO-REMOVE, 2026-09-24).
     if (!verified) {
       const feedback = this.feedbackTable.get(proof.feedback_id);
       if (feedback != null) {
         feedback.disputed = true;
         this.feedbackTable.update(feedback, this.receiver);
+
+        const kindRow = this.feedbackKindsTable.get(feedback.id);
+        if (kindRow != null) {
+          if (kindRow.kind == 1) {
+            const colonIndex = feedback.tags.indexOf(":");
+            if (colonIndex > 0) {
+              this.updateContextScore(feedback.agent, feedback.tags.substring(0, colonIndex), feedback.score, feedback.reviewer_kyc_level, false);
+            }
+          }
+          if (kindRow.kind == 1 || kindRow.kind == 2) {
+            this.reverseDirectionalTrust(feedback.reviewer, feedback.agent, feedback.score);
+          }
+          this.feedbackKindsTable.remove(kindRow);
+        }
+
+        const inflightRecalc = this.recalcStateTable.get(feedback.agent.N);
+        if (inflightRecalc != null) {
+          this.recalcStateTable.remove(inflightRecalc);
+        }
+        this.recomputeAgentScore(feedback.agent);
       }
     }
 
@@ -1910,6 +1915,109 @@ export class AgentFeedContract extends Contract {
     const action = TRANSFER.act(this.TOKEN_CONTRACT, new PermissionLevel(this.receiver));
     const actionParams = new Transfer(this.receiver, to, quantity, memo);
     action.send(actionParams);
+  }
+
+  /**
+   * Whether a feedback is removed from scoring: an upheld dispute, or a payment proof
+   * that was processed and failed verification. Pending disputes still count. Shared by
+   * recalc() and recomputeAgentScore() so every writer of agentscores agrees.
+   */
+  private isExcludedFromScore(fb: Feedback): boolean {
+    if (!fb.disputed) return false;
+    if (fb.resolved) {
+      const dispute = this.disputesTable.getBySecondaryU64(fb.id, 0);
+      if (dispute != null && dispute.feedback_id == fb.id && dispute.status == 1) return true;
+    }
+    const proof = this.paymentProofsTable.getBySecondaryU64(fb.id, 0);
+    if (proof != null && proof.feedback_id == fb.id && !proof.verified && proof.verified_at > 0) return true;
+    return false;
+  }
+
+  /** Time-decayed weight of one feedback (same formula recalc has always used). */
+  private decayedWeightOf(fb: Feedback, now: u64, config: Config): u64 {
+    const ageSeconds = now > fb.timestamp ? now - fb.timestamp : 0;
+    const decayPeriods = config.decay_period > 0 ? ageSeconds / config.decay_period : 0;
+    let decayFactor: u64 = 100;
+    if (decayPeriods > 0) {
+      const reduction = decayPeriods * 5;
+      if (reduction >= (100 - config.decay_floor)) {
+        decayFactor = config.decay_floor;
+      } else {
+        decayFactor = 100 - reduction;
+      }
+    }
+    const baseWeight: u64 = <u64>(1 + fb.reviewer_kyc_level);
+    // SECURITY (audit round 2, codex #11): floor the decayed weight at 1, so a KYC-0
+    // review is never truncated to weight 0 on the first decay step.
+    let decayedWeight: u64 = (baseWeight * decayFactor) / 100;
+    if (baseWeight > 0 && decayedWeight == 0) {
+      decayedWeight = 1;
+    }
+    return decayedWeight;
+  }
+
+  /**
+   * Rebuild an agent's agentscores row from its feedback, using the same exclusion and
+   * decay rules as recalc(). Used when a review is removed from scoring (upheld dispute,
+   * failed payment proof) instead of subtracting a weight that may not match what the
+   * stored totals hold. Bounded: an agent with more feedback than one action can scan has
+   * its row cleared for a paginated recalc(), as rmfeedback() already does.
+   */
+  private recomputeAgentScore(agent: Name): void {
+    const config = this.configSingleton.get();
+    const now = currentTimeSec();
+    const MAX_INLINE: u64 = 100;
+
+    let totalScore: u64 = 0;
+    let totalWeight: u64 = 0;
+    let count: u64 = 0;
+    let seen: u64 = 0;
+
+    let fb = this.feedbackTable.getBySecondaryU64(agent.N, 0);
+    while (fb != null) {
+      const current = fb!;
+      if (current.agent != agent) break;
+      seen++;
+      if (seen > MAX_INLINE) {
+        const tooMany = this.agentScoresTable.get(agent.N);
+        if (tooMany != null) {
+          this.agentScoresTable.remove(tooMany);
+        }
+        print(`Score for ${agent.toString()} cleared: run recalc(${agent.toString()}, 0, 100) to rebuild`);
+        return;
+      }
+      if (!this.isExcludedFromScore(current)) {
+        const w = this.decayedWeightOf(current, now, config);
+        const add = <u64>current.score * w;
+        check(totalScore <= U64.MAX_VALUE - add, "Score accumulation would overflow");
+        check(totalWeight <= U64.MAX_VALUE - w * 5, "Weight accumulation would overflow");
+        totalScore += add;
+        totalWeight += w * 5;
+        count++;
+      }
+      fb = this.feedbackTable.nextBySecondaryU64(current, 0);
+    }
+
+    let agentScore = this.agentScoresTable.get(agent.N);
+    const exists = agentScore != null;
+    if (agentScore == null) {
+      agentScore = new AgentScore(agent, 0, 0, 0, 0, 0);
+    }
+    agentScore!.total_score = totalScore;
+    agentScore!.total_weight = totalWeight;
+    agentScore!.feedback_count = count;
+    if (totalWeight > 0) {
+      check(totalScore <= U64.MAX_VALUE / 10000, "Score calculation would overflow");
+      agentScore!.avg_score = (totalScore * 10000) / totalWeight;
+    } else {
+      agentScore!.avg_score = 0;
+    }
+    agentScore!.last_updated = now;
+    if (exists) {
+      this.agentScoresTable.update(agentScore!, this.receiver);
+    } else {
+      this.agentScoresTable.store(agentScore!, this.receiver);
+    }
   }
 
   private updateAgentScore(agent: Name, score: u8, kycLevel: u8, add: boolean): void {
