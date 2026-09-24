@@ -2,11 +2,16 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in this project, please report it responsibly.
+If you discover a security vulnerability in this project, please report it responsibly, on GitHub.
 
-**Do NOT open a public GitHub issue for security vulnerabilities.**
+- **Exploitable vulnerabilities** (anything in the bounty table below): use the repository's private
+  **[Report a vulnerability](https://github.com/XPRNetwork/xpr-agents/security/advisories/new)** form
+  (Security tab → Report a vulnerability). Only maintainers can see it until a fix ships.
+- **Everything else** (bugs, hardening suggestions, questions about scope): open a
+  [GitHub issue](https://github.com/XPRNetwork/xpr-agents/issues/new).
 
-Instead, please email: **security@metallicus.com**
+**Please do not email reports.** Email is not a tracked channel for this project and reports sent
+that way will not receive a response; GitHub is the only route that reaches the maintainers.
 
 Include:
 - Description of the vulnerability and its impact

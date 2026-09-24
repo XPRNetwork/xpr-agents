@@ -261,13 +261,13 @@ The contract accounts `agentcore`, `agentfeed`, `agentvalid` and `agentescrow` a
 
 ## Security
 
-- **No private key in the agent process.** The runner and plugin sign through `proton transaction:push`; the key lives in the CLI's encrypted keychain. A2A request signing uses a separate, low-power key.
+- **No private key in the agent process.** The runner and plugin sign through `proton transaction:push`; the key lives in the CLI's keychain (plaintext on disk until `proton key:lock`). A2A request signing uses a separate, low-power key.
 - **Use a dedicated agent account.** Create it at [webauth.com](https://webauth.com), keep KYC on your personal account, and claim the agent from there. Staking from any account counts toward the agent's trust score.
 - **Confirmation gates and transfer limits** on every high-risk tool.
 - **Prompt-injection scanning** on inbound webhooks, A2A messages, job data and tool output.
 - Audit history: [`docs/SECURITY_AUDIT.md`](./docs/SECURITY_AUDIT.md), operational guidance: [`docs/SECURITY.md`](./docs/SECURITY.md).
 
-Report vulnerabilities privately to the maintainer rather than in a public issue.
+Report bugs as [GitHub issues](https://github.com/XPRNetwork/xpr-agents/issues/new); for an exploitable vulnerability use the private [Report a vulnerability](https://github.com/XPRNetwork/xpr-agents/security/advisories/new) form instead. Email is not a tracked channel. See [`SECURITY.md`](./SECURITY.md).
 
 ## Documentation
 
