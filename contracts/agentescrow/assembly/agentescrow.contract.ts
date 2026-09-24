@@ -476,6 +476,32 @@ export class AgentRef extends Table {
 
 // ============== CONTRACT ==============
 
+// Anti-spam limits (external report 2026-09-24: createjob/addmilestone stored rows on
+// contract-paid RAM with no fee or per-account cap, so a flood of free unfunded jobs
+// could exhaust the contract's RAM and stop new jobs/bids/listings for everyone).
+// Separate singleton because `config` cannot grow. Defaults apply when unset.
+@table("limits", singleton)
+export class EscrowLimits extends Table {
+  constructor(
+    public max_open_jobs: u64 = 5,        // unfunded (state 0) jobs one client may hold
+    public max_milestones: u64 = 20,      // milestones per job
+    public stale_after: u64 = 2592000     // cleanstale may remove unfunded jobs older than this (30 days)
+  ) { super(); }
+}
+
+// Count of each client's unfunded (state 0) jobs, maintained where a job enters or
+// leaves state 0 (createjob in; fund, cancel, removejob, cleanstale out).
+@table("openjobs")
+export class OpenJobCount extends Table {
+  constructor(
+    public client: Name = EMPTY_NAME,
+    public count: u64 = 0
+  ) { super(); }
+
+  @primary
+  get primary(): u64 { return this.client.N; }
+}
+
 @contract
 export class AgentEscrowContract extends Contract {
   private jobsTable: TableStore<Job> = new TableStore<Job>(this.receiver);
@@ -484,6 +510,8 @@ export class AgentEscrowContract extends Contract {
   private arbitratorsTable: TableStore<Arbitrator> = new TableStore<Arbitrator>(this.receiver);
   private arbUnstakesTable: TableStore<ArbUnstake> = new TableStore<ArbUnstake>(this.receiver);
   private bidsTable: TableStore<Bid> = new TableStore<Bid>(this.receiver);
+  private limitsSingleton: Singleton<EscrowLimits> = new Singleton<EscrowLimits>(this.receiver);
+  private openJobsTable: TableStore<OpenJobCount> = new TableStore<OpenJobCount>(this.receiver);
   private jobEvidenceTable: TableStore<JobEvidence> = new TableStore<JobEvidence>(this.receiver);
   private jobMessagesTable: TableStore<JobMessage> = new TableStore<JobMessage>(this.receiver);
   private servicesTable: TableStore<Service> = new TableStore<Service>(this.receiver);
@@ -687,6 +715,10 @@ export class AgentEscrowContract extends Contract {
     if (arbitrator != EMPTY_NAME) {
       const arb = this.arbitratorsTable.get(arbitrator.N);
       check(arb != null && arb.active, "Invalid arbitrator");
+      // Conflict of interest (external report 2026-09-24): a party to the job must not
+      // be its arbitrator, or the client could award itself the whole escrow.
+      check(arbitrator != client, "The client cannot be the job's arbitrator");
+      check(agent == EMPTY_NAME || arbitrator != agent, "The agent cannot be the job's arbitrator");
     }
 
     const job = new Job(
@@ -708,6 +740,7 @@ export class AgentEscrowContract extends Contract {
       currentTimeSec()
     );
 
+    this.incOpenJobs(client);
     this.jobsTable.store(job, this.receiver);
 
     print(`Job ${job.id} created: ${title}`);
@@ -735,11 +768,14 @@ export class AgentEscrowContract extends Contract {
     check(job.client == client, "Only client can add milestones");
     check(job.state == 0, "Can only add milestones to unfunded jobs");
 
-    // Validate total milestone amounts don't exceed job amount
+    // Validate total milestone amounts don't exceed job amount, and cap the count
+    const maxMilestones = this.limitsSingleton.get().max_milestones;
+    let milestoneCount: u64 = 0;
     let existingMilestone = this.milestonesTable.getBySecondaryU64(job_id, 0);
     let totalMilestoneAmount: u64 = amount;
     while (existingMilestone != null) {
       const ms = existingMilestone!;
+      milestoneCount++;
       // SECURITY: Overflow check before accumulating milestone amounts
       check(
         totalMilestoneAmount <= U64.MAX_VALUE - ms.amount,
@@ -750,6 +786,7 @@ export class AgentEscrowContract extends Contract {
       if (existingMilestone != null && existingMilestone!.job_id != job_id) { existingMilestone = null; }
     }
     check(totalMilestoneAmount <= job.amount, "Milestone total exceeds job amount");
+    check(milestoneCount < maxMilestones, "Too many milestones on this job (max " + maxMilestones.toString() + ")");
 
     const milestone = new Milestone(
       this.milestonesTable.availablePrimaryKey,
@@ -835,6 +872,7 @@ export class AgentEscrowContract extends Contract {
     const job = this.jobsTable.requireGet(bid.job_id, "Job not found");
 
     check(job.client == client, "Only client can select a bid");
+    check(job.arbitrator == EMPTY_NAME || bid.agent != job.arbitrator, "The job's arbitrator cannot be hired on it");
     check(job.agent == EMPTY_NAME, "Job already has an assigned agent");
     check(job.state == 0, "Job must be in CREATED state (fund after selecting a bid)");
 
@@ -1325,7 +1363,9 @@ export class AgentEscrowContract extends Contract {
       check(arbitrator == config.owner, "No arbitrator assigned. Only contract owner can resolve.");
       isOwnerFallback = true;
     } else if (job.arbitrator == arbitrator) {
-      // Designated arbitrator is resolving
+      // Designated arbitrator is resolving. A party to the job may never arbitrate it
+      // (also blocks any job created before createjob/selectbid enforced this).
+      check(arbitrator != job.client && arbitrator != job.agent, "A party to the job cannot arbitrate it");
       arb = this.arbitratorsTable.requireGet(arbitrator.N, "Arbitrator not registered");
       check(arb!.active, "Arbitrator is not active");
       check(arb!.stake >= config.min_arbitrator_stake, "Arbitrator has insufficient stake");
@@ -1336,7 +1376,9 @@ export class AgentEscrowContract extends Contract {
       const designatedArb = this.arbitratorsTable.get(job.arbitrator.N);
       const arbUnavailable = designatedArb == null
         || !designatedArb!.active
-        || designatedArb!.stake < config.min_arbitrator_stake;
+        || designatedArb!.stake < config.min_arbitrator_stake
+        || job.arbitrator == job.client
+        || job.arbitrator == job.agent; // conflicted designee: owner resolves instead
       check(arbUnavailable, "Designated arbitrator is available. Owner fallback not needed.");
       isOwnerFallback = true;
     } else {
@@ -1536,6 +1578,7 @@ export class AgentEscrowContract extends Contract {
 
     // Store refund amount before state changes
     const refundAmount = job.funded_amount;
+    if (job.state == 0) this.decOpenJobs(job.client);
 
     // P3 FIX (CEI PATTERN): Update all state BEFORE external calls
 
@@ -2204,6 +2247,7 @@ export class AgentEscrowContract extends Contract {
     // released_amount = 0 while already fully refunded, and without this removejob()
     // would pay their escrow out a second time from the pool.
     const settled = job.state == 6 || job.state == 7 || job.state == 8;
+    if (job.state == 0) this.decOpenJobs(job.client);
     const refundAmount = settled ? 0 : (job.funded_amount - job.released_amount);
 
     // Delete associated milestones
@@ -2250,6 +2294,82 @@ export class AgentEscrowContract extends Contract {
     }
 
     print(`Job ${job_id} removed by admin`);
+  }
+
+  @action("setlimits")
+  setLimits(max_open_jobs: u64, max_milestones: u64, stale_after: u64): void {
+    const config = this.configSingleton.get();
+    requireAuth(config.owner);
+    check(max_open_jobs >= 1 && max_open_jobs <= 100, "max_open_jobs must be 1-100");
+    check(max_milestones >= 1 && max_milestones <= 100, "max_milestones must be 1-100");
+    check(stale_after >= 604800, "stale_after must be at least 7 days (604800 seconds)");
+    this.limitsSingleton.set(new EscrowLimits(max_open_jobs, max_milestones, stale_after), this.receiver);
+  }
+
+  /**
+   * Remove unfunded (state 0) jobs older than limits.stale_after, with their milestones,
+   * bids and messages. Permissionless: a state-0 job has never been funded, so removing
+   * it moves no tokens, and anyone can reclaim contract RAM from abandoned or spam jobs.
+   * Scans at most max_scan jobs starting at from_id so each call stays bounded.
+   */
+  @action("cleanstale")
+  cleanStale(from_id: u64, max_scan: u64): void {
+    check(max_scan >= 1 && max_scan <= 100, "max_scan must be 1-100");
+    const limits = this.limitsSingleton.get();
+    const now = currentTimeSec();
+    let scanned: u64 = 0;
+    let deleted: u64 = 0;
+
+    let job = this.jobsTable.lowerBound(from_id);
+    while (job != null && scanned < max_scan) {
+      const current = job!;
+      job = this.jobsTable.next(current);
+      scanned++;
+
+      if (current.state == 0 && current.funded_amount == 0 && current.created_at + limits.stale_after < now) {
+        let ms = this.milestonesTable.getBySecondaryU64(current.id, 0);
+        while (ms != null && ms.job_id == current.id) {
+          this.milestonesTable.remove(ms);
+          ms = this.milestonesTable.getBySecondaryU64(current.id, 0);
+        }
+        this.cleanBidsForJob(current.id);
+        this.cleanMessagesForJob(current.id);
+        const evidence = this.jobEvidenceTable.get(current.id);
+        if (evidence != null) {
+          this.jobEvidenceTable.remove(evidence);
+        }
+        this.decOpenJobs(current.client);
+        this.jobsTable.remove(current);
+        deleted++;
+      }
+    }
+
+    print(`Scanned ${scanned}, removed ${deleted} stale unfunded jobs`);
+  }
+
+  private incOpenJobs(client: Name): void {
+    const maxOpen = this.limitsSingleton.get().max_open_jobs;
+    const row = this.openJobsTable.get(client.N);
+    const count: u64 = row == null ? 0 : row.count;
+    check(count < maxOpen, "Too many unfunded jobs open (max " + maxOpen.toString() + "). Fund or cancel one first.");
+    if (row == null) {
+      this.openJobsTable.store(new OpenJobCount(client, 1), this.receiver);
+    } else {
+      row.count = count + 1;
+      this.openJobsTable.update(row, this.receiver);
+    }
+  }
+
+  private decOpenJobs(client: Name): void {
+    // Jobs created before this counter existed were never counted, so never underflow.
+    const row = this.openJobsTable.get(client.N);
+    if (row == null) return;
+    if (row.count <= 1) {
+      this.openJobsTable.remove(row);
+    } else {
+      row.count -= 1;
+      this.openJobsTable.update(row, this.receiver);
+    }
   }
 
   @action("cleanjobs")
@@ -2360,6 +2480,7 @@ export class AgentEscrowContract extends Contract {
       // Previously the refund was dispatched before jobsTable.update
       job.funded_amount = job.amount;
       job.state = 1; // FUNDED
+      this.decOpenJobs(job.client);
       job.updated_at = currentTimeSec();
       this.jobsTable.update(job, this.receiver);
 
