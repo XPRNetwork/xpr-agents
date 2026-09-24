@@ -1,0 +1,55 @@
+name: Security issue
+description: Report a security problem. There is no bug bounty. Issues are public.
+title: "[security] "
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **There is no bug bounty.** Reports are welcome but will not be paid.
+        Issues are public: if a finding puts mainnet funds at immediate risk, describe the impact
+        **without** a working exploit and we will follow up here.
+        Reports without a commit hash and reproduction steps, or that look like unreviewed tool/AI
+        output, are closed without reply. See [SECURITY.md](../blob/main/SECURITY.md).
+  - type: input
+    id: component
+    attributes:
+      label: Component and file
+      placeholder: contracts/agentescrow/assembly/agentescrow.contract.ts
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit hash reviewed
+      description: Review current main. For contracts, also compare the on-chain code hash (see SECURITY.md).
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What goes wrong
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Testnet or local (@proton/vert) only. Never use other people's funds on mainnet.
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: Suggested fix (optional)
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I checked this against current main (and the deployed code hash, for contracts)
+          required: true
+        - label: I searched existing issues and docs/SECURITY_AUDIT.md for the same finding
+          required: true
+        - label: I understand there is no bounty
+          required: true

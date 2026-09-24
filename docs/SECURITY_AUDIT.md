@@ -687,8 +687,11 @@ against the wasm whose hash equals mainnet `agentvalid` (`57adeb5e…`).
 
 ### Bounty
 10,000 XPR paid to 0xgons (5,000 each for AGENTRUN-RUN-AUTHBYPASS and A2A-DEFAULT-AUTHZ), msig
-`paul123/bountysep23`, executed 2026-09-23. The two duplicates were not paid. `SECURITY.md` now
-publishes bounty tiers and asks reporters to test against current `main` and the deployed code hash.
+`paul123/bountysep23`, executed 2026-09-23. The two duplicates were not paid.
+
+**Update 2026-09-25:** the bounty tiers briefly published in `SECURITY.md` drew a flood of
+low-quality, automated submissions. The bounty was withdrawn: there is no bounty, and reports are
+accepted only as public GitHub issues.
 
 
 ## Methodology
