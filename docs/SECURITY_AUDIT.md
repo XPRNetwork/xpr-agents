@@ -693,6 +693,59 @@ against the wasm whose hash equals mainnet `agentvalid` (`57adeb5e…`).
 low-quality, automated submissions. The bounty was withdrawn: there is no bounty, and reports are
 accepted only as public GitHub issues.
 
+## Addendum: emailed reports of 2026-09-24/25 and contract batch (#87)
+
+Reports received by email before the reporting policy changed (see the update above). Each was checked
+against current `main` and, for contracts, the mainnet code hash.
+
+### ESCROW-RAM-EXHAUSTION — MEDIUM — VALID, fixed in #87 (Luis Zaenudin)
+`createjob` and `addmilestone` stored rows on contract-paid RAM with no per-account limit, so one
+account could fill `agentescrow`'s RAM with unfunded jobs and block every new job, bid and listing.
+1 MB of RAM was bought for `agentescrow` as a stopgap.
+
+**Fix:** new `openjobs` counter caps unfunded jobs per client (default 5; freed on fund, cancel or
+removal), a per-job milestone cap (default 20), and a permissionless `cleanstale` that removes
+unfunded jobs older than `stale_after` (default 30 days) with their milestones, bids and messages.
+Limits live in the new `limits` singleton, set by the owner with `setlimits`.
+
+### ESCROW-ARBITRATOR-CONFLICT — MEDIUM — VALID, fixed in #87 (agung)
+Nothing stopped a job's client or agent from being its arbitrator, so a client could name itself
+arbitrator and award itself the escrow. `createjob` and `selectbid` now reject it, and `arbitrate`
+rejects a party to the job; existing conflicted jobs fall back to the owner as arbitrator.
+
+### Skill tools bypassed the transfer cap — VALID, fixed in #85 (wanz; Galih duplicate)
+Bundled skills signed transactions without the `MAX_TRANSFER_AMOUNT` check the core tools applied.
+The cap is now enforced once, at the signing layer (`openclaw/src/util/transfer-cap.ts`), for every
+tool and skill (openclaw 0.8.4). The same report noted squattable names on `agentdeploy`; that
+service was already retired and the contract has been paused.
+
+### msig_approve blind approval — VALID, fixed in #86 (agung)
+`msig_approve` let the model approve any proposal without seeing its actions, which bypassed the
+transfer cap. It is now disabled unless the operator sets `ENABLE_MSIG_APPROVE=true` (openclaw 0.8.5).
+
+### AGENTFEED-PAYPROOF-NO-REMOVE — LOW — VALID, fixed in #87 (0xgons; Akbar duplicate)
+`verifypay(false)` only flagged the review; its score stayed in the aggregate and `recalc` counted it
+again. A rejected proof now removes the review from scoring everywhere (aggregate, context and
+directional trust), and a proof can be decided only once.
+
+### Decay/resolve weight mismatch — found internally 2026-09-22, fixed in #87 (Wildanoel duplicate)
+`resolve(upheld)` subtracted the undecayed weight from totals `recalc` had stored with decayed
+weights, so the average could exceed 100% until the next recalc. `resolve` now rebuilds the aggregate
+with the same rules as `recalc`.
+
+### Not changed
+- AGENTFEED-RECALC-DOS and AGENTFEED-SYBIL (0xgons): informational, and a duplicate of the queued
+  review-gating change respectively.
+- `?active=false` on the indexer returns public chain data.
+
+### Deployment
+`agentescrow` and `agentfeed` deployed to mainnet by msig `paul123/deploysep25`, executed 2026-09-25
+(tx `fb6e4b1f…`). Code hashes match the #87 build: `agentescrow` `a55c3428…`, `agentfeed` `76a7bd6a…`.
+The ABI change is additive only (`limits`, `openjobs`, `setlimits`, `cleanstale`).
+
+Valid reports received before the policy change were compensated once; duplicates were not. There is
+no bounty for any later report.
+
 
 ## Methodology
 
