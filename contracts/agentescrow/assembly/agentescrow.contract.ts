@@ -1420,7 +1420,17 @@ export class AgentEscrowContract extends Contract {
 
     // Split remaining amount between client and agent
     const clientAmount = (amountAfterFee * client_percent) / 100;
-    const agentAmount = amountAfterFee - clientAmount;
+    let agentAmount = amountAfterFee - clientAmount;
+
+    // The platform fee applies to the agent's share exactly as on the approve path
+    // (releasePayment), so a cooperative dispute is not a way around it (#93).
+    // Waived when the owner resolves as fallback, like the arbitrator fee.
+    let platformFee: u64 = 0;
+    if (!isOwnerFallback && config.platform_fee > 0 && agentAmount > 0) {
+      check(agentAmount <= U64.MAX_VALUE / config.platform_fee, "Fee calculation would overflow");
+      platformFee = (agentAmount * config.platform_fee) / 10000;
+      agentAmount -= platformFee;
+    }
 
     // P3 FIX (CEI PATTERN): Update ALL state BEFORE any external calls
     // This prevents reentrancy and ensures consistent state
@@ -1483,6 +1493,9 @@ export class AgentEscrowContract extends Contract {
       this.sendTokens(job.agent, new Asset(agentAmount, this.XPR_SYMBOL), "Dispute payment");
       // CRITICAL FIX: If agent received payment, count as completed job
       this.incrementAgentJobs(job.agent);
+    }
+    if (platformFee > 0) {
+      this.sendTokens(config.owner, new Asset(platformFee, this.XPR_SYMBOL), `Job ${job.id} platform fee`);
     }
 
     print(`Dispute ${dispute_id} resolved: ${client_percent}% to client, ${arbFee} arbitration fee`);
@@ -2326,7 +2339,12 @@ export class AgentEscrowContract extends Contract {
       job = this.jobsTable.next(current);
       scanned++;
 
-      if (current.state == 0 && current.funded_amount == 0 && current.created_at + limits.stale_after < now) {
+      const staleUnfunded = current.state == 0 && current.funded_amount == 0 && current.created_at + limits.stale_after < now;
+      // Refunded jobs are settled (every refund path sets released = funded) and hold no
+      // value; without this a createjob+cancel loop left permanent rows the cap never saw (#90).
+      const staleRefunded = current.state == 7 && current.released_amount >= current.funded_amount
+        && current.updated_at + limits.stale_after < now;
+      if (staleUnfunded || staleRefunded) {
         let ms = this.milestonesTable.getBySecondaryU64(current.id, 0);
         while (ms != null && ms.job_id == current.id) {
           this.milestonesTable.remove(ms);
@@ -2338,13 +2356,13 @@ export class AgentEscrowContract extends Contract {
         if (evidence != null) {
           this.jobEvidenceTable.remove(evidence);
         }
-        this.decOpenJobs(current.client);
+        if (staleUnfunded) this.decOpenJobs(current.client); // cancel already released the slot
         this.jobsTable.remove(current);
         deleted++;
       }
     }
 
-    print(`Scanned ${scanned}, removed ${deleted} stale unfunded jobs`);
+    print(`Scanned ${scanned}, removed ${deleted} stale unfunded or refunded jobs`);
   }
 
   private incOpenJobs(client: Name): void {

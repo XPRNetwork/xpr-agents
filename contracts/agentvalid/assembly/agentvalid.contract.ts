@@ -244,6 +244,36 @@ export class ValActivity extends Table {
   }
 }
 
+// SECURITY (#91, Sept 2026): challenge() is free until funded, and unfunded rows were
+// only ever flagged, never removed, so one account could fill agentvalid's RAM. Each
+// challenger may now hold MAX_OPEN_UNFUNDED unfunded challenges at a time, and
+// cancelchal / expireunfund delete the row. Both tables are new (additive).
+@table("openchals")
+export class OpenChalCount extends Table {
+  constructor(
+    public challenger: Name = EMPTY_NAME,
+    public count: u64 = 0                   // Unfunded, pending challenges held
+  ) {
+    super();
+  }
+
+  @primary
+  get primary(): u64 {
+    return this.challenger.N;
+  }
+}
+
+// Monotonic challenge ids. availablePrimaryKey is MAX(id) + 1, so deleting the newest
+// row would hand its id (and its "challenge:ID" memo) to the next challenge.
+@table("chalseq", singleton)
+export class ChalSeq extends Table {
+  constructor(
+    public next_id: u64 = 0                 // Next challenge id to hand out
+  ) {
+    super();
+  }
+}
+
 // ============== CONTRACT ==============
 
 @contract
@@ -255,6 +285,9 @@ export class AgentValidContract extends Contract {
   private depositsTable: TableStore<Deposit> = new TableStore<Deposit>(this.receiver);
   private valActivityTable: TableStore<ValActivity> = new TableStore<ValActivity>(this.receiver);
   private configSingleton: Singleton<Config> = new Singleton<Config>(this.receiver);
+  private openChalsTable: TableStore<OpenChalCount> = new TableStore<OpenChalCount>(this.receiver);
+  private chalSeqSingleton: Singleton<ChalSeq> = new Singleton<ChalSeq>(this.receiver);
+  private readonly MAX_OPEN_UNFUNDED: u64 = 3;
 
   // Helper to get agent from configured core contract
   private getAgentRef(agent: Name): AgentRef | null {
@@ -645,8 +678,9 @@ export class AgentValidContract extends Contract {
     const currentTime = currentTimeSec();
     check(currentTime < U64.MAX_VALUE - 86400, "Timestamp overflow in funding deadline");
     const fundingDeadline = currentTime + 86400; // 24 hours to fund
+    this.incOpenChals(challenger);
     const challengeRecord = new Challenge(
-      this.challengesTable.availablePrimaryKey,
+      this.nextChallengeId(),
       validation_id,
       challenger,
       reason,
@@ -671,6 +705,44 @@ export class AgentValidContract extends Contract {
     print(`Challenge created (ID: ${challengeRecord.id}). Fund within 24 hours with memo 'challenge:${challengeRecord.id}' to activate.`);
   }
 
+  private incOpenChals(challenger: Name): void {
+    const row = this.openChalsTable.get(challenger.N);
+    const count: u64 = row == null ? 0 : row.count;
+    check(
+      count < this.MAX_OPEN_UNFUNDED,
+      "Too many unfunded challenges open (max " + this.MAX_OPEN_UNFUNDED.toString() + "). Fund or cancel one first."
+    );
+    if (row == null) {
+      this.openChalsTable.store(new OpenChalCount(challenger, 1), this.receiver);
+    } else {
+      row.count = count + 1;
+      this.openChalsTable.update(row, this.receiver);
+    }
+  }
+
+  private decOpenChals(challenger: Name): void {
+    // Challenges created before this counter existed were never counted: never underflow.
+    const row = this.openChalsTable.get(challenger.N);
+    if (row == null) return;
+    if (row.count <= 1) {
+      this.openChalsTable.remove(row);
+    } else {
+      row.count -= 1;
+      this.openChalsTable.update(row, this.receiver);
+    }
+  }
+
+  private nextChallengeId(): u64 {
+    const seq = this.chalSeqSingleton.getOrNull();
+    const fromTable = this.challengesTable.availablePrimaryKey;
+    let next: u64 = seq == null ? fromTable : seq!.next_id;
+    if (next < fromTable) {
+      next = fromTable;
+    }
+    this.chalSeqSingleton.set(new ChalSeq(next + 1), this.receiver);
+    return next;
+  }
+
   @action("cancelchal")
   cancelChallenge(challenger: Name, challenge_id: u64): void {
     requireAuth(challenger);
@@ -691,10 +763,10 @@ export class AgentValidContract extends Contract {
     // never incremented pending_challenges and never set validation.challenged, so
     // there is nothing to reverse here.
 
-    // Mark challenge as cancelled
-    challengeRecord.status = 3; // cancelled
-    challengeRecord.resolved_at = currentTimeSec();
-    this.challengesTable.update(challengeRecord, this.receiver);
+    // An unfunded challenge carries no state anything reads, so the row is removed
+    // rather than flagged (#91).
+    this.decOpenChals(challengeRecord.challenger);
+    this.challengesTable.remove(challengeRecord);
 
     print(`Challenge ${challenge_id} cancelled`);
   }
@@ -717,11 +789,9 @@ export class AgentValidContract extends Contract {
     // single validation. The flag is owned solely by funding (set) and
     // resolve/expirefunded (clear). Leave it alone.
 
-    // Mark challenge as cancelled (expired)
-    challengeRecord.status = 3; // cancelled/expired
-    challengeRecord.resolution_notes = "Expired: not funded within deadline";
-    challengeRecord.resolved_at = currentTimeSec();
-    this.challengesTable.update(challengeRecord, this.receiver);
+    // Remove the row rather than flag it (#91): nothing reads an expired unfunded challenge.
+    this.decOpenChals(challengeRecord.challenger);
+    this.challengesTable.remove(challengeRecord);
 
     print(`Unfunded challenge ${challenge_id} expired`);
   }
@@ -1025,6 +1095,7 @@ export class AgentValidContract extends Contract {
       challengeRecord.stake = config.challenge_stake;
       challengeRecord.funded_at = currentTimeSec(); // H2 FIX: Record when challenge was funded for dispute period
       this.challengesTable.update(challengeRecord, this.receiver);
+      this.decOpenChals(from); // funded: no longer counts against the unfunded cap
 
       // CRITICAL GRIEFING FIX: NOW mark the validation as challenged
       // This only happens when the challenge is actually funded, preventing

@@ -58,6 +58,32 @@ function serviceToXpr(service: Record<string, unknown>): Record<string, unknown>
   };
 }
 
+/**
+ * Arbitrators this agent will work under (#92). The client names the arbitrator when
+ * it creates the job, and a client colluding with that arbitrator can take back the
+ * whole escrow after delivery, which the contract cannot detect. So an agent only
+ * accepts or bids on jobs with no arbitrator (the contract owner resolves disputes)
+ * or one the operator trusts: TRUSTED_ARBITRATORS, comma-separated, default protonnz.
+ */
+export function trustedArbitrators(): string[] {
+  const raw = process.env.TRUSTED_ARBITRATORS ?? 'protonnz';
+  return raw.split(',').map(a => a.trim()).filter(Boolean);
+}
+
+export function assertTrustedArbitrator(job: { id?: number; arbitrator?: string } | null, jobId: number): void {
+  if (!job) throw new Error(`Job #${jobId} not found`);
+  const arb = job.arbitrator || '';
+  if (arb === '') return;
+  const trusted = trustedArbitrators();
+  if (!trusted.includes(arb)) {
+    throw new Error(
+      `Job #${jobId} names arbitrator "${arb}", which is not in TRUSTED_ARBITRATORS (${trusted.join(', ') || 'none'}). ` +
+      'A client-chosen arbitrator can rule the whole escrow back to the client after delivery, so this agent ' +
+      'only works under trusted arbitrators. Decline the job, or have the operator add the arbitrator.'
+    );
+  }
+}
+
 /** Contract default listing fee (5 XPR) — used when svcconfig is unreadable */
 const DEFAULT_SERVICE_FEE_RAW = 50000;
 
@@ -365,6 +391,8 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
     handler: async ({ job_id, confirmed }: { job_id: number; confirmed?: boolean }) => {
       if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
       validatePositiveInt(job_id, 'job_id');
+      const reader = new EscrowRegistry(config.rpc, undefined, contracts.agentescrow);
+      assertTrustedArbitrator(await reader.getJob(job_id), job_id);
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
@@ -908,6 +936,8 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       validateAmount(xprToSmallestUnits(amount), config.maxTransferAmount);
       validatePositiveInt(timeline, 'timeline');
       validateRequired(proposal, 'proposal');
+      const reader = new EscrowRegistry(config.rpc, undefined, contracts.agentescrow);
+      assertTrustedArbitrator(await reader.getJob(job_id), job_id);
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
