@@ -4,6 +4,11 @@
  * Two layers:
  * 1. Inbound prompt injection detection — scans webhook, A2A, poller, and manual input
  * 2. Output scanning — scans tool results before feeding back to Claude
+ *
+ * This is best-effort defence in depth, not an authorization boundary: a fixed pattern
+ * list can always be rephrased around (see #89). What protects funds is the confirmation
+ * gate on high-risk writes, the MAX_TRANSFER_AMOUNT cap at the signing layer, A2A
+ * readonly tool mode with registered-caller gating, and TRUSTED_ARBITRATORS on accept/bid.
  */
 
 // ── Types ────────────────────────────────────
@@ -65,6 +70,9 @@ const INBOUND_PATTERNS: Pattern[] = [
   { name: 'you_are_now', regex: /you\s+are\s+now\s+(a|an|the|my)\s+/i, severity: 'high', action: 'block', category: 'system_override' },
   { name: 'from_now_on', regex: /from\s+now\s+on[,\s]+(you|your|ignore|disregard|forget)/i, severity: 'high', action: 'block', category: 'system_override' },
   { name: 'system_colon_prefix', regex: /^system\s*:/im, severity: 'high', action: 'block', category: 'system_override' },
+  { name: 'ignore_everything', regex: /(?:ignore|disregard|forget)\s+(?:everything|anything|all)\s+(?:(?:that\s+)?you(?:\s+were|\s+have\s+been|'ve\s+been)\s+(?:told|given|instructed)|(?:above|before|prior|previously|earlier)(?=\s*(?:$|[.,;:!\n]|and\b|then\b|now\b)))/i, severity: 'high', action: 'block', category: 'system_override' },
+  { name: 'obey_only_me', regex: /\b(?:obey|follow|listen\s+to|take\s+(?:orders|instructions)\s+from)\s+(?:only\s+(?:me|my\s+(?:instructions|orders|commands))|(?:me|my\s+(?:instructions|orders|commands))\s+only)\b/i, severity: 'high', action: 'block', category: 'system_override' },
+  { name: 'new_task_execute', regex: /\bnew\s+(?:task|instructions?|orders?)\s*:[\s\S]{0,300}?\b(?:execute|run|do)\s+(?:it\s+|this\s+|them\s+)?(?:immediately|now|right\s+away|without\s+(?:asking|confirmation))/i, severity: 'high', action: 'block', category: 'system_override' },
   { name: 'enter_developer_mode', regex: /enter\s+(developer|debug|admin|god|sudo)\s+mode/i, severity: 'high', action: 'block', category: 'system_override' },
 
   // Role hijacking
@@ -148,6 +156,39 @@ const OUTPUT_BYPASS_TOOLS = new Set([
 // Sensitive-data-only patterns for bypass tools
 const SENSITIVE_DATA_PATTERNS = OUTPUT_PATTERNS.filter(p => p.category === 'sensitive_data');
 
+// ── Normalisation ────────────────────────────
+
+// Common Cyrillic/Greek look-alikes of Latin letters (NFKC leaves these alone).
+const CONFUSABLES: Record<string, string> = {
+  'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x', 'і': 'i', 'ј': 'j', 'ѕ': 's',
+  'ԁ': 'd', 'һ': 'h', 'ԛ': 'q', 'ԝ': 'w', 'ɡ': 'g',
+  'α': 'a', 'ε': 'e', 'ι': 'i', 'κ': 'k', 'ν': 'v', 'ο': 'o', 'ρ': 'p', 'τ': 't', 'υ': 'u', 'χ': 'x',
+};
+
+/**
+ * Canonical form used only for matching, never returned: NFKC (fullwidth and other
+ * compatibility forms), format characters removed, look-alikes and curly quotes folded,
+ * lower-cased, and separators between single letters collapsed ("I.g.n.o.r.e" -> "ignore").
+ */
+export function normaliseForScan(text: string): string {
+  let t = text.normalize('NFKC')
+    .replace(/[\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g, '')
+    .replace(/[\u2018\u2019\u201A\u201B\u2032]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"')
+    .toLowerCase();
+  t = t.replace(/[^\x00-\x7F]/g, (c) => CONFUSABLES[c] ?? c);
+  // Runs of 3+ single letters joined by one repeated separator: "i.g.n.o.r.e", "i g n o r e"
+  t = t.replace(/(?<![a-z])[a-z]([\s.\-_*·•|/\\,'`~+])(?:[a-z]\1)+[a-z](?![a-z])/g, (m) => m.replace(/[^a-z]/g, ''));
+  return t.replace(/\s+/g, ' ');
+}
+
+// Block-action patterns that match the normalised text but not the raw text.
+function normalisedBlockHits(text: string, patterns: Pattern[], already: string[]): Pattern[] {
+  const normalised = normaliseForScan(text);
+  if (normalised === text) return [];
+  return patterns.filter(p => p.action === 'block' && !already.includes(p.name) && p.regex.test(normalised));
+}
+
 // ── Core scanning ────────────────────────────
 
 function runPatterns(text: string, patterns: Pattern[]): ScanResult {
@@ -195,7 +236,17 @@ export function scanInbound(text: string, source: string): ScanResult {
   }
 
   stats.scanned++;
-  const result = runPatterns(text, INBOUND_PATTERNS);
+  let result = runPatterns(text, INBOUND_PATTERNS);
+
+  // Obfuscated forms (spacing, homoglyphs, zero-width) are caught on the normalised copy
+  const extra = normalisedBlockHits(text, INBOUND_PATTERNS, result.flagged);
+  if (extra.length > 0) {
+    const rank = { none: 0, low: 1, medium: 2, high: 3 };
+    let severity = result.severity;
+    for (const p of extra) if (rank[p.severity] > rank[severity]) severity = p.severity;
+    if (result.action === 'strip') stats.stripped--;
+    result = { safe: false, text: result.text, flagged: [...result.flagged, ...extra.map(p => `${p.name}:normalised`)], severity, action: 'block' };
+  }
 
   if (result.action === 'block') {
     stats.blocked++;

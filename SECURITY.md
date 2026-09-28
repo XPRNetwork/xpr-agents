@@ -59,6 +59,11 @@ volumetric denial of service; settings an operator must deliberately change to a
 prompt injection or model behaviour that does not cross an authorization boundary; missing headers or
 version banners without an exploit; social engineering.
 
+The agent runner's prompt-injection scanner (`openclaw/starter/agent/src/security.ts`) is best-effort
+defence in depth, not an authorization boundary. The boundaries are the confirmation gate on high-risk
+writes, the transfer cap at the signing layer, A2A readonly mode with registered-caller gating, and
+`TRUSTED_ARBITRATORS` on accept/bid; a scanner bypass alone is not a vulnerability.
+
 ## Rules
 
 - Test on **testnet**, or against your own accounts and local deployments (`@proton/vert`).
