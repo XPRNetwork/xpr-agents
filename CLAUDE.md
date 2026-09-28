@@ -699,7 +699,7 @@ All phases are complete:
 
 ### Phase 9: Security Scanning ✓
 - `security.ts` module in agent runner — prompt injection detection + output scanning
-- 44 inbound patterns (system override, role hijack, delimiter injection, tool injection, encoding evasion, exfiltration)
+- 43 inbound patterns (system override, role hijack, delimiter injection, tool injection, encoding evasion, exfiltration), matched against the raw text and a normalised copy (NFKC, format characters removed, look-alikes folded, spaced/dotted letters collapsed) so obfuscated forms still block (#89). Best-effort defence in depth, not an authorization boundary (see SECURITY.md); regression corpus in `starter/agent/tests/security-scan.test.ts`
 - Output scanning with bypass list for external-content tools (`generate_image`, `generate_video`, `web_fetch`, `web_search`)
 - Integrated at 5 points: webhook, A2A, poller job data, tool results, health endpoint
 - Configurable via `SECURITY_ENABLED` (default true) and `SECURITY_MODE` (block/warn)
