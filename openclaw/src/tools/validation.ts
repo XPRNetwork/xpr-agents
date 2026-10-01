@@ -174,7 +174,7 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
         result: { type: 'string', enum: ['fail', 'pass', 'partial'], description: 'Validation result' },
         confidence: { type: 'number', description: 'Confidence level 0-100' },
         evidence_uri: { type: 'string', description: 'URI to validation evidence' },
-        fee_amount: { type: 'number', description: 'Validation fee in XPR' },
+        fee_amount: { type: 'number', description: 'Validation fee in XPR. Omit to pay the contract fee automatically' },
       },
     },
     handler: async (params: {
@@ -206,6 +206,12 @@ export function registerValidationTools(api: PluginApi, config: PluginConfig): v
 
       if (params.fee_amount) {
         return registry.validateWithFee(data, `${params.fee_amount.toFixed(4)} XPR`);
+      }
+      // No fee given: pay the contract's configured validation fee, if any, so the call doesn't fail
+      const { validation_fee } = await registry.getConfig();
+      if (validation_fee > 0) {
+        validateAmount(validation_fee, config.maxTransferAmount);
+        return registry.validateWithFee(data, `${(validation_fee / 10000).toFixed(4)} XPR`);
       }
       return registry.validate(data);
     },

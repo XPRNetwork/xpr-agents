@@ -335,7 +335,15 @@ export default function Validators() {
     if (!session) return;
     setProcessing(true);
     try {
+      // The contract requires the validation fee as a 'valfee:' deposit in the same transaction
+      const feeActions = config && config.validation_fee > 0 ? [
+        { account: 'eosio.token', name: 'transfer', data: {
+          from: session.auth.actor, to: CONTRACTS.AGENT_VALID,
+          quantity: `${(config.validation_fee / 10000).toFixed(4)} XPR`, memo: `valfee:${session.auth.actor}`,
+        }},
+      ] : [];
       const result = await transact([
+        ...feeActions,
         { account: CONTRACTS.AGENT_VALID, name: 'validate', data: {
           validator: session.auth.actor, agent, job_hash: jobHash,
           result: valResult, confidence: parseInt(valConfidence), evidence_uri: valEvidence,
