@@ -88,6 +88,22 @@ describe('agentfeed RAM bounds (October 2026 review)', () => {
     expect(rows('dirtrust')).to.have.length(0);
   });
 
+  it('settrust can still update an existing row after the agent is removed', async () => {
+    await feed.actions.settrust(['outsider', 'alice', 10]).send('outsider@active');
+    await core.actions.removeagent(['alice']).send('owner@active');
+    await feed.actions.settrust(['outsider', 'alice', -20]).send('outsider@active');
+    const trust = rows('dirtrust');
+    expect(trust).to.have.length(1);
+    expect(Number(trust[0].trust_score)).to.equal(-10);
+  });
+
+  it('submitwpay rejects oversized input before taking the feedback fee deposit', async () => {
+    await feed.actions.setconfig(['agentcore', 1, 5, 604800, 3600, 50, false, 10000]).send('owner@active');
+    const args = paidArgs();
+    args[3] = 'x'.repeat(257);
+    await rejected(feed.actions.submitwpay(args).send('reviewer1@active'), 'Tags too long');
+  });
+
   it('settrust still records trust in a registered agent', async () => {
     await feed.actions.settrust(['outsider', 'alice', 10]).send('outsider@active');
     await feed.actions.settrust(['outsider', 'alice', 5]).send('outsider@active');
