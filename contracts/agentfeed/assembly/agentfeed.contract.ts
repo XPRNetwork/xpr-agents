@@ -1433,6 +1433,9 @@ export class AgentFeedContract extends Contract {
     }
 
     if (trust == null) {
+      // A new row is stored on contract RAM: only registered agents can be trustees, so one
+      // account creates at most one row per agent. Existing rows stay updatable.
+      this.requireAgentRef(trustee);
       trust = new DirectionalTrust(
         this.directionalTrustTable.availablePrimaryKey,
         truster,
@@ -1518,6 +1521,8 @@ export class AgentFeedContract extends Contract {
     );
     check(provider.active, "Provider is not active");
     check(score <= 10000, "Score must be 0-10000");
+    check(raw_score.length <= 64, "Raw score too long");
+    check(proof_uri.length <= 256, "Proof URI too long");
 
     // Find or create external score
     let existingScore = this.externalScoresTable.getBySecondaryU64(agent.N, 0);
@@ -1573,6 +1578,14 @@ export class AgentFeedContract extends Contract {
 
     const config = this.configSingleton.get();
     check(!config.paused, "Contract is paused");
+    check(reviewer != agent, "Cannot review yourself");
+    check(score >= config.min_score && score <= config.max_score, "Score out of range");
+    check(payment_tx_id.length > 0 && payment_tx_id.length <= 64, "Invalid transaction ID");
+    // Same bounds as submit/submitctx: these rows are stored on contract RAM
+    check(tags.length <= 256, "Tags too long");
+    check(job_hash.length <= 128, "Job hash too long");
+    check(evidence_uri.length <= 256, "Evidence URI too long");
+    check(payment_symbol.length > 0 && payment_symbol.length <= 7, "Invalid payment symbol");
     if (config.feedback_fee > 0) {
       const deposit = this.depositsTable.get(reviewer.N);
       check(deposit != null, "Feedback fee not paid. Send XPR with memo 'feedfee:" + reviewer.toString() + "'");
@@ -1584,9 +1597,6 @@ export class AgentFeedContract extends Contract {
       }
       this.depositsTable.remove(deposit!);
     }
-    check(reviewer != agent, "Cannot review yourself");
-    check(score >= config.min_score && score <= config.max_score, "Score out of range");
-    check(payment_tx_id.length > 0 && payment_tx_id.length <= 64, "Invalid transaction ID");
 
     // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
     const agentRef = this.requireAgentRef(agent);
