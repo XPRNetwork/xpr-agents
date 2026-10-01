@@ -220,6 +220,45 @@ describe('Input Validation', () => {
     ).rejects.toThrow('between 0 and 100');
   });
 
+  it('xpr_submit_validation pays the configured validation fee when none is given', async () => {
+    const api = createMockApi();
+    const config = createConfig();
+    registerValidationTools(api, config);
+    (config.rpc.get_table_rows as any).mockResolvedValueOnce({ rows: [{ validation_fee: '100000' }], more: false });
+
+    await api.tools.get('xpr_submit_validation')!.handler({ agent: 'alice', job_hash: 'abc', result: 'pass', confidence: 90 });
+
+    const { actions } = (config.session!.link.transact as any).mock.calls[0][0];
+    expect(actions).toHaveLength(2);
+    expect(actions[0].data).toMatchObject({ to: 'agentvalid', quantity: '10.0000 XPR', memo: 'valfee:testagent' });
+    expect(actions[1].name).toBe('validate');
+  });
+
+  it('xpr_submit_validation sends no fee transfer when the fee is zero', async () => {
+    const api = createMockApi();
+    const config = createConfig();
+    registerValidationTools(api, config);
+    (config.rpc.get_table_rows as any).mockResolvedValueOnce({ rows: [{ validation_fee: '0' }], more: false });
+
+    await api.tools.get('xpr_submit_validation')!.handler({ agent: 'alice', job_hash: 'abc', result: 'pass', confidence: 90 });
+
+    const { actions } = (config.session!.link.transact as any).mock.calls[0][0];
+    expect(actions).toHaveLength(1);
+    expect(actions[0].name).toBe('validate');
+  });
+
+  it('xpr_submit_validation refuses a configured fee above maxTransferAmount', async () => {
+    const api = createMockApi();
+    const config = createConfig({ maxTransferAmount: 50000 });
+    registerValidationTools(api, config);
+    (config.rpc.get_table_rows as any).mockResolvedValueOnce({ rows: [{ validation_fee: '100000' }], more: false });
+
+    await expect(
+      api.tools.get('xpr_submit_validation')!.handler({ agent: 'alice', job_hash: 'abc', result: 'pass', confidence: 90 })
+    ).rejects.toThrow();
+    expect(config.session!.link.transact).not.toHaveBeenCalled();
+  });
+
   it('rejects job message text longer than 512 characters', async () => {
     const ask = api.tools.get('xpr_ask_client')!;
     await expect(ask.handler({ job_id: 1, text: 'x'.repeat(513) })).rejects.toThrow('at most 512 characters');
