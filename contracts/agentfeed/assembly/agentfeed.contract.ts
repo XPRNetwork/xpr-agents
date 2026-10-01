@@ -1418,6 +1418,9 @@ export class AgentFeedContract extends Contract {
     requireAuth(truster);
     check(truster != trustee, "Cannot set trust for yourself");
     check(trust_delta >= -100 && trust_delta <= 100, "Trust delta must be -100 to 100");
+    // Each new trustee stores a row on contract RAM: only registered agents can be trustees,
+    // so one account can create at most one row per agent
+    this.requireAgentRef(trustee);
 
     // Find or create directional trust record
     let existingTrust = this.directionalTrustTable.getBySecondaryU64(truster.N, 0);
@@ -1518,6 +1521,8 @@ export class AgentFeedContract extends Contract {
     );
     check(provider.active, "Provider is not active");
     check(score <= 10000, "Score must be 0-10000");
+    check(raw_score.length <= 64, "Raw score too long");
+    check(proof_uri.length <= 256, "Proof URI too long");
 
     // Find or create external score
     let existingScore = this.externalScoresTable.getBySecondaryU64(agent.N, 0);
@@ -1587,6 +1592,11 @@ export class AgentFeedContract extends Contract {
     check(reviewer != agent, "Cannot review yourself");
     check(score >= config.min_score && score <= config.max_score, "Score out of range");
     check(payment_tx_id.length > 0 && payment_tx_id.length <= 64, "Invalid transaction ID");
+    // Same bounds as submit/submitctx: these rows are stored on contract RAM
+    check(tags.length <= 256, "Tags too long");
+    check(job_hash.length <= 128, "Job hash too long");
+    check(evidence_uri.length <= 256, "Evidence URI too long");
+    check(payment_symbol.length > 0 && payment_symbol.length <= 7, "Invalid payment symbol");
 
     // SECURITY: Verify agent exists in agentcore registry (uses config.core_contract)
     const agentRef = this.requireAgentRef(agent);
