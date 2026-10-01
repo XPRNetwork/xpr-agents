@@ -97,7 +97,7 @@ describe('agentfeed RAM bounds (October 2026 review)', () => {
     expect(Number(trust[0].trust_score)).to.equal(-10);
   });
 
-  it('submitwpay rejects oversized input before taking the feedback fee deposit', async () => {
+  it('submitwpay checks input before the feedback fee requirement', async () => {
     await feed.actions.setconfig(['agentcore', 1, 5, 604800, 3600, 50, false, 10000]).send('owner@active');
     const args = paidArgs();
     args[3] = 'x'.repeat(257);
