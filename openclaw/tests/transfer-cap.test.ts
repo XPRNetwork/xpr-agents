@@ -134,6 +134,12 @@ describe('transfer cap: October 2026 hardening', () => {
     expect(totalXprSent([ram('someone', '50.0000 XPR')], 'agent')).toBe(0);
   });
 
+  it('refuses capped actions whose data is pre-serialized rather than an object', () => {
+    const hex = { account: 'eosio.token', name: 'transfer', authorization: [{ actor: 'agent', permission: 'active' }], data: '00a6823403ea3055' };
+    expect(() => totalXprSent([hex as any], 'agent')).toThrow('non-object data');
+    expect(totalXprSent([{ ...hex, account: 'other.token' } as any], 'agent')).toBe(0);
+  });
+
   it('counts XPR staked by the agent via eosio::stakexpr', () => {
     const stake = (from: string, q: string) => ({ account: 'eosio', name: 'stakexpr', authorization: [{ actor: from, permission: 'active' }],
       data: { from, receiver: from, stake_xpr_quantity: q } });

@@ -90,6 +90,12 @@ export function totalXprSent(actions: CappableAction[], account: string): number
   for (const a of actions) {
     const contract = canonicalName(a.account);
     const action = canonicalName(a.name);
+    const spendsXpr = (contract === 'eosio.token' && action === 'transfer') ||
+      (contract === 'eosio' && ['buyram', 'buyrambytes', 'stakexpr'].includes(action));
+    if (spendsXpr && (typeof a.data !== 'object' || a.data === null || Array.isArray(a.data))) {
+      // Pre-serialized (hex) data would hide the sender and amount from the cap
+      throw new Error(`Refusing ${contract}::${action} with non-object data: the transfer cap cannot read it`);
+    }
     if (contract === 'eosio.token' && action === 'transfer') {
       const d = (a.data ?? {}) as { from?: unknown; quantity?: unknown };
       if (canonicalName(d.from) !== self) continue;
