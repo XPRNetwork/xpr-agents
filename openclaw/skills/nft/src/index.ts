@@ -156,9 +156,13 @@ async function ramTopUpActions(session: { api: any; account: string; permission:
 
     // Only add the purchase when the agent can pay for it; otherwise let the operation try
     // without it rather than fail on a RAM purchase it could not afford
-    const liquid = typeof acctInfo.core_liquid_balance === 'string' ? parseFloat(acctInfo.core_liquid_balance) : NaN;
+    // get_account's core_liquid_balance is not XPR on this chain, so read the XPR balance itself
+    const balances = await rpcPost(rpcEndpoint, '/v1/chain/get_currency_balance',
+      { code: 'eosio.token', account: session.account, symbol: 'XPR' });
+    const xpr = Array.isArray(balances) && typeof balances[0] === 'string' ? balances[0] : '';
+    const liquid = xpr ? parseFloat(xpr) : NaN;
     if (!(liquid >= parseFloat(RAM_BUY_AMOUNT))) {
-      console.warn(`[nft] Low RAM (${free} bytes) but liquid balance ${acctInfo.core_liquid_balance ?? 'unknown'} does not cover ${RAM_BUY_AMOUNT}; skipping RAM top-up`);
+      console.warn(`[nft] Low RAM (${free} bytes) but XPR balance ${xpr || 'unknown'} does not cover ${RAM_BUY_AMOUNT}; skipping RAM top-up`);
       return [];
     }
 

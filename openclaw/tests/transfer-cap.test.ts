@@ -134,6 +134,14 @@ describe('transfer cap: October 2026 hardening', () => {
     expect(totalXprSent([ram('someone', '50.0000 XPR')], 'agent')).toBe(0);
   });
 
+  it('counts XPR staked by the agent via eosio::stakexpr', () => {
+    const stake = (from: string, q: string) => ({ account: 'eosio', name: 'stakexpr', authorization: [{ actor: from, permission: 'active' }],
+      data: { from, receiver: from, stake_xpr_quantity: q } });
+    expect(totalXprSent([stake('agent', '20.0000 XPR')], 'agent')).toBe(200000);
+    expect(() => assertTransferCap([stake('agent', '20.0000 XPR')], 'agent', 100000)).toThrow('above the transfer cap');
+    expect(totalXprSent([stake('someone', '20.0000 XPR')], 'agent')).toBe(0);
+  });
+
   it('refuses buyrambytes paid by the agent, whose cost cannot be checked', () => {
     expect(() => totalXprSent([ram('agent', '', 'buyrambytes')], 'agent')).toThrow('buyrambytes');
     expect(totalXprSent([ram('someone', '', 'buyrambytes')], 'agent')).toBe(0);

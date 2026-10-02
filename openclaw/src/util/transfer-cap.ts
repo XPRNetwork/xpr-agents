@@ -4,7 +4,8 @@
  * Every signed transaction — core plugin tools (createCliSession) and every bundled
  * or external skill (createCliApi) — passes through assertTransferCap before it is
  * handed to the proton CLI. Individual tools can no longer forget the cap: the
- * total XPR the agent spends in one transaction (eosio.token::transfer and eosio::buyram)
+ * total XPR the agent spends in one transaction (eosio.token::transfer, eosio::buyram and
+ * eosio::stakexpr)
  * is summed and refused if it exceeds the limit. Account and action names are compared in
  * canonical form, so trailing-dot aliases such as "eosio.token." are counted.
  *
@@ -97,6 +98,11 @@ export function totalXprSent(actions: CappableAction[], account: string): number
       const d = (a.data ?? {}) as { payer?: unknown; quant?: unknown };
       if (canonicalName(d.payer) !== self) continue;
       total += cappedUnits(d.quant, 'RAM purchase');
+    } else if (contract === 'eosio' && action === 'stakexpr') {
+      // XPR Network staking: the system contract transfers stake_xpr_quantity from `from`
+      const d = (a.data ?? {}) as { from?: unknown; stake_xpr_quantity?: unknown };
+      if (canonicalName(d.from) !== self) continue;
+      total += cappedUnits(d.stake_xpr_quantity, 'stake');
     } else if (contract === 'eosio' && action === 'buyrambytes') {
       // The XPR cost is not in the action, so it cannot be checked against the cap
       const d = (a.data ?? {}) as { payer?: unknown };

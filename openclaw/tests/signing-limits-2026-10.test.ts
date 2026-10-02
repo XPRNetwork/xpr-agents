@@ -86,10 +86,13 @@ describe('signing limits and confirmations (regressions)', () => {
     expect(spent).toBeLessThanOrEqual(100);
   });
 
-  const lowRam = (liquid?: string) =>
-    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({
-      ram_quota: 1000, ram_usage: 1000, ...(liquid ? { core_liquid_balance: liquid } : {}),
-    }) } as any);
+  // get_account reports RAM; the XPR balance comes from get_currency_balance (core_liquid_balance
+  // is not XPR on XPR Network, so it must not be trusted even if present)
+  const lowRam = (xpr?: string) =>
+    vi.mocked(fetch).mockImplementation(async (url: any) => ({ ok: true, json: async () =>
+      String(url).includes('get_currency_balance') ? (xpr ? [xpr] : [])
+        : { ram_quota: 1000, ram_usage: 1000, core_liquid_balance: '999999.0000 SYS' },
+    }) as any);
 
   it('P1: a funded agent low on RAM gets one transaction with the RAM purchase first', async () => {
     vi.stubEnv('MAX_TRANSFER_AMOUNT', '10000000'); // 1,000 XPR
