@@ -477,6 +477,8 @@ export class AgentCoreContract extends Contract {
     check(endpoint.length <= 256, "Endpoint must be <= 256 characters");
 
     // Only validate URL format and protocol when endpoint is provided
+    // Stored even when no endpoint is given, so bound it outside the endpoint branch
+    check(protocol.length <= 32, "Protocol must be <= 32 characters");
     if (endpoint.length > 0) {
       // M10 FIX: Basic URL format validation - must start with valid scheme
       check(
@@ -567,6 +569,8 @@ export class AgentCoreContract extends Contract {
     check(endpoint.length <= 256, "Endpoint must be <= 256 characters");
 
     // Only validate URL format and protocol when endpoint is provided
+    // Stored even when no endpoint is given, so bound it outside the endpoint branch
+    check(protocol.length <= 32, "Protocol must be <= 32 characters");
     if (endpoint.length > 0) {
       // M10 FIX: Basic URL format validation
       check(
@@ -1075,7 +1079,8 @@ export class AgentCoreContract extends Contract {
       false
     );
 
-    this.pluginsTable.store(plugin, this.receiver);
+    // Billed to the author: plugin registration is open to any account
+    this.pluginsTable.store(plugin, author);
   }
 
   @action("verifyplugin")
@@ -1086,7 +1091,7 @@ export class AgentCoreContract extends Contract {
     const plugin = this.pluginsTable.requireGet(plugin_id, "Plugin not found");
     plugin.verified = verified;
 
-    this.pluginsTable.update(plugin, this.receiver);
+    this.pluginsTable.update(plugin, plugin.author);
   }
 
   @action("addplugin")
@@ -1123,7 +1128,8 @@ export class AgentCoreContract extends Contract {
       true
     );
 
-    this.agentPlugsTable.store(agentPlugin, this.receiver);
+    // Billed to the agent that installs the plugin
+    this.agentPlugsTable.store(agentPlugin, agent);
   }
 
   @action("rmplugin")
@@ -1152,7 +1158,7 @@ export class AgentCoreContract extends Contract {
     check(agentPlugin.agent == agent, "Not your plugin");
 
     agentPlugin.enabled = enabled;
-    this.agentPlugsTable.update(agentPlugin, this.receiver);
+    this.agentPlugsTable.update(agentPlugin, agent);
   }
 
   @action("pluginres")
@@ -1213,7 +1219,8 @@ export class AgentCoreContract extends Contract {
       currentTimeSec()
     );
 
-    this.pluginResultsTable.store(result, this.receiver);
+    // Billed to the plugin contract submitting the result
+    this.pluginResultsTable.store(result, plugin.contract);
   }
 
   // ============== ADMIN REMOVAL ==============
