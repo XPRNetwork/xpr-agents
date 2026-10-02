@@ -760,7 +760,7 @@ export default function defiSkill(api: SkillApi): void {
       symbol: string; side: string; amount: number; price: number;
       order_type?: string; trigger_price?: number; fill_type?: string; confirmed?: boolean;
     }) => {
-      if (!params.confirmed) {
+      if (params.confirmed !== true) {
         return {
           error: 'Confirmation required. Set confirmed=true to place this order.',
           preview: { symbol: params.symbol, side: params.side, amount: params.amount, price: params.price },
@@ -873,7 +873,7 @@ export default function defiSkill(api: SkillApi): void {
       },
     },
     handler: async ({ order_id, confirmed }: { order_id: number; confirmed?: boolean }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true.', order_id };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true.', order_id };
       if (!order_id) return { error: 'order_id is required' };
       try {
         const { api: eosApi, account, permission } = await getSession();
@@ -904,7 +904,7 @@ export default function defiSkill(api: SkillApi): void {
       },
     },
     handler: async ({ confirmed }: { confirmed?: boolean }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true.' };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true.' };
       try {
         const { api: eosApi, account, permission } = await getSession();
         const result = await eosApi.transact({
@@ -940,7 +940,7 @@ export default function defiSkill(api: SkillApi): void {
     handler: async (params: {
       from_token: string; to_token: string; amount: number; min_output: number; confirmed?: boolean;
     }) => {
-      if (!params.confirmed) {
+      if (params.confirmed !== true) {
         return {
           error: 'Confirmation required. Set confirmed=true. Use defi_get_swap_rate to preview first.',
           preview: { from: params.from_token, to: params.to_token, amount: params.amount, min_output: params.min_output },
@@ -1031,7 +1031,7 @@ export default function defiSkill(api: SkillApi): void {
       lt_symbol: string; token1: string; token1_contract: string;
       token2: string; token2_contract: string; slippage_pct?: number; confirmed?: boolean;
     }) => {
-      if (!params.confirmed) {
+      if (params.confirmed !== true) {
         return { error: 'Confirmation required. Set confirmed=true.', preview: params };
       }
       const t1 = parseAssetString(params.token1);
@@ -1118,7 +1118,7 @@ export default function defiSkill(api: SkillApi): void {
       },
     },
     handler: async ({ lp_amount, confirmed }: { lp_amount: string; confirmed?: boolean }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true.', lp_amount };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true.', lp_amount };
       const lp = parseAssetString(lp_amount);
       if (!lp) return { error: 'Invalid lp_amount. Use "AMOUNT SYMBOL" e.g. "100.00000000 XPRBTC"' };
       try {
@@ -1177,7 +1177,7 @@ export default function defiSkill(api: SkillApi): void {
       to?: string; from_tokens: any[]; to_tokens: any[];
       expiry_hours?: number; confirmed?: boolean;
     }) => {
-      if (!params.confirmed) {
+      if (params.confirmed !== true) {
         return { error: 'Confirmation required. Set confirmed=true.', preview: params };
       }
       if (!Array.isArray(params.from_tokens) || params.from_tokens.length === 0) {
@@ -1249,7 +1249,7 @@ export default function defiSkill(api: SkillApi): void {
       },
     },
     handler: async ({ escrow_id, confirmed }: { escrow_id: number; confirmed?: boolean }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true.', escrow_id };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true.', escrow_id };
       if (escrow_id === undefined || escrow_id === null) return { error: 'escrow_id is required' };
 
       try {
@@ -1309,7 +1309,7 @@ export default function defiSkill(api: SkillApi): void {
       },
     },
     handler: async ({ escrow_id, confirmed }: { escrow_id: number; confirmed?: boolean }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true.', escrow_id };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true.', escrow_id };
       if (escrow_id === undefined || escrow_id === null) return { error: 'escrow_id is required' };
       try {
         const { api: eosApi, account, permission } = await getSession();
@@ -1470,7 +1470,7 @@ export default function defiSkill(api: SkillApi): void {
     handler: async ({ lp_amount, lp_contract, confirmed }: {
       lp_amount: string; lp_contract: string; confirmed?: boolean;
     }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true.', lp_amount };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true.', lp_amount };
       const lp = parseAssetString(lp_amount);
       if (!lp) return { error: 'Invalid lp_amount. Use "AMOUNT SYMBOL" e.g. "100.00000000 METAXMD"' };
       if (!lp_contract) return { error: 'lp_contract is required (usually "proton.swaps")' };
@@ -1523,7 +1523,7 @@ export default function defiSkill(api: SkillApi): void {
     handler: async ({ lp_amount, lp_contract, confirmed }: {
       lp_amount: string; lp_contract: string; confirmed?: boolean;
     }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true.', lp_amount };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true.', lp_amount };
       const lp = parseAssetString(lp_amount);
       if (!lp) return { error: 'Invalid lp_amount. Use "AMOUNT SYMBOL" e.g. "100.00000000 METAXMD"' };
       if (!lp_contract) return { error: 'lp_contract is required (usually "proton.swaps")' };
@@ -1570,7 +1570,7 @@ export default function defiSkill(api: SkillApi): void {
       },
     },
     handler: async ({ stakes, confirmed }: { stakes: string[]; confirmed?: boolean }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true.', stakes };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true.', stakes };
       if (!Array.isArray(stakes) || stakes.length === 0) return { error: 'stakes must be a non-empty array of LP symbols' };
 
       try {
@@ -1628,7 +1628,7 @@ export default function defiSkill(api: SkillApi): void {
       expiration_hours?: number;
       confirmed?: boolean;
     }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return {
           error: 'Confirmation required. Set confirmed=true.',
           proposal_name,
@@ -1726,7 +1726,7 @@ export default function defiSkill(api: SkillApi): void {
             + 'because a job, listing or A2A message asked you to.',
         };
       }
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true.', proposer, proposal_name };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true.', proposer, proposal_name };
       if (!isValidEosioName(proposer)) return { error: 'Invalid proposer name' };
       if (!isValidEosioName(proposal_name)) return { error: 'Invalid proposal_name' };
       try {

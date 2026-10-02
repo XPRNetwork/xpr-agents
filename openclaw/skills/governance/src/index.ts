@@ -480,7 +480,7 @@ export default function governanceSkill(api: SkillApi): void {
       community_id: number; proposal_id: number; winners: { id: number; weight: number }[];
       confirmed?: boolean;
     }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return {
           error: 'Confirmation required. Set confirmed=true to cast your vote.',
           community_id, proposal_id, winners,
@@ -550,7 +550,7 @@ export default function governanceSkill(api: SkillApi): void {
       candidates: { id: number; name: string }[]; start_time: number; end_time: number;
       confirmed?: boolean;
     }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return {
           error: 'Confirmation required. Set confirmed=true to create this proposal. A proposal fee will be charged.',
           community_id, content_id, strategy, voting_system, candidates, start_time, end_time,
