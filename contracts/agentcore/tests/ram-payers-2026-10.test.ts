@@ -36,7 +36,7 @@ describe('agentcore RAM payers and protocol bound (October 2026 review)', () => 
       core.actions.register(['carol', 'Carol', 'desc', '', 'x'.repeat(33), '[]']).send('carol@active'),
       'Protocol must be <= 32 characters'
     );
-    await core.actions.register(['carol', 'Carol', 'desc', '', '', '[]']).send('carol@active');
+    await core.actions.register(['carol', 'Carol', 'desc', '', 'x'.repeat(32), '[]']).send('carol@active');
   });
 
   it('update bounds protocol even when the endpoint is empty', async () => {

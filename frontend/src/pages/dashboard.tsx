@@ -512,7 +512,7 @@ export default function Dashboard() {
           data: {
             agent: session.auth.actor,
             plugin_id: plugin.id,
-            config: '{}',
+            pluginConfig: '{}',
           },
         },
       ]);
