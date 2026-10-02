@@ -563,7 +563,7 @@ export default function lendingSkill(api: SkillApi): void {
       },
     },
     handler: async ({ markets, confirmed }: { markets: string[]; confirmed?: boolean }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return { error: 'Confirmation required. Set confirmed=true to enter these markets.', markets };
       }
       if (!Array.isArray(markets) || markets.length === 0) {
@@ -613,7 +613,7 @@ export default function lendingSkill(api: SkillApi): void {
       },
     },
     handler: async ({ markets, confirmed }: { markets: string[]; confirmed?: boolean }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return { error: 'Confirmation required. Set confirmed=true to exit these markets.', markets };
       }
       if (!Array.isArray(markets) || markets.length === 0) {
@@ -662,7 +662,7 @@ export default function lendingSkill(api: SkillApi): void {
     handler: async ({ market_symbol, amount, confirmed }: {
       market_symbol: string; amount: number; confirmed?: boolean;
     }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return {
           error: 'Confirmation required. Set confirmed=true to supply tokens.',
           market_symbol, amount,
@@ -740,7 +740,7 @@ export default function lendingSkill(api: SkillApi): void {
     handler: async ({ market_symbol, amount, use_stable_rate, confirmed }: {
       market_symbol: string; amount: number; use_stable_rate?: boolean; confirmed?: boolean;
     }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return {
           error: 'Confirmation required. Set confirmed=true to borrow. WARNING: Borrowing close to the collateral factor risks liquidation.',
           market_symbol, amount, use_stable_rate: use_stable_rate || false,
@@ -824,7 +824,7 @@ export default function lendingSkill(api: SkillApi): void {
     handler: async ({ market_symbol, amount, rate_type, borrower, confirmed }: {
       market_symbol: string; amount: number; rate_type: string; borrower?: string; confirmed?: boolean;
     }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return {
           error: 'Confirmation required. Set confirmed=true to repay.',
           market_symbol, amount, rate_type, borrower,
@@ -906,7 +906,7 @@ export default function lendingSkill(api: SkillApi): void {
     handler: async ({ market_symbol, amount, confirmed }: {
       market_symbol: string; amount: number; confirmed?: boolean;
     }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return {
           error: 'Confirmation required. Set confirmed=true to redeem L-tokens.',
           market_symbol, amount,
@@ -982,7 +982,7 @@ export default function lendingSkill(api: SkillApi): void {
     handler: async ({ market_symbol, amount, confirmed }: {
       market_symbol: string; amount: number; confirmed?: boolean;
     }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return {
           error: 'Confirmation required. Set confirmed=true to withdraw collateral.',
           market_symbol, amount,
@@ -1058,7 +1058,7 @@ export default function lendingSkill(api: SkillApi): void {
       },
     },
     handler: async ({ markets, confirmed }: { markets: string[]; confirmed?: boolean }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return { error: 'Confirmation required. Set confirmed=true to claim rewards.', markets };
       }
       if (!Array.isArray(markets) || markets.length === 0) {

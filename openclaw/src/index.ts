@@ -20,6 +20,7 @@ import { registerIndexerTools } from './tools/indexer';
 import { registerA2ATools } from './tools/a2a';
 import { registerShellbookTools } from './tools/shellbook';
 import type { PluginApi, PluginConfig, ToolDefinition } from './types';
+import { resolveTransferCap } from './util/transfer-cap';
 
 // Re-export skill types for skill package authors
 export type { SkillManifest, SkillApi, LoadedSkill } from './skill-types';
@@ -105,11 +106,15 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
   let rpc;
   let session;
 
-  // One transfer cap for everything this plugin signs. A plugin-config value also
-  // becomes the process default so skills (which sign via createCliApi) inherit it.
-  const configuredCap = rawConfig.maxTransferAmount as number | undefined;
-  if (configuredCap !== undefined && !process.env.MAX_TRANSFER_AMOUNT) {
-    process.env.MAX_TRANSFER_AMOUNT = String(configuredCap);
+  // One transfer cap for everything this plugin signs. When both the plugin config and
+  // MAX_TRANSFER_AMOUNT are set, the lower one applies, so neither setting can loosen the
+  // other. It becomes the process default so skills (which sign via createCliApi) inherit it.
+  const explicitCap = rawConfig.maxTransferAmount as number | undefined;
+  const configuredCap = explicitCap !== undefined && process.env.MAX_TRANSFER_AMOUNT
+    ? Math.min(resolveTransferCap(explicitCap), resolveTransferCap())
+    : explicitCap;
+  if (configuredCap !== undefined) {
+    process.env.MAX_TRANSFER_AMOUNT = String(resolveTransferCap(configuredCap));
   }
 
   if (hasCredentials) {
@@ -135,7 +140,7 @@ export default function xprAgentsPlugin(realApi: OpenClawPluginApi | PluginApi):
       agentescrow: contractsRaw.agentescrow || 'agentescrow',
     },
     confirmHighRisk: rawConfig.confirmHighRisk !== false,
-    maxTransferAmount: (rawConfig.maxTransferAmount as number) || 10000000,
+    maxTransferAmount: resolveTransferCap(configuredCap),
   };
 
   // Register all tool groups. Wrap registerTool with a counter so the boot

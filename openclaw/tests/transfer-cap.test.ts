@@ -94,3 +94,62 @@ describe('msig_approve is opt-in (blind approval bypasses the transfer cap)', ()
     expect(execTransactionPush).not.toHaveBeenCalled();
   });
 });
+
+describe('transfer cap: October 2026 hardening', () => {
+  const ram = (payer: string, quant: string, name = 'buyram') => ({
+    account: 'eosio', name, authorization: [{ actor: payer, permission: 'active' }],
+    data: name === 'buyram' ? { payer, receiver: 'other', quant } : { payer, receiver: payer, bytes: 8192 },
+  });
+
+  it('counts trailing-dot aliases of the token contract, action and sender', () => {
+    expect(totalXprSent([xfer('agent', '20.0000 XPR', 'eosio.token.')], 'agent')).toBe(200000);
+    expect(totalXprSent([{ ...xfer('agent.', '1.0000 XPR'), name: 'transfer.' }], 'agent')).toBe(10000);
+  });
+
+  it('counts a quantity written without a space before the symbol', () => {
+    expect(totalXprSent([xfer('agent', '20.0000XPR')], 'agent')).toBe(200000);
+    expect(() => assertTransferCap([xfer('agent', '20.0000XPR')], 'agent', 100000)).toThrow('above the transfer cap');
+  });
+
+  it('refuses XPR amounts without exactly 4 decimals', () => {
+    for (const q of ['20 XPR', '20.0 XPR', '20.00000 XPR']) {
+      expect(() => totalXprSent([xfer('agent', q)], 'agent')).toThrow('exactly 4 decimals');
+    }
+  });
+
+  it('refuses an XPR-looking quantity it cannot parse', () => {
+    for (const q of ['-5.0000 XPR', '1e3 XPR', 'XPR 5.0000', '5.0000 XPR extra']) {
+      expect(() => totalXprSent([xfer('agent', q)], 'agent')).toThrow('could not parse');
+    }
+  });
+
+  it('does not treat other symbols containing XPR (LXPR, XPRX) as XPR', () => {
+    expect(totalXprSent([xfer('agent', '5.00000000 LXPR'), xfer('agent', '5.0000XPRX')], 'agent')).toBe(0);
+  });
+
+  it('counts buyram paid by the agent, for any receiver, together with transfers', () => {
+    expect(totalXprSent([ram('agent', '50.0000 XPR'), xfer('agent', '60.0000 XPR')], 'agent')).toBe(1100000);
+    expect(() => assertTransferCap([ram('agent', '50.0000 XPR'), xfer('agent', '60.0000 XPR')], 'agent', 1000000))
+      .toThrow('above the transfer cap');
+    expect(totalXprSent([ram('someone', '50.0000 XPR')], 'agent')).toBe(0);
+  });
+
+  it('refuses capped actions whose data is pre-serialized rather than an object', () => {
+    const hex = { account: 'eosio.token', name: 'transfer', authorization: [{ actor: 'agent', permission: 'active' }], data: '00a6823403ea3055' };
+    expect(() => totalXprSent([hex as any], 'agent')).toThrow('non-object data');
+    expect(totalXprSent([{ ...hex, account: 'other.token' } as any], 'agent')).toBe(0);
+  });
+
+  it('counts XPR staked by the agent via eosio::stakexpr', () => {
+    const stake = (from: string, q: string) => ({ account: 'eosio', name: 'stakexpr', authorization: [{ actor: from, permission: 'active' }],
+      data: { from, receiver: from, stake_xpr_quantity: q } });
+    expect(totalXprSent([stake('agent', '20.0000 XPR')], 'agent')).toBe(200000);
+    expect(() => assertTransferCap([stake('agent', '20.0000 XPR')], 'agent', 100000)).toThrow('above the transfer cap');
+    expect(totalXprSent([stake('someone', '20.0000 XPR')], 'agent')).toBe(0);
+  });
+
+  it('refuses buyrambytes paid by the agent, whose cost cannot be checked', () => {
+    expect(() => totalXprSent([ram('agent', '', 'buyrambytes')], 'agent')).toThrow('buyrambytes');
+    expect(totalXprSent([ram('someone', '', 'buyrambytes')], 'agent')).toBe(0);
+  });
+});

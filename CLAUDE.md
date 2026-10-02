@@ -627,7 +627,7 @@ All phases are complete:
 ### Phase 6: OpenClaw Plugin ✓
 - `openclaw/` plugin package (`@xpr-agents/openclaw`) with 89 MCP tools (40 read, 49 write) + 13 bundled skills (xpr-agent-operator + 12 domain; pre-built dist in tarball since v0.4.0)
 - Session factory for server-side signing via `@proton/js`
-- Confirmation gate for high-risk write operations (11 tools require confirmation)
+- Confirmation gate for high-risk write operations (12 tools require confirmation)
 - `maxTransferAmount` enforcement on all XPR transfer/stake/fee operations
 - Agent operator skill (`skills/xpr-agent-operator/SKILL.md`)
 - Indexer webhook system (subscriptions, async dispatch with retry, auto-disable)

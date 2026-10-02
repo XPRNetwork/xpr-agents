@@ -140,33 +140,47 @@ async function getTableRows(endpoint: string, opts: {
 const MIN_RAM_FREE_BYTES = 32768; // 32 KB threshold
 const RAM_BUY_AMOUNT = '50.0000 XPR'; // Buy 50 XPR worth of RAM (~500KB)
 
-async function ensureRam(session: { api: any; account: string; permission: string }): Promise<void> {
+/**
+ * RAM top-up to include in the same transaction as the NFT operation, or [] if not needed.
+ * Bundling it means the central transfer cap sees the RAM spend and the operation as one
+ * total, and a failed operation does not leave a RAM purchase behind.
+ */
+async function ramTopUpActions(session: { api: any; account: string; permission: string }): Promise<any[]> {
   const rpcEndpoint = process.env.XPR_RPC_ENDPOINT;
-  if (!rpcEndpoint) return; // Can't check without RPC
+  if (!rpcEndpoint) return []; // Can't check without RPC
 
   try {
     const acctInfo = await rpcPost(rpcEndpoint, '/v1/chain/get_account', { account_name: session.account });
     const free = (acctInfo.ram_quota || 0) - (acctInfo.ram_usage || 0);
+    if (free >= MIN_RAM_FREE_BYTES) return [];
 
-    if (free < MIN_RAM_FREE_BYTES) {
-      console.log(`[nft] Low RAM: ${free} bytes free (threshold: ${MIN_RAM_FREE_BYTES}). Buying more...`);
-      await session.api.transact({
-        actions: [{
-          account: 'eosio',
-          name: 'buyram',
-          authorization: [{ actor: session.account, permission: session.permission }],
-          data: {
-            payer: session.account,
-            receiver: session.account,
-            quant: RAM_BUY_AMOUNT,
-          },
-        }],
-      }, { blocksBehind: 3, expireSeconds: 30 });
-      console.log(`[nft] Bought ${RAM_BUY_AMOUNT} worth of RAM for ${session.account}`);
+    // Only add the purchase when the agent can pay for it; otherwise let the operation try
+    // without it rather than fail on a RAM purchase it could not afford
+    // get_account's core_liquid_balance is not XPR on this chain, so read the XPR balance itself
+    const balances = await rpcPost(rpcEndpoint, '/v1/chain/get_currency_balance',
+      { code: 'eosio.token', account: session.account, symbol: 'XPR' });
+    const xpr = Array.isArray(balances) && typeof balances[0] === 'string' ? balances[0] : '';
+    const liquid = xpr ? parseFloat(xpr) : NaN;
+    if (!(liquid >= parseFloat(RAM_BUY_AMOUNT))) {
+      console.warn(`[nft] Low RAM (${free} bytes) but XPR balance ${xpr || 'unknown'} does not cover ${RAM_BUY_AMOUNT}; skipping RAM top-up`);
+      return [];
     }
+
+    console.log(`[nft] Low RAM: ${free} bytes free (threshold: ${MIN_RAM_FREE_BYTES}). Adding a ${RAM_BUY_AMOUNT} RAM purchase.`);
+    return [{
+      account: 'eosio',
+      name: 'buyram',
+      authorization: [{ actor: session.account, permission: session.permission }],
+      data: {
+        payer: session.account,
+        receiver: session.account,
+        quant: RAM_BUY_AMOUNT,
+      },
+    }];
   } catch (err: any) {
-    // Non-fatal — log and continue, the actual NFT tx will fail with a clearer error if RAM is truly out
+    // Non-fatal — the NFT tx will fail with a clearer error if RAM is truly out
     console.warn(`[nft] RAM check failed (non-fatal): ${err.message}`);
+    return [];
   }
 }
 
@@ -843,19 +857,19 @@ export default function nftSkill(api: SkillApi): void {
       collection_name: string; display_name?: string; description?: string; image?: string;
       market_fee?: number; allow_notify?: boolean; confirmed?: boolean;
     }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true to create this collection.' };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true to create this collection.' };
       if (!isValidEosioName(collection_name)) return { error: 'Invalid collection_name. Must be 1-12 characters, a-z and 1-5 only.' };
 
       try {
         const session = await getNftSession();
-        await ensureRam(session);
+        const ramActions = await ramTopUpActions(session);
         const data: Array<{ key: string; value: [string, any] }> = [];
         if (display_name) data.push({ key: 'name', value: ['string', display_name] });
         if (image) data.push({ key: 'image', value: ['string', image] });
         if (description) data.push({ key: 'description', value: ['string', description] });
 
         const result = await session.api.transact({
-          actions: [{
+          actions: [...ramActions, {
             account: 'atomicassets',
             name: 'createcol',
             authorization: [{ actor: session.account, permission: session.permission }],
@@ -899,7 +913,7 @@ export default function nftSkill(api: SkillApi): void {
       collection_name: string; schema_name: string;
       schema_format: Array<{ name: string; type: string }>; confirmed?: boolean;
     }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true to create this schema.' };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true to create this schema.' };
       if (!isValidEosioName(collection_name)) return { error: 'Invalid collection_name' };
       if (!isValidEosioName(schema_name)) return { error: 'Invalid schema_name. Must be 1-12 characters, a-z and 1-5 only.' };
       if (!Array.isArray(schema_format) || schema_format.length === 0) {
@@ -908,9 +922,9 @@ export default function nftSkill(api: SkillApi): void {
 
       try {
         const session = await getNftSession();
-        await ensureRam(session);
+        const ramActions = await ramTopUpActions(session);
         const result = await session.api.transact({
-          actions: [{
+          actions: [...ramActions, {
             account: 'atomicassets',
             name: 'createschema',
             authorization: [{ actor: session.account, permission: session.permission }],
@@ -951,7 +965,7 @@ export default function nftSkill(api: SkillApi): void {
       collection_name: string; schema_name: string; immutable_data: Record<string, any>;
       max_supply?: number; transferable?: boolean; burnable?: boolean; confirmed?: boolean;
     }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true to create this template.' };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true to create this template.' };
       if (!collection_name || !schema_name) return { error: 'collection_name and schema_name are required' };
       if (!immutable_data || typeof immutable_data !== 'object') return { error: 'immutable_data must be an object' };
 
@@ -962,9 +976,9 @@ export default function nftSkill(api: SkillApi): void {
         const attributeMap = buildAttributeMap(immutable_data, schemaFormat);
 
         const session = await getNftSession();
-        await ensureRam(session);
+        const ramActions = await ramTopUpActions(session);
         const result = await session.api.transact({
-          actions: [{
+          actions: [...ramActions, {
             account: 'atomicassets',
             name: 'createtempl',
             authorization: [{ actor: session.account, permission: session.permission }],
@@ -1038,14 +1052,14 @@ export default function nftSkill(api: SkillApi): void {
       collection_name: string; schema_name: string; template_id: number;
       new_asset_owner?: string; mutable_data?: Record<string, any>; confirmed?: boolean;
     }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true to mint this NFT.' };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true to mint this NFT.' };
       if (!collection_name || !schema_name || template_id == null) {
         return { error: 'collection_name, schema_name, and template_id are required' };
       }
 
       try {
         const session = await getNftSession();
-        await ensureRam(session);
+        const ramActions = await ramTopUpActions(session);
         const owner = new_asset_owner || session.account;
 
         // Build mutable data attribute map if provided
@@ -1059,7 +1073,7 @@ export default function nftSkill(api: SkillApi): void {
         }
 
         const result = await session.api.transact({
-          actions: [{
+          actions: [...ramActions, {
             account: 'atomicassets',
             name: 'mintasset',
             authorization: [{ actor: session.account, permission: session.permission }],
@@ -1140,15 +1154,15 @@ export default function nftSkill(api: SkillApi): void {
     handler: async ({ to, asset_ids, memo, confirmed }: {
       to: string; asset_ids: string[]; memo?: string; confirmed?: boolean;
     }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true to transfer these NFTs.' };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true to transfer these NFTs.' };
       if (!to || !isValidEosioName(to)) return { error: 'Invalid recipient account' };
       if (!Array.isArray(asset_ids) || asset_ids.length === 0) return { error: 'asset_ids must be a non-empty array' };
 
       try {
         const session = await getNftSession();
-        await ensureRam(session);
+        const ramActions = await ramTopUpActions(session);
         const result = await session.api.transact({
-          actions: [{
+          actions: [...ramActions, {
             account: 'atomicassets',
             name: 'transfer',
             authorization: [{ actor: session.account, permission: session.permission }],
@@ -1181,14 +1195,14 @@ export default function nftSkill(api: SkillApi): void {
       },
     },
     handler: async ({ asset_id, confirmed }: { asset_id: string; confirmed?: boolean }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true to burn this NFT. This action is PERMANENT.' };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true to burn this NFT. This action is PERMANENT.' };
       if (!asset_id) return { error: 'asset_id is required' };
 
       try {
         const session = await getNftSession();
-        await ensureRam(session);
+        const ramActions = await ramTopUpActions(session);
         const result = await session.api.transact({
-          actions: [{
+          actions: [...ramActions, {
             account: 'atomicassets',
             name: 'burnasset',
             authorization: [{ actor: session.account, permission: session.permission }],
@@ -1223,20 +1237,20 @@ export default function nftSkill(api: SkillApi): void {
     handler: async ({ asset_ids, price, marketplace, confirmed }: {
       asset_ids: string[]; price: string; marketplace?: string; confirmed?: boolean;
     }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true to list these NFTs for sale.' };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true to list these NFTs for sale.' };
       if (!Array.isArray(asset_ids) || asset_ids.length === 0) return { error: 'asset_ids must be a non-empty array' };
       if (!price) return { error: 'price is required (e.g. "100.0000 XPR")' };
 
       try {
         const parsed = parsePrice(price);
         const session = await getNftSession();
-        await ensureRam(session);
+        const ramActions = await ramTopUpActions(session);
         const numericAssetIds = asset_ids.map(id => Number(id));
 
         // announcesale MUST come before createoffer — when createoffer notifies
         // atomicmarket, it checks that a sale was already announced for these assets.
         const result = await session.api.transact({
-          actions: [
+          actions: [...ramActions,
             {
               account: 'atomicmarket',
               name: 'announcesale',
@@ -1284,14 +1298,14 @@ export default function nftSkill(api: SkillApi): void {
       },
     },
     handler: async ({ sale_id, confirmed }: { sale_id: string; confirmed?: boolean }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true to cancel this sale.' };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true to cancel this sale.' };
       if (!sale_id) return { error: 'sale_id is required' };
 
       try {
         const session = await getNftSession();
-        await ensureRam(session);
+        const ramActions = await ramTopUpActions(session);
         const result = await session.api.transact({
-          actions: [{
+          actions: [...ramActions, {
             account: 'atomicmarket',
             name: 'cancelsale',
             authorization: [{ actor: session.account, permission: session.permission }],
@@ -1325,7 +1339,7 @@ export default function nftSkill(api: SkillApi): void {
     handler: async ({ sale_id, price, taker_marketplace, confirmed }: {
       sale_id: string; price: string; taker_marketplace?: string; confirmed?: boolean;
     }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true to purchase this NFT.' };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true to purchase this NFT.' };
       if (!sale_id) return { error: 'sale_id is required' };
       if (!price) return { error: 'price is required (must match listing price exactly)' };
 
@@ -1333,10 +1347,10 @@ export default function nftSkill(api: SkillApi): void {
         const parsed = parsePrice(price);
         assertXprWithinCap(parsed, 'nft_purchase');
         const session = await getNftSession();
-        await ensureRam(session);
+        const ramActions = await ramTopUpActions(session);
 
         const result = await session.api.transact({
-          actions: [
+          actions: [...ramActions,
             {
               account: parsed.contract,
               name: 'transfer',
@@ -1388,7 +1402,7 @@ export default function nftSkill(api: SkillApi): void {
       asset_ids: string[]; starting_bid: string; duration_seconds: number;
       marketplace?: string; confirmed?: boolean;
     }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true to create this auction.' };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true to create this auction.' };
       if (!Array.isArray(asset_ids) || asset_ids.length === 0) return { error: 'asset_ids must be a non-empty array' };
       if (!starting_bid) return { error: 'starting_bid is required (e.g. "10.0000 XPR")' };
       if (!duration_seconds || duration_seconds <= 0) return { error: 'duration_seconds must be a positive number' };
@@ -1396,13 +1410,13 @@ export default function nftSkill(api: SkillApi): void {
       try {
         const parsed = parsePrice(starting_bid);
         const session = await getNftSession();
-        await ensureRam(session);
+        const ramActions = await ramTopUpActions(session);
         const numericAssetIds = asset_ids.map(id => Number(id));
 
         // announceauct MUST come before transfer — when atomicmarket receives the
         // assets via transfer notification, it checks for a previously announced auction.
         const result = await session.api.transact({
-          actions: [
+          actions: [...ramActions,
             {
               account: 'atomicmarket',
               name: 'announceauct',
@@ -1456,7 +1470,7 @@ export default function nftSkill(api: SkillApi): void {
     handler: async ({ auction_id, bid_amount, taker_marketplace, confirmed }: {
       auction_id: string; bid_amount: string; taker_marketplace?: string; confirmed?: boolean;
     }) => {
-      if (!confirmed) return { error: 'Confirmation required. Set confirmed=true to place this bid.' };
+      if (confirmed !== true) return { error: 'Confirmation required. Set confirmed=true to place this bid.' };
       if (!auction_id) return { error: 'auction_id is required' };
       if (!bid_amount) return { error: 'bid_amount is required (e.g. "50.0000 XPR")' };
 
@@ -1464,10 +1478,10 @@ export default function nftSkill(api: SkillApi): void {
         const parsed = parsePrice(bid_amount);
         assertXprWithinCap(parsed, 'nft_bid');
         const session = await getNftSession();
-        await ensureRam(session);
+        const ramActions = await ramTopUpActions(session);
 
         const result = await session.api.transact({
-          actions: [
+          actions: [...ramActions,
             {
               account: parsed.contract,
               name: 'transfer',
@@ -1516,9 +1530,9 @@ export default function nftSkill(api: SkillApi): void {
 
       try {
         const session = await getNftSession();
-        await ensureRam(session);
+        const ramActions = await ramTopUpActions(session);
 
-        // auctclaimbuy claims assets for the buyer, auctclaimsell claims proceeds for the seller
+        // auctclaimbuy claims assets for the buyer, auctclaimsel claims proceeds for the seller
         // Try both — only the relevant one will succeed
         const actions = [
           {
@@ -1529,7 +1543,7 @@ export default function nftSkill(api: SkillApi): void {
           },
           {
             account: 'atomicmarket',
-            name: 'auctclaimsell',
+            name: 'auctclaimsel',
             authorization: [{ actor: session.account, permission: session.permission }],
             data: { auction_id: Number(auction_id) },
           },
@@ -1537,14 +1551,14 @@ export default function nftSkill(api: SkillApi): void {
 
         // Try buyer claim first
         try {
-          const result = await session.api.transact({ actions: [actions[0]] }, { blocksBehind: 3, expireSeconds: 30 });
+          const result = await session.api.transact({ actions: [...ramActions, actions[0]] }, { blocksBehind: 3, expireSeconds: 30 });
           return { transaction_id: result.transaction_id || result.processed?.id, auction_id, claim_type: 'buyer' };
         } catch {
           // Not the buyer — try seller claim
         }
 
         try {
-          const result = await session.api.transact({ actions: [actions[1]] }, { blocksBehind: 3, expireSeconds: 30 });
+          const result = await session.api.transact({ actions: [...ramActions, actions[1]] }, { blocksBehind: 3, expireSeconds: 30 });
           return { transaction_id: result.transaction_id || result.processed?.id, auction_id, claim_type: 'seller' };
         } catch {
           // Neither buyer nor seller

@@ -472,7 +472,7 @@ export default function xmdSkill(api: SkillApi): void {
     handler: async ({ collateral_symbol, amount, confirmed }: {
       collateral_symbol: string; amount: number; confirmed?: boolean;
     }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return {
           error: 'Confirmation required. Set confirmed=true to mint XMD.',
           collateral_symbol, amount,
@@ -562,7 +562,7 @@ export default function xmdSkill(api: SkillApi): void {
     handler: async ({ redeem_for, amount, confirmed }: {
       redeem_for: string; amount: number; confirmed?: boolean;
     }) => {
-      if (!confirmed) {
+      if (confirmed !== true) {
         return {
           error: 'Confirmation required. Set confirmed=true to redeem XMD.',
           redeem_for, amount,

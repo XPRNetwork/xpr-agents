@@ -469,17 +469,23 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
           description: 'AtomicAssets asset IDs to transfer to the client',
         },
         nft_collection: { type: 'string', description: 'Collection name for the NFT deliverable' },
+        confirmed: { type: 'boolean', description: 'Set to true to confirm transferring these NFTs to the client' },
       },
     },
-    handler: async ({ job_id, evidence_uri, nft_asset_ids, nft_collection }: {
+    handler: async ({ job_id, evidence_uri, nft_asset_ids, nft_collection, confirmed }: {
       job_id: number;
       evidence_uri: string;
       nft_asset_ids: string[];
       nft_collection?: string;
+      confirmed?: boolean;
     }) => {
       if (!config.session) throw new Error('Session required: set XPR_ACCOUNT and ensure proton CLI has the account key in its keychain');
       validatePositiveInt(job_id, 'job_id');
       validateRequired(evidence_uri, 'evidence_uri');
+      if (!Array.isArray(nft_asset_ids) || nft_asset_ids.length === 0 ||
+          !nft_asset_ids.every(id => typeof id === 'string' && /^\d{1,20}$/.test(id))) {
+        throw new Error('nft_asset_ids must be a non-empty list of numeric asset IDs');
+      }
 
       const agent = config.session.auth.actor;
       const permission = config.session.auth.permission;
@@ -487,6 +493,16 @@ export function registerEscrowTools(api: PluginApi, config: PluginConfig): void 
       const registry = new EscrowRegistry(config.rpc, config.session, contracts.agentescrow);
       const job = await registry.getJob(job_id);
       if (!job) throw new Error(`Job #${job_id} not found`);
+
+      // Transferring NFTs is irreversible: same gate as nft_transfer, naming the real recipient
+      const confirmation = needsConfirmation(
+        config.confirmHighRisk,
+        confirmed,
+        'deliver_job_nft',
+        { job_id, to: job.client, nft_asset_ids },
+        `Transfer ${nft_asset_ids.length} NFT(s) (${nft_asset_ids.join(', ')}) to ${job.client} and deliver job #${job_id}?`
+      );
+      if (confirmation) return confirmation;
 
       const finalUri = JSON.stringify({
         type: 'nft',
