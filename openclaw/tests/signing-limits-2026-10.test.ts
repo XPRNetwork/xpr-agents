@@ -86,6 +86,42 @@ describe('signing limits and confirmations (regressions)', () => {
     expect(spent).toBeLessThanOrEqual(100);
   });
 
+  const lowRam = (liquid?: string) =>
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({
+      ram_quota: 1000, ram_usage: 1000, ...(liquid ? { core_liquid_balance: liquid } : {}),
+    }) } as any);
+
+  it('P1: a funded agent low on RAM gets one transaction with the RAM purchase first', async () => {
+    vi.stubEnv('MAX_TRANSFER_AMOUNT', '10000000'); // 1,000 XPR
+    lowRam('900.0000 XPR');
+    await registry(nft).get('nft_create_collection').handler({ collection_name: 'reviewcol', confirmed: true });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    const actions = signedActions();
+    expect(actions[0]).toMatchObject({ account: 'eosio', name: 'buyram', data: { payer: 'testagent', quant: '50.0000 XPR' } });
+    expect(actions.length).toBeGreaterThan(1);
+  });
+
+  it('P1: the cap refuses a bundled RAM purchase that exceeds it, signing nothing', async () => {
+    lowRam('900.0000 XPR'); // cap 10 XPR from beforeEach
+    await registry(nft).get('nft_create_collection').handler({ collection_name: 'reviewcol', confirmed: true });
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it('P1: RAM plus an NFT purchase are capped together', async () => {
+    vi.stubEnv('MAX_TRANSFER_AMOUNT', '1000000'); // 100 XPR
+    lowRam('900.0000 XPR');
+    await registry(nft).get('nft_purchase').handler({ sale_id: '1', price: '60.0000 XPR', confirmed: true });
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it('P1: without the XPR for a RAM top-up the operation runs without it', async () => {
+    vi.stubEnv('MAX_TRANSFER_AMOUNT', '10000000');
+    lowRam('3.0000 XPR');
+    await registry(nft).get('nft_create_collection').handler({ collection_name: 'reviewcol', confirmed: true });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(signedActions().some((a: any) => a.name === 'buyram')).toBe(false);
+  });
+
   it('P2: NFT job delivery cannot bypass the NFT transfer confirmation gate', async () => {
     const { tools, rpc } = escrow(); // confirmHighRisk=true
     rpc.get_table_rows.mockResolvedValue({ rows: [{ id: '1', client: 'receiver', agent: 'testagent', state: 3, deliverables: '[]', arbitrator: '' }], more: false });

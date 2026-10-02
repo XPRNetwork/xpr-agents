@@ -44,14 +44,19 @@ export function resolveTransferCap(explicit?: number): number {
   return DEFAULT_MAX_TRANSFER_AMOUNT;
 }
 
-/** Parse "12.3456 XPR" into smallest units; returns null for other symbols or bad input. */
+/**
+ * Parse an XPR quantity into smallest units; null for other symbols. The space before the
+ * symbol is optional because the serializer accepts "20.0000XPR". XPR must carry exactly
+ * 4 decimals; anything else is refused rather than guessed at.
+ */
 function xprUnits(quantity: unknown): number | null {
   if (typeof quantity !== 'string') return null;
-  const m = quantity.trim().match(/^(\d+)(?:\.(\d+))?\s+([A-Z]{1,7})$/);
+  const m = quantity.trim().match(/^(\d+)(?:\.(\d+))?\s*([A-Z]{1,7})$/);
   if (!m || m[3] !== 'XPR') return null;
-  const whole = Number(m[1]);
-  const frac = (m[2] ?? '').padEnd(XPR_DECIMALS, '0').slice(0, XPR_DECIMALS);
-  return whole * 10 ** XPR_DECIMALS + Number(frac);
+  if ((m[2] ?? '').length !== XPR_DECIMALS) {
+    throw new Error(`Refusing XPR quantity "${quantity}": XPR amounts need exactly ${XPR_DECIMALS} decimals`);
+  }
+  return Number(m[1]) * 10 ** XPR_DECIMALS + Number(m[2]);
 }
 
 /**
@@ -66,7 +71,8 @@ export function canonicalName(name: unknown): string {
 function cappedUnits(quantity: unknown, what: string): number {
   const units = xprUnits(quantity);
   if (units !== null) return units;
-  if (typeof quantity === 'string' && /\bXPR\b/.test(quantity)) {
+  // XPR as the symbol itself (not a longer symbol such as LXPR), with or without a space
+  if (typeof quantity === 'string' && /(^|[^A-Z])XPR([^A-Z]|$)/.test(quantity.trim())) {
     // An XPR-looking quantity we cannot parse must not slip past the cap.
     throw new Error(`Refusing ${what}: could not parse XPR quantity "${quantity}"`);
   }
@@ -91,6 +97,12 @@ export function totalXprSent(actions: CappableAction[], account: string): number
       const d = (a.data ?? {}) as { payer?: unknown; quant?: unknown };
       if (canonicalName(d.payer) !== self) continue;
       total += cappedUnits(d.quant, 'RAM purchase');
+    } else if (contract === 'eosio' && action === 'buyrambytes') {
+      // The XPR cost is not in the action, so it cannot be checked against the cap
+      const d = (a.data ?? {}) as { payer?: unknown };
+      if (canonicalName(d.payer) === self) {
+        throw new Error('Refusing eosio::buyrambytes: its XPR cost cannot be checked against the transfer cap; use buyram with an XPR amount');
+      }
     }
   }
   return total;

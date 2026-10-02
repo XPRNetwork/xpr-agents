@@ -154,6 +154,14 @@ async function ramTopUpActions(session: { api: any; account: string; permission:
     const free = (acctInfo.ram_quota || 0) - (acctInfo.ram_usage || 0);
     if (free >= MIN_RAM_FREE_BYTES) return [];
 
+    // Only add the purchase when the agent can pay for it; otherwise let the operation try
+    // without it rather than fail on a RAM purchase it could not afford
+    const liquid = typeof acctInfo.core_liquid_balance === 'string' ? parseFloat(acctInfo.core_liquid_balance) : NaN;
+    if (!(liquid >= parseFloat(RAM_BUY_AMOUNT))) {
+      console.warn(`[nft] Low RAM (${free} bytes) but liquid balance ${acctInfo.core_liquid_balance ?? 'unknown'} does not cover ${RAM_BUY_AMOUNT}; skipping RAM top-up`);
+      return [];
+    }
+
     console.log(`[nft] Low RAM: ${free} bytes free (threshold: ${MIN_RAM_FREE_BYTES}). Adding a ${RAM_BUY_AMOUNT} RAM purchase.`);
     return [{
       account: 'eosio',
@@ -1520,7 +1528,7 @@ export default function nftSkill(api: SkillApi): void {
         const session = await getNftSession();
         const ramActions = await ramTopUpActions(session);
 
-        // auctclaimbuy claims assets for the buyer, auctclaimsell claims proceeds for the seller
+        // auctclaimbuy claims assets for the buyer, auctclaimsel claims proceeds for the seller
         // Try both — only the relevant one will succeed
         const actions = [
           {
@@ -1531,7 +1539,7 @@ export default function nftSkill(api: SkillApi): void {
           },
           {
             account: 'atomicmarket',
-            name: 'auctclaimsell',
+            name: 'auctclaimsel',
             authorization: [{ actor: session.account, permission: session.permission }],
             data: { auction_id: Number(auction_id) },
           },
