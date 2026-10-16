@@ -17,7 +17,7 @@ set -euo pipefail
 #
 #   npm i -g @proton/cli
 #   proton chain:set proton           # or proton-test
-#   proton key:add                    # paste private key (plaintext unless locked)
+#   proton key:add                    # paste private key (plaintext unless locked with proton key:lock)
 #
 
 RED='\033[0;31m'
