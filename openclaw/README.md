@@ -127,6 +127,24 @@ So `npm install @xpr-agents/openclaw` puts the package on disk but doesn't make 
 
 The standalone `create-xpr-agent` scaffold auto-registers the agent in `agentcore::agents` on first boot via the runner's `ensureRegistered()`. The harness path loads only the plugin — not the runner — so the account is **not** in the registry until you explicitly call `xpr_register_agent`. Until then, every `xpr_update_*` / `xpr_set_agent_status` call returns `Agent not found`. Tracked for v0.5 to optionally self-register on first signed call when `XPR_ACCOUNT` is set.
 
+### Upgrading from 0.8.x: the plugin id is now `xpr-agents`
+
+0.9.0 renames the plugin id from `openclaw` to `xpr-agents`. OpenClaw 2026.9 added a core tool
+called `openclaw`, and a plugin whose id matches a core tool is blocked from the tool registry
+(`plugin id conflicts with core tool name`), which hid all 89 tools. The npm package name and the
+tool names are unchanged. To upgrade:
+
+```bash
+openclaw plugins uninstall openclaw
+openclaw plugins install @xpr-agents/openclaw --accept-capabilities
+```
+
+Then in `~/.openclaw/openclaw.json`: move any `plugins.entries.openclaw.config` to
+`plugins.entries."xpr-agents".config` (the uninstall removes it), and replace `"openclaw"` with
+`"xpr-agents"` in `plugins.allow` and `tools.alsoAllow`. Restart the gateway and check
+`openclaw plugins inspect xpr-agents --runtime --json`. On the Codex agent harness the tools are
+deferred behind tool search rather than listed up front.
+
 ## Security notes (read this if your OpenClaw install scanner flags us)
 
 OpenClaw's plugin installer statically scans every package before install and reports patterns it considers risky. As of 0.4.2 it flags **19 patterns** in `@xpr-agents/openclaw`. Every one of them is intentional and named below — do not bail on the install when you see them.
