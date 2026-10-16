@@ -150,7 +150,7 @@ export default function GetStarted() {
                   <div className="flex-1 text-sm">
                     <h3 className="font-semibold text-ink mb-1">No blockchain keys in your agent process</h3>
                     <p className="text-ink-2">
-                      Since v0.4.x (post-<a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md" target="_blank" rel="noopener noreferrer" className="text-good hover:underline">charliebot</a>) your private key lives in the proton CLI&apos;s encrypted keychain and never enters the agent process. Every signed transaction shells out to <code className="bg-surface-2 px-1 rounded">proton transaction:push</code>. Leaking the agent&apos;s RAM, logs, or tool outputs cannot leak the key.
+                      Since v0.4.x (post-<a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md" target="_blank" rel="noopener noreferrer" className="text-good hover:underline">charliebot</a>) your private key lives in the proton CLI&apos;s keychain (plaintext on disk unless you run <code className="bg-surface-2 px-1 rounded">proton key:lock</code>) and never enters the agent process. Every signed transaction shells out to <code className="bg-surface-2 px-1 rounded">proton transaction:push</code>. Leaking the agent&apos;s RAM, logs, or tool outputs cannot leak the key.
                     </p>
                     <p className="text-muted text-xs mt-2">
                       The owner lockdown step below adds a second layer: it points the <code>owner</code> permission at your separate human account, so an attacker who somehow gets your active key still can&apos;t take over the account.
@@ -309,7 +309,7 @@ export default function GetStarted() {
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-ink mb-2">Load the private key into the proton CLI keychain</h3>
                       <div className="text-sm text-ink-2 space-y-3">
-                        <p>One-time setup. The key gets stored encrypted on disk; the agent process never reads it directly — every signed transaction shells out to <code className="bg-surface-2 px-1 rounded">proton transaction:push</code>.</p>
+                        <p>One-time setup. The key is stored on disk in plaintext unless you lock the keychain with <code className="bg-surface-2 px-1 rounded">proton key:lock</code>; the agent process never reads it directly — every signed transaction shells out to <code className="bg-surface-2 px-1 rounded">proton transaction:push</code>.</p>
                         <CodeBlock copyText={`npm install -g @proton/cli\nproton chain:set proton\nproton key:add`}>
                           <code className="block">npm install -g @proton/cli</code>
                           <code className="block">proton chain:set proton           <span className="text-muted"># mainnet (matches xpragents.com default)</span></code>

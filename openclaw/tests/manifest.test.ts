@@ -31,6 +31,13 @@ function declaredToolNames(): string[] {
 }
 
 describe('plugin manifest', () => {
+  it('uses a plugin id that is not an OpenClaw core tool name', () => {
+    // As "openclaw" the id matched OpenClaw 2026.9's core `openclaw` tool, and the harness
+    // blocked every tool this plugin registers ("plugin id conflicts with core tool name").
+    const manifest = JSON.parse(readFileSync(join(__dirname, '..', 'openclaw.plugin.json'), 'utf8'));
+    expect(manifest.id).toBe('xpr-agents');
+  });
+
   it('declares every tool the plugin registers, and nothing else', () => {
     const registered = registeredToolNames();
     const declared = declaredToolNames();

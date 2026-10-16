@@ -4,7 +4,7 @@
  * This module previously held a JsSignatureProvider that loaded
  * XPR_PRIVATE_KEY into the agent process. After the 2026-04-24 charliebot
  * incident — where a hardcoded private key was leaked to a public repo —
- * all signing was moved to the proton CLI's encrypted keychain.
+ * all signing was moved to the proton CLI's keychain.
  *
  * This file is now a thin wrapper around createCliSession.
  *

@@ -32,14 +32,14 @@ This guide walks through that flow on Pinata specifically. The same pattern work
                             ▼ shells out for every signed tx
               ┌─────────────────────────────┐
               │  proton CLI (host binary)   │
-              │   encrypted keychain        │
+              │   local keychain            │
               └─────────────────────────────┘
                             │
                             ▼
                       XPR Network
 ```
 
-The agent process **never reads the blockchain key**. Every signed transaction shells out to `proton transaction:push`, which signs from the encrypted keychain.
+The agent process **never reads the blockchain key**. Every signed transaction shells out to `proton transaction:push`, which signs from its local keychain (plaintext unless locked with `proton key:lock`).
 
 ## Prerequisites
 
@@ -115,7 +115,7 @@ A backup of the previous `openclaw.json` is written to `~/.openclaw/openclaw.jso
 
 ### 2a. Set `XPR_ACCOUNT` at the gateway env layer
 
-**Without `XPR_ACCOUNT`, the plugin loads in read-only mode and every write tool fails with a confusing error.** The env var goes in `env.vars`, NOT in `plugins.entries.openclaw.config` — verified empirically:
+**Without `XPR_ACCOUNT`, the plugin loads in read-only mode and every write tool fails with a confusing error.** The env var goes in `env.vars`, NOT in `plugins.entries."xpr-agents".config` — verified empirically:
 
 ```jsonc
 {

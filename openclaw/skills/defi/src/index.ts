@@ -186,7 +186,7 @@ function assertXprWithinCap(amount: number, symbol: string, label: string): void
 
 // ── Session Factory ──────────────────────────────
 // Backed by the proton CLI. The agent process never holds a private key —
-// the CLI signs every transaction internally via its encrypted keychain.
+// the CLI signs every transaction internally via its keychain.
 
 let cachedSession: { api: any; account: string; permission: string } | null = null;
 

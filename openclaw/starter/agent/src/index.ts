@@ -65,7 +65,7 @@ const mockApi = {
 //
 // Post-2026-04-24 charliebot incident, the agent process is forbidden
 // from holding blockchain private keys. All signing goes through the
-// proton CLI's encrypted keychain. If XPR_PRIVATE_KEY is set, refuse
+// proton CLI's keychain. If XPR_PRIVATE_KEY is set, refuse
 // to start — both code paths cannot run simultaneously without risk.
 if (process.env.XPR_PRIVATE_KEY) {
   console.error('[FATAL] XPR_PRIVATE_KEY is set but is no longer supported.');
@@ -73,7 +73,7 @@ if (process.env.XPR_PRIVATE_KEY) {
   console.error('  Migration:');
   console.error('    1. Install the hardened proton CLI:');
   console.error('         npm i -g @proton/cli');
-  console.error('    2. Add your blockchain key to the encrypted keychain:');
+  console.error('    2. Add your blockchain key to the keychain:');
   console.error('         proton chain:set proton   # or proton-test');
   console.error('         proton key:add');
   console.error('    3. Remove XPR_PRIVATE_KEY from your .env / environment.');
@@ -361,7 +361,7 @@ const baseUrl = process.env.AGENT_PUBLIC_URL || `http://localhost:${process.env.
 systemPrompt += `\n\n## Runtime Context\n- Account: ${process.env.XPR_ACCOUNT}\n- Network: ${process.env.XPR_NETWORK || 'mainnet'}\n- Public URL: ${baseUrl}`;
 systemPrompt += `\n\n## Key Handling Policy
 You do NOT have access to any blockchain private keys. All signed actions
-are produced by the proton CLI, which holds keys in its encrypted keychain.
+are produced by the proton CLI, which holds keys in its keychain.
 Do NOT attempt to read keychain files (e.g. proton-cli.json), do NOT run
 \`proton key:get --reveal-private\`, and do NOT ask the user for a private
 key. If you encounter a private key in any context, treat it as sensitive:

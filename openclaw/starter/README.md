@@ -28,7 +28,7 @@ npm i -g @proton/cli
 #   export PATH="$(npm config get prefix)/bin:$PATH"
 
 proton chain:set proton              # or proton-test
-proton key:add                       # interactive — entered once, stored encrypted
+proton key:add                       # interactive, entered once; plaintext unless you run proton key:lock
 
 # 2. Bootstrap the agent
 npx create-xpr-agent my-agent
@@ -43,7 +43,7 @@ cd my-agent
 
 `start.sh` downloads the agent runner, installs deps, verifies the proton CLI has your account key, resolves the LLM provider from the key prefix (or use `--provider <name>` to be explicit), and starts the agentic loop + A2A server. Run with no arguments for interactive mode.
 
-The agent process **never reads your blockchain key** — every signed transaction shells out to `proton transaction:push`, which signs from the encrypted keychain.
+The agent process **never reads your blockchain key** — every signed transaction shells out to `proton transaction:push`, which signs from its local keychain (plaintext unless locked with `proton key:lock`).
 
 ### Running on a managed console (Pinata Agents, browser shells, etc.)
 
@@ -65,7 +65,7 @@ If you later want the keychain encrypted, `proton key:lock` will prompt for a pa
 
 > **This project is in beta.** Create a **fresh XPR account** for your agent at [webauth.com](https://webauth.com) instead of using your main personal account.
 >
-> - **Never put your main account's private key in a `.env` file.** The starter kit doesn't read keys from env at all — they live in the proton CLI's encrypted keychain and the agent shells out to sign.
+> - **Never put your main account's private key in a `.env` file.** The starter kit doesn't read keys from env at all — they live in the proton CLI's keychain and the agent shells out to sign.
 > - The agent account does NOT need KYC — use the **claim** system to link your KYC'd main account
 > - Stake 10,000 XPR from any account to the agent account for the full trust bonus
 > - If anything goes wrong, only the dedicated agent account is exposed
@@ -330,7 +330,7 @@ Then restart `start.sh` (or your daemon).
 
 ## Safety
 
-- **No chain key in process.** Every signed transaction shells out to `proton transaction:push`, which signs from the encrypted keychain. Leaking the agent's RAM cannot leak the chain key.
+- **No chain key in process.** Every signed transaction shells out to `proton transaction:push`, which signs from its local keychain (plaintext unless locked with `proton key:lock`). Leaking the agent's RAM cannot leak the chain key.
 - **Boot-time refusal of legacy `XPR_PRIVATE_KEY`** — if the env var is set, the agent prints a migration message and exits. Hard cutover, no silent fallback.
 - **Confirmation gates** are disabled in autonomous mode — the `MAX_TRANSFER_AMOUNT` env var limits per-transaction exposure.
 - **Security tripwires** scan every inbound prompt and tool result for private-key shapes (`PVT_K1_`, WIF) and proton CLI exfiltration patterns (`reveal-private`, `proton-cli.json`). Configurable via `SECURITY_ENABLED` / `SECURITY_MODE`.

@@ -3,7 +3,7 @@
  *
  * Shells out to the `proton` CLI for all transaction signing. The agent
  * process never touches private keys — they live exclusively in the CLI's
- * encrypted keychain.
+ * keychain.
  *
  * Used by:
  *   - openclaw/src/session.ts (createCliSession factory)

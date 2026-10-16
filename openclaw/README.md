@@ -58,10 +58,10 @@ This downloads the package from npm, installs it (to `~/.openclaw/npm/projects/`
 {
   "plugins": {
     "entries": {
-      "openclaw": { "enabled": true }
+      "xpr-agents": { "enabled": true }
     },
     "installs": {
-      "openclaw": {
+      "xpr-agents": {
         "source": "npm",
         "spec": "@xpr-agents/openclaw",
         "version": "<installed version>",
@@ -77,20 +77,20 @@ This downloads the package from npm, installs it (to `~/.openclaw/npm/projects/`
 
 ```bash
 # 2. Set XPR_ACCOUNT at the gateway env layer (see "Configuration" below
-#    for which surface — it is NOT inside plugins.entries.openclaw.config).
+#    for which surface — it is NOT inside plugins.entries."xpr-agents".config).
 
 # 3. Let the agent actually see the tools. Two filters sit between a loaded
 #    plugin and the model, and both fail silently:
-#      - If openclaw.json has a `plugins.allow` list, add "openclaw" to it.
+#      - If openclaw.json has a `plugins.allow` list, add "xpr-agents" to it.
 #      - If it has a `tools.profile` (new configs default to "coding"),
 #        that profile excludes plugin tools. Add them back with:
-#          "tools": { "profile": "coding", "alsoAllow": ["openclaw"] }
+#          "tools": { "profile": "coding", "alsoAllow": ["xpr-agents"] }
 #        (`alsoAllow` cannot sit alongside `tools.allow` — merge into
 #        `allow` instead if you use one.)
 
 # 4. Restart the gateway, then check the runtime — the plugin reports
 #    `loaded` even when every tool was rejected, so do not stop there:
-#      openclaw plugins inspect openclaw --runtime --json
+#      openclaw plugins inspect xpr-agents --runtime --json
 #    Expect 89 entries under "tools" and an empty "diagnostics". If you
 #    see 89 errors reading "plugin must declare contracts.tools before
 #    registering agent tools", you are on a version older than 0.8.1 —
@@ -134,10 +134,10 @@ OpenClaw's plugin installer statically scans every package before install and re
 | Count | Pattern | Where | Why it's intentional |
 |---|---|---|---|
 | 16× | "Environment variable access combined with network send — possible credential harvesting" | `skills/{creative,defi,governance,lending,nft,smart-contracts,tax,xmd}/{src,dist}/index.ts:<line>`, `dist/tools/a2a.js`, `dist/tools/shellbook.js` | Each skill reads its own service API key (`REPLICATE_API_TOKEN`, `GITHUB_TOKEN`, `PINATA_JWT`, `SHELLBOOK_API_KEY`, `COINGECKO_API_KEY`, `A2A_SIGNING_KEY`, etc.) and calls that service's HTTPS API. The "credential" the scanner sees is the service-specific key the skill *needs* to function. No blockchain private key is read — that lives in the proton CLI keychain, not in env vars. |
-| 1× | "Shell command execution (child_process)" | `dist/proton-cli.js:<line>` | **This is the post-charliebot security feature itself.** All on-chain signing shells out to `proton transaction:push`. The whole reason for v0.4.x is that the blockchain private key never enters the agent process — it stays in the proton CLI's encrypted keychain and we cross the trust boundary via this `child_process` call. If you'd rather hold the key in process, use a different package. |
+| 1× | "Shell command execution (child_process)" | `dist/proton-cli.js:<line>` | **This is the post-charliebot security feature itself.** All on-chain signing shells out to `proton transaction:push`. The whole reason for v0.4.x is that the blockchain private key never enters the agent process — it stays in the proton CLI's local keychain (plaintext on disk unless locked with `proton key:lock`) and we cross the trust boundary via this `child_process` call. If you'd rather hold the key in process, use a different package. |
 | 2× | "Dynamic code execution detected" | `skills/code-sandbox/{src,dist}/index.ts:<line>` | The whole point of the `code-sandbox` skill is sandboxed JS execution inside a `node:vm` context. If you don't want sandboxed code execution available to your agent, disable the skill — the rest of the plugin doesn't depend on it. |
 
-If your harness lets you set `plugins.allow` to an explicit allowlist, set it to `["openclaw"]` (plus any other plugins you trust) — that suppresses the auto-discovery warning and makes the trust decision explicit.
+If your harness lets you set `plugins.allow` to an explicit allowlist, set it to `["xpr-agents"]` (plus any other plugins you trust) — that suppresses the auto-discovery warning and makes the trust decision explicit.
 
 ## Bundled Skills (13 total — since v0.4.0)
 
@@ -252,7 +252,7 @@ A listing can declare an **input form** with `xpr_set_service_input` (`svcinputs
 
 ## Configuration
 
-The plugin signs transactions by shelling out to the [proton CLI](https://www.npmjs.com/package/@proton/cli) — the blockchain private key **never enters the agent process**. Load your key into the CLI's encrypted keychain once, then set only the account name in env.
+The plugin signs transactions by shelling out to the [proton CLI](https://www.npmjs.com/package/@proton/cli) — the blockchain private key **never enters the agent process**. Load your key into the CLI's keychain once, then set only the account name in env. The keychain is plaintext on disk unless you lock it with `proton key:lock`, so treat the host as holding the agent's key (see SECURITY.md).
 
 ### Keychain setup (one-time)
 
@@ -288,7 +288,7 @@ proton chain:set proton                  # mainnet (use `proton-test` for testne
 #     the email + 6-digit verification-code flow, no funding account.)
 
 # 4. Load the key (interactive — pastes are hidden)
-proton key:add                           # paste your PVT_K1_ key; stored encrypted
+proton key:add                           # paste your PVT_K1_ key; stored in plaintext unless you lock the keychain
 
 # Or non-interactive (for hosted consoles without a real TTY).
 # The "no" answers the "encrypt this keychain with a password?" prompt —
@@ -328,7 +328,7 @@ XPR_NETWORK=mainnet                       # mainnet | testnet  (default: mainnet
 >   },
 >   "plugins": {
 >     "entries": {
->       "openclaw": {
+>       "xpr-agents": {
 >         "enabled": true,
 >         "config": { "network": "mainnet" }
 >       }
@@ -337,7 +337,7 @@ XPR_NETWORK=mainnet                       # mainnet | testnet  (default: mainnet
 > }
 > ```
 >
-> Putting `XPR_ACCOUNT` inside `plugins.entries.openclaw.config` does NOT work — the plugin reads it from `process.env`, which is populated from `env.vars`, not from per-plugin config. We verified this empirically on OpenClaw 2026.3.x.
+> Putting `XPR_ACCOUNT` inside `plugins.entries."xpr-agents".config` does NOT work — the plugin reads it from `process.env`, which is populated from `env.vars`, not from per-plugin config. We verified this empirically on OpenClaw 2026.3.x.
 
 ### Optional environment variables
 

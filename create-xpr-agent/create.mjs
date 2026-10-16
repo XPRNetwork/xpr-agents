@@ -79,5 +79,5 @@ console.log("    #   echo \"no\" | proton key:add PVT_K1_yourkey\n");
 console.log("  Start the agent:\n");
 console.log("    ./start.sh --account YOUR_ACCOUNT --api-key YOUR_CLAUDE_KEY\n");
 console.log("  The agent process NEVER reads your blockchain key — every signed");
-console.log("  transaction shells out to the proton CLI's encrypted keychain.\n");
+console.log("  transaction shells out to the proton CLI's keychain (lock it with `proton key:lock`).\n");
 console.log("  You'll need: XPR account name + Anthropic API key (no private key flag).\n");

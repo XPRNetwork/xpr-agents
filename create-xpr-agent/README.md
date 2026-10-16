@@ -25,7 +25,7 @@ If you're on a standalone host, continue below.
 # 1. One-time: install proton CLI and load your blockchain key into its keychain
 npm i -g @proton/cli
 proton chain:set proton                # or proton-test
-proton key:add                         # paste PVT_K1_..., stored encrypted
+proton key:add                         # paste PVT_K1_...; plaintext unless locked with proton key:lock
 # (If `proton: command not found`, add npm global bin to PATH:
 #  export PATH="$(npm config get prefix)/bin:$PATH")
 # (On a hosted/web console without a TTY:

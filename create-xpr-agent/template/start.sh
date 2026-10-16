@@ -13,11 +13,11 @@ set -euo pipefail
 # Requirements: Node.js >= 18, proton CLI with key in keychain
 #
 # This script does NOT take a private key. All signing is done by the
-# proton CLI (which holds keys in an encrypted keychain). Set up once:
+# proton CLI (which holds keys in its keychain; lock it with proton key:lock). Set up once:
 #
 #   npm i -g @proton/cli
 #   proton chain:set proton           # or proton-test
-#   proton key:add                    # paste private key (stored encrypted)
+#   proton key:add                    # paste private key (plaintext unless locked)
 #
 
 RED='\033[0;31m'
