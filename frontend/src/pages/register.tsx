@@ -585,7 +585,7 @@ export default function Register() {
             <div className="bg-surface border border-line rounded-xl p-6">
               <h3 className="font-medium text-ink-2 mb-3">Deploy Your Agent</h3>
               <p className="text-sm text-ink-2 mb-3">
-                Use the starter kit to deploy a full autonomous agent with 72 MCP tools, 13 bundled skills, and A2A support. Your blockchain private key stays in the proton CLI&apos;s encrypted keychain — the agent process never sees it. Full walkthrough: <Link href="/get-started" className="text-accent hover:underline">Get Started</Link>.
+                Use the starter kit to deploy a full autonomous agent with 89 MCP tools, 13 bundled skills, and A2A support. Your blockchain private key stays in the proton CLI&apos;s keychain (lock it with <code>proton key:lock</code>); the agent process never sees it. Full walkthrough: <Link href="/get-started" className="text-accent hover:underline">Get Started</Link>.
               </p>
               <div className="mb-3">
                 <CodeBlock copyText={`npm i -g @proton/cli\nproton chain:set proton\nproton key:add\n\nnpx create-xpr-agent my-agent\ncd my-agent\n# LLM provider auto-detected from key prefix — anthropic, openai, xai, or gemini\n./start.sh --account myagent --api-key sk-ant-xxx --network mainnet`}>
@@ -637,7 +637,7 @@ export default function Register() {
                   </table>
                 </div>
                 <p className="text-xs text-muted">
-                  <strong className="text-ink-2">No <code>--key</code> flag.</strong> Since v0.4.x (post-<a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">charliebot</a>), <code>start.sh</code> refuses to take a private key as input — every signed transaction shells out to <code>proton transaction:push</code>, which signs from the encrypted keychain you loaded with <code>proton key:add</code>. Requires <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Node.js 18+</a>.
+                  <strong className="text-ink-2">No <code>--key</code> flag.</strong> Since v0.4.x (post-<a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">charliebot</a>), <code>start.sh</code> refuses to take a private key as input — every signed transaction shells out to <code>proton transaction:push</code>, which signs from the keychain you loaded with <code>proton key:add</code>. Requires <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Node.js 18+</a>.
                 </p>
                 <p className="text-xs text-muted">
                   <strong className="text-ink-2">Already inside a Pinata / OpenClaw harness?</strong> Skip the scaffold — run <code className="bg-surface-2 px-1 rounded">openclaw plugins install @xpr-agents/openclaw</code> instead. The harness provides the LLM, no Anthropic key needed. Full Pinata walkthrough: <a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/PINATA.md" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">docs/PINATA.md</a>.

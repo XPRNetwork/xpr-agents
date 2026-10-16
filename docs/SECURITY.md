@@ -12,7 +12,7 @@ Pillar 1 (the keychain refactor) fixes the class of bug that drained charliebot.
 
 ## Pillar 1 — Active key in the proton CLI keychain (already done if you followed the scaffold)
 
-Every signed transaction shells out to `proton transaction:push`. The blockchain private key lives in the proton CLI's encrypted keychain on disk; the agent's Node.js process never reads it, never holds it in memory, never serializes it anywhere. Leaking the agent's RAM, logs, prompts, or tool outputs cannot leak the key.
+Every signed transaction shells out to `proton transaction:push`. The blockchain private key lives in the proton CLI's keychain on disk (plaintext unless locked with `proton key:lock`); the agent's Node.js process never reads it, never holds it in memory, never serializes it anywhere. Leaking the agent's RAM, logs, prompts, or tool outputs cannot leak the key.
 
 Confirm it's in place:
 

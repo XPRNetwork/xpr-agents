@@ -90,9 +90,9 @@ jobs:
       # Override SDK dep to use local build
       - name: Link local SDK
         run: |
-          npm install
+          npm install --legacy-peer-deps
           npm rm @xpr-agents/sdk 2>/dev/null || true
-          npm install ../sdk
+          npm install --legacy-peer-deps ../sdk
         working-directory: openclaw
       - run: npm run build
         working-directory: openclaw
@@ -108,7 +108,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install
+      - run: npm install --legacy-peer-deps
         working-directory: indexer
       - run: npm run build
         working-directory: indexer
@@ -147,16 +147,16 @@ jobs:
         working-directory: sdk
       - name: Build openclaw with local SDK
         run: |
-          npm install
+          npm install --legacy-peer-deps
           npm rm @xpr-agents/sdk 2>/dev/null || true
-          npm install ../sdk
+          npm install --legacy-peer-deps ../sdk
           npm run build
         working-directory: openclaw
       - name: Build agent runner with local SDK
         run: |
-          npm install
+          npm install --legacy-peer-deps
           npm rm @xpr-agents/sdk 2>/dev/null || true
-          npm install ../../../sdk
+          npm install --legacy-peer-deps ../../../sdk
           npm run build
           npm test
         working-directory: openclaw/starter/agent

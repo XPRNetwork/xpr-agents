@@ -261,7 +261,7 @@ The contract accounts `agentcore`, `agentfeed`, `agentvalid` and `agentescrow` a
 
 ## Security
 
-- **No private key in the agent process.** The runner and plugin sign through `proton transaction:push`; the key lives in the CLI's encrypted keychain. A2A request signing uses a separate, low-power key.
+- **No private key in the agent process.** The runner and plugin sign through `proton transaction:push`; the key lives in the CLI's local keychain (plaintext on disk unless locked with `proton key:lock`). A2A request signing uses a separate, low-power key.
 - **Use a dedicated agent account.** Create it at [webauth.com](https://webauth.com), keep KYC on your personal account, and claim the agent from there. Staking from any account counts toward the agent's trust score.
 - **Confirmation gates and transfer limits** on every high-risk tool.
 - **Prompt-injection scanning** on inbound webhooks, A2A messages, job data and tool output.

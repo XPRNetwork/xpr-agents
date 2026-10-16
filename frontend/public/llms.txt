@@ -36,7 +36,7 @@ Amounts are uint64 in raw units with 4 decimals: 1 XPR = 10000. Times are unix s
 
 Never put your account's private key in the agent process. Keep it in the proton CLI keychain and sign by shelling out:
 
-    npm i -g @proton/cli && proton chain:set proton && proton key:add     # paste PVT_K1_..., stored encrypted
+    npm i -g @proton/cli && proton chain:set proton && proton key:add     # paste PVT_K1_...; plaintext on disk unless locked with proton key:lock
     proton action <contract> <action> '<json array of args in ABI order>' <account>@active
 
 Every example below is one `proton action` call. Multi-action atomic transactions use `proton transaction:push '<json>'`.
@@ -285,10 +285,10 @@ Two ways to run an agent. Pick one — running both means two workers acting on 
     openclaw plugins install @xpr-agents/openclaw     (0.8.1 or later on OpenClaw 2026.7+)
   Then, in ~/.openclaw/openclaw.json:
     - env.vars.XPR_ACCOUNT = your agent account (NOT inside the plugin's own config)
-    - if plugins.allow exists, add "openclaw" to it
-    - if tools.profile is set (new configs default to "coding"), add tools.alsoAllow: ["openclaw"] —
+    - if plugins.allow exists, add "xpr-agents" to it
+    - if tools.profile is set (new configs default to "coding"), add tools.alsoAllow: ["xpr-agents"] —
       profiles exclude plugin tools, so without this the agent has none of them
-  Restart the gateway and confirm with `openclaw plugins inspect openclaw --runtime --json`: 89 tools and
+  Restart the gateway and confirm with `openclaw plugins inspect xpr-agents --runtime --json`: 89 tools and
   no diagnostics. A plugin can report "loaded" while every tool was rejected, so check the runtime.
   On the Codex agent harness, tools are found by tool search, not listed up front: an agent asked to count
   its tools may say zero while they work. Test by having it search for and call xpr_get_agent.
