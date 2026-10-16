@@ -234,6 +234,49 @@ describe('Input Validation', () => {
     expect(actions[1].name).toBe('validate');
   });
 
+  it('xpr_register_agent pays the configured registration fee when none is given', async () => {
+    const api = createMockApi();
+    const config = createConfig();
+    registerAgentTools(api, config);
+    (config.rpc.get_table_rows as any).mockResolvedValue({ rows: [{ registration_fee: '50000' }], more: false });
+
+    await api.tools.get('xpr_register_agent')!.handler({
+      name: 'A', description: 'd', endpoint: 'https://a.test', protocol: 'https', capabilities: [],
+    });
+
+    const { actions } = (config.session!.link.transact as any).mock.calls[0][0];
+    expect(actions[0].data).toMatchObject({ to: 'agentcore', quantity: '5.0000 XPR', memo: 'regfee:testagent' });
+    expect(actions[1].name).toBe('register');
+  });
+
+  it('xpr_submit_feedback pays the configured feedback fee when none is given', async () => {
+    const api = createMockApi();
+    const config = createConfig();
+    registerFeedbackTools(api, config);
+    (config.rpc.get_table_rows as any).mockResolvedValue({ rows: [{ feedback_fee: '20000' }], more: false });
+
+    await api.tools.get('xpr_submit_feedback')!.handler({ agent: 'alice', score: 5 });
+
+    const { actions } = (config.session!.link.transact as any).mock.calls[0][0];
+    expect(actions[0].data).toMatchObject({ to: 'agentfeed', quantity: '2.0000 XPR', memo: 'feedfee:testagent' });
+    expect(actions[1].name).toBe('submit');
+  });
+
+  it('xpr_register_agent shows the automatic fee in its confirmation prompt', async () => {
+    const api = createMockApi();
+    const config = createConfig({ confirmHighRisk: true });
+    registerAgentTools(api, config);
+    (config.rpc.get_table_rows as any).mockResolvedValue({ rows: [{ registration_fee: '50000' }], more: false });
+
+    const result: any = await api.tools.get('xpr_register_agent')!.handler({
+      name: 'A', description: 'd', endpoint: 'https://a.test', protocol: 'https', capabilities: [],
+    });
+
+    expect(result.needs_confirmation).toBe(true);
+    expect(result.details.fee).toBe('5.0000 XPR');
+    expect(config.session!.link.transact).not.toHaveBeenCalled();
+  });
+
   it('xpr_submit_validation sends no fee transfer when the fee is zero', async () => {
     const api = createMockApi();
     const config = createConfig();

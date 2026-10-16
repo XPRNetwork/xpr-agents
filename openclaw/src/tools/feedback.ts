@@ -114,7 +114,7 @@ export function registerFeedbackTools(api: PluginApi, config: PluginConfig): voi
         },
         job_hash: { type: 'string', description: 'Hash of the completed job for verification' },
         evidence_uri: { type: 'string', description: 'IPFS/Arweave URI with evidence' },
-        fee_amount: { type: 'number', description: 'Feedback fee in XPR. Check xpr_get_feedback_config for current fee.' },
+        fee_amount: { type: 'number', description: 'Feedback fee in XPR. Omit to pay the contract fee automatically' },
         confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
       },
     },
@@ -131,20 +131,25 @@ export function registerFeedbackTools(api: PluginApi, config: PluginConfig): voi
       validateAccountName(params.agent, 'agent');
       validateScore(params.score);
       if (params.evidence_uri) validateUrl(params.evidence_uri, 'evidence_uri');
-      if (params.fee_amount) {
-        validateAmount(xprToSmallestUnits(params.fee_amount), config.maxTransferAmount);
-      }
+
+      const registry = new FeedbackRegistry(config.rpc, config.session, contracts.agentfeed);
+      // No fee given: pay the contract's configured feedback fee, if any, so the call doesn't fail
+      // (an unreadable config falls back to no automatic fee, as before)
+      const feeUnits = params.fee_amount
+        ? xprToSmallestUnits(params.fee_amount)
+        : await registry.getConfig().then(c => c.feedback_fee, () => 0);
+      const fee = feeUnits > 0 ? `${(feeUnits / 10000).toFixed(4)} XPR` : '';
+      if (fee) validateAmount(feeUnits, config.maxTransferAmount);
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
         params.confirmed,
         'Submit Feedback',
-        { agent: params.agent, score: params.score, fee: params.fee_amount ? `${params.fee_amount} XPR` : 'none' },
-        `Submit ${params.score}/5 rating for agent "${params.agent}"` + (params.fee_amount ? ` (fee: ${params.fee_amount} XPR)` : '')
+        { agent: params.agent, score: params.score, fee: fee || 'none' },
+        `Submit ${params.score}/5 rating for agent "${params.agent}"` + (fee ? ` (fee: ${fee})` : '')
       );
       if (confirmation) return confirmation;
 
-      const registry = new FeedbackRegistry(config.rpc, config.session, contracts.agentfeed);
       const data = {
         agent: params.agent,
         score: params.score,
@@ -153,9 +158,7 @@ export function registerFeedbackTools(api: PluginApi, config: PluginConfig): voi
         evidence_uri: params.evidence_uri,
       };
 
-      if (params.fee_amount) {
-        return registry.submitWithFee(data, `${params.fee_amount.toFixed(4)} XPR`);
-      }
+      if (fee) return registry.submitWithFee(data, fee);
       return registry.submit(data);
     },
   });

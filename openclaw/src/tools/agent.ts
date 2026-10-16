@@ -144,7 +144,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
           items: { type: 'string' },
           description: 'List of agent capabilities',
         },
-        fee_amount: { type: 'number', description: 'Registration fee in XPR (e.g., 10.0). Check xpr_get_core_config for current fee.' },
+        fee_amount: { type: 'number', description: 'Registration fee in XPR. Omit to pay the contract fee automatically' },
         confirmed: { type: 'boolean', description: 'Set to true to execute after reviewing the confirmation prompt' },
       },
     },
@@ -161,20 +161,25 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
       validateRequired(params.name, 'name');
       validateRequired(params.endpoint, 'endpoint');
       validateUrl(params.endpoint, 'endpoint');
-      if (params.fee_amount) {
-        validateAmount(xprToSmallestUnits(params.fee_amount), config.maxTransferAmount);
-      }
+
+      const registry = new AgentRegistry(config.rpc, config.session, contracts.agentcore);
+      // No fee given: pay the contract's configured registration fee, if any, so the call doesn't fail
+      // (an unreadable config falls back to no automatic fee, as before)
+      const feeUnits = params.fee_amount
+        ? xprToSmallestUnits(params.fee_amount)
+        : await registry.getConfig().then(c => c.registration_fee, () => 0);
+      const fee = feeUnits > 0 ? `${(feeUnits / 10000).toFixed(4)} XPR` : '';
+      if (fee) validateAmount(feeUnits, config.maxTransferAmount);
 
       const confirmation = needsConfirmation(
         config.confirmHighRisk,
         params.confirmed,
         'Register Agent',
-        { name: params.name, endpoint: params.endpoint, fee: params.fee_amount ? `${params.fee_amount} XPR` : 'none' },
-        `Register agent "${params.name}" at ${params.endpoint}` + (params.fee_amount ? ` (fee: ${params.fee_amount} XPR)` : '')
+        { name: params.name, endpoint: params.endpoint, fee: fee || 'none' },
+        `Register agent "${params.name}" at ${params.endpoint}` + (fee ? ` (fee: ${fee})` : '')
       );
       if (confirmation) return confirmation;
 
-      const registry = new AgentRegistry(config.rpc, config.session, contracts.agentcore);
       const data = {
         name: params.name,
         description: params.description,
@@ -183,9 +188,7 @@ export function registerAgentTools(api: PluginApi, config: PluginConfig): void {
         capabilities: params.capabilities,
       };
 
-      if (params.fee_amount) {
-        return registry.registerWithFee(data, `${params.fee_amount.toFixed(4)} XPR`);
-      }
+      if (fee) return registry.registerWithFee(data, fee);
       return registry.register(data);
     },
   });
