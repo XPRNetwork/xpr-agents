@@ -1,6 +1,7 @@
 import { JsonRpc } from '@proton/js';
 import { getSelectedNetwork, getNetworkConfig, NETWORKS } from './networks';
 import { indexerFetch } from './indexer';
+import { parseXprAmount } from './xpr-amount';
 
 // Network configuration — reads from localStorage, defaults to mainnet
 const networkConfig = getNetworkConfig();
@@ -73,6 +74,16 @@ export interface TrustScore {
   rating: 'untrusted' | 'low' | 'medium' | 'high' | 'verified';
 }
 
+function parseStringArray(value: unknown, commaFallback = false): string[] {
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return commaFallback ? value.split(',').map(item => item.trim()).filter(Boolean) : [];
+  }
+}
+
 // API functions
 export async function getAgents(limit = 100): Promise<Agent[]> {
   const result = await rpc.get_table_rows({
@@ -84,8 +95,7 @@ export async function getAgents(limit = 100): Promise<Agent[]> {
   });
 
   return result.rows.map((row: any) => {
-    let capabilities: string[] = [];
-    try { capabilities = JSON.parse(row.capabilities || '[]'); } catch { /* malformed */ }
+    const capabilities = parseStringArray(row.capabilities, true);
     const ownerRaw = row.owner || '';
     return {
       account: row.account,
@@ -116,7 +126,8 @@ export async function getAgentsByOwner(owner: string, limit = 50): Promise<Agent
     upper_bound: owner,
     limit,
   });
-  return (result.rows as Agent[]).filter(a => a.owner === owner);
+  return (result.rows as Agent[]).filter(a => a.owner === owner)
+    .map(row => ({ ...row, capabilities: parseStringArray(row.capabilities, true) }));
 }
 
 export async function getAgent(account: string): Promise<Agent | null> {
@@ -133,8 +144,7 @@ export async function getAgent(account: string): Promise<Agent | null> {
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
-  let capabilities: string[] = [];
-  try { capabilities = JSON.parse(row.capabilities || '[]'); } catch { /* malformed */ }
+  const capabilities = parseStringArray(row.capabilities, true);
   const ownerRaw = row.owner || '';
   return {
     account: row.account,
@@ -517,8 +527,7 @@ export async function getBidsForJob(jobId: number): Promise<Bid[]> {
 }
 
 function parseJob(row: any): Job {
-  let deliverables: string[] = [];
-  try { deliverables = JSON.parse(row.deliverables || '[]'); } catch { /* malformed */ }
+  const deliverables = parseStringArray(row.deliverables);
   return {
     id: parseInt(row.id),
     client: row.client,
@@ -832,8 +841,7 @@ interface IndexerAgentRow {
 }
 
 function agentFromIndexerRow(row: IndexerAgentRow): Agent {
-  let capabilities: string[] = [];
-  try { capabilities = JSON.parse(row.capabilities || '[]'); } catch { /* malformed */ }
+  const capabilities = parseStringArray(row.capabilities, true);
   const ownerRaw = row.owner || '';
   return {
     account: row.account,
@@ -1410,9 +1418,9 @@ export async function getXprBalance(account: string): Promise<number> {
       table: 'accounts',
       limit: 10,
     });
-    const xprRow = result.rows.find((r: any) => (r.balance || '').includes('XPR'));
+    const xprRow = result.rows.find((r: any) => typeof r.balance === 'string' && r.balance.endsWith(' XPR'));
     if (!xprRow) return 0;
-    return Math.floor(parseFloat(xprRow.balance) * 10000);
+    return parseXprAmount(xprRow.balance.slice(0, -4));
   } catch {
     return 0;
   }
@@ -1667,11 +1675,7 @@ export interface Service {
 
 function parseService(row: any): Service {
   const featuredUntil = parseInt(row.featured_until) || 0;
-  let deliverables: string[] = [];
-  try {
-    const parsed = JSON.parse(row.deliverables || '[]');
-    if (Array.isArray(parsed)) deliverables = parsed.map((d: unknown) => String(d)).filter(Boolean);
-  } catch { /* malformed — leave empty */ }
+  const deliverables = parseStringArray(row.deliverables);
   return {
     id: parseInt(row.id) || 0,
     agent: row.agent || '',

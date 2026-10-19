@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import { parseXprAmount, formatXprAsset } from '@/lib/xpr-amount';
 import { WalletButton } from '@/components/WalletButton';
 import { Header } from '@/components/Header';
 import { indexerFetch } from '@/lib/indexer';
@@ -167,12 +168,12 @@ export default function Dashboard() {
           name: 'stakexpr',
           data: {
             owner_name: session.auth.actor,
-            amount: `${parseFloat(stakeAmount).toFixed(4)} XPR`,
+            amount: formatXprAsset(parseXprAmount(stakeAmount)),
           },
         },
       ]);
 
-      addToast({ type: 'success', message: `Staked ${parseFloat(stakeAmount).toFixed(4)} XPR`, txId: getTxId(result) });
+      addToast({ type: 'success', message: `Staked ${formatXprAsset(parseXprAmount(stakeAmount))}`, txId: getTxId(result) });
       setStakeAmount('');
       refresh();
     } catch (e: any) {
@@ -194,12 +195,12 @@ export default function Dashboard() {
           name: 'unstakexpr',
           data: {
             owner_name: session.auth.actor,
-            amount: `${parseFloat(unstakeAmount).toFixed(4)} XPR`,
+            amount: formatXprAsset(parseXprAmount(unstakeAmount)),
           },
         },
       ]);
 
-      addToast({ type: 'success', message: `Unstake requested for ${parseFloat(unstakeAmount).toFixed(4)} XPR`, txId: getTxId(result) });
+      addToast({ type: 'success', message: `Unstake requested for ${formatXprAsset(parseXprAmount(unstakeAmount))}`, txId: getTxId(result) });
       setUnstakeAmount('');
       refresh();
     } catch (e: any) {
@@ -339,7 +340,7 @@ export default function Dashboard() {
     if (!session) return;
     setProcessing(true);
     try {
-      const price = Math.round(parseFloat(serviceForm.price) * 10000);
+      const price = parseXprAmount(serviceForm.price);
       const turnaround = Math.round(parseFloat(serviceForm.turnaroundHours) * 3600);
       const deliverables = JSON.stringify(
         serviceForm.deliverables.split('\n').map(d => d.trim()).filter(Boolean)
@@ -443,13 +444,16 @@ export default function Dashboard() {
     }
   };
 
+  let boostRaw = 0;
+  try { boostRaw = parseXprAmount(boostAmount); } catch { /* invalid input — no preview */ }
+
   const handleBoostService = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!session || !boostService) return;
-    const raw = Math.round((parseFloat(boostAmount) || 0) * 10000);
-    const days = boostDays(raw, svcConfig);
     setProcessing(true);
     try {
+      const raw = parseXprAmount(boostAmount);
+      const days = boostDays(raw, svcConfig);
       const result = await transact([
         {
           account: 'eosio.token',
@@ -457,7 +461,7 @@ export default function Dashboard() {
           data: {
             from: session.auth.actor,
             to: CONTRACTS.AGENT_ESCROW,
-            quantity: `${(raw / 10000).toFixed(4)} XPR`,
+            quantity: formatXprAsset(raw),
             memo: `boost:${boostService.id}`,
           },
         },
@@ -1276,7 +1280,7 @@ export default function Dashboard() {
           <div className="rounded-lg border border-line bg-surface px-4 py-3">
             <p className="label">Featured placement</p>
             <p className="mt-1 font-mono text-2xl tabular text-ink">
-              {boostDays(Math.round((parseFloat(boostAmount) || 0) * 10000), svcConfig)}{' '}
+              {boostDays(boostRaw, svcConfig)}{' '}
               <span className="text-sm text-muted">days</span>
             </p>
             {boostService?.featured && (
@@ -1287,7 +1291,7 @@ export default function Dashboard() {
           <div className="flex gap-2 pt-2">
             <button
               type="submit"
-              disabled={processing || Math.round((parseFloat(boostAmount) || 0) * 10000) < svcConfig.boost_min}
+              disabled={processing || boostRaw < svcConfig.boost_min}
               className="flex-1 rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:bg-line disabled:text-muted"
             >
               {processing ? 'Confirming…' : 'Feature listing'}

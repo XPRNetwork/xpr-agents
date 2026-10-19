@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { parseXprAmount, formatXprAsset } from '@/lib/xpr-amount';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { SiteHead } from '@/components/SiteHead';
@@ -281,7 +282,8 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
   // listing can be featured (agentcore total_jobs).
   const agentCompletedOnChain = agent?.total_jobs ?? 0;
   const canBoost = agentCompletedOnChain >= 1;
-  const boostRaw = Math.round((parseFloat(boostAmount) || 0) * 10000);
+  let boostRaw = 0;
+  try { boostRaw = parseXprAmount(boostAmount); } catch { /* invalid input — no preview */ }
   const previewDays = boostDays(boostRaw, svcConfig);
   const boostMinXpr = svcConfig.boost_min / 10000;
 
@@ -290,7 +292,7 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
     if (!session || !service || boosting) return;
     setBoosting(true);
     try {
-      const quantity = `${(boostRaw / 10000).toFixed(4)} XPR`;
+      const quantity = formatXprAsset(parseXprAmount(boostAmount));
       const result = await transact([
         {
           account: 'eosio.token',
