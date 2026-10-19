@@ -26,7 +26,7 @@ import {
   dailyTokenBudgetExhausted, recordTokenUsage, tokenBudgetStats,
 } from './token-budget';
 import { isReadonlyToolName } from './a2a-tools';
-import { findHousekeepingActions, describeHousekeeping, DEFAULT_DISPUTE_WINDOW_SEC, DEFAULT_MAX_TIMEOUT_ATTEMPTS } from './timeouts';
+import { findHousekeepingActions, describeHousekeeping, DEFAULT_MAX_TIMEOUT_ATTEMPTS } from './timeouts';
 import type { EscrowJobLike, HousekeepingAction } from './timeouts';
 import { isLlmUnavailableError, describeLlmError } from './llm-errors';
 
@@ -789,11 +789,36 @@ async function runAgent(eventType: string, data: any, message: string, options?:
             });
             continue;
           }
-          if (prior && evidence) prior.add(evidence);
         }
 
+        // Ask once per job: refuse a second question while the first is unanswered or in flight.
+        const askedId = toolUse.name === 'xpr_ask_client' ? Number((toolUse.input as any)?.job_id) : NaN;
+        const questionJobId = Number.isSafeInteger(askedId) ? askedId : null;
+        if (questionJobId != null && (askedJobs.has(questionJobId) || askingJobs.has(questionJobId))) {
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: JSON.stringify({ error: `Already waiting for the client's answer on job #${questionJobId}.` }),
+            is_error: true,
+          });
+          continue;
+        }
+        if (questionJobId != null) askingJobs.add(questionJobId);
         try {
-          const result = await tool.handler(toolUse.input);
+          const priorMessages = questionJobId != null ? await fetchJobMessages(questionJobId) : [];
+          const result: any = await tool.handler(toolUse.input);
+          if (result?.transaction_id || result?.processed?.id) {
+            if (toolUse.name === 'xpr_deliver_job') {
+              const input: any = toolUse.input || {};
+              const evidence = typeof input.evidence_uri === 'string' ? input.evidence_uri.trim() : '';
+              if (evidence) deliveredEvidenceByJob.get(Number(input.job_id))?.add(evidence);
+            }
+            if (questionJobId != null) {
+              for (const m of priorMessages) seenJobMessageIds.add(m.id);
+              askedJobs.add(questionJobId);
+              savePollerState();
+            }
+          }
           const resultStr = JSON.stringify(result);
           // Log result for key tools (truncated for readability)
           if (['generate_image', 'generate_video', 'store_deliverable'].includes(toolUse.name)) {
@@ -824,6 +849,8 @@ async function runAgent(eventType: string, data: any, message: string, options?:
             content: JSON.stringify({ error: err.message }),
             is_error: true,
           });
+        } finally {
+          if (questionJobId != null) askingJobs.delete(questionJobId);
         }
       }
 
@@ -1026,9 +1053,12 @@ app.post('/a2a', async (req, res) => {
   }
   const parsed = req.body;
 
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return res.json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid request' } });
+  }
   const { jsonrpc, id, method, params } = parsed;
 
-  if (jsonrpc !== '2.0' || !method) {
+  if (jsonrpc !== '2.0' || typeof method !== 'string' || !method) {
     return res.json({
       jsonrpc: '2.0',
       id: id ?? null,
@@ -1052,9 +1082,10 @@ app.post('/a2a', async (req, res) => {
         error: { code: err.code, message: err.message },
       });
     }
+    console.error('[a2a] Authentication error:', err);
     return res.json({
       jsonrpc: '2.0', id,
-      error: { code: -32000, message: `Authentication error: ${(err as Error).message}` },
+      error: { code: -32000, message: 'Authentication error' },
     });
   }
 
@@ -1064,10 +1095,18 @@ app.post('/a2a', async (req, res) => {
     switch (method) {
       case 'message/send': {
         const message = params?.message;
-        if (!message || !message.parts) {
+        // Every part must be a well-formed A2A part (text, file or data) and at least one
+        // must carry text: only text reaches the model.
+        const validPart = (p: any) => !!p && typeof p === 'object' && (
+          (p.type === 'text' && typeof p.text === 'string')
+          || (p.type === 'file' && !!p.file && typeof p.file === 'object')
+          || (p.type === 'data' && !!p.data && typeof p.data === 'object'));
+        if (!message || !Array.isArray(message.parts) || message.parts.length === 0
+          || !message.parts.every(validPart)
+          || !message.parts.some((p: any) => p.type === 'text' && p.text.trim())) {
           return res.json({
             jsonrpc: '2.0', id,
-            error: { code: -32602, message: 'Invalid params: message with parts is required' },
+            error: { code: -32602, message: 'Invalid params: nonempty text message parts are required' },
           });
         }
 
@@ -1075,7 +1114,7 @@ app.post('/a2a', async (req, res) => {
         const textParts = message.parts
           .filter((p: any) => p.type === 'text')
           .map((p: any) => p.text);
-        let text = textParts.join('\n') || 'No text content';
+        let text = textParts.join('\n');
 
         // Security scan A2A message text
         const a2aScan = scanInbound(text, 'a2a');
@@ -1183,9 +1222,10 @@ app.post('/a2a', async (req, res) => {
 
     res.json({ jsonrpc: '2.0', id, result });
   } catch (err: any) {
+    console.error('[a2a] Request failed:', err);
     res.json({
       jsonrpc: '2.0', id,
-      error: { code: -32603, message: err.message || 'Internal error' },
+      error: { code: -32603, message: 'Internal error' },
     });
   }
 });
@@ -1311,6 +1351,7 @@ const knownDelegatorBidIds = new Set<number>();      // bid ids already evaluate
 const llmBackoffJobs = new Set<number>();            // jobs to skip for one cycle after an LLM outage
 let cycleBackoffJobs = new Set<number>();            // snapshot of the above, taken at the start of each cycle
 const askedJobs = new Set<number>();                 // jobs we asked the client about, awaiting an answer
+const askingJobs = new Set<number>();                // question tool calls in flight
 const seenJobMessageIds = new Set<number>();         // job message ids already processed
 const knownPostIds = new Set<number>();              // shellbook post ids already seen by social mode
 const activeJobIds = new Set<number>();              // jobs currently being processed (per-job lock)
@@ -1324,11 +1365,13 @@ const AUTO_HOUSEKEEPING = process.env.AUTO_CLAIM_TIMEOUTS !== 'false';
 const MAX_HOUSEKEEPING_PER_POLL = 3;                 // bound keychain signings per cycle
 const timeoutAttempts = new Map<number, number>();   // job_id → failed housekeeping attempts
 const housekeepingStats = { claimed: 0, refunded: 0, cancelled: 0, failed: 0 };
-let cachedDisputeWindow = 0;
-let disputeWindowFetchedAt = 0;
+const claimedHousekeeping = new Set<string>();       // successful job:kind pairs
+const activeHousekeeping = new Set<number>();        // claims currently in flight
 
-async function getDisputeWindowSec(): Promise<number> {
-  if (cachedDisputeWindow > 0 && Date.now() - disputeWindowFetchedAt < 60 * 60 * 1000) return cachedDisputeWindow;
+// The escrow dispute window and pause flag, or null when the config cannot be read:
+// housekeeping then waits for the next cycle rather than assume a default. Read every
+// cycle so a pause is seen at once.
+async function getEscrowHousekeepingConfig(): Promise<{ disputeWindowSec: number; paused: boolean } | null> {
   try {
     const resp = await fetch(`${process.env.XPR_RPC_ENDPOINT}/v1/chain/get_table_rows`, {
       method: 'POST',
@@ -1339,13 +1382,15 @@ async function getDisputeWindowSec(): Promise<number> {
         lower_bound: '4982871454518345728', limit: 1,
       }),
     });
-    const { rows } = await resp.json() as { rows: Array<{ dispute_window?: number | string }> };
-    const w = Number(rows?.[0]?.dispute_window);
-    if (Number.isFinite(w) && w > 0) { cachedDisputeWindow = w; disputeWindowFetchedAt = Date.now(); return w; }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const { rows } = await resp.json() as { rows: Array<{ dispute_window?: number | string; paused?: boolean | number }> };
+    const rawWindow = rows?.[0]?.dispute_window;
+    const w = typeof rawWindow === 'number' || typeof rawWindow === 'string' ? Number(rawWindow) : NaN;
+    if (Number.isSafeInteger(w) && w > 0) return { disputeWindowSec: w, paused: !!rows[0].paused };
   } catch (err: any) {
     console.warn(`[poller/housekeeping] Could not read escrow config: ${err.message}`);
   }
-  return cachedDisputeWindow || DEFAULT_DISPUTE_WINDOW_SEC;
+  return null;
 }
 
 async function runHousekeeping(listJobs: { handler: (args: any) => Promise<any> }, account: string): Promise<void> {
@@ -1354,47 +1399,65 @@ async function runHousekeeping(listJobs: { handler: (args: any) => Promise<any> 
   if (!claimTimeout || !cancelJob) return;
 
   const [asAgent, asClient] = await Promise.all([
-    listJobs.handler({ agent: account, limit: 100 }).then((r: any) => (r?.items || r || []) as EscrowJobLike[]).catch(() => [] as EscrowJobLike[]),
-    listJobs.handler({ client: account, limit: 100 }).then((r: any) => (r?.items || r || []) as EscrowJobLike[]).catch(() => [] as EscrowJobLike[]),
+    listJobs.handler({ agent: account, limit: 100 }).catch(() => null),
+    listJobs.handler({ client: account, limit: 100 }).catch(() => null),
   ]);
-  const candidates: HousekeepingAction[] = findHousekeepingActions([...asAgent, ...asClient], {
+  const agentJobs = (asAgent?.items || asAgent) as EscrowJobLike[];
+  const clientJobs = (asClient?.items || asClient) as EscrowJobLike[];
+  if (!Array.isArray(agentJobs) || !Array.isArray(clientJobs)) return;
+  const jobs = [...agentJobs, ...clientJobs];
+  pruneJobAttempts(timeoutAttempts, jobs, isCompleteListing(asAgent) && isCompleteListing(asClient));
+  const escrowConfig = await getEscrowHousekeepingConfig();
+  if (escrowConfig == null) return;
+  const candidates: HousekeepingAction[] = findHousekeepingActions(jobs, {
     account,
     nowSec: Math.floor(Date.now() / 1000),
-    disputeWindowSec: await getDisputeWindowSec(),
+    disputeWindowSec: escrowConfig.disputeWindowSec,
     attempts: timeoutAttempts,
     maxAttempts: DEFAULT_MAX_TIMEOUT_ATTEMPTS,
-  }).filter(a => !activeJobIds.has(a.job.id));
+  // A paused contract refuses timeout claims but still lets a client cancel.
+  }).filter(a => (!escrowConfig.paused || a.kind === 'cancel') && !activeJobIds.has(a.job.id) && !activeHousekeeping.has(a.job.id)
+    && !claimedHousekeeping.has(`${a.job.id}:${a.kind}`));
 
   for (const action of candidates.slice(0, MAX_HOUSEKEEPING_PER_POLL)) {
     const jobId = action.job.id;
+    const claimKey = `${jobId}:${action.kind}`;
+    if (claimedHousekeeping.has(claimKey) || activeHousekeeping.has(jobId) || activeJobIds.has(jobId)) continue;
+    activeHousekeeping.add(jobId);
     console.log(`[poller/housekeeping] ${describeHousekeeping(action)}`);
     try {
       const tool = action.kind === 'cancel' ? cancelJob : claimTimeout;
       const result: any = await tool.handler({ job_id: jobId, confirmed: true });
       const txId = result?.transaction_id || result?.processed?.id || '';
+      if (!txId) throw new Error('Housekeeping did not return a transaction ID');
+      claimedHousekeeping.add(claimKey);
+      capSet(claimedHousekeeping);
       if (action.kind === 'claim_payment') housekeepingStats.claimed++;
       else if (action.kind === 'refund') housekeepingStats.refunded++;
       else housekeepingStats.cancelled++;
       timeoutAttempts.delete(jobId);
+      savePollerState();
       console.log(`[poller/housekeeping] Job #${jobId} ${action.kind} ok${txId ? ` (tx ${String(txId).slice(0, 8)})` : ''}`);
     } catch (err: any) {
       const n = (timeoutAttempts.get(jobId) || 0) + 1;
       timeoutAttempts.set(jobId, n);
       housekeepingStats.failed++;
       console.error(`[poller/housekeeping] Job #${jobId} ${action.kind} failed (attempt ${n}/${DEFAULT_MAX_TIMEOUT_ATTEMPTS}): ${err.message}`);
+    } finally {
+      activeHousekeeping.delete(jobId);
     }
   }
 }
 const MAX_TRACKED_IDS = 5000;                        // cap tracked sets to prevent unbounded memory growth
 
 /** Evict oldest entries from a Set when it exceeds MAX_TRACKED_IDS */
-function capSet(s: Set<number>): void {
+function capSet<T>(s: Set<T>): void {
   if (s.size <= MAX_TRACKED_IDS) return;
   const iter = s.values();
   const toRemove = s.size - MAX_TRACKED_IDS;
   for (let i = 0; i < toRemove; i++) iter.next();
   // Sets iterate in insertion order — remove the oldest
-  const idsToKeep = new Set<number>();
+  const idsToKeep = new Set<T>();
   let kept = 0;
   for (const id of s) {
     if (kept++ >= toRemove) idsToKeep.add(id);
@@ -1403,12 +1466,33 @@ function capSet(s: Set<number>): void {
   for (const id of idsToKeep) s.add(id);
 }
 
+/** A listing that says it holds every row (no further page), so absence means gone. */
+function isCompleteListing(result: any): boolean {
+  return !!result && !Array.isArray(result) && result.hasMore === false;
+}
+
+/**
+ * Retire retry counters for jobs seen in a terminal state, and, when the listing is
+ * complete, for jobs it no longer includes. A truncated listing proves nothing about the
+ * jobs it left out, so their counters (and retry caps) are kept.
+ */
+function pruneJobAttempts(attempts: Map<number, number>, jobs: EscrowJobLike[], complete: boolean): void {
+  const listed = new Map(jobs.filter(Boolean).map(j => [j.id, toStateNum(j.state)]));
+  for (const id of attempts.keys()) {
+    const state = listed.get(id);
+    if (state === undefined ? complete : state >= 6) attempts.delete(id);
+  }
+}
+
 /** Evict terminal-state jobs (COMPLETED=6, REFUNDED=7, ARBITRATED=8) from knownJobStates */
 function pruneTerminalJobs(): void {
-  if (knownJobStates.size <= MAX_TRACKED_IDS) return;
   for (const [id, state] of knownJobStates) {
-    if (state >= 6) knownJobStates.delete(id);
-    if (knownJobStates.size <= MAX_TRACKED_IDS) break;
+    if (state < 6) continue;
+    timeoutAttempts.delete(id);
+    fundedJobAttempts.delete(id);
+    deliveredEvidenceByJob.delete(id);
+    askedJobs.delete(id);
+    if (knownJobStates.size > MAX_TRACKED_IDS) knownJobStates.delete(id);
   }
 }
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1433,6 +1517,7 @@ interface PollerState {
   seenJobMessageIds?: number[];
   fundedJobAttempts?: Record<string, number>;
   timeoutAttempts?: Record<string, number>;
+  claimedHousekeeping?: string[];
   dailyEvalCount?: number;
   dailyEvalResetDate?: string;
 }
@@ -1450,10 +1535,12 @@ function savePollerState(): void {
       seenJobMessageIds: [...seenJobMessageIds],
       fundedJobAttempts: Object.fromEntries(fundedJobAttempts),
       timeoutAttempts: Object.fromEntries(timeoutAttempts),
+      claimedHousekeeping: [...claimedHousekeeping],
       dailyEvalCount,
       dailyEvalResetDate,
     };
-    fs.writeFileSync(POLLER_STATE_PATH, JSON.stringify(state), 'utf-8');
+    fs.writeFileSync(`${POLLER_STATE_PATH}.tmp`, JSON.stringify(state), 'utf-8');
+    fs.renameSync(`${POLLER_STATE_PATH}.tmp`, POLLER_STATE_PATH);
   } catch (err: any) {
     console.warn(`[poller] Failed to save state: ${err.message}`);
   }
@@ -1484,6 +1571,8 @@ function loadPollerState(): boolean {
         timeoutAttempts.set(Number(k), v);
       }
     }
+    if (state.claimedHousekeeping) for (const key of state.claimedHousekeeping) claimedHousekeeping.add(key);
+    capSet(claimedHousekeeping);
     // Restore daily eval counter (auto-resets if date changed)
     if (state.dailyEvalResetDate && state.dailyEvalCount != null) {
       const today = new Date().toISOString().slice(0, 10);
@@ -1534,7 +1623,8 @@ function loadMemory(): void {
 
 function saveMemory(): void {
   try {
-    fs.writeFileSync(AGENT_MEMORY_PATH, JSON.stringify(memoryStore, null, 2), 'utf-8');
+    fs.writeFileSync(`${AGENT_MEMORY_PATH}.tmp`, JSON.stringify(memoryStore, null, 2), 'utf-8');
+    fs.renameSync(`${AGENT_MEMORY_PATH}.tmp`, AGENT_MEMORY_PATH);
   } catch (err: any) {
     console.warn(`[memory] Failed to save: ${err.message}`);
   }
@@ -1786,12 +1876,13 @@ function formatThread(messages: JobMessageLike[], account: string): string {
 async function recordAskedIfPending(jobId: number, account: string): Promise<void> {
   const messages = await fetchJobMessages(jobId);
   if (messages.length === 0) return;
-  for (const m of messages) seenJobMessageIds.add(m.id);
   const last = messages[messages.length - 1];
+  const freshReply = !seenJobMessageIds.has(last.id);
+  for (const m of messages) seenJobMessageIds.add(m.id);
   if (last.author === account) {
     askedJobs.add(jobId);
     console.log(`[poller/messages] Job #${jobId}: question posted, waiting for the client's answer`);
-  } else {
+  } else if (freshReply) {
     askedJobs.delete(jobId);
   }
 }
@@ -1949,6 +2040,7 @@ async function pollOnChainInner(): Promise<void> {
     if (listJobs && ['worker', 'hybrid'].includes(AGENT_MODE)) {
       const res: any = await listJobs.handler({ agent: account, limit: 100 });
       const allJobs: any[] = res?.items || res || [];
+      if (Array.isArray(allJobs)) pruneJobAttempts(fundedJobAttempts, allJobs, isCompleteListing(res));
       // Only care about the most recent 50 — old completed jobs won't change
       const jobs: any[] = allJobs.length > 50 ? allJobs.slice(-50) : allJobs;
       myAssignedJobs = jobs;
@@ -2048,7 +2140,10 @@ async function pollOnChainInner(): Promise<void> {
           // acted on. Brief the agent with what the client said and what we already
           // sent, so the next delivery answers the note instead of repeating it.
           if (prevState === 4 && job.state === 3) {
-            if (!canSpendCredits(`job #${job.id} sent back for revision`)) continue;
+            if (!canSpendCredits(`job #${job.id} sent back for revision`)) {
+              knownJobStates.set(job.id, prevState);
+              continue;
+            }
             const scanned = scanJob(job);
             if (!scanned) continue; // inbound content blocked — skip before spending anything
             const { title: safeTitle, description: safeDescription, deliverables } = scanned;
