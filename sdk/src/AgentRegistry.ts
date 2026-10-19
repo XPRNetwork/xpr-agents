@@ -149,7 +149,7 @@ export class AgentRegistry {
       limit: limit + 1, // Fetch one extra to check if there are more
     });
 
-    const hasMore = result.rows.length > limit;
+    const hasMore = result.rows.length > limit || result.more;
     const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
     let agents = rows.map((row) => this.parseAgent(row));
 
@@ -161,10 +161,13 @@ export class AgentRegistry {
     // Note: Agents use system staking (eosio::voters), not contract-managed staking
     // To filter by stake, query system staking separately
 
-    // Get next cursor from the last row if there are more
-    const nextCursor = hasMore && rows.length > 0
-      ? rows[rows.length - 1].account
-      : undefined;
+    // Resume at the first unconsumed row because lower_bound is inclusive.
+    const nextCursor = result.rows.length > limit
+      ? result.rows[limit].account
+      : result.more ? result.next_key : undefined;
+    if (hasMore && (!nextCursor || nextCursor === cursor)) {
+      throw new Error('Agent pagination did not return a continuation key');
+    }
 
     return {
       items: agents,

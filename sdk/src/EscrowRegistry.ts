@@ -5,7 +5,10 @@ import {
   TransactionResult,
   PaginatedResult,
 } from './types';
-import { safeParseInt } from './utils';
+import { safeParseInt, parseStringArray, formatXprQuantity } from './utils';
+
+/** Table batches (100 rows each) one older-jobs page may scan before returning early. */
+const MAX_JOB_SCAN_BATCHES = 10;
 
 // ============== Escrow Types ==============
 
@@ -405,6 +408,7 @@ export interface ServiceData {
 
 export interface ServiceListOptions {
   limit?: number;
+  cursor?: string;
   activeOnly?: boolean;
 }
 
@@ -491,6 +495,10 @@ export class EscrowRegistry {
    * List jobs for a client
    */
   async listJobsByClient(client: string, options: JobListOptions = {}): Promise<PaginatedResult<Job>> {
+    if (options.cursor !== undefined) {
+      return this.listOlderJobs('client', client, options);
+    }
+
     const { limit = 100 } = options;
 
     // Use secondary index with client name as bounds to efficiently query
@@ -512,7 +520,10 @@ export class EscrowRegistry {
       reverse: true,
     });
 
-    const hasMore = result.rows.length > limit;
+    if (result.more && result.rows.length === 0) {
+      throw new Error('Job pagination did not return a primary ID');
+    }
+    const hasMore = result.rows.length > limit || result.more;
     // reverse:true returned newest-first — keep the newest `limit`, then restore
     // ascending (chronological) order for callers.
     const rows = (hasMore ? result.rows.slice(0, limit) : result.rows).slice().reverse();
@@ -526,7 +537,7 @@ export class EscrowRegistry {
       items: jobs,
       hasMore,
       // rows are ascending; the oldest returned id is the boundary for an older page.
-      nextCursor: hasMore && rows.length > 0 ? rows[0].id : undefined,
+      nextCursor: hasMore && rows.length > 0 ? String(rows[0].id) : undefined,
     };
   }
 
@@ -534,6 +545,10 @@ export class EscrowRegistry {
    * List jobs for an agent
    */
   async listJobsByAgent(agent: string, options: JobListOptions = {}): Promise<PaginatedResult<Job>> {
+    if (options.cursor !== undefined) {
+      return this.listOlderJobs('agent', agent, options);
+    }
+
     const { limit = 100 } = options;
 
     // Use secondary index with agent name as bounds to efficiently query
@@ -554,7 +569,10 @@ export class EscrowRegistry {
       reverse: true,
     });
 
-    const hasMore = result.rows.length > limit;
+    if (result.more && result.rows.length === 0) {
+      throw new Error('Job pagination did not return a primary ID');
+    }
+    const hasMore = result.rows.length > limit || result.more;
     // reverse:true returned newest-first — keep the newest `limit`, then restore
     // ascending (chronological) order for callers.
     const rows = (hasMore ? result.rows.slice(0, limit) : result.rows).slice().reverse();
@@ -568,7 +586,53 @@ export class EscrowRegistry {
       items: jobs,
       hasMore,
       // rows are ascending; the oldest returned id is the boundary for an older page.
-      nextCursor: hasMore && rows.length > 0 ? rows[0].id : undefined,
+      nextCursor: hasMore && rows.length > 0 ? String(rows[0].id) : undefined,
+    };
+  }
+
+  private async listOlderJobs(field: 'client' | 'agent', account: string, options: JobListOptions): Promise<PaginatedResult<Job>> {
+    const { limit = 100, cursor } = options;
+    let upperBound = BigInt(cursor!) - 1n;
+    const rows: JobRaw[] = [];
+    let batches = 0;
+    let scanCapped = false;
+
+    // Account indexes have duplicate keys, so continuation must scan primary IDs. The scan is
+    // capped per call, so a sparse account gets a short page and a cursor to keep scanning
+    // from, instead of thousands of sequential RPC calls.
+    while (rows.length <= limit && upperBound >= 0n) {
+      if (batches++ >= MAX_JOB_SCAN_BATCHES) { scanCapped = true; break; }
+      const result = await this.rpc.get_table_rows<JobRaw>({
+        json: true,
+        code: this.contract,
+        scope: this.contract,
+        table: 'jobs',
+        upper_bound: String(upperBound),
+        limit: 100,
+        reverse: true,
+      });
+      rows.push(...result.rows.filter(row => row[field] === account));
+      if (!result.more) break;
+      const nextBound = result.next_key
+        ? BigInt(result.next_key)
+        : result.rows.length > 0 ? BigInt(result.rows[result.rows.length - 1].id) - 1n : upperBound;
+      if (nextBound >= upperBound) {
+        throw new Error('Job pagination did not advance');
+      }
+      upperBound = nextBound;
+    }
+
+    const page = rows.slice(0, limit).reverse();
+    let jobs = page.map(row => this.parseJob(row));
+    if (options.state) jobs = jobs.filter(job => job.state === options.state);
+    if (rows.length > limit) {
+      return { items: jobs, hasMore: true, nextCursor: String(page[0].id) };
+    }
+    // Cursors are exclusive, so resume just above the next id still to be scanned.
+    return {
+      items: jobs,
+      hasMore: scanCapped,
+      nextCursor: scanCapped ? String(upperBound + 1n) : undefined,
     };
   }
 
@@ -1120,7 +1184,7 @@ export class EscrowRegistry {
     // to find enough open jobs (agent is empty), not just fetch `limit` rows.
     const BATCH_SIZE = 100;
     let lowerBound = cursor;
-    let openJobs: Job[] = [];
+    let openJobs: JobRaw[] = [];
     let tableHasMore = true;
 
     while (openJobs.length < limit && tableHasMore) {
@@ -1133,32 +1197,32 @@ export class EscrowRegistry {
         limit: BATCH_SIZE,
       });
 
-      if (result.rows.length === 0) {
-        tableHasMore = false;
-        break;
+      tableHasMore = result.more;
+      const nextBound = result.next_key || (result.rows.length > 0
+        ? String(BigInt(result.rows[result.rows.length - 1].id) + 1n)
+        : undefined);
+      if (tableHasMore && (!nextBound || (lowerBound !== undefined && BigInt(nextBound) <= BigInt(lowerBound)))) {
+        throw new Error('Open job pagination did not advance');
       }
-
-      tableHasMore = result.rows.length === BATCH_SIZE;
-      lowerBound = result.rows[result.rows.length - 1].id + 1;
+      lowerBound = nextBound;
 
       // Filter for empty agent AND only CREATED state (0) by default.
       // Refunded/completed jobs with empty agent are not truly "open".
       const targetState = options.state ?? 'created';
       let batch = result.rows
         .filter(row => row.agent === '' || row.agent === '.............')
-        .map(row => this.parseJob(row))
-        .filter(j => j.state === targetState);
+        .filter(row => (JOB_STATES[row.state] || 'created') === targetState);
 
       openJobs.push(...batch);
     }
 
     const hasMore = openJobs.length > limit || tableHasMore;
-    const items = openJobs.slice(0, limit);
+    const items = openJobs.slice(0, limit).map(row => this.parseJob(row));
 
     return {
       items,
       hasMore,
-      nextCursor: hasMore && items.length > 0 ? String(items[items.length - 1].id + 1) : undefined,
+      nextCursor: openJobs.length > limit ? String(openJobs[limit].id) : tableHasMore ? lowerBound : undefined,
     };
   }
 
@@ -1606,17 +1670,18 @@ export class EscrowRegistry {
    * List service listings (catalogue). `activeOnly` defaults to true.
    */
   async listServices(options: ServiceListOptions = {}): Promise<PaginatedResult<Service>> {
-    const { limit = 100, activeOnly = true } = options;
+    const { limit = 100, cursor, activeOnly = true } = options;
 
     const result = await this.rpc.get_table_rows<ServiceRaw>({
       json: true,
       code: this.contract,
       scope: this.contract,
       table: 'services',
+      lower_bound: cursor === undefined ? undefined : String(BigInt(cursor) + 1n),
       limit: limit + 1,
     });
 
-    const hasMore = result.rows.length > limit;
+    const hasMore = result.rows.length > limit || result.more;
     const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
     let services = rows.map(row => this.parseService(row));
 
@@ -1624,10 +1689,19 @@ export class EscrowRegistry {
       services = services.filter(s => s.active);
     }
 
+    // Service cursors are exclusive primary IDs; RPC next_key is inclusive.
+    const nextCursor = result.rows.length > limit
+      ? String(rows[rows.length - 1].id)
+      : result.more && result.next_key ? String(BigInt(result.next_key) - 1n)
+      : hasMore && rows.length > 0 ? String(rows[rows.length - 1].id) : undefined;
+    if (hasMore && (nextCursor === undefined || (cursor !== undefined && BigInt(nextCursor) <= BigInt(cursor)))) {
+      throw new Error('Service pagination did not advance');
+    }
+
     return {
       items: services,
       hasMore,
-      nextCursor: hasMore && rows.length > 0 ? rows[rows.length - 1].id : undefined,
+      nextCursor,
     };
   }
 
@@ -1806,7 +1880,7 @@ export class EscrowRegistry {
         data: {
           from: this.session!.auth.actor,
           to: this.contract,
-          quantity: `${(amountRaw / 10000).toFixed(4)} XPR`,
+          quantity: formatXprQuantity(amountRaw),
           memo: `boost:${serviceId}`,
         },
       }],
@@ -1844,7 +1918,7 @@ export class EscrowRegistry {
         data: {
           from: this.session!.auth.actor,
           to: this.contract,
-          quantity: `${(priceRaw / 10000).toFixed(4)} XPR`,
+          quantity: formatXprQuantity(priceRaw),
           memo: trimmedNotes ? `buy:${serviceId}:${trimmedNotes}` : `buy:${serviceId}`,
         },
       }],
@@ -1940,7 +2014,7 @@ export class EscrowRegistry {
           data: {
             from: this.session!.auth.actor,
             to: this.contract,
-            quantity: `${(priceRaw / 10000).toFixed(4)} XPR`,
+            quantity: formatXprQuantity(priceRaw),
             memo: `buy:${serviceId}`,
           },
         },
@@ -1999,19 +2073,14 @@ export class EscrowRegistry {
       data: {
         from: this.session!.auth.actor,
         to: this.contract,
-        quantity: `${(amountRaw / 10000).toFixed(4)} XPR`,
+        quantity: formatXprQuantity(amountRaw),
         memo: `svcfee:${this.session!.auth.actor}`,
       },
     };
   }
 
   private parseJob(raw: JobRaw): Job {
-    let deliverables: string[] = [];
-    try {
-      deliverables = JSON.parse(raw.deliverables);
-    } catch {
-      deliverables = [];
-    }
+    const deliverables = parseStringArray(raw.deliverables);
 
     return {
       id: safeParseInt(raw.id),
@@ -2071,13 +2140,7 @@ export class EscrowRegistry {
   }
 
   private parseService(raw: ServiceRaw): Service {
-    let deliverables: string[] = [];
-    try {
-      const parsed = JSON.parse(raw.deliverables);
-      if (Array.isArray(parsed)) deliverables = parsed;
-    } catch {
-      deliverables = [];
-    }
+    const deliverables = parseStringArray(raw.deliverables);
 
     return {
       id: safeParseInt(raw.id),
