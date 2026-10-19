@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { parseXprAmount } from '@/lib/xpr-amount';
 import { Header } from '@/components/Header';
 import { UsdValue } from '@/components/UsdValue';
 import { Footer } from '@/components/Footer';
@@ -131,7 +132,7 @@ export default function Jobs() {
     submittingRef.current = true;
     setProcessing(true);
     try {
-      const amount = Math.floor(parseFloat(form.amount) * 10000);
+      const amount = parseXprAmount(form.amount);
       const deadlineSeconds = Math.floor(Date.now() / 1000) + parseInt(form.deadline) * 86400;
       const deliverables = JSON.stringify(form.deliverables.split('\n').map(d => d.trim()).filter(Boolean));
       const agent = form.agent.trim().toLowerCase();

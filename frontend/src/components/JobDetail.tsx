@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { parseXprAmount } from '@/lib/xpr-amount';
 import { AccountLink } from '@/components/AccountLink';
 import { NftCard } from '@/components/NftCard';
 import { Modal } from '@/components/Modal';
@@ -674,7 +675,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
     submittingRef.current = true;
     setProcessing(true);
     try {
-      const amount = Math.floor(parseFloat(bidAmount) * 10000);
+      const amount = parseXprAmount(bidAmount);
       const timelineDays = parseInt(bidTimeline);
       const timelineSeconds = timelineDays * 86400;
       const result = await transact([

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { parseXprAmount, formatXprAsset } from '@/lib/xpr-amount';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { SiteHead } from '@/components/SiteHead';
@@ -241,7 +242,7 @@ export default function Validators() {
     if (!session) return;
     setProcessing(true);
     try {
-      const qty = `${parseFloat(stakeAmount).toFixed(4)} XPR`;
+      const qty = formatXprAsset(parseXprAmount(stakeAmount));
       const result = await transact([
         { account: 'eosio.token', name: 'transfer', data: { from: session.auth.actor, to: CONTRACTS.AGENT_VALID, quantity: qty, memo: 'stake' } },
       ]);
@@ -261,7 +262,7 @@ export default function Validators() {
     if (!session) return;
     setProcessing(true);
     try {
-      const amount = Math.floor(parseFloat(unstakeAmount) * 10000);
+      const amount = parseXprAmount(unstakeAmount);
       const result = await transact([
         { account: CONTRACTS.AGENT_VALID, name: 'unstake', data: { account: session.auth.actor, amount } },
       ]);

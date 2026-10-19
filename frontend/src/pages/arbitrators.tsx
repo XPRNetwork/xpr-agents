@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { parseXprAmount, formatXprAsset } from '@/lib/xpr-amount';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { SiteHead } from '@/components/SiteHead';
@@ -243,7 +244,7 @@ export default function Arbitrators() {
     if (!session) return;
     setProcessing(true);
     try {
-      const qty = `${parseFloat(stakeAmount).toFixed(4)} XPR`;
+      const qty = formatXprAsset(parseXprAmount(stakeAmount));
       const result = await transact([
         {
           account: 'eosio.token',
