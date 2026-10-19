@@ -141,11 +141,19 @@ export function safeJsonParse<T>(json: string, fallback: T): T {
 }
 
 /**
+ * Parse a JSON string array, ignoring values of the wrong shape
+ */
+export function parseStringArray(json: string): string[] {
+  const parsed = safeJsonParse<unknown>(json, []);
+  return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
+}
+
+/**
  * Parse capabilities string to array
  */
 export function parseCapabilities(capabilities: string): string[] {
   if (!capabilities) return [];
-  return safeJsonParse<string[]>(capabilities, []);
+  return parseStringArray(capabilities);
 }
 
 /**
@@ -153,7 +161,7 @@ export function parseCapabilities(capabilities: string): string[] {
  */
 export function parseSpecializations(specializations: string): string[] {
   if (!specializations) return [];
-  return safeJsonParse<string[]>(specializations, []);
+  return parseStringArray(specializations);
 }
 
 /**
@@ -168,7 +176,22 @@ export function parseTags(tags: string): string[] {
  * Format XPR amount from smallest unit
  */
 export function formatXpr(amount: number): string {
-  return (amount / 10000).toFixed(4) + ' XPR';
+  // Integer arithmetic, so large raw amounts are not rounded; anything else keeps the old format.
+  if (!Number.isSafeInteger(amount)) return (amount / 10000).toFixed(4) + ' XPR';
+  const raw = BigInt(amount);
+  const absolute = raw < 0n ? -raw : raw;
+  return `${raw < 0n ? '-' : ''}${absolute / 10000n}.${String(absolute % 10000n).padStart(4, '0')} XPR`;
+}
+
+/**
+ * Format a raw amount as a transfer quantity, refusing anything that is not an exact
+ * whole number of raw units rather than rounding it
+ */
+export function formatXprQuantity(amount: number): string {
+  if (!Number.isSafeInteger(amount)) {
+    throw new Error('XPR amount must be a safe integer');
+  }
+  return formatXpr(amount);
 }
 
 /**

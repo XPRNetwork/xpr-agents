@@ -70,6 +70,10 @@ export class A2AClient {
   private timeout: number;
 
   constructor(endpoint: string, options: A2AClientOptions = {}) {
+    const url = new URL(endpoint);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('A2A endpoint must use http: or https:');
+    }
     this.endpoint = endpoint.replace(/\/$/, '');
     this.callerAccount = options.callerAccount;
     this.signingKey = options.signingKey;
