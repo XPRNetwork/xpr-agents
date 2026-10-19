@@ -238,6 +238,8 @@ function buildAttributeMap(
 
 const TOKEN_CONTRACTS: Record<string, string> = {
   XPR: 'eosio.token',
+  XMD: 'xmd.token',
+  LOAN: 'loan.token',
   XUSDC: 'xtokens',
   XBTC: 'xtokens',
   XETH: 'xtokens',
@@ -248,7 +250,9 @@ const TOKEN_CONTRACTS: Record<string, string> = {
 };
 
 function getTokenContract(symbol: string): string {
-  return TOKEN_CONTRACTS[symbol.toUpperCase()] || 'eosio.token';
+  const contract = TOKEN_CONTRACTS[symbol.toUpperCase()];
+  if (!contract) throw new Error(`Unsupported token symbol: ${symbol}`);
+  return contract;
 }
 
 function parsePrice(price: string): { amount: string; symbol: string; precision: number; contract: string } {

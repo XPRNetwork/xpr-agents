@@ -1045,7 +1045,8 @@ export default function defiSkill(api: SkillApi): void {
         assertXprWithinCap(t1.amount, t1.symbol, 'defi_add_liquidity');
         assertXprWithinCap(t2.amount, t2.symbol, 'defi_add_liquidity');
         const { api: eosApi, account, permission } = await getSession();
-        const slip = (params.slippage_pct || 1.0) / 100;
+        const slip = (params.slippage_pct ?? 1.0) / 100;
+        if (!Number.isFinite(slip) || slip < 0 || slip > 1) return { error: 'slippage_pct must be between 0 and 100' };
         const min1 = formatAsset(t1.amount * (1 - slip), t1.precision, t1.symbol);
         const min2 = formatAsset(t2.amount * (1 - slip), t2.precision, t2.symbol);
 

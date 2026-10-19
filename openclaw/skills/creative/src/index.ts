@@ -469,7 +469,7 @@ export default function creativeSkill(api: SkillApi): void {
       }
 
       if (ct === 'application/pdf') {
-        if (!content) {
+        if (!content?.trim()) {
           return { stored: false, error: 'PDF generation requires "content" parameter with Markdown text.' };
         }
         try {
@@ -510,7 +510,7 @@ export default function creativeSkill(api: SkillApi): void {
           if (isModel) mimeType = modelMimeFor(ct, source_url);
         }
 
-        if (!buffer) return { stored: false, error: 'Failed to obtain binary content. Provide source_url for media types.' };
+        if (!buffer?.length) return { stored: false, error: 'Failed to obtain binary content. Provide source_url for media types.' };
 
         setDeliverable(job_id, { content: source_url || '[binary]', content_type: mimeType, created_at: ts });
         const ext = extensionFor(mimeType, source_url, filename);
@@ -523,6 +523,7 @@ export default function creativeSkill(api: SkillApi): void {
         return { stored: true, url: dataUri, storage: 'data_uri', content_type: mimeType };
       }
 
+      if (!content?.trim()) return { stored: false, error: 'Text deliverables require nonempty content.' };
       setDeliverable(job_id, { content, content_type: ct, created_at: ts });
       const url = await uploadTextToIpfs(content, job_id, ct, filename);
       if (url) {
