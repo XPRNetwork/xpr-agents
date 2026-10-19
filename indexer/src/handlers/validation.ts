@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
+import { actionKey } from './action-key';
 import { updateStats } from '../db/schema';
 import { WebhookDispatcher } from '../webhooks/dispatcher';
 import { pendingCorrections, fetchOnChainId } from './id-correction';
@@ -18,7 +19,7 @@ export function handleValidationAction(db: Database.Database, action: StreamActi
       handleSetValStatus(db, data);
       break;
     case 'validate':
-      handleValidate(db, data, action.timestamp, action.act.account);
+      handleValidate(db, data, action.timestamp, action.act.account, actionKey(action));
       dispatcher?.dispatch(
         'validation.submitted',
         [data.agent, data.validator],
@@ -123,21 +124,26 @@ function handleSetValStatus(db: Database.Database, data: any): void {
   console.log(`Validator status changed: ${data.account} -> ${data.active ? 'active' : 'inactive'}`);
 }
 
-function handleValidate(db: Database.Database, data: any, timestamp: string, contract?: string): void {
+function handleValidate(db: Database.Database, data: any, timestamp: string, contract: string, sourceAction: string): void {
   const ts = Math.floor(new Date(timestamp).getTime() / 1000);
 
-  // Check if already seeded by syncFromChain
-  const existing = db.prepare(
-    'SELECT id FROM validations WHERE validator = ? AND agent = ? AND timestamp = ?'
-  ).get(data.validator, data.agent, ts) as { id: number } | undefined;
+  if (db.prepare('SELECT 1 FROM validations WHERE source_action = ?').get(sourceAction)) return;
+
+  // Claim one matching snapshot row without incrementing its seeded totals.
+  const existing = db.prepare(`
+    SELECT id FROM validations WHERE source_action IS NULL AND validator = ? AND agent = ?
+      AND timestamp = ? AND job_hash = ? AND result = ? AND confidence = ? AND evidence_uri = ?
+    ORDER BY id ASC LIMIT 1
+  `).get(data.validator, data.agent, ts, data.job_hash || '', data.result, data.confidence, data.evidence_uri || '') as { id: number } | undefined;
   if (existing) {
+    db.prepare('UPDATE validations SET source_action = ? WHERE id = ?').run(sourceAction, existing.id);
     console.log(`Validation already exists (ID ${existing.id}) — skipping duplicate`);
     return;
   }
 
   const stmt = db.prepare(`
-    INSERT INTO validations (id, validator, agent, job_hash, result, confidence, evidence_uri, challenged, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+    INSERT INTO validations (id, validator, agent, job_hash, result, confidence, evidence_uri, challenged, timestamp, source_action)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
   `);
 
   const countStmt = db.prepare('SELECT MAX(id) as max_id FROM validations');
@@ -152,7 +158,8 @@ function handleValidate(db: Database.Database, data: any, timestamp: string, con
     data.result,
     data.confidence,
     data.evidence_uri || '',
-    ts
+    ts,
+    sourceAction
   );
 
   // Update validator stats

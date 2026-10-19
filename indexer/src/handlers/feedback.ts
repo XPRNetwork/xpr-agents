@@ -43,11 +43,11 @@ export function handleFeedbackAction(db: Database.Database, action: StreamAction
       break;
     case 'submitctx':
       // Context-specific feedback - same feedback table, context prepended to tags
-      handleSubmit(db, data, action.timestamp, action.act.account);
+      handleSubmit(db, { ...data, tags: `${data.context}:${data.tags || ''}` }, action.timestamp, action.act.account);
       break;
     case 'submitwpay':
       // Feedback with payment proof - same feedback table, payment proof is separate
-      handleSubmit(db, data, action.timestamp, action.act.account);
+      handleSubmit(db, { ...data, amount_paid: data.payment_amount }, action.timestamp, action.act.account);
       break;
     case 'reinstate':
       handleReinstate(db, data);

@@ -6,6 +6,7 @@
  */
 
 import Database from 'better-sqlite3';
+import { pagination } from './pagination';
 
 /** Max featured listings that occupy the top of the catalogue. */
 export const FEATURED_SLOTS = 3;
@@ -73,8 +74,7 @@ const SORT_MAP: Record<string, string> = {
  * ranking is part of the SQL so it survives limit/offset paging.
  */
 export function queryServices(db: Database.Database, opts: ServiceQueryOptions = {}): ServiceListResult {
-  const limit = Math.min(Math.max(opts.limit || DEFAULT_LIMIT, 1), MAX_LIMIT);
-  const offset = Math.max(opts.offset || 0, 0);
+  const { limit, offset } = pagination(opts, DEFAULT_LIMIT, MAX_LIMIT);
   const now = opts.now ?? Math.floor(Date.now() / 1000);
 
   const params: Record<string, unknown> = { now, limit, offset };

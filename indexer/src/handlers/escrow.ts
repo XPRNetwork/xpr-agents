@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { StreamAction } from '../stream';
+import { actionKey } from './action-key';
 import { updateStats } from '../db/schema';
 import { WebhookDispatcher } from '../webhooks/dispatcher';
 import {
@@ -165,7 +166,7 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
       // The seller handed the escrow back. Same end state as a client cancel:
       // REFUNDED with everything released. Without this the mirror would keep
       // showing the job as live while the chain has refunded it.
-      handleCancel(db, data);
+      handleCancel(db, data, action.timestamp);
       if (dispatcher) {
         const agentCancelJob = db.prepare('SELECT client, agent FROM jobs WHERE id = ?').get(data.job_id) as { client: string; agent: string } | undefined;
         dispatcher.dispatch(
@@ -178,7 +179,7 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
       }
       break;
     case 'cancel':
-      handleCancel(db, data);
+      handleCancel(db, data, action.timestamp);
       if (dispatcher) {
         const cancelJob = db.prepare('SELECT client, agent FROM jobs WHERE id = ?').get(data.job_id) as { client: string; agent: string } | undefined;
         dispatcher.dispatch(
@@ -192,7 +193,7 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
       break;
     case 'timeout':
     case 'accpttimeout':
-      handleTimeout(db, data);
+      handleTimeout(db, data, action.timestamp);
       if (dispatcher) {
         const tmJob = db.prepare('SELECT client, agent, state FROM jobs WHERE id = ?').get(data.job_id) as { client: string; agent: string; state: number } | undefined;
         dispatcher.dispatch(
@@ -247,7 +248,7 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
     case 'selectbid': {
       // Capture bid data BEFORE handleSelectBid deletes all bids for the job
       const selectedBid = db.prepare('SELECT agent, job_id, amount FROM bids WHERE id = ?').get(data.bid_id) as { agent: string; job_id: number; amount: number } | undefined;
-      handleSelectBid(db, data);
+      handleSelectBid(db, data, action.timestamp);
       if (dispatcher) {
         dispatcher.dispatch(
           'bid.selected',
@@ -291,6 +292,13 @@ export function handleEscrowAction(db: Database.Database, action: StreamAction, 
       break;
     case 'rmservice':
       handleRemoveService(db, data);
+      break;
+    case 'setlimits':
+      db.prepare('UPDATE escrow_limits SET max_open_jobs = ?, max_milestones = ?, stale_after = ? WHERE id = 1')
+        .run(data.max_open_jobs, data.max_milestones, data.stale_after);
+      break;
+    case 'cleanstale':
+      handleCleanStale(db, data, action.timestamp);
       break;
     case 'cleanjobs':
       handleCleanJobs(db, data);
@@ -607,15 +615,15 @@ function handleResolveTimeout(db: Database.Database, data: any, resolver?: strin
   console.log(`Dispute ${data.dispute_id} resolved by timeout${dispute ? ` (job ${dispute.job_id})` : ''}`);
 }
 
-function handleCancel(db: Database.Database, data: any): void {
+function handleCancel(db: Database.Database, data: any, timestamp: string): void {
   // REFUNDED: All funds leave escrow (back to client)
   // Contract sets released_amount = funded_amount
   const stmt = db.prepare(`
     UPDATE jobs
-    SET state = 7, released_amount = funded_amount, updated_at = strftime('%s', 'now')
+    SET state = 7, released_amount = funded_amount, updated_at = ?
     WHERE id = ?
   `);
-  stmt.run(data.job_id);
+  stmt.run(Math.floor(new Date(timestamp).getTime() / 1000), data.job_id);
 
   // Clean up any bids for this job (contract deletes them on cancel)
   const deleted = db.prepare('DELETE FROM bids WHERE job_id = ?').run(data.job_id);
@@ -626,7 +634,7 @@ function handleCancel(db: Database.Database, data: any): void {
   }
 }
 
-function handleTimeout(db: Database.Database, data: any): void {
+function handleTimeout(db: Database.Database, data: any, timestamp: string): void {
   // Look up current job state to determine outcome
   const job = db.prepare('SELECT state FROM jobs WHERE id = ?').get(data.job_id) as { state: number } | undefined;
 
@@ -639,10 +647,10 @@ function handleTimeout(db: Database.Database, data: any): void {
     UPDATE jobs
     SET state = ?,
         released_amount = funded_amount,
-        updated_at = strftime('%s', 'now')
+        updated_at = ?
     WHERE id = ?
   `);
-  stmt.run(newState, data.job_id);
+  stmt.run(newState, Math.floor(new Date(timestamp).getTime() / 1000), data.job_id);
   console.log(`Job ${data.job_id} timeout claimed -> state ${newState === 6 ? 'COMPLETED' : 'REFUNDED'}`);
 }
 
@@ -797,7 +805,7 @@ function handleSubmitBid(db: Database.Database, data: any, timestamp: string): v
 
   // Check if already seeded by syncFromChain
   const existingBid = db.prepare(
-    'SELECT id FROM bids WHERE job_id = ? AND agent = ?'
+    'SELECT id FROM bids WHERE job_id = ? AND agent = ? AND state = 0'
   ).get(data.job_id, data.agent) as { id: number } | undefined;
   if (existingBid) {
     console.log(`Bid already exists (ID ${existingBid.id}) — skipping duplicate`);
@@ -832,6 +840,10 @@ function handleSubmitBid(db: Database.Database, data: any, timestamp: string): v
       row.job_id == bidJobId && row.agent === bidAgent
     );
     if (realId == null || realId === tempId) return;
+    // A withdrawn/selected bid no longer exists on chain. Do not correct it
+    // to a replacement bid, and let a reused chain ID replace old history.
+    if (!db.prepare('SELECT 1 FROM bids WHERE id = ? AND state = 0').get(tempId)) return;
+    db.prepare('DELETE FROM bids WHERE id = ? AND state != 0').run(realId);
     safeCorrect(db, BIDS_SPEC, tempId, realId, (displacedId, displacedRow) => {
       const dJobId = Number(displacedRow.job_id);
       const dAgent = String(displacedRow.agent || '');
@@ -1310,13 +1322,13 @@ function handleRemoveService(db: Database.Database, data: any): void {
   );
 }
 
-function handleSelectBid(db: Database.Database, data: any): void {
+function handleSelectBid(db: Database.Database, data: any, timestamp: string): void {
   // Look up the bid to get agent + job_id
   const bid = db.prepare('SELECT agent, job_id, amount, timeline FROM bids WHERE id = ?').get(data.bid_id) as { agent: string; job_id: number; amount: number; timeline: number } | undefined;
 
   if (bid) {
     // Assign agent to job, update amount and deadline
-    const now = Math.floor(Date.now() / 1000);
+    const now = Math.floor(new Date(timestamp).getTime() / 1000);
     const stmt = db.prepare(`
       UPDATE jobs
       SET agent = ?, amount = ?, deadline = ?, updated_at = ?
@@ -1326,8 +1338,8 @@ function handleSelectBid(db: Database.Database, data: any): void {
 
     // Soft-delete: mark bids by state instead of hard-delete. The contract
     // garbage-collects competing bids on selectbid, but the indexer keeps them
-    // so the winning proposal text remains queryable forever.
-    db.prepare('UPDATE bids SET state = 2 WHERE job_id = ? AND id != ?').run(bid.job_id, data.bid_id);
+    // so proposals remain queryable until the chain reuses their IDs.
+    db.prepare('UPDATE bids SET state = 2 WHERE job_id = ? AND id != ? AND state = 0').run(bid.job_id, data.bid_id);
     db.prepare('UPDATE bids SET state = 1 WHERE id = ?').run(data.bid_id);
 
     console.log(`Bid ${data.bid_id} selected: agent ${bid.agent} assigned to job ${bid.job_id}`);
@@ -1343,6 +1355,29 @@ function handleWithdrawBid(db: Database.Database, data: any): void {
     console.log(`Bid ${data.bid_id} withdrawn by ${data.agent}`);
   } else {
     console.log(`Bid ${data.bid_id} withdrawn but bid not found in indexer`);
+  }
+}
+
+function handleCleanStale(db: Database.Database, data: any, timestamp: string): void {
+  const now = Math.floor(new Date(timestamp).getTime() / 1000);
+  const limits = db.prepare('SELECT stale_after FROM escrow_limits WHERE id = 1').get() as { stale_after: number };
+  // Bound the scan before testing eligibility, exactly like the chain iterator.
+  const jobs = db.prepare(`
+    SELECT * FROM jobs WHERE id >= ? AND archived = 0 ORDER BY id ASC LIMIT ?
+  `).all(data.from_id, data.max_scan) as Array<{
+    id: number; state: number; funded_amount: number; released_amount: number;
+    created_at: number; updated_at: number;
+  }>;
+
+  for (const job of jobs) {
+    const staleUnfunded = job.state === 0 && job.funded_amount === 0 && job.created_at + limits.stale_after < now;
+    const staleRefunded = job.state === 7 && job.released_amount >= job.funded_amount && job.updated_at + limits.stale_after < now;
+    if (!staleUnfunded && !staleRefunded) continue;
+    db.prepare('UPDATE milestones SET archived = 1 WHERE job_id = ?').run(job.id);
+    db.prepare('DELETE FROM bids WHERE job_id = ?').run(job.id);
+    db.prepare('DELETE FROM job_messages WHERE job_id = ?').run(job.id);
+    db.prepare('DELETE FROM job_evidence WHERE job_id = ?').run(job.id);
+    db.prepare('UPDATE jobs SET archived = 1 WHERE id = ?').run(job.id);
   }
 }
 
@@ -1505,12 +1540,17 @@ function handleServicePurchase(
     ? `${service.description || ''}\n\nBuyer notes: ${notes}`
     : service.description || '';
 
-  // Replay guard: a re-processed transfer must neither double-count the sale
-  // nor insert the job twice, so both writes sit behind this check.
-  const existing = db.prepare(
-    'SELECT id FROM jobs WHERE client = ? AND job_hash = ? AND created_at = ?'
-  ).get(from, jobHash, now) as { id: number } | undefined;
+  const sourceAction = actionKey(action);
+  if (db.prepare('SELECT 1 FROM jobs WHERE source_action = ?').get(sourceAction)) return;
+
+  // Claim at most one snapshot row. Streamed rows have action identities and
+  // must not suppress another purchase in the same block or transaction.
+  const existing = db.prepare(`
+    SELECT id FROM jobs WHERE source_action IS NULL AND client = ? AND job_hash = ?
+      AND created_at = ? AND description = ? ORDER BY id ASC LIMIT 1
+  `).get(from, jobHash, now, description) as { id: number } | undefined;
   if (existing) {
+    db.prepare('UPDATE jobs SET source_action = ? WHERE id = ?').run(sourceAction, existing.id);
     console.log(`Service purchase job already exists (ID ${existing.id}) — skipping duplicate buy:${serviceId}`);
     return;
   }
@@ -1520,8 +1560,8 @@ function handleServicePurchase(
 
   // state = 1 (FUNDED), funded by the purchase transfer itself.
   db.prepare(`
-    INSERT INTO jobs (id, client, agent, title, description, deliverables, amount, symbol, funded_amount, released_amount, state, deadline, arbitrator, job_hash, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'XPR', ?, 0, 1, ?, '', ?, ?, ?)
+    INSERT INTO jobs (id, client, agent, title, description, deliverables, amount, symbol, funded_amount, released_amount, state, deadline, arbitrator, job_hash, created_at, updated_at, source_action)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'XPR', ?, 0, 1, ?, '', ?, ?, ?, ?)
   `).run(
     tempId,
     from,
@@ -1535,6 +1575,7 @@ function handleServicePurchase(
     jobHash,
     now,
     now,
+    sourceAction,
   );
 
   // Chain increments sales only — updated_at stays at the last edit, so mirror that.

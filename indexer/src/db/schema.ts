@@ -159,6 +159,15 @@ export function initDatabase(dbPath: string): Database.Database {
     INSERT OR IGNORE INTO stats (key, value) VALUES ('total_validations', 0);
     INSERT OR IGNORE INTO stats (key, value) VALUES ('total_jobs', 0);
 
+    -- Escrow limits singleton (setlimits); defaults match the contract's EscrowLimits
+    CREATE TABLE IF NOT EXISTS escrow_limits (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      max_open_jobs INTEGER NOT NULL DEFAULT 5,
+      max_milestones INTEGER NOT NULL DEFAULT 20,
+      stale_after INTEGER NOT NULL DEFAULT 2592000
+    );
+    INSERT OR IGNORE INTO escrow_limits (id) VALUES (1);
+
     -- Escrow Jobs table
     CREATE TABLE IF NOT EXISTS jobs (
       id INTEGER PRIMARY KEY,
@@ -393,6 +402,8 @@ export function initDatabase(dbPath: string): Database.Database {
   // ALTER TABLE ... ADD COLUMN is a no-op error if the column already exists,
   // so we catch and ignore each one individually.
   const migrations = [
+    'ALTER TABLE jobs ADD COLUMN source_action TEXT',
+    'ALTER TABLE validations ADD COLUMN source_action TEXT',
     'ALTER TABLE arbitrators ADD COLUMN pending_unstake INTEGER DEFAULT 0',
     'ALTER TABLE agents ADD COLUMN owner TEXT',
     'ALTER TABLE agents ADD COLUMN pending_owner TEXT',
@@ -428,6 +439,9 @@ export function initDatabase(dbPath: string): Database.Database {
     // on a listing and the timestamp its featured slot runs out.
     'ALTER TABLE services ADD COLUMN boost_paid INTEGER DEFAULT 0',
     'ALTER TABLE services ADD COLUMN featured_until INTEGER DEFAULT 0',
+    // Replay guards look actions up by source_action on every purchase and validation
+    'CREATE INDEX IF NOT EXISTS idx_jobs_source_action ON jobs(source_action)',
+    'CREATE INDEX IF NOT EXISTS idx_validations_source_action ON validations(source_action)',
   ];
 
   // Migrate processed_actions from INTEGER to TEXT key if needed.
