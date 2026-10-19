@@ -84,6 +84,10 @@ export class WebhookDispatcher {
       return false;
     }
 
+    if (!Array.isArray(filters) || !filters.every((f) => typeof f === 'string' && f.trim().length > 0)) {
+      return false;
+    }
+
     // Match event type: exact match or wildcard prefix (e.g., "job.*")
     const eventMatches = filters.some((f) => {
       if (f === '*') return true;

@@ -6,6 +6,7 @@
  */
 
 import Database from 'better-sqlite3';
+import { pagination } from './pagination';
 
 export interface JobMessageRow {
   id: number;
@@ -25,10 +26,11 @@ export function jobExists(db: Database.Database, jobId: number): boolean {
  * synthetic stand-ins before correction), so `id ASC` is the order the
  * messages were written in.
  */
-export function queryJobMessages(db: Database.Database, jobId: number): JobMessageRow[] {
+export function queryJobMessages(db: Database.Database, jobId: number, opts: { limit?: number; offset?: number } = {}): JobMessageRow[] {
+  const { limit, offset } = pagination(opts);
   return db
-    .prepare('SELECT id, job_id, author, text, created_at FROM job_messages WHERE id >= 0 AND job_id = ? ORDER BY id ASC')
-    .all(jobId) as JobMessageRow[];
+    .prepare('SELECT id, job_id, author, text, created_at FROM job_messages WHERE id >= 0 AND job_id = ? ORDER BY id ASC LIMIT ? OFFSET ?')
+    .all(jobId, limit, offset) as JobMessageRow[];
 }
 
 /** Number of messages on a job — cheap enough to embed in the job payload. */

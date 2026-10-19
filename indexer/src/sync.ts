@@ -46,6 +46,25 @@ async function fetchAllRows(rpc: string, code: string, table: string, scope?: st
   return rows;
 }
 
+/**
+ * Mirror the escrow limits singleton, which cleanstale's eligibility depends on. An absent
+ * row means the contract defaults, which the schema seeds. Run on every start, not only on
+ * an empty database, so a setlimits missed while the indexer was down is picked up.
+ */
+export async function syncEscrowLimits(db: Database.Database, rpc: string, escrowContract: string): Promise<void> {
+  const res = await fetch(`${rpc}/v1/chain/get_table_rows`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: escrowContract, scope: escrowContract, table: 'limits', json: true, limit: 1 }),
+  });
+  const data = await res.json() as { rows?: any[] };
+  // Only a well-formed answer may reset the limits; an error body must not read as "no row".
+  if (!Array.isArray(data.rows)) throw new Error(`limits read failed (HTTP ${res.status})`);
+  const row = data.rows[0] || { max_open_jobs: 5, max_milestones: 20, stale_after: 2592000 };
+  db.prepare('UPDATE escrow_limits SET max_open_jobs = ?, max_milestones = ?, stale_after = ? WHERE id = 1')
+    .run(row.max_open_jobs, row.max_milestones, row.stale_after);
+}
+
 export async function syncFromChain(
   db: Database.Database,
   rpcEndpoint: string,
@@ -124,14 +143,14 @@ export async function syncFromChain(
   const validations = await fetchAllRows(rpc, contracts.agentvalid, 'validations');
   if (validations.length > 0) {
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO validations (id, validator, agent, job_hash, result, confidence, evidence_uri, challenged, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO validations (id, validator, agent, job_hash, result, confidence, evidence_uri, challenged, timestamp, source_action)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT source_action FROM validations WHERE id = ?))
     `);
     for (const v of validations) {
       stmt.run(
         v.id, v.validator, v.agent, v.job_hash || '',
         v.result, v.confidence, v.evidence_uri || '',
-        v.challenged ? 1 : 0, v.timestamp || 0
+        v.challenged ? 1 : 0, v.timestamp || 0, v.id
       );
     }
     console.log(`[sync] Validations: ${validations.length}`);
@@ -155,12 +174,14 @@ export async function syncFromChain(
     console.log(`[sync] Challenges: ${challenges.length}`);
   }
 
+  await syncEscrowLimits(db, rpc, contracts.agentescrow);
+
   // ── Jobs ──────────────────────────────────────────
   const jobs = await fetchAllRows(rpc, contracts.agentescrow, 'jobs');
   if (jobs.length > 0) {
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO jobs (id, client, agent, title, description, deliverables, amount, symbol, funded_amount, released_amount, state, deadline, arbitrator, job_hash, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO jobs (id, client, agent, title, description, deliverables, amount, symbol, funded_amount, released_amount, state, deadline, arbitrator, job_hash, created_at, updated_at, source_action)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT source_action FROM jobs WHERE id = ?))
     `);
     for (const j of jobs) {
       stmt.run(
@@ -168,7 +189,7 @@ export async function syncFromChain(
         j.deliverables || '[]', j.amount || 0, j.symbol || 'XPR',
         j.funded_amount || 0, j.released_amount || 0, j.state || 0,
         j.deadline || 0, j.arbitrator || '', j.job_hash || '',
-        j.created_at || 0, j.updated_at || 0
+        j.created_at || 0, j.updated_at || 0, j.id
       );
     }
     console.log(`[sync] Jobs: ${jobs.length}`);
