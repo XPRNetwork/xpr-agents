@@ -1389,6 +1389,7 @@ export class AgentEscrowContract extends Contract {
     // AUDIT FIX: Explicit state check for defense-in-depth
     check(job.state == 5, "Job must be in DISPUTED state");
     check(client_percent <= 100, "Invalid percentage");
+    if (isOwnerFallback) this.checkOwnerConcedes(config.owner, job, client_percent);
 
     // M14 FIX: Require resolution notes for audit trail
     check(
@@ -1501,6 +1502,14 @@ export class AgentEscrowContract extends Contract {
     print(`Dispute ${dispute_id} resolved: ${client_percent}% to client, ${arbFee} arbitration fee`);
   }
 
+  // The owner is the only resolver left for some disputes, including ones it is a party to.
+  // It may resolve those only by awarding everything to the other side, so it can never rule
+  // for itself and the funds can never be trapped.
+  private checkOwnerConcedes(owner: Name, job: Job, client_percent: u64): void {
+    if (owner == job.client) check(client_percent == 0, "Owner is the client: it can only award the agent");
+    if (owner == job.agent) check(client_percent == 100, "Owner is the agent: it can only refund the client");
+  }
+
   // ============== DISPUTE TIMEOUT ==============
 
   // 14 days in seconds for dispute resolution timeout
@@ -1532,6 +1541,7 @@ export class AgentEscrowContract extends Contract {
 
     const job = this.jobsTable.requireGet(dispute.job_id, "Job not found");
     check(job.state == 5, "Job must be in DISPUTED state");
+    this.checkOwnerConcedes(config.owner, job, client_percent);
 
     // Verify state consistency
     check(job.funded_amount >= job.released_amount, "Invalid job state");
@@ -2425,6 +2435,11 @@ export class AgentEscrowContract extends Contract {
         // Delete associated messages
         this.cleanMessagesForJob(current.id);
 
+        const evidence = this.jobEvidenceTable.get(current.id);
+        if (evidence != null) {
+          this.jobEvidenceTable.remove(evidence);
+        }
+
         this.jobsTable.remove(current);
         deleted++;
       }
@@ -2463,6 +2478,20 @@ export class AgentEscrowContract extends Contract {
     print(`Cleaned ${deleted} resolved disputes`);
   }
 
+  // Check each decimal step before multiplying, so no intermediate value wraps.
+  private parseMemoId(value: string, label: string): u64 {
+    check(value.length > 0 && value.length <= 20, "Invalid " + label.toLowerCase() + " ID format");
+    let result: u64 = 0;
+    for (let i = 0; i < value.length; i++) {
+      const c = value.charCodeAt(i);
+      check(c >= 48 && c <= 57, label + " ID must be numeric");
+      const digit: u64 = <u64>(c - 48);
+      check(result <= (U64.MAX_VALUE - digit) / 10, label + " ID exceeds u64 max");
+      result = result * 10 + digit;
+    }
+    return result;
+  }
+
   // ============== TOKEN HANDLING ==============
 
   @action("transfer", notify)
@@ -2475,15 +2504,8 @@ export class AgentEscrowContract extends Contract {
 
     // Parse memo: "fund:JOB_ID" or "arbstake"
     if (memo.startsWith("fund:")) {
-      // H2 FIX: Validate memo format before parsing
       const jobIdStr = memo.substring(5);
-      check(jobIdStr.length > 0 && jobIdStr.length <= 20, "Invalid job ID format");
-      // Validate it contains only digits
-      for (let i = 0; i < jobIdStr.length; i++) {
-        const c = jobIdStr.charCodeAt(i);
-        check(c >= 48 && c <= 57, "Job ID must be numeric");
-      }
-      const jobId = U64.parseInt(jobIdStr);
+      const jobId = this.parseMemoId(jobIdStr, "Job");
 
       const job = this.jobsTable.requireGet(jobId, "Job not found");
       check(job.client == from, "Only client can fund");
@@ -2516,13 +2538,8 @@ export class AgentEscrowContract extends Contract {
       const notesSep = buyRest.indexOf(":");
       const svcIdStr = notesSep >= 0 ? buyRest.substring(0, notesSep) : buyRest;
       const buyerNotes = notesSep >= 0 ? buyRest.substring(notesSep + 1) : "";
-      check(svcIdStr.length > 0 && svcIdStr.length <= 20, "Invalid service ID format");
-      for (let i = 0; i < svcIdStr.length; i++) {
-        const c = svcIdStr.charCodeAt(i);
-        check(c >= 48 && c <= 57, "Service ID must be numeric");
-      }
+      const serviceId = this.parseMemoId(svcIdStr, "Service");
       check(buyerNotes.length <= 200, "Buyer notes must be <= 200 characters");
-      const serviceId = U64.parseInt(svcIdStr);
 
       const config = this.configSingleton.get();
       check(!config.paused, "Contract is paused");
@@ -2617,12 +2634,7 @@ export class AgentEscrowContract extends Contract {
     } else if (memo.startsWith("boost:")) {
       // Featured placement: each boost_rate buys one featured day
       const boostIdStr = memo.substring(6);
-      check(boostIdStr.length > 0 && boostIdStr.length <= 20, "Invalid service ID format");
-      for (let i = 0; i < boostIdStr.length; i++) {
-        const c = boostIdStr.charCodeAt(i);
-        check(c >= 48 && c <= 57, "Service ID must be numeric");
-      }
-      const boostServiceId = U64.parseInt(boostIdStr);
+      const boostServiceId = this.parseMemoId(boostIdStr, "Service");
 
       const config = this.configSingleton.get();
       check(!config.paused, "Contract is paused");

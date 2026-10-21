@@ -619,10 +619,11 @@ export class AgentValidContract extends Contract {
       currentTimeSec()
     );
 
-    this.validationsTable.store(validation, this.receiver);
+    this.validationsTable.store(validation, validator);
 
     // Update validator stats
     validatorRecord.total_validations += 1;
+    this.updateAccuracy(validatorRecord);
     this.validatorsTable.update(validatorRecord, this.receiver);
 
     // SECURITY (XPRA-VALID-SLASH-2026-01): record the time of this validation so
@@ -817,7 +818,7 @@ export class AgentValidContract extends Contract {
     if (validation != null) {
       if (validation.challenged) {
         validation.challenged = false;
-        this.validationsTable.update(validation, this.receiver);
+        this.validationsTable.update(validation, EMPTY_NAME);
       }
       const validator = this.validatorsTable.get(validation.validator.N);
       if (validator != null && validator.pending_challenges > 0) {
@@ -903,7 +904,7 @@ export class AgentValidContract extends Contract {
     // and prevents "immunization" attacks (filing a weak challenge that gets rejected
     // to permanently protect a validation from legitimate challenges)
     validation.challenged = false;
-    this.validationsTable.update(validation, this.receiver);
+    this.validationsTable.update(validation, EMPTY_NAME);
 
     const validator = this.validatorsTable.requireGet(validation.validator.N, "Validator not found");
 
@@ -949,6 +950,19 @@ export class AgentValidContract extends Contract {
       validator.stake += challengeRecord.stake;
     }
 
+    this.updateAccuracy(validator);
+
+    // H1 FIX: Update state BEFORE external calls to prevent reentrancy
+    this.validatorsTable.update(validator, this.receiver);
+
+    // Send reward AFTER state update
+    if (rewardAmount > 0 && rewardRecipient != EMPTY_NAME) {
+      const reward = new Asset(rewardAmount, this.XPR_SYMBOL);
+      this.sendTokens(rewardRecipient, reward, "Challenge upheld - reward");
+    }
+  }
+
+  private updateAccuracy(validator: Validator): void {
     // Update accuracy: (total - incorrect) / total
     // H6 FIX: Only calculate meaningful accuracy after minimum sample size
     const MIN_VALIDATIONS_FOR_ACCURACY: u64 = 5;
@@ -964,14 +978,6 @@ export class AgentValidContract extends Contract {
     // H2 FIX: Don't change accuracy if not enough data - keep at initial 10000 (100%)
     // This stays within 0-10000 range and indicates "not yet challenged"
 
-    // H1 FIX: Update state BEFORE external calls to prevent reentrancy
-    this.validatorsTable.update(validator, this.receiver);
-
-    // Send reward AFTER state update
-    if (rewardAmount > 0 && rewardRecipient != EMPTY_NAME) {
-      const reward = new Asset(rewardAmount, this.XPR_SYMBOL);
-      this.sendTokens(rewardRecipient, reward, "Challenge upheld - reward");
-    }
   }
 
   @action("slash")
@@ -1006,6 +1012,20 @@ export class AgentValidContract extends Contract {
   }
 
   // ============== TOKEN TRANSFER HANDLER ==============
+
+  // Check each decimal step before multiplying, so no intermediate value wraps.
+  private parseMemoId(value: string, label: string): u64 {
+    check(value.length > 0 && value.length <= 20, "Invalid " + label.toLowerCase() + " ID format");
+    let result: u64 = 0;
+    for (let i = 0; i < value.length; i++) {
+      const c = value.charCodeAt(i);
+      check(c >= 48 && c <= 57, label + " ID must be numeric");
+      const digit: u64 = <u64>(c - 48);
+      check(result <= (U64.MAX_VALUE - digit) / 10, label + " ID exceeds u64 max");
+      result = result * 10 + digit;
+    }
+    return result;
+  }
 
   @action("transfer", notify)
   onTransfer(from: Name, to: Name, quantity: Asset, memo: string): void {
@@ -1061,15 +1081,7 @@ export class AgentValidContract extends Contract {
       const config = this.configSingleton.get();
       check(<u64>quantity.amount >= config.challenge_stake, "Insufficient challenge stake");
 
-      // H2 FIX: Validate memo format before parsing
-      const challengeIdStr = memo.substring(10);
-      check(challengeIdStr.length > 0 && challengeIdStr.length <= 20, "Invalid challenge ID format");
-      // Validate it contains only digits
-      for (let i = 0; i < challengeIdStr.length; i++) {
-        const c = challengeIdStr.charCodeAt(i);
-        check(c >= 48 && c <= 57, "Challenge ID must be numeric");
-      }
-      const challengeId = U64.parseInt(challengeIdStr);
+      const challengeId = this.parseMemoId(memo.substring(10), "Challenge");
 
       const challengeRecord = this.challengesTable.requireGet(challengeId, "Challenge not found");
       check(challengeRecord.challenger == from, "Not your challenge");
@@ -1107,7 +1119,7 @@ export class AgentValidContract extends Contract {
       // to be funded is accepted. This prevents duplicate slashing/accuracy penalties.
       check(!validation!.challenged, "Validation already has a funded challenge");
       validation!.challenged = true;
-      this.validationsTable.update(validation!, this.receiver);
+      this.validationsTable.update(validation!, EMPTY_NAME);
 
       // Increment pending_challenges here, on funding — in lockstep with the
       // challenged flag above. It gates unstaking, so a funded challenge (which can

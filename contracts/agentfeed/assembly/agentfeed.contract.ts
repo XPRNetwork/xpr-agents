@@ -1304,6 +1304,10 @@ export class AgentFeedContract extends Contract {
       dispute = this.disputesTable.next(current);
 
       if (current.status != 0 && current.resolved_at > 0 && current.resolved_at < cutoff) {
+        // The upheld ruling is the scoring exclusion marker until its feedback is gone.
+        if (current.status == 1 && this.feedbackTable.get(current.feedback_id) != null) {
+          continue;
+        }
         this.disputesTable.remove(current);
         deleted++;
       }
@@ -1523,6 +1527,8 @@ export class AgentFeedContract extends Contract {
     check(score <= 10000, "Score must be 0-10000");
     check(raw_score.length <= 64, "Raw score too long");
     check(proof_uri.length <= 256, "Proof URI too long");
+
+    this.requireAgentRef(agent);
 
     // Find or create external score
     let existingScore = this.externalScoresTable.getBySecondaryU64(agent.N, 0);
@@ -1933,8 +1939,8 @@ export class AgentFeedContract extends Contract {
    * recalc() and recomputeAgentScore() so every writer of agentscores agrees.
    */
   private isExcludedFromScore(fb: Feedback): boolean {
-    if (!fb.disputed) return false;
-    if (fb.resolved) {
+    // A failed payment proof remains excluded even after reinstate clears disputed.
+    if (fb.disputed && fb.resolved) {
       const dispute = this.disputesTable.getBySecondaryU64(fb.id, 0);
       if (dispute != null && dispute.feedback_id == fb.id && dispute.status == 1) return true;
     }
@@ -2034,7 +2040,10 @@ export class AgentFeedContract extends Contract {
     let agentScore = this.agentScoresTable.get(agent.N);
 
     if (agentScore == null) {
-      agentScore = new AgentScore(agent, 0, 0, 0, 0, 0);
+      // Cleanup or a bounded rebuild may have invalidated this aggregate. The newly
+      // submitted feedback is already stored; rebuild all rows instead of only adding it.
+      this.recomputeAgentScore(agent);
+      return;
     }
 
     const weight: u64 = <u64>(1 + kycLevel);
