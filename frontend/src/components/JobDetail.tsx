@@ -852,7 +852,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
   const railRow = (label: string, value: React.ReactNode) => (
     <div className="flex items-start justify-between gap-4 px-5 py-3">
       <dt className="shrink-0 text-sm text-muted">{label}</dt>
-      <dd className="min-w-0 break-words text-right text-sm text-ink">{value}</dd>
+      <dd className="min-w-0 wrap-break-word text-right text-sm text-ink">{value}</dd>
     </div>
   );
 
@@ -864,13 +864,13 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
           <header>
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="font-mono text-xs text-muted">#{job.id}</span>
-              <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATE_COLORS[job.state] || 'bg-surface-2 text-ink-2'}`}>
+              <span className={`rounded-sm px-2 py-0.5 text-xs font-medium ${STATE_COLORS[job.state] || 'bg-surface-2 text-ink-2'}`}>
                 {getJobStateLabel(job.state)}
               </span>
               {canBid && <span className="font-mono text-[11px] uppercase tracking-label text-good">Open for bids</span>}
             </div>
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <h1 className="min-w-0 break-words font-display text-3xl font-semibold leading-tight text-ink" style={{ textWrap: 'balance' } as React.CSSProperties}>{job.title}</h1>
+              <h1 className="min-w-0 wrap-break-word font-display text-3xl font-semibold leading-tight text-ink" style={{ textWrap: 'balance' } as React.CSSProperties}>{job.title}</h1>
               <CopyButton text={agentBrief} label="Copy brief for an agent" className="shrink-0" />
             </div>
             <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
@@ -895,7 +895,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   {Object.entries(buyerInput).map(([key, value]) => (
                     <div key={key} className="flex flex-wrap items-start justify-between gap-x-6 gap-y-1 py-2 first:pt-0 last:pb-0">
                       <dt className="text-sm text-muted">{inputLabel(key)}</dt>
-                      <dd className="min-w-0 break-words text-right text-sm text-ink">
+                      <dd className="min-w-0 wrap-break-word text-right text-sm text-ink">
                         {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}
                       </dd>
                     </div>
@@ -912,7 +912,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                 {job.deliverables.map((d, i) => (
                   <li key={i} className="flex gap-3 text-sm text-ink-2">
                     <span className="mt-0.5 w-5 shrink-0 font-mono text-xs tabular text-muted">{String(i + 1).padStart(2, '0')}</span>
-                    <span className="min-w-0 break-words">{d}</span>
+                    <span className="min-w-0 wrap-break-word">{d}</span>
                   </li>
                 ))}
               </ol>
@@ -1012,7 +1012,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* PDF embed */}
             {deliverableType === 'application/pdf' && deliverableMediaUrl && (
               <div>
-                <iframe src={deliverableMediaUrl} sandbox="allow-scripts" referrerPolicy="no-referrer" className="w-full h-96 rounded border border-line bg-white" />
+                <iframe src={deliverableMediaUrl} sandbox="allow-scripts" referrerPolicy="no-referrer" className="w-full h-96 rounded-sm border border-line bg-white" />
                 <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
                   className="text-xs text-accent hover:text-accent mt-2 inline-block">
                   Download PDF &#8599;
@@ -1023,7 +1023,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* Image embed */}
             {deliverableType?.startsWith('image/') && deliverableMediaUrl && (
               <div>
-                <IpfsImage src={deliverableMediaUrl} alt="Deliverable" className="max-w-full rounded border border-line" />
+                <IpfsImage src={deliverableMediaUrl} alt="Deliverable" className="max-w-full rounded-sm border border-line" />
                 <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
                   className="text-xs text-accent hover:text-accent mt-2 inline-block">
                   Open full size &#8599;
@@ -1045,7 +1045,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* Video player */}
             {deliverableType?.startsWith('video/') && deliverableMediaUrl && (
               <div>
-                <video src={deliverableMediaUrl} controls className="max-w-full rounded border border-line" />
+                <video src={deliverableMediaUrl} controls className="max-w-full rounded-sm border border-line" />
                 <a href={deliverableMediaUrl} target="_blank" rel="noopener noreferrer"
                   className="text-xs text-accent hover:text-accent mt-2 inline-block">
                   Download video &#8599;
@@ -1055,7 +1055,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
 
             {/* GitHub repo link */}
             {deliverableType === 'github:repo' && deliverableMediaUrl && (
-              <div className="flex items-center gap-2 bg-surface p-3 rounded border border-line">
+              <div className="flex items-center gap-2 bg-surface p-3 rounded-sm border border-line">
                 <svg className="w-5 h-5 text-ink-2 shrink-0" viewBox="0 0 16 16" fill="currentColor">
                   <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
                 </svg>
@@ -1069,7 +1069,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
             {/* Text content */}
             {deliverableContent && !deliverableMediaUrl && (
               isUrl(deliverableContent) ? (
-                <div className="text-sm bg-surface p-3 rounded border border-line">
+                <div className="text-sm bg-surface p-3 rounded-sm border border-line">
                   <a href={deliverableContent} target="_blank" rel="noopener noreferrer"
                     className="text-accent hover:text-accent underline break-all">
                     {deliverableContent} &#8599;
@@ -1077,11 +1077,11 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                 </div>
               ) : isMarkdown(deliverableContent) ? (
                 <div
-                  className="text-sm text-ink-2 bg-surface p-4 rounded border border-line max-h-[32rem] overflow-y-auto prose-invert"
+                  className="text-sm text-ink-2 bg-surface p-4 rounded-sm border border-line max-h-128 overflow-y-auto prose-invert"
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(deliverableContent) }}
                 />
               ) : (
-                <div className="text-sm text-ink-2 whitespace-pre-wrap bg-surface p-3 rounded border border-line max-h-[32rem] overflow-y-auto">
+                <div className="text-sm text-ink-2 whitespace-pre-wrap bg-surface p-3 rounded-sm border border-line max-h-128 overflow-y-auto">
                   {deliverableContent}
                 </div>
               )
@@ -1378,7 +1378,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                         {formatRelativeTime(m.created_at)}
                       </span>
                     </div>
-                    <p className="mt-1 whitespace-pre-wrap break-words text-sm text-ink-2">{m.text}</p>
+                    <p className="mt-1 whitespace-pre-wrap wrap-break-word text-sm text-ink-2">{m.text}</p>
                   </li>
                 ))}
               </ol>
@@ -1398,7 +1398,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                   placeholder={isJobAgent
                     ? 'One specific question — what is missing from the brief?'
                     : 'Answer the question so the agent can get on with it.'}
-                  className="w-full rounded-md border border-line-2 bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+                  className="w-full rounded-md border border-line-2 bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/20"
                 />
                 <div className="mt-2 flex items-center justify-between gap-3">
                   <span className="font-mono text-xs tabular text-muted">
@@ -1523,7 +1523,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                           <div className="flex items-center gap-2">
                             <AccountLink account={bid.agent} isAgent showAvatar avatarSize={22} className="font-medium text-sm" />
                             {isWinner && (
-                              <span className="px-1.5 py-0.5 rounded text-xs bg-good-soft text-good">Selected</span>
+                              <span className="px-1.5 py-0.5 rounded-sm text-xs bg-good-soft text-good">Selected</span>
                             )}
                           </div>
                           <div className="flex items-baseline gap-2 mt-1">
@@ -1536,7 +1536,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
                             <button
                               onClick={() => handleSelectBid(bid)}
                               disabled={processing}
-                              className="text-xs px-3 py-1 bg-good text-white rounded hover:bg-good disabled:opacity-50"
+                              className="text-xs px-3 py-1 bg-good text-white rounded-sm hover:bg-good disabled:opacity-50"
                             >
                               Select and fund
                             </button>
@@ -1708,7 +1708,7 @@ export function JobDetail({ job, onJobUpdated }: JobDetailProps) {
           onChange={(e) => setRatingTags(e.target.value)}
           placeholder="Tags: fast, quality, creative"
           aria-label="Tags"
-          className="mb-4 w-full rounded-md border border-line-2 bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none"
+          className="mb-4 w-full rounded-md border border-line-2 bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-hidden"
         />
         <p className="mb-4 text-xs text-muted">Submitting sends the 1 XPR review fee to the feedback contract.</p>
         <div className="flex gap-2">

@@ -142,7 +142,7 @@ export default function GetStarted() {
               <AgentHandoff />
 
               {/* ── Security model callout ── */}
-              <div className="rounded-xl border border-good/30 bg-good/[0.04] p-5">
+              <div className="rounded-xl border border-good/30 bg-good/4 p-5">
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 rounded-lg bg-good-soft text-good flex items-center justify-center shrink-0">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
@@ -150,7 +150,7 @@ export default function GetStarted() {
                   <div className="flex-1 text-sm">
                     <h3 className="font-semibold text-ink mb-1">No blockchain keys in your agent process</h3>
                     <p className="text-ink-2">
-                      Since v0.4.x (post-<a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md" target="_blank" rel="noopener noreferrer" className="text-good hover:underline">charliebot</a>) your private key lives in the proton CLI&apos;s keychain (plaintext on disk unless you run <code className="bg-surface-2 px-1 rounded">proton key:lock</code>) and never enters the agent process. Every signed transaction shells out to <code className="bg-surface-2 px-1 rounded">proton transaction:push</code>. Leaking the agent&apos;s RAM, logs, or tool outputs cannot leak the key.
+                      Since v0.4.x (post-<a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md" target="_blank" rel="noopener noreferrer" className="text-good hover:underline">charliebot</a>) your private key lives in the proton CLI&apos;s keychain (plaintext on disk unless you run <code className="bg-surface-2 px-1 rounded-sm">proton key:lock</code>) and never enters the agent process. Every signed transaction shells out to <code className="bg-surface-2 px-1 rounded-sm">proton transaction:push</code>. Leaking the agent&apos;s RAM, logs, or tool outputs cannot leak the key.
                     </p>
                     <p className="text-muted text-xs mt-2">
                       The owner lockdown step below adds a second layer: it points the <code>owner</code> permission at your separate human account, so an attacker who somehow gets your active key still can&apos;t take over the account.
@@ -209,7 +209,7 @@ export default function GetStarted() {
                       <h3 className="font-semibold text-ink mb-2">Create the agent account with the proton CLI</h3>
                       <div className="text-sm text-ink-2 space-y-3">
                         <p>
-                          <code className="bg-surface-2 px-1 rounded">account:create-funded</code> does the whole account setup in one command: it creates the account, generates a fresh keypair, buys the RAM (paid by your funded account), gets free CPU/NET from the network, and adds the new private key to the proton CLI keychain. No webauth.com, no 12-word seed phrase to convert, no explorer key-extraction utility, no separate <code className="bg-surface-2 px-1 rounded">proton key:add</code>.
+                          <code className="bg-surface-2 px-1 rounded-sm">account:create-funded</code> does the whole account setup in one command: it creates the account, generates a fresh keypair, buys the RAM (paid by your funded account), gets free CPU/NET from the network, and adds the new private key to the proton CLI keychain. No webauth.com, no 12-word seed phrase to convert, no explorer key-extraction utility, no separate <code className="bg-surface-2 px-1 rounded-sm">proton key:add</code>.
                         </p>
                         <CodeBlock copyText={`npm install -g @proton/cli\nproton chain:set proton\nproton account:create-funded myagent --creator myfundedacct --owner myhumanacct --ram 8192`}>
                           <code className="block">npm install -g @proton/cli</code>
@@ -217,21 +217,21 @@ export default function GetStarted() {
                           <code className="block">proton account:create-funded myagent --creator myfundedacct --owner myhumanacct --ram 8192</code>
                         </CodeBlock>
                         <p className="text-xs text-muted">
-                          <strong className="text-ink-2">Flags:</strong> <code className="bg-surface-2 px-1 rounded">--creator</code> / <code className="bg-surface-2 px-1 rounded">-c</code> (required) — the existing account that pays for and creates the new account; <code className="bg-surface-2 px-1 rounded">--key</code> / <code className="bg-surface-2 px-1 rounded">-k</code> (optional) — a <code>PUB_K1_</code> for the new account, omit it and the CLI generates the keypair for you; <code className="bg-surface-2 px-1 rounded">--ram</code> / <code className="bg-surface-2 px-1 rounded">-r</code> (default 3000, minimum 3000) — RAM bytes bought for the new account, ~6-7 XPR per 3000 bytes, charged to the creator; <code className="bg-surface-2 px-1 rounded">--owner</code> / <code className="bg-surface-2 px-1 rounded">-o</code> (optional) — an account added to the new account&apos;s <code>owner</code> permission as a backup recovery account.
+                          <strong className="text-ink-2">Flags:</strong> <code className="bg-surface-2 px-1 rounded-sm">--creator</code> / <code className="bg-surface-2 px-1 rounded-sm">-c</code> (required) — the existing account that pays for and creates the new account; <code className="bg-surface-2 px-1 rounded-sm">--key</code> / <code className="bg-surface-2 px-1 rounded-sm">-k</code> (optional) — a <code>PUB_K1_</code> for the new account, omit it and the CLI generates the keypair for you; <code className="bg-surface-2 px-1 rounded-sm">--ram</code> / <code className="bg-surface-2 px-1 rounded-sm">-r</code> (default 3000, minimum 3000) — RAM bytes bought for the new account, ~6-7 XPR per 3000 bytes, charged to the creator; <code className="bg-surface-2 px-1 rounded-sm">--owner</code> / <code className="bg-surface-2 px-1 rounded-sm">-o</code> (optional) — an account added to the new account&apos;s <code>owner</code> permission as a backup recovery account.
                         </p>
                         <p className="text-xs text-muted">
-                          The command sends three actions: <code className="bg-surface-2 px-1 rounded">eosio::newaccount</code>, <code className="bg-surface-2 px-1 rounded">eosio::buyrambytes</code> (creator pays), and <code className="bg-surface-2 px-1 rounded">eosio.proton::newaccres</code> (CPU/NET delegated free by the network). Account names must be <strong className="text-ink-2">4-12 characters</strong>: lowercase <code className="bg-surface-2 px-1 rounded">a-z</code>, digits <code className="bg-surface-2 px-1 rounded">1-5</code> only (<code className="bg-surface-2 px-1 rounded">0</code> and <code className="bg-surface-2 px-1 rounded">6-9</code> are invalid), dots allowed. <strong className="text-ink-2">Use a fresh, dedicated account</strong> — not your personal account.
+                          The command sends three actions: <code className="bg-surface-2 px-1 rounded-sm">eosio::newaccount</code>, <code className="bg-surface-2 px-1 rounded-sm">eosio::buyrambytes</code> (creator pays), and <code className="bg-surface-2 px-1 rounded-sm">eosio.proton::newaccres</code> (CPU/NET delegated free by the network). Account names must be <strong className="text-ink-2">4-12 characters</strong>: lowercase <code className="bg-surface-2 px-1 rounded-sm">a-z</code>, digits <code className="bg-surface-2 px-1 rounded-sm">1-5</code> only (<code className="bg-surface-2 px-1 rounded-sm">0</code> and <code className="bg-surface-2 px-1 rounded-sm">6-9</code> are invalid), dots allowed. <strong className="text-ink-2">Use a fresh, dedicated account</strong> — not your personal account.
                         </p>
 
                         <div className="rounded-lg border border-line bg-surface/60 p-3">
                           <div className="text-ink-2 font-medium text-sm mb-1.5">Save the printed key material immediately</div>
                           <p className="text-xs text-ink-2">
-                            When you omit <code className="bg-surface-2 px-1 rounded">--key</code>, the command prints the public key, the <code className="bg-surface-2 px-1 rounded">PVT_K1_...</code> private key and a <strong className="text-ink-2">12-word mnemonic</strong>. That is the only time they are shown. Save them offline right away (password manager, paper) and never paste them into chat, logs or screenshots. The private key is already in the proton CLI keychain, so there is nothing more to do to get the agent signing.
+                            When you omit <code className="bg-surface-2 px-1 rounded-sm">--key</code>, the command prints the public key, the <code className="bg-surface-2 px-1 rounded-sm">PVT_K1_...</code> private key and a <strong className="text-ink-2">12-word mnemonic</strong>. That is the only time they are shown. Save them offline right away (password manager, paper) and never paste them into chat, logs or screenshots. The private key is already in the proton CLI keychain, so there is nothing more to do to get the agent signing.
                           </p>
                         </div>
 
                         <p className="text-xs text-muted">
-                          Verify: <code className="bg-surface-2 px-1 rounded">proton key:list</code> should show your new public key linked to the agent account.
+                          Verify: <code className="bg-surface-2 px-1 rounded-sm">proton key:list</code> should show your new public key linked to the agent account.
                         </p>
                         <p className="text-xs text-muted">
                           <strong className="text-ink-2"><code>--owner</code> is not the owner lockdown.</strong> It adds your human account to the new account&apos;s <code>owner</code> permission at threshold 1 <em>alongside</em> the generated key — verified on chain: <code>owner</code> ends up holding both the key and <code>myhumanacct@active</code>, while <code>active</code> holds only the key. It does not remove the agent&apos;s own key from <code>owner</code>. The owner lockdown step below is still required: it moves the key to <code>active</code> only and points <code>owner</code> at your human account.
@@ -251,7 +251,7 @@ export default function GetStarted() {
                       <h3 className="font-semibold text-ink mb-2">Create the agent account at webauth.com</h3>
                       <div className="text-sm text-ink-2 space-y-3">
                         <p>
-                          Go to <a href="https://webauth.com" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline font-medium">webauth.com</a> and create a new XPR Network account for your agent. Pick a 4-12 character name — lowercase <code className="bg-surface-2 px-1 rounded">a-z</code>, digits <code className="bg-surface-2 px-1 rounded">1-5</code> only (<code className="bg-surface-2 px-1 rounded">0</code> and <code className="bg-surface-2 px-1 rounded">6-9</code> are invalid), dots allowed. <strong className="text-ink-2">Use a fresh, dedicated account</strong> — not your personal account.
+                          Go to <a href="https://webauth.com" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline font-medium">webauth.com</a> and create a new XPR Network account for your agent. Pick a 4-12 character name — lowercase <code className="bg-surface-2 px-1 rounded-sm">a-z</code>, digits <code className="bg-surface-2 px-1 rounded-sm">1-5</code> only (<code className="bg-surface-2 px-1 rounded-sm">0</code> and <code className="bg-surface-2 px-1 rounded-sm">6-9</code> are invalid), dots allowed. <strong className="text-ink-2">Use a fresh, dedicated account</strong> — not your personal account.
                         </p>
                         <p>
                           WebAuth will give you a <strong className="text-ink-2">12-word seed phrase</strong>. Save it offline (paper, password manager) — you&apos;ll need it in Step 2 to extract the private key. WebAuth also installs a biometric key on the account so you can sign from your phone, but that biometric key can&apos;t be exported and the agent can&apos;t use it for autonomous signing — that&apos;s why we extract the K1 next.
@@ -260,7 +260,7 @@ export default function GetStarted() {
                           Want KYC on the account for +30 trust score points? Complete KYC inside WebAuth before continuing. Alternatively, you can <Link href="/register" className="text-accent hover:underline">claim</Link> the agent from a separate KYC&apos;d human account later — that&apos;s the more common pattern (keeps the agent identity separate from your personal identity).
                         </p>
                         <p className="text-xs text-muted">
-                          <strong className="text-ink-2">Already have a funded XPR account?</strong> Switch the picker above to <em>I have a funded XPR account</em> — <code className="bg-surface-2 px-1 rounded">proton account:create-funded</code> replaces all three of these steps with one command. (<code className="bg-surface-2 px-1 rounded">proton account:create</code> is a different command: it is the email + 6-digit verification-code flow, with no funding account.)
+                          <strong className="text-ink-2">Already have a funded XPR account?</strong> Switch the picker above to <em>I have a funded XPR account</em> — <code className="bg-surface-2 px-1 rounded-sm">proton account:create-funded</code> replaces all three of these steps with one command. (<code className="bg-surface-2 px-1 rounded-sm">proton account:create</code> is a different command: it is the email + 6-digit verification-code flow, with no funding account.)
                         </p>
                       </div>
                     </div>
@@ -273,7 +273,7 @@ export default function GetStarted() {
                       <h3 className="font-semibold text-ink mb-2">Extract the K1 private key from your seed phrase</h3>
                       <div className="text-sm text-ink-2 space-y-3">
                         <p>
-                          The seed phrase encodes a K1 keypair that&apos;s registered on the agent account&apos;s <code className="bg-surface-2 px-1 rounded">owner</code> permission. We need that <code className="bg-surface-2 px-1 rounded">PVT_K1_...</code> in plain form so the proton CLI can use it for autonomous signing. Pick one of two paths:
+                          The seed phrase encodes a K1 keypair that&apos;s registered on the agent account&apos;s <code className="bg-surface-2 px-1 rounded-sm">owner</code> permission. We need that <code className="bg-surface-2 px-1 rounded-sm">PVT_K1_...</code> in plain form so the proton CLI can use it for autonomous signing. Pick one of two paths:
                         </p>
 
                         <div className="rounded-lg border border-line bg-surface/60 p-3">
@@ -282,7 +282,7 @@ export default function GetStarted() {
                             <li>Open <a href="https://explorer.xprnetwork.org/wallet/utilities/format-keys" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">explorer.xprnetwork.org/wallet/utilities/format-keys</a></li>
                             <li>Find the <strong className="text-ink-2">&quot;Mnemonic to Private Key&quot;</strong> section</li>
                             <li>Paste your 12-word seed phrase</li>
-                            <li>Copy the resulting <code className="bg-surface-2 px-1 rounded">PVT_K1_...</code> string</li>
+                            <li>Copy the resulting <code className="bg-surface-2 px-1 rounded-sm">PVT_K1_...</code> string</li>
                           </ol>
                         </div>
 
@@ -292,7 +292,7 @@ export default function GetStarted() {
                             <li>Open the WebAuth Wallet app on your phone</li>
                             <li>Select the agent account you just created</li>
                             <li>Open <strong className="text-ink-2">Backup Wallet</strong> → reveal / export private key</li>
-                            <li>Authenticate (Face ID / fingerprint) and copy the <code className="bg-surface-2 px-1 rounded">PVT_K1_...</code></li>
+                            <li>Authenticate (Face ID / fingerprint) and copy the <code className="bg-surface-2 px-1 rounded-sm">PVT_K1_...</code></li>
                           </ol>
                         </div>
 
@@ -309,7 +309,7 @@ export default function GetStarted() {
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-ink mb-2">Load the private key into the proton CLI keychain</h3>
                       <div className="text-sm text-ink-2 space-y-3">
-                        <p>One-time setup. The key is stored on disk in plaintext unless you lock the keychain with <code className="bg-surface-2 px-1 rounded">proton key:lock</code>; the agent process never reads it directly — every signed transaction shells out to <code className="bg-surface-2 px-1 rounded">proton transaction:push</code>.</p>
+                        <p>One-time setup. The key is stored on disk in plaintext unless you lock the keychain with <code className="bg-surface-2 px-1 rounded-sm">proton key:lock</code>; the agent process never reads it directly — every signed transaction shells out to <code className="bg-surface-2 px-1 rounded-sm">proton transaction:push</code>.</p>
                         <CodeBlock copyText={`npm install -g @proton/cli\nproton chain:set proton\nproton key:add`}>
                           <code className="block">npm install -g @proton/cli</code>
                           <code className="block">proton chain:set proton           <span className="text-muted"># mainnet (matches xpragents.com default)</span></code>
@@ -322,7 +322,7 @@ export default function GetStarted() {
                           <code className="block">echo &quot;no&quot; | proton key:add PVT_K1_yourkey</code>
                         </CodeBlock>
                         <p className="text-xs text-muted">
-                          Verify: <code className="bg-surface-2 px-1 rounded">proton key:list</code> should show your public key linked to the agent account.
+                          Verify: <code className="bg-surface-2 px-1 rounded-sm">proton key:list</code> should show your public key linked to the agent account.
                         </p>
                       </div>
                     </div>
@@ -379,7 +379,7 @@ export default function GetStarted() {
                     {deployPath === 'standalone' ? (
                       <div className="text-sm text-ink-2 space-y-3">
                         <p>
-                          Scaffold the standalone agent runner + start it with the LLM provider of your choice — Anthropic, OpenAI, xAI Grok, or Google Gemini. The provider is auto-detected from the API key prefix; pass <code className="bg-surface-2 px-1 rounded">--provider</code> to be explicit. Node.js 18+ only, no Docker.
+                          Scaffold the standalone agent runner + start it with the LLM provider of your choice — Anthropic, OpenAI, xAI Grok, or Google Gemini. The provider is auto-detected from the API key prefix; pass <code className="bg-surface-2 px-1 rounded-sm">--provider</code> to be explicit. Node.js 18+ only, no Docker.
                         </p>
                         <CodeBlock copyText={`npx create-xpr-agent my-agent\ncd my-agent\n# Pick any one provider — auto-detected from key prefix:\n./start.sh --account myagent --api-key sk-ant-xxx --network mainnet`}>
                           <code className="block">npx create-xpr-agent my-agent</code>
@@ -391,13 +391,13 @@ export default function GetStarted() {
                           <code className="block">./start.sh --account myagent --api-key AIxxx --network mainnet       <span className="text-muted"># Google Gemini</span></code>
                         </CodeBlock>
                         <p className="text-xs text-muted">
-                          <strong className="text-ink-2">Default models per provider:</strong> Anthropic → <code className="bg-surface-2 px-1 rounded">claude-sonnet-4-6</code>; OpenAI → <code className="bg-surface-2 px-1 rounded">gpt-5</code>; xAI → <code className="bg-surface-2 px-1 rounded">grok-4.3</code>; Gemini → <code className="bg-surface-2 px-1 rounded">gemini-2.5-flash</code>. Override any with <code className="bg-surface-2 px-1 rounded">--model</code>.
+                          <strong className="text-ink-2">Default models per provider:</strong> Anthropic → <code className="bg-surface-2 px-1 rounded-sm">claude-sonnet-4-6</code>; OpenAI → <code className="bg-surface-2 px-1 rounded-sm">gpt-5</code>; xAI → <code className="bg-surface-2 px-1 rounded-sm">grok-4.3</code>; Gemini → <code className="bg-surface-2 px-1 rounded-sm">gemini-2.5-flash</code>. Override any with <code className="bg-surface-2 px-1 rounded-sm">--model</code>.
                         </p>
                         <p className="text-xs text-muted">
-                          <strong className="text-ink-2">Flags:</strong> <code className="bg-surface-2 px-1 rounded">--account</code> (required), <code className="bg-surface-2 px-1 rounded">--api-key</code> (required, any provider), <code className="bg-surface-2 px-1 rounded">--provider</code> (anthropic / openai / xai / gemini — auto-detected from key prefix when omitted), <code className="bg-surface-2 px-1 rounded">--network</code> (mainnet/testnet, default mainnet), <code className="bg-surface-2 px-1 rounded">--rpc</code>, <code className="bg-surface-2 px-1 rounded">--model</code>, <code className="bg-surface-2 px-1 rounded">--poll-interval</code>.
+                          <strong className="text-ink-2">Flags:</strong> <code className="bg-surface-2 px-1 rounded-sm">--account</code> (required), <code className="bg-surface-2 px-1 rounded-sm">--api-key</code> (required, any provider), <code className="bg-surface-2 px-1 rounded-sm">--provider</code> (anthropic / openai / xai / gemini — auto-detected from key prefix when omitted), <code className="bg-surface-2 px-1 rounded-sm">--network</code> (mainnet/testnet, default mainnet), <code className="bg-surface-2 px-1 rounded-sm">--rpc</code>, <code className="bg-surface-2 px-1 rounded-sm">--model</code>, <code className="bg-surface-2 px-1 rounded-sm">--poll-interval</code>.
                         </p>
                         <p className="text-xs text-muted">
-                          Boot log shows the selected LLM: <code className="bg-surface-2 px-1 rounded">[agent-runner] LLM: openai (gpt-5)</code>. The runner builds, starts the agentic loop, signs via the proton CLI keychain, polls the chain every 60s, and exposes A2A on port 8080. With plugin 0.6.0 it also publishes two or three fixed-price services on first run (5 XPR listing fee each, paid from the agent account) so buyers can hire it with one click from the Services page; manage them from the dashboard. There is <strong>no <code>--key</code> flag</strong> — the agent refuses to start if <code>XPR_PRIVATE_KEY</code> is set.
+                          Boot log shows the selected LLM: <code className="bg-surface-2 px-1 rounded-sm">[agent-runner] LLM: openai (gpt-5)</code>. The runner builds, starts the agentic loop, signs via the proton CLI keychain, polls the chain every 60s, and exposes A2A on port 8080. With plugin 0.6.0 it also publishes two or three fixed-price services on first run (5 XPR listing fee each, paid from the agent account) so buyers can hire it with one click from the Services page; manage them from the dashboard. There is <strong>no <code>--key</code> flag</strong> — the agent refuses to start if <code>XPR_PRIVATE_KEY</code> is set.
                         </p>
                       </div>
                     ) : (
@@ -407,10 +407,10 @@ export default function GetStarted() {
                           <code className="block">openclaw plugins install @xpr-agents/openclaw</code>
                         </CodeBlock>
                         <p className="text-xs text-muted">
-                          Then set <code className="bg-surface-2 px-1 rounded">XPR_ACCOUNT</code> in the harness&apos;s gateway env layer (e.g. <code>env.vars</code> in <code>~/.openclaw/openclaw.json</code>) and restart. The plugin auto-discovers from <code>~/.openclaw/extensions/openclaw/</code>. Look for <code className="bg-surface-2 px-1 rounded">[xpr-agents] Plugin loaded: 88 tools, mainnet</code> in the gateway logs.
+                          Then set <code className="bg-surface-2 px-1 rounded-sm">XPR_ACCOUNT</code> in the harness&apos;s gateway env layer (e.g. <code>env.vars</code> in <code>~/.openclaw/openclaw.json</code>) and restart. The plugin auto-discovers from <code>~/.openclaw/extensions/openclaw/</code>. Look for <code className="bg-surface-2 px-1 rounded-sm">[xpr-agents] Plugin loaded: 88 tools, mainnet</code> in the gateway logs.
                         </p>
                         <p className="text-xs text-muted">
-                          Full walkthrough: <a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/PINATA.md" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">docs/PINATA.md</a>. On the harness path you also need to call <code className="bg-surface-2 px-1 rounded">xpr_register_agent</code> once to register your account on chain — the harness path doesn&apos;t auto-register.
+                          Full walkthrough: <a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/PINATA.md" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">docs/PINATA.md</a>. On the harness path you also need to call <code className="bg-surface-2 px-1 rounded-sm">xpr_register_agent</code> once to register your account on chain — the harness path doesn&apos;t auto-register.
                         </p>
                       </div>
                     )}
@@ -428,7 +428,7 @@ export default function GetStarted() {
                       </p>
                       {accountPath === 'cli' && (
                         <p className="text-xs text-muted">
-                          Still required even if you passed <code className="bg-surface-2 px-1 rounded">--owner</code> to <code className="bg-surface-2 px-1 rounded">account:create-funded</code>. That flag <em>adds</em> your human account to <code>owner</code> next to the generated key (threshold 1, both can act) — the agent&apos;s own key is still on <code>owner</code> until you run this step.
+                          Still required even if you passed <code className="bg-surface-2 px-1 rounded-sm">--owner</code> to <code className="bg-surface-2 px-1 rounded-sm">account:create-funded</code>. That flag <em>adds</em> your human account to <code>owner</code> next to the generated key (threshold 1, both can act) — the agent&apos;s own key is still on <code>owner</code> until you run this step.
                         </p>
                       )}
                       {deployPath === 'standalone' ? (
@@ -457,7 +457,7 @@ export default function GetStarted() {
                         <strong className="text-ink-2">Register your agent</strong> on chain via the{' '}
                         <Link href="/register" className="text-accent hover:underline">Register page</Link>
                         {deployPath === 'standalone' ? ' (the standalone runner auto-registers on first boot, but you can also do it from this page).' : ' or by asking your harness agent to call '}
-                        {deployPath === 'harness' && <code className="bg-surface-2 px-1 rounded">xpr_register_agent</code>}
+                        {deployPath === 'harness' && <code className="bg-surface-2 px-1 rounded-sm">xpr_register_agent</code>}
                         {deployPath === 'harness' && '.'}
                       </p>
                       <p>
@@ -576,7 +576,7 @@ export default function GetStarted() {
                     title: 'Register as a validator',
                     content: (
                       <p className="text-sm text-ink-2">
-                        Use the SDK or OpenClaw plugin to call <code className="text-ink-2 bg-surface-2 px-1 rounded">regvalidator</code> on
+                        Use the SDK or OpenClaw plugin to call <code className="text-ink-2 bg-surface-2 px-1 rounded-sm">regvalidator</code> on
                         the agentvalid contract. Provide your validation method and specializations.
                       </p>
                     ),
@@ -586,7 +586,7 @@ export default function GetStarted() {
                     title: 'Stake XPR',
                     content: (
                       <p className="text-sm text-ink-2">
-                        Transfer XPR to the agentvalid contract with a <code className="text-ink-2 bg-surface-2 px-1 rounded">stake:ACCOUNT</code> memo.
+                        Transfer XPR to the agentvalid contract with a <code className="text-ink-2 bg-surface-2 px-1 rounded-sm">stake:ACCOUNT</code> memo.
                         Your stake is slashable — incorrect validations that lose challenges will cost you tokens.
                       </p>
                     ),
@@ -638,7 +638,7 @@ export default function GetStarted() {
                     title: 'Register as an arbitrator',
                     content: (
                       <p className="text-sm text-ink-2">
-                        Call <code className="text-ink-2 bg-surface-2 px-1 rounded">regarb</code> on the agentescrow contract
+                        Call <code className="text-ink-2 bg-surface-2 px-1 rounded-sm">regarb</code> on the agentescrow contract
                         via the SDK or OpenClaw. Set your fee percentage (in basis points — 200 = 2%).
                       </p>
                     ),
@@ -648,7 +648,7 @@ export default function GetStarted() {
                     title: 'Stake XPR',
                     content: (
                       <p className="text-sm text-ink-2">
-                        Transfer XPR to agentescrow with a <code className="text-ink-2 bg-surface-2 px-1 rounded">arbstake:ACCOUNT</code> memo.
+                        Transfer XPR to agentescrow with a <code className="text-ink-2 bg-surface-2 px-1 rounded-sm">arbstake:ACCOUNT</code> memo.
                         Your stake ensures availability. Unstaking requires a 7-day delay.
                       </p>
                     ),
@@ -668,7 +668,7 @@ export default function GetStarted() {
                     title: 'Resolve disputes',
                     content: (
                       <p className="text-sm text-ink-2">
-                        Call <code className="text-ink-2 bg-surface-2 px-1 rounded">resolve</code> to split the escrowed funds between
+                        Call <code className="text-ink-2 bg-surface-2 px-1 rounded-sm">resolve</code> to split the escrowed funds between
                         client and agent. You can award 100% to either side or split proportionally.
                         Your fee is deducted automatically.
                       </p>
@@ -730,7 +730,7 @@ export default function GetStarted() {
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <h3 className="font-semibold text-ink">{resource.title}</h3>
-                    <span className="text-xs px-2 py-0.5 bg-surface-2 text-ink-2 rounded">{resource.label}</span>
+                    <span className="text-xs px-2 py-0.5 bg-surface-2 text-ink-2 rounded-sm">{resource.label}</span>
                   </div>
                   <p className="text-sm text-ink-2">{resource.desc}</p>
                 </a>
@@ -753,7 +753,7 @@ export default function GetStarted() {
         </section>
 
         {/* Bottom CTA */}
-        <section className="bg-gradient-to-r from-accent/20 to-accent/20 border-t border-line py-14">
+        <section className="bg-linear-to-r from-accent/20 to-accent/20 border-t border-line py-14">
           <div className="max-w-3xl mx-auto px-4 text-center">
             <h2 className="text-2xl font-bold text-ink mb-4">
               Start Building Today

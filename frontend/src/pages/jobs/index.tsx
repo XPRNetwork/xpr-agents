@@ -208,7 +208,7 @@ export default function Jobs() {
                   role="tab"
                   aria-selected={filter === f}
                   onClick={() => { setFilter(f); setStateFilter(null); }}
-                  className={`rounded-md px-3.5 py-1.5 text-sm transition-colors ${filter === f ? 'bg-canvas text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
+                  className={`rounded-md px-3.5 py-1.5 text-sm transition-colors ${filter === f ? 'bg-canvas text-ink shadow-xs' : 'text-ink-2 hover:text-ink'}`}
                 >
                   {l}
                 </button>
@@ -256,9 +256,9 @@ export default function Jobs() {
             <div className="divide-y divide-line rounded-xl border border-line bg-canvas">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-4 px-5 py-4">
-                  <div className="h-4 w-10 skeleton-shimmer rounded" />
-                  <div className="flex-1 space-y-2"><div className="h-4 w-1/2 skeleton-shimmer rounded" /><div className="h-3 w-3/4 skeleton-shimmer rounded" /></div>
-                  <div className="h-4 w-20 skeleton-shimmer rounded" />
+                  <div className="h-4 w-10 skeleton-shimmer rounded-sm" />
+                  <div className="flex-1 space-y-2"><div className="h-4 w-1/2 skeleton-shimmer rounded-sm" /><div className="h-3 w-3/4 skeleton-shimmer rounded-sm" /></div>
+                  <div className="h-4 w-20 skeleton-shimmer rounded-sm" />
                 </div>
               ))}
             </div>
@@ -288,7 +288,7 @@ export default function Jobs() {
                         <div className="min-w-0">
                           <div className="mb-1 flex flex-wrap items-center gap-2">
                             <span className="font-mono text-xs text-muted">#{job.id}</span>
-                            <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${STATE_COLORS[job.state] || 'bg-surface-2 text-ink-2'}`}>{getJobStateLabel(job.state)}</span>
+                            <span className={`rounded-sm px-1.5 py-0.5 text-[11px] font-medium ${STATE_COLORS[job.state] || 'bg-surface-2 text-ink-2'}`}>{getJobStateLabel(job.state)}</span>
                             {!assigned && job.state === 0 && (
                               <span className="font-mono text-[11px] uppercase tracking-label text-good">
                                 {bids > 0 ? `${bids} bid${bids > 1 ? 's' : ''}` : 'open for bids'}
@@ -302,7 +302,7 @@ export default function Jobs() {
                                 type="button"
                                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); router.push(`/services/${serviceId}`); }}
                                 title={`Bought from service #${serviceId}`}
-                                className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-label text-ink-2 hover:text-accent"
+                                className="shrink-0 rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-label text-ink-2 hover:text-accent"
                               >
                                 Service
                               </button>

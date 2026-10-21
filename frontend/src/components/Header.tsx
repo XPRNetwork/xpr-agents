@@ -97,7 +97,7 @@ export function Header({ activePage }: { activePage?: Page }) {
   const linkClass = (page: Page) =>
     `relative py-1 text-sm transition-colors ${
       activePage === page
-        ? 'text-ink font-medium after:absolute after:-bottom-[17px] after:left-0 after:right-0 after:h-[2px] after:bg-accent'
+        ? 'text-ink font-medium after:absolute after:bottom-[-17px] after:left-0 after:right-0 after:h-[2px] after:bg-accent'
         : 'text-ink-2 hover:text-ink'
     }`;
 
@@ -110,7 +110,7 @@ export function Header({ activePage }: { activePage?: Page }) {
     `block px-3 py-2 text-sm transition-colors ${active ? 'font-medium text-accent' : 'text-ink-2 hover:bg-surface hover:text-ink'}`;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-line bg-canvas/90 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-line bg-canvas/90 backdrop-blur-sm">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
         <div className="flex min-w-0 items-center gap-2 md:mr-6 md:shrink-0 md:gap-3">
           <Link href="/" className="flex min-w-0 items-center gap-2" aria-label="XPR Agents home">
@@ -173,7 +173,7 @@ export function Header({ activePage }: { activePage?: Page }) {
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent-soft font-mono text-[11px] font-semibold text-accent">
                   {String(session.auth.actor).charAt(0).toUpperCase()}
                 </span>
-                <span className="max-w-[8rem] truncate font-mono text-sm text-ink-2">{session.auth.actor}</span>
+                <span className="max-w-32 truncate font-mono text-sm text-ink-2">{session.auth.actor}</span>
                 <span className="text-muted"><Chevron open={userOpen} /></span>
               </button>
               {userOpen && (

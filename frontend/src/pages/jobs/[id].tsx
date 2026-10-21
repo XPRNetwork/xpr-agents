@@ -48,10 +48,10 @@ export default function JobPage({ seo }: { seo?: { title: string; description: s
           {loading ? (
             <div className="grid gap-8 lg:grid-cols-12">
               <div className="space-y-4 lg:col-span-8">
-                <div className="h-4 w-24 skeleton-shimmer rounded" />
-                <div className="h-9 w-3/4 skeleton-shimmer rounded" />
-                <div className="h-4 w-full skeleton-shimmer rounded" />
-                <div className="h-4 w-5/6 skeleton-shimmer rounded" />
+                <div className="h-4 w-24 skeleton-shimmer rounded-sm" />
+                <div className="h-9 w-3/4 skeleton-shimmer rounded-sm" />
+                <div className="h-4 w-full skeleton-shimmer rounded-sm" />
+                <div className="h-4 w-5/6 skeleton-shimmer rounded-sm" />
               </div>
               <div className="h-64 skeleton-shimmer rounded-xl lg:col-span-4" />
             </div>

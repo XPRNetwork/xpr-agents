@@ -89,7 +89,7 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
               onMouseEnter={() => setHoverScore(value)}
               onFocus={() => setHoverScore(value)}
               onBlur={() => setHoverScore(0)}
-              className="rounded p-0.5 transition-transform hover:scale-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              className="rounded-sm p-0.5 transition-transform hover:scale-110 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               <svg
                 viewBox="0 0 24 24"
@@ -138,7 +138,7 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
           value={jobHash}
           onChange={(e) => setJobHash(e.target.value)}
           placeholder="Transaction or job hash"
-          className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+          className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-accent"
         />
       </div>
 
@@ -151,7 +151,7 @@ export function FeedbackForm({ agentAccount, onSuccess }: FeedbackFormProps) {
           value={evidenceUri}
           onChange={(e) => setEvidenceUri(e.target.value)}
           placeholder="IPFS or Arweave link"
-          className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+          className="w-full px-3 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-accent"
         />
       </div>
 

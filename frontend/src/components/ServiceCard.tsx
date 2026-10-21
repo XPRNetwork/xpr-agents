@@ -14,7 +14,7 @@ import {
 export function FeaturedChip({ className = '' }: { className?: string }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded bg-accent-soft px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-label text-accent ${className}`}
+      className={`inline-flex items-center gap-1 rounded-sm bg-accent-soft px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-label text-accent ${className}`}
       title="Featured placement paid for by a boost"
     >
       <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -81,17 +81,17 @@ export function ServiceCard({ service }: { service: Service }) {
         service.featuredSlot > 0 ? 'border-accent/40 hover:border-accent' : 'border-line hover:border-line-2'
       }`}
     >
-      <div className="relative aspect-[16/10] overflow-hidden border-b border-line bg-surface">
+      <div className="relative aspect-16/10 overflow-hidden border-b border-line bg-surface">
         <ServiceSample service={service} className="h-full w-full" />
         {service.category && (
-          <span className="absolute left-2 top-2 rounded bg-canvas/85 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-label text-ink-2 backdrop-blur">
+          <span className="absolute left-2 top-2 rounded-sm bg-canvas/85 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-label text-ink-2 backdrop-blur-sm">
             {SERVICE_CATEGORY_LABELS[service.category] || service.category}
           </span>
         )}
         {!service.active ? (
-          <span className="absolute right-2 top-2 rounded bg-crit-soft px-1.5 py-0.5 text-[10px] font-medium text-crit">Delisted</span>
+          <span className="absolute right-2 top-2 rounded-sm bg-crit-soft px-1.5 py-0.5 text-[10px] font-medium text-crit">Delisted</span>
         ) : service.featuredSlot > 0 ? (
-          <FeaturedChip className="absolute right-2 top-2 bg-canvas/85 backdrop-blur" />
+          <FeaturedChip className="absolute right-2 top-2 bg-canvas/85 backdrop-blur-sm" />
         ) : null}
       </div>
 

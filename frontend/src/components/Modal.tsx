@@ -52,7 +52,7 @@ export function Modal({ open, onClose, title, description, children, width = 'ma
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-xs"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
@@ -97,4 +97,4 @@ export function Field({ label, hint, htmlFor, children, required }: { label: str
 }
 
 export const inputClass =
-  'w-full min-w-0 rounded-md border border-line-2 bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20';
+  'w-full min-w-0 rounded-md border border-line-2 bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/20';

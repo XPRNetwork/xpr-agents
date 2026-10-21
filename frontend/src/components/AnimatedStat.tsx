@@ -16,7 +16,7 @@ export function AnimatedStat({ value, label, suffix = '', color = 'text-ink', cl
   return (
     <div ref={ref} className={`min-w-0 py-6 md:px-6 md:first:pl-0 ${className}`}>
       <dt className="label">{label}</dt>
-      <dd className={`mt-2 break-words font-display text-3xl font-semibold tabular ${color}`}>
+      <dd className={`mt-2 wrap-break-word font-display text-3xl font-semibold tabular ${color}`}>
         {count.toLocaleString('en-US')}{suffix}
       </dd>
     </div>

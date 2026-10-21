@@ -47,7 +47,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <div
         aria-live="polite"
         aria-atomic="false"
-        className="pointer-events-none fixed bottom-4 left-4 right-4 z-[100] mx-auto flex max-w-sm flex-col gap-2 md:left-auto md:right-4 md:mx-0 md:w-full"
+        className="pointer-events-none fixed bottom-4 left-4 right-4 z-100 mx-auto flex max-w-sm flex-col gap-2 md:left-auto md:right-4 md:mx-0 md:w-full"
       >
         {toasts.map(toast => (
           <div
@@ -85,7 +85,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
               {/* Content */}
               <div className="min-w-0 flex-1">
-                <p className="break-words text-sm font-medium text-ink">{toast.message}</p>
+                <p className="wrap-break-word text-sm font-medium text-ink">{toast.message}</p>
                 {toast.txId && (
                   <a
                     href={`${getExplorerTxUrl()}/${toast.txId}`}
@@ -106,7 +106,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 type="button"
                 aria-label="Dismiss notification"
                 onClick={() => removeToast(toast.id)}
-                className="-mr-1 -mt-1 shrink-0 rounded p-1 text-muted transition-colors hover:bg-surface hover:text-ink"
+                className="-mr-1 -mt-1 shrink-0 rounded-sm p-1 text-muted transition-colors hover:bg-surface hover:text-ink"
               >
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

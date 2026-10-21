@@ -79,7 +79,7 @@ export default function CsvPreview({ uri, name }: { uri: string; name: string })
             {rows.map((row, r) => (
               <tr key={r} className="border-b border-line last:border-0">
                 {table?.header.map((_, c) => (
-                  <td key={c} className={`max-w-[22rem] truncate px-3 py-1.5 font-mono text-ink-2 ${numeric[c] ? 'text-right' : 'text-left'}`} title={row[c] ?? ''}>
+                  <td key={c} className={`max-w-88 truncate px-3 py-1.5 font-mono text-ink-2 ${numeric[c] ? 'text-right' : 'text-left'}`} title={row[c] ?? ''}>
                     {row[c] ?? ''}
                   </td>
                 ))}

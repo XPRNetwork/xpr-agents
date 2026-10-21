@@ -436,8 +436,8 @@ export default function Validators() {
   );
 
   const statusPill = (active: boolean) => active
-    ? <span className="rounded bg-good-soft px-1.5 py-0.5 text-[11px] font-medium text-good">Active</span>
-    : <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-2">Inactive</span>;
+    ? <span className="rounded-sm bg-good-soft px-1.5 py-0.5 text-[11px] font-medium text-good">Active</span>
+    : <span className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-2">Inactive</span>;
 
   // === Side panel pieces ===
 
@@ -586,11 +586,11 @@ export default function Validators() {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="label">Method</p>
-              <p className="mt-1 break-words text-sm text-ink-2">{myValidator.method || 'No method described yet.'}</p>
+              <p className="mt-1 wrap-break-word text-sm text-ink-2">{myValidator.method || 'No method described yet.'}</p>
               {myValidator.specializations.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {myValidator.specializations.map(s => (
-                    <span key={s} className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-2">{s}</span>
+                    <span key={s} className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-2">{s}</span>
                   ))}
                 </div>
               )}
@@ -650,8 +650,8 @@ export default function Validators() {
         <div className="divide-y divide-line">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="space-y-2 px-5 py-3">
-              <div className="h-4 w-2/3 skeleton-shimmer rounded" />
-              <div className="h-3 w-1/2 skeleton-shimmer rounded" />
+              <div className="h-4 w-2/3 skeleton-shimmer rounded-sm" />
+              <div className="h-3 w-1/2 skeleton-shimmer rounded-sm" />
             </div>
           ))}
         </div>
@@ -669,9 +669,9 @@ export default function Validators() {
                   <div className="min-w-0">
                     <div className="mb-1 flex flex-wrap items-center gap-2">
                       <span className="font-mono text-xs text-muted">#{job.id}</span>
-                      <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-2">{getJobStateLabel(job.state)}</span>
+                      <span className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-2">{getJobStateLabel(job.state)}</span>
                     </div>
-                    <p className="break-words text-sm font-medium text-ink">{job.title}</p>
+                    <p className="wrap-break-word text-sm font-medium text-ink">{job.title}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-muted">
                       {job.agent && job.agent !== '.............' ? <AccountLink account={job.agent} isAgent className="text-xs" /> : <span>unassigned</span>}
                       <span className="tabular">{formatXpr(job.amount)}</span>
@@ -731,11 +731,11 @@ export default function Validators() {
 
   const panelSkeleton = (
     <div className="rounded-xl border border-line bg-canvas p-5">
-      <div className="mb-4 h-3 w-24 skeleton-shimmer rounded" />
+      <div className="mb-4 h-3 w-24 skeleton-shimmer rounded-sm" />
       <div className="space-y-3">
-        <div className="h-4 w-3/4 skeleton-shimmer rounded" />
-        <div className="h-4 w-1/2 skeleton-shimmer rounded" />
-        <div className="h-9 w-full skeleton-shimmer rounded" />
+        <div className="h-4 w-3/4 skeleton-shimmer rounded-sm" />
+        <div className="h-4 w-1/2 skeleton-shimmer rounded-sm" />
+        <div className="h-9 w-full skeleton-shimmer rounded-sm" />
       </div>
     </div>
   );
@@ -773,14 +773,14 @@ export default function Validators() {
 
       <div className="mt-4">
         <p className="label">Method</p>
-        <p className="mt-1 break-words text-sm text-ink-2">{v.method || 'This validator has not described a method.'}</p>
+        <p className="mt-1 wrap-break-word text-sm text-ink-2">{v.method || 'This validator has not described a method.'}</p>
       </div>
 
       <div className="mt-4">
         <p className="label mb-2">Recent validations</p>
         {validationsLoading ? (
           <div className="space-y-2">
-            {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-4 w-full skeleton-shimmer rounded" />)}
+            {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-4 w-full skeleton-shimmer rounded-sm" />)}
           </div>
         ) : recentValidations.length === 0 ? (
           <p className="text-sm text-ink-2">No validations recorded yet. Verdicts appear here once this validator reviews a delivered job.</p>
@@ -792,10 +792,10 @@ export default function Validators() {
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <span className="font-mono text-xs text-muted">#{val.id}</span>
                     <AccountLink account={val.agent} isAgent className="font-mono text-sm" />
-                    <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${RESULT_COLORS[val.result] || 'bg-surface-2 text-ink-2'}`}>
+                    <span className={`rounded-sm px-1.5 py-0.5 text-[11px] font-medium ${RESULT_COLORS[val.result] || 'bg-surface-2 text-ink-2'}`}>
                       {VALIDATION_RESULT_LABELS[val.result]}
                     </span>
-                    {val.challenged && <span className="rounded bg-warn-soft px-1.5 py-0.5 text-[11px] font-medium text-warn">Challenged</span>}
+                    {val.challenged && <span className="rounded-sm bg-warn-soft px-1.5 py-0.5 text-[11px] font-medium text-warn">Challenged</span>}
                   </div>
                   {session && !val.challenged && (
                     <button onClick={() => setChallengeValidation(val)} className="text-xs font-medium text-crit hover:underline">
@@ -856,7 +856,7 @@ export default function Validators() {
                   placeholder="Search by account"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full rounded-md border border-line-2 bg-canvas px-3 py-1.5 font-mono text-sm text-ink placeholder:font-sans placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 sm:w-48"
+                  className="w-full rounded-md border border-line-2 bg-canvas px-3 py-1.5 font-mono text-sm text-ink placeholder:font-sans placeholder:text-muted focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/20 sm:w-48"
                 />
                 <div className="flex gap-1 rounded-lg bg-surface-2 p-1" role="group" aria-label="Sort validators">
                   {(['accuracy', 'stake', 'validations'] as SortKey[]).map(k => (
@@ -864,7 +864,7 @@ export default function Validators() {
                       key={k}
                       onClick={() => setSort(k)}
                       aria-pressed={sort === k}
-                      className={`rounded-md px-3 py-1.5 text-sm transition-colors ${sort === k ? 'bg-canvas text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
+                      className={`rounded-md px-3 py-1.5 text-sm transition-colors ${sort === k ? 'bg-canvas text-ink shadow-xs' : 'text-ink-2 hover:text-ink'}`}
                     >
                       {SORT_LABELS[k]}
                     </button>
@@ -882,8 +882,8 @@ export default function Validators() {
                   {Array.from({ length: 5 }).map((_, i) => (
                     <div key={i} className="flex items-center gap-4 px-5 py-4">
                       <div className="h-8 w-8 skeleton-shimmer rounded-full" />
-                      <div className="flex-1 space-y-2"><div className="h-4 w-1/3 skeleton-shimmer rounded" /><div className="h-3 w-2/3 skeleton-shimmer rounded" /></div>
-                      <div className="h-4 w-20 skeleton-shimmer rounded" />
+                      <div className="flex-1 space-y-2"><div className="h-4 w-1/3 skeleton-shimmer rounded-sm" /><div className="h-3 w-2/3 skeleton-shimmer rounded-sm" /></div>
+                      <div className="h-4 w-20 skeleton-shimmer rounded-sm" />
                     </div>
                   ))}
                 </div>
@@ -922,16 +922,16 @@ export default function Validators() {
                                 <span className="break-all font-mono text-sm font-medium text-ink">{v.account}</span>
                                 {statusPill(v.active)}
                                 {v.pending_challenges > 0 && (
-                                  <span className="rounded bg-warn-soft px-1.5 py-0.5 text-[11px] font-medium text-warn">
+                                  <span className="rounded-sm bg-warn-soft px-1.5 py-0.5 text-[11px] font-medium text-warn">
                                     {v.pending_challenges} open challenge{v.pending_challenges === 1 ? '' : 's'}
                                   </span>
                                 )}
                               </span>
-                              <span className="mt-0.5 block break-words text-sm text-muted">{v.method || 'No method described'}</span>
+                              <span className="mt-0.5 block wrap-break-word text-sm text-muted">{v.method || 'No method described'}</span>
                               {v.specializations.length > 0 && (
                                 <span className="mt-1.5 flex flex-wrap gap-1">
                                   {v.specializations.slice(0, 4).map(s => (
-                                    <span key={s} className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-2">{s}</span>
+                                    <span key={s} className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink-2">{s}</span>
                                   ))}
                                   {v.specializations.length > 4 && (
                                     <span className="text-[11px] text-muted">+{v.specializations.length - 4} more</span>
@@ -943,15 +943,15 @@ export default function Validators() {
                           <span className="grid grid-cols-3 gap-2 sm:gap-4 sm:text-right">
                             <span className="block min-w-0">
                               <span className="label block">Stake</span>
-                              <span className="block break-words font-mono text-sm tabular text-ink">{formatXpr(v.stake)}</span>
+                              <span className="block wrap-break-word font-mono text-sm tabular text-ink">{formatXpr(v.stake)}</span>
                             </span>
                             <span className="block min-w-0">
                               <span className="label block">Accuracy</span>
-                              <span className={`block break-words font-mono text-sm tabular ${accuracyColor(v.accuracy_score)}`}>{formatAccuracy(v.accuracy_score)}</span>
+                              <span className={`block wrap-break-word font-mono text-sm tabular ${accuracyColor(v.accuracy_score)}`}>{formatAccuracy(v.accuracy_score)}</span>
                             </span>
                             <span className="block min-w-0">
                               <span className="label block">Validations</span>
-                              <span className="block break-words font-mono text-sm tabular text-ink">{v.total_validations}</span>
+                              <span className="block wrap-break-word font-mono text-sm tabular text-ink">{v.total_validations}</span>
                             </span>
                           </span>
                         </button>
