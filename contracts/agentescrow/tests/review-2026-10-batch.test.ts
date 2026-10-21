@@ -110,6 +110,21 @@ describe('October 2026 batch: escrow', () => {
     }
   }
 
+  it('stops an owner-client refunding itself through removejob once accepted', async () => {
+    await disputed();
+    await escrow.actions.setowner(['client']).send('owner@active');
+    await expectToThrow(escrow.actions.removejob([0]).send('client@active'), protonAssert('Owner cannot remove an accepted job it is the client of'));
+    expect(row('jobs').state).to.equal(5);
+  });
+
+  it('still lets an owner-client remove its own funded job before acceptance', async () => {
+    await create();
+    await transfer('fund:0');
+    await escrow.actions.setowner(['client']).send('owner@active');
+    await escrow.actions.removejob([0]).send('client@active');
+    expect(row('jobs')).to.equal(undefined);
+  });
+
   it('allows an unrelated owner to resolve after timeout', async () => {
     await disputed();
     bc.setTime(TimePointSec.from(T + 14 * DAY));

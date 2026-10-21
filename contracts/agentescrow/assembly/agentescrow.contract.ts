@@ -2272,6 +2272,12 @@ export class AgentEscrowContract extends Contract {
     const settled = job.state == 6 || job.state == 7 || job.state == 8;
     if (job.state == 0) this.decOpenJobs(job.client);
     const refundAmount = settled ? 0 : (job.funded_amount - job.released_amount);
+    // Once an agent has accepted, the owner may not refund itself as the client: that
+    // would bypass dispute resolution (see checkOwnerConcedes).
+    check(
+      refundAmount == 0 || job.client != config.owner || job.state < 2,
+      "Owner cannot remove an accepted job it is the client of"
+    );
 
     // Delete associated milestones
     let ms = this.milestonesTable.getBySecondaryU64(job_id, 0);
