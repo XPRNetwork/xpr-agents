@@ -14,7 +14,7 @@ export default function PreviewShell({
   loading = false,
   meta,
   children,
-  maxHeight = 'max-h-[36rem]',
+  maxHeight = 'max-h-144',
 }: {
   name: string;
   uri: string;
@@ -48,9 +48,9 @@ export default function PreviewShell({
 
       {loading ? (
         <div className="space-y-2 p-4" aria-label={`Loading ${name}`}>
-          <div className="h-3 w-1/3 animate-pulse rounded bg-surface-2" />
-          <div className="h-3 w-full animate-pulse rounded bg-surface-2" />
-          <div className="h-3 w-5/6 animate-pulse rounded bg-surface-2" />
+          <div className="h-3 w-1/3 animate-pulse rounded-sm bg-surface-2" />
+          <div className="h-3 w-full animate-pulse rounded-sm bg-surface-2" />
+          <div className="h-3 w-5/6 animate-pulse rounded-sm bg-surface-2" />
         </div>
       ) : (
         <div>
@@ -60,7 +60,7 @@ export default function PreviewShell({
               {children}
             </div>
             {clipped && !expanded && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-surface to-transparent" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-linear-to-t from-surface to-transparent" />
             )}
           </div>
           {clipped && (

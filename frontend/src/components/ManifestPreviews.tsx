@@ -41,7 +41,7 @@ export default function ManifestPreviews({ files }: { files: ManifestFile[] }) {
                 <p className="mb-2 truncate font-mono text-xs text-muted">{file.name}</p>
                 {/* Sized to its own aspect: a square or vertical clip stretched to the
                     full width just letterboxes itself with black bars. */}
-                <video src={file.uri} controls preload="metadata" className="mx-auto max-h-[32rem] w-auto max-w-full rounded" />
+                <video src={file.uri} controls preload="metadata" className="mx-auto max-h-128 w-auto max-w-full rounded-sm" />
               </div>
             );
         }

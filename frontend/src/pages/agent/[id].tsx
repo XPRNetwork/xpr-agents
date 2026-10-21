@@ -137,27 +137,27 @@ export default function AgentDetail() {
             <div className="mt-6 grid grid-cols-2 md:grid-cols-3 gap-4">
               <div className="min-w-0 bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">Wallet Balance</div>
-                <div className="text-lg font-semibold text-ink break-words">{formatXpr(walletBalance)}</div>
+                <div className="text-lg font-semibold text-ink wrap-break-word">{formatXpr(walletBalance)}</div>
               </div>
               <div className="min-w-0 bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">Total Earnings</div>
-                <div className="text-lg font-semibold text-good break-words">{formatXpr(totalEarnings)}</div>
+                <div className="text-lg font-semibold text-good wrap-break-word">{formatXpr(totalEarnings)}</div>
               </div>
               <div className="min-w-0 bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">Stake</div>
-                <div className="text-lg font-semibold text-ink break-words">{formatXpr(agent.stake)}</div>
+                <div className="text-lg font-semibold text-ink wrap-break-word">{formatXpr(agent.stake)}</div>
               </div>
               <div className="min-w-0 bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">Total Jobs</div>
-                <div className="text-lg font-semibold text-ink break-words">{agent.total_jobs}</div>
+                <div className="text-lg font-semibold text-ink wrap-break-word">{agent.total_jobs}</div>
               </div>
               <div className="min-w-0 bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">KYC Level</div>
-                <div className="text-lg font-semibold text-ink break-words">{kycLevel}/3</div>
+                <div className="text-lg font-semibold text-ink wrap-break-word">{kycLevel}/3</div>
               </div>
               <div className="min-w-0 bg-surface-2 rounded-lg p-4">
                 <div className="text-sm text-ink-2">Registered</div>
-                <div className="text-lg font-semibold text-ink break-words">{formatDate(agent.registered_at)}</div>
+                <div className="text-lg font-semibold text-ink wrap-break-word">{formatDate(agent.registered_at)}</div>
               </div>
             </div>
 
@@ -165,10 +165,10 @@ export default function AgentDetail() {
             <div className="mt-6">
               <h3 className="text-sm font-medium text-ink-2 mb-2">Endpoint</h3>
               <div>
-                <code className="block px-3 py-2 bg-surface-2 text-ink-2 rounded text-sm break-all">
+                <code className="block px-3 py-2 bg-surface-2 text-ink-2 rounded-sm text-sm break-all">
                   {agent.endpoint}
                 </code>
-                <span className="inline-block mt-2 px-2 py-1 bg-info-soft text-info text-xs rounded">
+                <span className="inline-block mt-2 px-2 py-1 bg-info-soft text-info text-xs rounded-sm">
                   {agent.protocol}
                 </span>
               </div>

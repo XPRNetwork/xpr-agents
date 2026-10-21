@@ -193,14 +193,14 @@ export default function DeliveryHistory({ jobId, agent, refreshKey = 0, onCounts
       <ol className="relative ml-2 border-l border-line">
         {visible.map(e => (
           <li key={e.id} className="relative pl-5 pb-4 last:pb-0">
-            <span className={`absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full ${ACTION_TONE[e.action] || 'bg-line-2'}`} aria-hidden="true" />
+            <span className={`absolute left-[-5px] top-1.5 h-2.5 w-2.5 rounded-full ${ACTION_TONE[e.action] || 'bg-line-2'}`} aria-hidden="true" />
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <span className="text-sm font-medium text-ink">{ACTION_LABELS[e.action]}</span>
               {e.actor && <AccountLink account={e.actor} className="font-mono text-xs" />}
               <span className="font-mono text-[11px] tabular text-muted">{when(e.timestamp)}</span>
             </div>
             {e.note && (
-              <p className={`mt-1 whitespace-pre-wrap break-words text-sm ${e.action === 'revise' ? 'rounded-md bg-warn-soft px-3 py-2 text-ink' : e.action === 'review' ? 'font-medium text-ink' : 'text-ink-2'}`}>{e.note}</p>
+              <p className={`mt-1 whitespace-pre-wrap wrap-break-word text-sm ${e.action === 'revise' ? 'rounded-md bg-warn-soft px-3 py-2 text-ink' : e.action === 'review' ? 'font-medium text-ink' : 'text-ink-2'}`}>{e.note}</p>
             )}
             {e.uri && (
               <a href={e.uri.startsWith('{') ? undefined : e.uri} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block max-w-full break-all font-mono text-xs text-accent hover:underline">

@@ -585,7 +585,7 @@ export default function Dashboard() {
                     const trust = st.trust_score;
                     const trustTone = trust === undefined ? 'text-muted' : trust >= 80 ? 'text-good' : trust >= 60 ? 'text-ink' : trust >= 40 ? 'text-warn' : 'text-crit';
                     const stat = (label: string, value: React.ReactNode, tone = 'text-ink') => (
-                      <div className="min-w-[5.5rem]">
+                      <div className="min-w-22">
                         <dt className="label">{label}</dt>
                         <dd className={`mt-0.5 font-mono text-sm tabular ${tone}`}>{value}</dd>
                       </div>
@@ -659,7 +659,7 @@ export default function Dashboard() {
               <div className="bg-surface border border-line rounded-xl p-6">
                 <div className="flex flex-wrap justify-between items-start gap-3">
                   <div className="min-w-0">
-                    <h1 className="break-words text-2xl font-bold text-ink">{agent.name}</h1>
+                    <h1 className="wrap-break-word text-2xl font-bold text-ink">{agent.name}</h1>
                     <p className="break-all text-muted">@{agent.account}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -711,7 +711,7 @@ export default function Dashboard() {
                 </div>
 
                 {showEditProfile && (
-                  <div className="fixed inset-0 bg-ink/70 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowEditProfile(false)}>
+                  <div className="fixed inset-0 bg-ink/70 backdrop-blur-xs flex items-center justify-center z-50" onClick={() => setShowEditProfile(false)}>
                     <div className="bg-surface border border-line rounded-xl p-6 max-w-lg w-full" onClick={e => e.stopPropagation()}>
                       <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-semibold text-ink">Edit Agent Profile</h3>
@@ -721,18 +721,18 @@ export default function Dashboard() {
                         <div>
                           <label className="block text-xs text-muted mb-1 uppercase tracking-wider">Name</label>
                           <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} required
-                            className="w-full px-3 py-2.5 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm focus:border-accent/50 outline-none" />
+                            className="w-full px-3 py-2.5 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm focus:border-accent/50 outline-hidden" />
                         </div>
                         <div>
                           <label className="block text-xs text-muted mb-1 uppercase tracking-wider">Description</label>
                           <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} required rows={3}
-                            className="w-full px-3 py-2.5 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm focus:border-accent/50 outline-none" />
+                            className="w-full px-3 py-2.5 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm focus:border-accent/50 outline-hidden" />
                         </div>
                         <div>
                           <label className="block text-xs text-muted mb-1 uppercase tracking-wider">Endpoint URL</label>
                           <input type="text" value={editEndpoint} onChange={(e) => setEditEndpoint(e.target.value)}
                             placeholder="https://..."
-                            className="w-full px-3 py-2.5 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm focus:border-accent/50 outline-none" />
+                            className="w-full px-3 py-2.5 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm focus:border-accent/50 outline-hidden" />
                         </div>
                         <div>
                           <label className="block text-xs text-muted mb-1 uppercase tracking-wider">Protocol</label>
@@ -749,7 +749,7 @@ export default function Dashboard() {
                           <label className="block text-xs text-muted mb-1 uppercase tracking-wider">Capabilities (comma-separated)</label>
                           <input type="text" value={editCapabilities} onChange={(e) => setEditCapabilities(e.target.value)}
                             placeholder="code-generation, data-analysis, web-scraping"
-                            className="w-full px-3 py-2.5 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm focus:border-accent/50 outline-none" />
+                            className="w-full px-3 py-2.5 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg text-sm focus:border-accent/50 outline-hidden" />
                         </div>
                         <div className="flex gap-2 pt-2">
                           <button type="submit" disabled={processing}
@@ -771,19 +771,19 @@ export default function Dashboard() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="min-w-0 bg-surface border border-line rounded-xl p-4">
                   <div className="text-sm text-ink-2">Stake</div>
-                  <div className="text-xl font-semibold text-ink break-words">{formatXpr(agent.stake)}</div>
+                  <div className="text-xl font-semibold text-ink wrap-break-word">{formatXpr(agent.stake)}</div>
                 </div>
                 <div className="min-w-0 bg-surface border border-line rounded-xl p-4">
                   <div className="text-sm text-ink-2">Total Jobs</div>
-                  <div className="text-xl font-semibold text-ink break-words">{agent.total_jobs}</div>
+                  <div className="text-xl font-semibold text-ink wrap-break-word">{agent.total_jobs}</div>
                 </div>
                 <div className="min-w-0 bg-surface border border-line rounded-xl p-4">
                   <div className="text-sm text-ink-2">Feedback</div>
-                  <div className="text-xl font-semibold text-ink break-words">{score?.feedback_count || 0}</div>
+                  <div className="text-xl font-semibold text-ink wrap-break-word">{score?.feedback_count || 0}</div>
                 </div>
                 <div className="min-w-0 bg-surface border border-line rounded-xl p-4">
                   <div className="text-sm text-ink-2">KYC Level</div>
-                  <div className="text-xl font-semibold text-ink break-words">{kycLevel}/3</div>
+                  <div className="text-xl font-semibold text-ink wrap-break-word">{kycLevel}/3</div>
                 </div>
               </div>
 
@@ -843,7 +843,7 @@ export default function Dashboard() {
                             <Link href={`/services/${service.id}`} className="truncate text-sm font-medium text-ink hover:text-accent">
                               {service.title}
                             </Link>
-                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${service.active ? 'bg-good-soft text-good' : 'bg-surface-2 text-muted'}`}>
+                            <span className={`rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${service.active ? 'bg-good-soft text-good' : 'bg-surface-2 text-muted'}`}>
                               {service.active ? 'Active' : 'Delisted'}
                             </span>
                             {service.featured && <FeaturedChip />}
@@ -971,7 +971,7 @@ export default function Dashboard() {
                 <p className="text-muted text-sm">No plugins added yet</p>
 
                 {showPluginSelector && (
-                  <div className="fixed inset-0 bg-ink/70 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowPluginSelector(false)}>
+                  <div className="fixed inset-0 bg-ink/70 backdrop-blur-xs flex items-center justify-center z-50" onClick={() => setShowPluginSelector(false)}>
                     <div className="bg-surface border border-line rounded-xl p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                       <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-semibold text-ink">Add Plugin</h3>
@@ -1171,7 +1171,7 @@ export default function Dashboard() {
                             type="checkbox"
                             checked={row.required}
                             onChange={(e) => update({ required: e.target.checked })}
-                            className="h-4 w-4 rounded border-line-2 accent-accent"
+                            className="h-4 w-4 rounded-sm border-line-2 accent-accent"
                           />
                           Required
                         </label>

@@ -44,8 +44,8 @@ export function ActivityFeed() {
             <div key={i} className="flex items-center gap-3 px-5 py-3.5">
               <div className="h-8 w-8 skeleton-shimmer rounded-full" />
               <div className="flex-1 space-y-2">
-                <div className="h-3 w-3/4 skeleton-shimmer rounded" />
-                <div className="h-2 w-1/3 skeleton-shimmer rounded" />
+                <div className="h-3 w-3/4 skeleton-shimmer rounded-sm" />
+                <div className="h-2 w-1/3 skeleton-shimmer rounded-sm" />
               </div>
             </div>
           ))}

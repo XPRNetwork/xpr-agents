@@ -420,7 +420,7 @@ export default function Arbitrators() {
   };
 
   const rowGrid = 'sm:grid-cols-[minmax(0,1fr)_5.5rem_7.5rem_7.5rem]';
-  const statValue = 'min-w-0 break-words font-mono text-sm tabular text-ink sm:text-right';
+  const statValue = 'min-w-0 wrap-break-word font-mono text-sm tabular text-ink sm:text-right';
   const statCell = 'flex min-w-0 items-baseline justify-between gap-2 sm:block';
 
   const clientAmount = resolveDispute ? Math.floor(resolveDispute.job.funded_amount * clientPercent / 100) : 0;
@@ -517,10 +517,10 @@ export default function Arbitrators() {
                     {Array.from({ length: 5 }).map((_, i) => (
                       <div key={i} className="flex items-center gap-4 px-5 py-4">
                         <div className="h-8 w-8 shrink-0 skeleton-shimmer rounded-full" />
-                        <div className="flex-1 space-y-2"><div className="h-4 w-32 skeleton-shimmer rounded" /><div className="h-3 w-20 skeleton-shimmer rounded" /></div>
-                        <div className="hidden h-4 w-12 skeleton-shimmer rounded sm:block" />
-                        <div className="hidden h-4 w-20 skeleton-shimmer rounded sm:block" />
-                        <div className="hidden h-4 w-16 skeleton-shimmer rounded sm:block" />
+                        <div className="flex-1 space-y-2"><div className="h-4 w-32 skeleton-shimmer rounded-sm" /><div className="h-3 w-20 skeleton-shimmer rounded-sm" /></div>
+                        <div className="hidden h-4 w-12 skeleton-shimmer rounded-sm sm:block" />
+                        <div className="hidden h-4 w-20 skeleton-shimmer rounded-sm sm:block" />
+                        <div className="hidden h-4 w-16 skeleton-shimmer rounded-sm sm:block" />
                       </div>
                     ))}
                   </div>
@@ -553,11 +553,11 @@ export default function Arbitrators() {
                           <AccountAvatar account={a.account} size={32} className="shrink-0" />
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              <AccountLink account={a.account} className="min-w-0 break-words font-mono text-sm text-ink" />
+                              <AccountLink account={a.account} className="min-w-0 wrap-break-word font-mono text-sm text-ink" />
                               {a.active ? (
-                                <span className="rounded bg-good-soft px-1.5 py-0.5 text-[11px] font-medium text-good">Active</span>
+                                <span className="rounded-sm bg-good-soft px-1.5 py-0.5 text-[11px] font-medium text-good">Active</span>
                               ) : (
-                                <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-2">Inactive</span>
+                                <span className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-2">Inactive</span>
                               )}
                             </div>
                             <div className="mt-0.5 text-xs text-muted">
@@ -634,7 +634,7 @@ export default function Arbitrators() {
             </section>
 
             {/* Side panel */}
-            <aside className={`min-w-0 lg:col-span-4 ${myArbitrator ? 'order-first lg:order-none' : ''}`}>
+            <aside className={`min-w-0 lg:col-span-4 ${myArbitrator ? 'order-first lg:order-0' : ''}`}>
               <div className="space-y-4 lg:sticky lg:top-20">
                 {!session ? (
                   <>
@@ -654,9 +654,9 @@ export default function Arbitrators() {
                   </>
                 ) : myArbLoading ? (
                   <div className="rounded-xl border border-line bg-canvas p-5">
-                    <div className="h-5 w-40 skeleton-shimmer rounded" />
+                    <div className="h-5 w-40 skeleton-shimmer rounded-sm" />
                     <div className="mt-4 grid grid-cols-2 gap-3">
-                      {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-12 skeleton-shimmer rounded" />)}
+                      {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-12 skeleton-shimmer rounded-sm" />)}
                     </div>
                   </div>
                 ) : !myArbitrator ? (
@@ -708,14 +708,14 @@ export default function Arbitrators() {
                       <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
                         <span className="label">Your arbitration</span>
                         {myArbitrator.active ? (
-                          <span className="rounded bg-good-soft px-1.5 py-0.5 text-[11px] font-medium text-good">Active</span>
+                          <span className="rounded-sm bg-good-soft px-1.5 py-0.5 text-[11px] font-medium text-good">Active</span>
                         ) : (
-                          <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-2">Inactive</span>
+                          <span className="rounded-sm bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-2">Inactive</span>
                         )}
                       </div>
 
                       <div className="px-5 py-4">
-                        <AccountLink account={myArbitrator.account} showAvatar avatarSize={28} className="min-w-0 break-words font-mono text-sm text-ink" />
+                        <AccountLink account={myArbitrator.account} showAvatar avatarSize={28} className="min-w-0 wrap-break-word font-mono text-sm text-ink" />
                       </div>
 
                       <dl className="grid grid-cols-2 divide-x divide-line border-y border-line">
@@ -886,9 +886,9 @@ export default function Arbitrators() {
                       </div>
                       {disputesLoading ? (
                         <div className="space-y-3 p-5">
-                          <div className="h-4 w-2/3 skeleton-shimmer rounded" />
-                          <div className="h-3 w-full skeleton-shimmer rounded" />
-                          <div className="h-3 w-1/2 skeleton-shimmer rounded" />
+                          <div className="h-4 w-2/3 skeleton-shimmer rounded-sm" />
+                          <div className="h-3 w-full skeleton-shimmer rounded-sm" />
+                          <div className="h-3 w-1/2 skeleton-shimmer rounded-sm" />
                         </div>
                       ) : myDisputes.length === 0 ? (
                         <p className="px-5 py-6 text-sm text-ink-2">
@@ -902,14 +902,14 @@ export default function Arbitrators() {
                                 <span className="font-mono text-xs text-muted">Dispute #{dispute.id}</span>
                                 <span className="font-mono text-xs text-muted" title={formatDate(dispute.created_at)}>{formatRelativeTime(dispute.created_at)}</span>
                               </div>
-                              <Link href={`/jobs/${job.id}`} className="mt-1 block break-words text-[15px] font-medium text-ink hover:text-accent">
+                              <Link href={`/jobs/${job.id}`} className="mt-1 block wrap-break-word text-[15px] font-medium text-ink hover:text-accent">
                                 {job.title}
                               </Link>
-                              <p className="mt-1 break-words text-sm text-ink-2">{dispute.reason}</p>
+                              <p className="mt-1 wrap-break-word text-sm text-ink-2">{dispute.reason}</p>
                               <dl className="mt-3 space-y-1 text-xs">
                                 <div className="flex justify-between gap-3">
                                   <dt className="text-muted">Raised by</dt>
-                                  <dd className="min-w-0 break-words text-right"><AccountLink account={dispute.raised_by} className="font-mono" /></dd>
+                                  <dd className="min-w-0 wrap-break-word text-right"><AccountLink account={dispute.raised_by} className="font-mono" /></dd>
                                 </div>
                                 <div className="flex justify-between gap-3">
                                   <dt className="text-muted">In escrow</dt>
@@ -960,7 +960,7 @@ export default function Arbitrators() {
           <form onSubmit={handleResolveDispute} className="space-y-5">
             <div className="rounded-lg border border-line bg-surface p-4">
               <p className="label">Reason given by <span className="normal-case">{resolveDispute.dispute.raised_by}</span></p>
-              <p className="mt-1.5 break-words text-sm text-ink-2">{resolveDispute.dispute.reason}</p>
+              <p className="mt-1.5 wrap-break-word text-sm text-ink-2">{resolveDispute.dispute.reason}</p>
             </div>
 
             <Field label="Refund to client" htmlFor="resolve-percent">

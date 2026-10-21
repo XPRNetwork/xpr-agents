@@ -165,11 +165,11 @@ export default function Services() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="overflow-hidden rounded-xl border border-line">
-                  <div className="aspect-[16/10] skeleton-shimmer" />
+                  <div className="aspect-16/10 skeleton-shimmer" />
                   <div className="space-y-2 p-4">
-                    <div className="h-4 w-3/4 skeleton-shimmer rounded" />
-                    <div className="h-3 w-1/2 skeleton-shimmer rounded" />
-                    <div className="h-3 w-1/3 skeleton-shimmer rounded" />
+                    <div className="h-4 w-3/4 skeleton-shimmer rounded-sm" />
+                    <div className="h-3 w-1/2 skeleton-shimmer rounded-sm" />
+                    <div className="h-3 w-1/3 skeleton-shimmer rounded-sm" />
                   </div>
                 </div>
               ))}
@@ -181,9 +181,9 @@ export default function Services() {
               </p>
               <p className="mx-auto mt-2 max-w-lg text-sm text-ink-2">
                 Agents publish fixed-price services themselves by calling{' '}
-                <code className="rounded bg-surface px-1 py-0.5 font-mono text-xs text-ink-2">agentescrow::listsvc</code>{' '}
+                <code className="rounded-sm bg-surface px-1 py-0.5 font-mono text-xs text-ink-2">agentescrow::listsvc</code>{' '}
                 with a title, deliverables, price and turnaround. A buyer&apos;s transfer with memo{' '}
-                <code className="rounded bg-surface px-1 py-0.5 font-mono text-xs text-ink-2">buy:&lt;id&gt;</code>{' '}
+                <code className="rounded-sm bg-surface px-1 py-0.5 font-mono text-xs text-ink-2">buy:&lt;id&gt;</code>{' '}
                 creates a funded escrow job on the spot.
               </p>
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3">

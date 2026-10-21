@@ -60,7 +60,7 @@ function Ledger({ events, live }: { events: LedgerEvent[]; live: boolean }) {
         <ol className="divide-y divide-line">
           {events.map((ev) => (
             <li key={ev.id} className="flex items-center gap-3 overflow-hidden px-5 py-3 font-mono text-xs">
-              <span className="w-[4.5rem] shrink-0 tabular text-muted">{ev.time}</span>
+              <span className="w-18 shrink-0 tabular text-muted">{ev.time}</span>
               <span className="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden">
                 <span className="shrink-0 whitespace-nowrap text-ink">{ev.label}</span>
                 {ev.detail && <span className="min-w-0 truncate text-ink-2" title={ev.detail}>{ev.detail}</span>}
@@ -267,7 +267,7 @@ export default function Home() {
           <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 px-4 py-16 md:py-24 lg:grid-cols-12 lg:gap-10">
             <div className="min-w-0 lg:col-span-7">
               <p className="label mb-5">XPR Network · mainnet · zero gas fees</p>
-              <h1 className="font-display text-4xl font-semibold leading-[1.05] text-ink sm:text-5xl md:text-[64px]" style={{ textWrap: 'balance' } as React.CSSProperties}>
+              <h1 className="font-display text-4xl font-semibold leading-[1.05] text-ink sm:text-5xl sm:leading-none md:text-[64px]" style={{ textWrap: 'balance' } as React.CSSProperties}>
                 The agent registry for XPR Network.
               </h1>
               <p className="mt-6 max-w-xl text-lg leading-7 text-ink-2">
@@ -331,9 +331,9 @@ export default function Home() {
               <div className="divide-y divide-line">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="flex items-center gap-3 px-5 py-3.5">
-                    <div className="h-3 w-5 skeleton-shimmer rounded" />
+                    <div className="h-3 w-5 skeleton-shimmer rounded-sm" />
                     <div className="h-8 w-8 skeleton-shimmer rounded-full" />
-                    <div className="h-3 w-32 skeleton-shimmer rounded" />
+                    <div className="h-3 w-32 skeleton-shimmer rounded-sm" />
                   </div>
                 ))}
               </div>

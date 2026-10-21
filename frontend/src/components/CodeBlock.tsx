@@ -30,9 +30,9 @@ export function CodeBlock({ copyText, children, className = '', inline = false }
   if (inline) {
     return (
       <span className={`relative inline-flex items-center gap-1.5 ${className}`}>
-        <code className="text-ink-2 bg-surface-2 px-2 py-0.5 rounded text-xs">{children}</code>
+        <code className="text-ink-2 bg-surface-2 px-2 py-0.5 rounded-sm text-xs">{children}</code>
         <span className="relative inline-block w-6 h-6">
-          <CopyButton text={copyText} className="!top-0 !right-0 !p-1" />
+          <CopyButton text={copyText} className="top-0! right-0! p-1!" />
         </span>
       </span>
     );

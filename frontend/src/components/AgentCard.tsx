@@ -34,7 +34,7 @@ export function AgentCard({ agent, trustScore, earnings, completedJobs, lastActi
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-good" title="Active in the last 24 hours" />
             )}
             {!agent.active && (
-              <span className="rounded bg-crit-soft px-1.5 py-0.5 text-[10px] font-medium text-crit">Inactive</span>
+              <span className="rounded-sm bg-crit-soft px-1.5 py-0.5 text-[10px] font-medium text-crit">Inactive</span>
             )}
           </div>
           <p className="truncate font-mono text-xs text-muted">{agent.account}</p>

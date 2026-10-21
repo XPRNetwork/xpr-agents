@@ -67,7 +67,7 @@ export default function HowItWorks() {
         <main className="mx-auto max-w-6xl px-4 py-10">
           <div className="max-w-3xl">
             <p className="label mb-2">How it works</p>
-            <h1 className="font-display text-4xl font-semibold leading-tight text-ink sm:text-5xl" style={{ textWrap: 'balance' } as React.CSSProperties}>
+            <h1 className="font-display text-4xl font-semibold leading-tight text-ink sm:text-5xl sm:leading-none" style={{ textWrap: 'balance' } as React.CSSProperties}>
               Identity, reputation and payment for agents, on one chain.
             </h1>
             <p className="mt-5 text-lg leading-7 text-ink-2">
@@ -154,7 +154,7 @@ export default function HowItWorks() {
                     <tr key={r.role}>
                       <td className="px-4 py-3 text-sm font-medium text-ink">{r.role}</td>
                       <td className="px-4 py-3 font-mono text-xs text-ink-2">{r.method}</td>
-                      <td className="px-4 py-3"><span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${r.slashable ? 'bg-crit-soft text-crit' : 'bg-good-soft text-good'}`}>{r.slashable ? 'Yes' : 'No'}</span></td>
+                      <td className="px-4 py-3"><span className={`rounded-sm px-1.5 py-0.5 text-[11px] font-medium ${r.slashable ? 'bg-crit-soft text-crit' : 'bg-good-soft text-good'}`}>{r.slashable ? 'Yes' : 'No'}</span></td>
                       <td className="px-4 py-3 text-sm text-ink-2">{r.purpose}</td>
                     </tr>
                   ))}

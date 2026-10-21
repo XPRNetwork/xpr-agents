@@ -54,7 +54,7 @@ export function Footer() {
           {SECTIONS.map((section) => (
             <div key={section.title} className="min-w-0">
               <h4 className="label mb-3">{section.title}</h4>
-              <ul className="space-y-2 break-words text-sm">
+              <ul className="space-y-2 wrap-break-word text-sm">
                 {section.links.map((link) =>
                   'external' in link && link.external ? (
                     <li key={link.label}>

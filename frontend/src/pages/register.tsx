@@ -286,7 +286,7 @@ export default function Register() {
                     onChange={(e) => setName(e.target.value)}
                     placeholder="My Awesome Agent"
                     maxLength={64}
-                    className="w-full px-4 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+                    className="w-full px-4 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg focus:outline-hidden focus:ring-2 focus:ring-accent"
                   />
                 </div>
 
@@ -302,7 +302,7 @@ export default function Register() {
                     maxLength={256}
                     rows={3}
                     required
-                    className="w-full px-4 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+                    className="w-full px-4 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg focus:outline-hidden focus:ring-2 focus:ring-accent"
                   />
                   <p className="text-xs text-muted mt-1">{description.length}/256 — required (the on-chain contract rejects empty descriptions)</p>
                 </div>
@@ -322,7 +322,7 @@ export default function Register() {
                     onChange={(e) => setEndpoint(e.target.value)}
                     placeholder="https://my-agent.example.com/api/v1"
                     maxLength={256}
-                    className="w-full px-4 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+                    className="w-full px-4 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg focus:outline-hidden focus:ring-2 focus:ring-accent"
                   />
                   {endpoint.trim() && (
                     <div className="mt-2">
@@ -330,7 +330,7 @@ export default function Register() {
                       <select
                         value={protocol}
                         onChange={(e) => setProtocol(e.target.value)}
-                        className="px-4 py-2 bg-surface-2 border border-line-2 text-ink rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+                        className="px-4 py-2 bg-surface-2 border border-line-2 text-ink rounded-lg focus:outline-hidden focus:ring-2 focus:ring-accent"
                       >
                         {PROTOCOL_OPTIONS.map((p) => (
                           <option key={p} value={p}>
@@ -440,7 +440,7 @@ export default function Register() {
                 <h2 className="text-lg font-semibold text-ink mb-4">Claim an Agent</h2>
                 <p className="text-sm text-ink-2 mb-6">
                   Enter the on-chain account name of the agent you want to claim.
-                  The agent must have already approved you via <code className="text-ink-2 bg-surface-2 px-1 rounded">approveclaim</code>.
+                  The agent must have already approved you via <code className="text-ink-2 bg-surface-2 px-1 rounded-sm">approveclaim</code>.
                 </p>
 
                 <div className="flex gap-3 mb-6">
@@ -450,7 +450,7 @@ export default function Register() {
                     onChange={(e) => { setClaimAgent(e.target.value); setClaimInfo(null); setClaimError(null); }}
                     placeholder="e.g. myagentbot"
                     maxLength={12}
-                    className="flex-1 px-4 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
+                    className="flex-1 px-4 py-2 bg-surface-2 border border-line-2 text-ink placeholder:text-muted rounded-lg focus:outline-hidden focus:ring-2 focus:ring-accent"
                   />
                   <button
                     onClick={handleClaimLookup}
@@ -482,7 +482,7 @@ export default function Register() {
                   <div className="p-4 bg-surface-2 rounded-lg text-sm text-ink-2">
                     <p className="font-medium text-ink-2 mb-2">No pending claim</p>
                     <p>
-                      The agent must first approve you via the <code className="text-ink-2 bg-line px-1 rounded">approveclaim</code> action.
+                      The agent must first approve you via the <code className="text-ink-2 bg-line px-1 rounded-sm">approveclaim</code> action.
                       Have the agent operator run this action using the SDK or OpenClaw plugin, then return here to complete the claim.
                     </p>
                   </div>
@@ -542,7 +542,7 @@ export default function Register() {
                   <div>
                     <p className="font-medium text-ink-2 mb-1">Step 1: The agent approves you</p>
                     <p className="mb-2">
-                      The <strong className="text-ink-2">agent account</strong> (the bot) must call <code className="text-ink-2 bg-surface-2 px-1 rounded">approveclaim</code> first.
+                      The <strong className="text-ink-2">agent account</strong> (the bot) must call <code className="text-ink-2 bg-surface-2 px-1 rounded-sm">approveclaim</code> first.
                       This is done using the agent&apos;s private key, not your human wallet.
                     </p>
                     <p className="mb-1 text-xs text-muted">Via Proton CLI:</p>
@@ -550,7 +550,7 @@ export default function Register() {
                       <code>proton action agentcore approveclaim {`'{"agent":"myagent","new_owner":"myhuman"}'`} myagent@active</code>
                     </div>
                     <p className="mt-1 text-xs text-muted">
-                      Or if your agent is running autonomously, you can ask it via <code className="bg-surface-2 px-1 rounded">/run</code>:{' '}
+                      Or if your agent is running autonomously, you can ask it via <code className="bg-surface-2 px-1 rounded-sm">/run</code>:{' '}
                       <em>&quot;Approve myhuman to claim me&quot;</em>
                     </p>
                   </div>
@@ -607,19 +607,19 @@ export default function Register() {
                     <tbody>
                       <tr className="border-b border-line">
                         <td className="py-1 pr-3 text-ink-2 font-medium whitespace-nowrap">--account</td>
-                        <td className="py-1">Your XPR account name (e.g. <code className="bg-surface-2 px-1 rounded">myagent</code>) — the proton CLI keychain must already have its key</td>
+                        <td className="py-1">Your XPR account name (e.g. <code className="bg-surface-2 px-1 rounded-sm">myagent</code>) — the proton CLI keychain must already have its key</td>
                       </tr>
                       <tr className="border-b border-line">
                         <td className="py-1 pr-3 text-ink-2 font-medium whitespace-nowrap">--api-key</td>
-                        <td className="py-1">LLM API key — any of: Anthropic (<code className="bg-surface-2 px-1 rounded">sk-ant-...</code>), OpenAI (<code className="bg-surface-2 px-1 rounded">sk-...</code>), xAI (<code className="bg-surface-2 px-1 rounded">xai-...</code>), or Google Gemini (<code className="bg-surface-2 px-1 rounded">AI...</code>). Provider is auto-detected from the prefix.</td>
+                        <td className="py-1">LLM API key — any of: Anthropic (<code className="bg-surface-2 px-1 rounded-sm">sk-ant-...</code>), OpenAI (<code className="bg-surface-2 px-1 rounded-sm">sk-...</code>), xAI (<code className="bg-surface-2 px-1 rounded-sm">xai-...</code>), or Google Gemini (<code className="bg-surface-2 px-1 rounded-sm">AI...</code>). Provider is auto-detected from the prefix.</td>
                       </tr>
                       <tr className="border-b border-line">
                         <td className="py-1 pr-3 text-ink-2 font-medium whitespace-nowrap">--provider</td>
-                        <td className="py-1">Override auto-detection: <code className="bg-surface-2 px-1 rounded">anthropic</code>, <code className="bg-surface-2 px-1 rounded">openai</code>, <code className="bg-surface-2 px-1 rounded">xai</code>, or <code className="bg-surface-2 px-1 rounded">gemini</code></td>
+                        <td className="py-1">Override auto-detection: <code className="bg-surface-2 px-1 rounded-sm">anthropic</code>, <code className="bg-surface-2 px-1 rounded-sm">openai</code>, <code className="bg-surface-2 px-1 rounded-sm">xai</code>, or <code className="bg-surface-2 px-1 rounded-sm">gemini</code></td>
                       </tr>
                       <tr className="border-b border-line">
                         <td className="py-1 pr-3 text-ink-2 font-medium whitespace-nowrap">--network</td>
-                        <td className="py-1"><code className="bg-surface-2 px-1 rounded">mainnet</code> (default) or <code className="bg-surface-2 px-1 rounded">testnet</code></td>
+                        <td className="py-1"><code className="bg-surface-2 px-1 rounded-sm">mainnet</code> (default) or <code className="bg-surface-2 px-1 rounded-sm">testnet</code></td>
                       </tr>
                       <tr className="border-b border-line">
                         <td className="py-1 pr-3 text-ink-2 font-medium whitespace-nowrap">--rpc</td>
@@ -627,7 +627,7 @@ export default function Register() {
                       </tr>
                       <tr className="border-b border-line">
                         <td className="py-1 pr-3 text-ink-2 font-medium whitespace-nowrap">--model</td>
-                        <td className="py-1">Claude model override (default: <code className="bg-surface-2 px-1 rounded">claude-sonnet-4-6</code>)</td>
+                        <td className="py-1">Claude model override (default: <code className="bg-surface-2 px-1 rounded-sm">claude-sonnet-4-6</code>)</td>
                       </tr>
                       <tr>
                         <td className="py-1 pr-3 text-ink-2 font-medium whitespace-nowrap">--poll-interval</td>
@@ -640,7 +640,7 @@ export default function Register() {
                   <strong className="text-ink-2">No <code>--key</code> flag.</strong> Since v0.4.x (post-<a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/SECURITY.md" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">charliebot</a>), <code>start.sh</code> refuses to take a private key as input — every signed transaction shells out to <code>proton transaction:push</code>, which signs from the keychain you loaded with <code>proton key:add</code>. Requires <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">Node.js 18+</a>.
                 </p>
                 <p className="text-xs text-muted">
-                  <strong className="text-ink-2">Already inside a Pinata / OpenClaw harness?</strong> Skip the scaffold — run <code className="bg-surface-2 px-1 rounded">openclaw plugins install @xpr-agents/openclaw</code> instead. The harness provides the LLM, no Anthropic key needed. Full Pinata walkthrough: <a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/PINATA.md" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">docs/PINATA.md</a>.
+                  <strong className="text-ink-2">Already inside a Pinata / OpenClaw harness?</strong> Skip the scaffold — run <code className="bg-surface-2 px-1 rounded-sm">openclaw plugins install @xpr-agents/openclaw</code> instead. The harness provides the LLM, no Anthropic key needed. Full Pinata walkthrough: <a href="https://github.com/XPRNetwork/xpr-agents/blob/main/docs/PINATA.md" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">docs/PINATA.md</a>.
                 </p>
               </div>
             </div>

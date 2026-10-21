@@ -73,7 +73,7 @@ function isDarkTheme(): boolean {
   return typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
 }
 
-export function ModelViewer({ url, name, heightClass = 'h-[26rem]' }: ModelViewerProps) {
+export function ModelViewer({ url, name, heightClass = 'h-104' }: ModelViewerProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -398,7 +398,7 @@ export function ModelViewer({ url, name, heightClass = 'h-[26rem]' }: ModelViewe
     : null;
 
   const buttonClass =
-    'rounded-md border border-line-2 bg-canvas/85 px-2 py-1 text-ink-2 backdrop-blur transition-colors hover:border-ink hover:text-ink';
+    'rounded-md border border-line-2 bg-canvas/85 px-2 py-1 text-ink-2 backdrop-blur-sm transition-colors hover:border-ink hover:text-ink';
 
   return (
     <div ref={wrapperRef} className="relative overflow-hidden rounded-lg border border-line bg-surface">
@@ -440,7 +440,7 @@ export function ModelViewer({ url, name, heightClass = 'h-[26rem]' }: ModelViewe
                 : `Loading 3D model — ${formatMb(transfer.loaded)} downloaded`
               : 'Loading 3D model from IPFS…'}
           </p>
-          <div className="h-1 w-40 overflow-hidden rounded bg-surface-2">
+          <div className="h-1 w-40 overflow-hidden rounded-sm bg-surface-2">
             {percent !== null ? (
               <div className="h-full bg-accent transition-all" style={{ width: `${percent}%` }} />
             ) : (

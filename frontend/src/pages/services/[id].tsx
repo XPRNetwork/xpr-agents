@@ -485,7 +485,7 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
   const railRow = (label: string, value: React.ReactNode) => (
     <div className="flex items-center justify-between gap-4 px-5 py-3 text-sm">
       <dt className="shrink-0 text-muted">{label}</dt>
-      <dd className="min-w-0 break-words text-right text-ink">{value}</dd>
+      <dd className="min-w-0 wrap-break-word text-right text-ink">{value}</dd>
     </div>
   );
 
@@ -510,10 +510,10 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
           {loading ? (
             <div className="grid gap-8 lg:grid-cols-12">
               <div className="space-y-4 lg:col-span-8">
-                <div className="aspect-[16/9] skeleton-shimmer rounded-xl" />
-                <div className="h-8 w-2/3 skeleton-shimmer rounded" />
-                <div className="h-4 w-full skeleton-shimmer rounded" />
-                <div className="h-4 w-5/6 skeleton-shimmer rounded" />
+                <div className="aspect-video skeleton-shimmer rounded-xl" />
+                <div className="h-8 w-2/3 skeleton-shimmer rounded-sm" />
+                <div className="h-4 w-full skeleton-shimmer rounded-sm" />
+                <div className="h-4 w-5/6 skeleton-shimmer rounded-sm" />
               </div>
               <div className="h-64 skeleton-shimmer rounded-xl lg:col-span-4" />
             </div>
@@ -532,19 +532,19 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
                 <div>
                   <div className="mb-3 flex flex-wrap items-center gap-2">
                     {service.category && (
-                      <span className="rounded bg-surface px-2 py-0.5 font-mono text-[11px] uppercase tracking-label text-ink-2">
+                      <span className="rounded-sm bg-surface px-2 py-0.5 font-mono text-[11px] uppercase tracking-label text-ink-2">
                         {SERVICE_CATEGORY_LABELS[service.category] || service.category}
                       </span>
                     )}
                     {service.featuredSlot > 0 && <FeaturedChip />}
                     {!service.active && (
-                      <span className="rounded bg-crit-soft px-2 py-0.5 text-[11px] font-medium text-crit">Delisted</span>
+                      <span className="rounded-sm bg-crit-soft px-2 py-0.5 text-[11px] font-medium text-crit">Delisted</span>
                     )}
                     <span className="font-mono text-[11px] text-muted">
                       listed {formatRelativeTime(service.created_at)}
                     </span>
                   </div>
-                  <h1 className="break-words font-display text-3xl font-semibold leading-tight text-ink">{service.title}</h1>
+                  <h1 className="wrap-break-word font-display text-3xl font-semibold leading-tight text-ink">{service.title}</h1>
                 </div>
 
                 {!service.active && (
@@ -867,7 +867,7 @@ export default function ServicePage({ seo }: { seo?: { title: string; descriptio
                             type="checkbox"
                             checked={value === true}
                             onChange={(e) => setValue(e.target.checked)}
-                            className="h-4 w-4 rounded border-line-2 accent-accent"
+                            className="h-4 w-4 rounded-sm border-line-2 accent-accent"
                           />
                           Yes
                         </label>

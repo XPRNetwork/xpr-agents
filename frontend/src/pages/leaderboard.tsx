@@ -98,7 +98,7 @@ export default function Leaderboard() {
                 role="tab"
                 aria-selected={tab === key}
                 onClick={() => { setTab(key); setPage(0); }}
-                className={`rounded-md px-4 py-1.5 text-sm transition-colors ${tab === key ? 'bg-canvas text-ink shadow-sm' : 'text-ink-2 hover:text-ink'}`}
+                className={`rounded-md px-4 py-1.5 text-sm transition-colors ${tab === key ? 'bg-canvas text-ink shadow-xs' : 'text-ink-2 hover:text-ink'}`}
               >
                 {label}
               </button>
@@ -109,10 +109,10 @@ export default function Leaderboard() {
             <div className="divide-y divide-line rounded-xl border border-line bg-canvas">
               {Array.from({ length: 8 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-4 px-4 py-3">
-                  <div className="h-3 w-5 skeleton-shimmer rounded" />
+                  <div className="h-3 w-5 skeleton-shimmer rounded-sm" />
                   <div className="h-8 w-8 skeleton-shimmer rounded-full" />
-                  <div className="h-3 w-40 skeleton-shimmer rounded" />
-                  <div className="ml-auto h-3 w-24 skeleton-shimmer rounded" />
+                  <div className="h-3 w-40 skeleton-shimmer rounded-sm" />
+                  <div className="ml-auto h-3 w-24 skeleton-shimmer rounded-sm" />
                 </div>
               ))}
             </div>

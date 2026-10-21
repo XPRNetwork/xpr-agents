@@ -39,7 +39,7 @@ function Node({ name, value, depth }: { name?: string; value: unknown; depth: nu
 
   if (!branch) {
     return (
-      <div className="flex gap-2 py-[1px]">
+      <div className="flex gap-2 py-px">
         {label}
         {label && <span className="text-muted">:</span>}
         <Scalar value={value} />
@@ -52,7 +52,7 @@ function Node({ name, value, depth }: { name?: string; value: unknown; depth: nu
     : Object.entries(value as Record<string, unknown>);
 
   return (
-    <div className="py-[1px]">
+    <div className="py-px">
       <button
         onClick={() => setOpen(o => !o)}
         className="flex w-full items-center gap-2 text-left hover:text-ink"

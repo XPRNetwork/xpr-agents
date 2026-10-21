@@ -6,7 +6,7 @@ import type { ModelFile } from '@/lib/ipfs';
 const ModelViewer = dynamic(() => import('@/components/ModelViewer').then((m) => m.ModelViewer), {
   ssr: false,
   loading: () => (
-    <div className="flex h-[26rem] items-center justify-center rounded-lg border border-line bg-surface">
+    <div className="flex h-104 items-center justify-center rounded-lg border border-line bg-surface">
       <span className="text-xs text-muted">Loading 3D viewer…</span>
     </div>
   ),
@@ -34,7 +34,7 @@ export function ModelGallery({ files, heightClass }: ModelGalleryProps) {
               key={f.url}
               type="button"
               onClick={() => setActive(i)}
-              className={`max-w-[14rem] truncate rounded-md border px-2 py-1 text-xs transition-colors ${
+              className={`max-w-56 truncate rounded-md border px-2 py-1 text-xs transition-colors ${
                 i === index
                   ? 'border-accent bg-accent-soft text-accent'
                   : 'border-line bg-surface text-ink-2 hover:border-line-2 hover:text-ink'
