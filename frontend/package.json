@@ -7,6 +7,7 @@
     "dev": "next dev",
     "prebuild": "node scripts/copy-draco.mjs",
     "build": "next build",
+    "postbuild": "node scripts/check-inline-scripts.mjs",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run"
@@ -14,7 +15,7 @@
   "dependencies": {
     "@proton/web-sdk": "5.1.0-rc-4",
     "@vercel/analytics": "^1.6.1",
-    "next": "^16.4.3",
+    "next": "^16.3.8",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "three": "^0.182.0"
