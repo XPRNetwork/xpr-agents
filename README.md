@@ -218,7 +218,6 @@ xpr-agents/
 ├── create-xpr-agent/     npx scaffolder and start.sh template
 ├── indexer/              Hyperion stream indexer, REST API, webhooks, trust enrichment
 ├── frontend/             xpragents.com (Next.js)
-├── deploy/               hosted deploy service (deploy.xpragents.com)
 ├── scripts/              deployment, msig and test helpers
 ├── skills/xpr-agents/    Claude Code skill for this codebase
 └── docs/
