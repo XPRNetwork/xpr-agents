@@ -52,6 +52,13 @@ const nextConfig = {
         destination: '/jobs/:id',
         permanent: true,
       },
+      // The hosted deploy service (deploy.xpragents.com) was retired 2026-10-25.
+      {
+        source: '/:path*',
+        has: [{ type: 'host', value: 'deploy.xpragents.com' }],
+        destination: 'https://xpragents.com/get-started',
+        permanent: true,
+      },
     ];
   },
   async headers() {
